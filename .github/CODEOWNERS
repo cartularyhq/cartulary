@@ -1,0 +1,63 @@
+# Cartulary CODEOWNERS
+#
+# Issue #10 requires the core team to own the whole repository and highlights
+# security-, tenancy-, audit-, ledger-, pipeline-, release-, migration-, and
+# automation-sensitive paths for human review once GitHub CODEOWNER approval is
+# enabled.
+
+# Core ownership for every path. Keep this before narrower rules; GitHub uses
+# the last matching pattern, so each sensitive override repeats the core owner.
+* @cartularyhq/core
+
+# CODEOWNERS and repository automation/configuration.
+.github/CODEOWNERS @cartularyhq/core @aleksei-s-popov
+.github/ @cartularyhq/core @aleksei-s-popov
+.github/workflows/ @cartularyhq/core @aleksei-s-popov
+.codex/ @cartularyhq/core @aleksei-s-popov
+AGENTS.md @cartularyhq/core @aleksei-s-popov
+CONTRIBUTING.md @cartularyhq/core @aleksei-s-popov
+
+# Architecture, ADRs, blueprints, roadmap, security, and eval governance docs.
+blueprint/ @cartularyhq/core @aleksei-s-popov
+docs/adr/ @cartularyhq/core @aleksei-s-popov
+docs/architecture/ @cartularyhq/core @aleksei-s-popov
+docs/roadmap/ @cartularyhq/core @aleksei-s-popov
+docs/security/ @cartularyhq/core @aleksei-s-popov
+docs/eval/ @cartularyhq/core @aleksei-s-popov
+
+# Elixir project and dependency lockfiles.
+mix.exs @cartularyhq/core @aleksei-s-popov
+mix.lock @cartularyhq/core @aleksei-s-popov
+config/ @cartularyhq/core @aleksei-s-popov
+rel/ @cartularyhq/core @aleksei-s-popov
+priv/repo/ @cartularyhq/core @aleksei-s-popov
+priv/static/robots.txt @cartularyhq/core @aleksei-s-popov
+
+# Future security, identity, tenancy, authorization, and account-boundary paths.
+lib/**/accounts/ @cartularyhq/core @aleksei-s-popov
+lib/**/auth*/ @cartularyhq/core @aleksei-s-popov
+lib/**/identity/ @cartularyhq/core @aleksei-s-popov
+lib/**/policies/ @cartularyhq/core @aleksei-s-popov
+lib/**/policy*/ @cartularyhq/core @aleksei-s-popov
+lib/**/rbac/ @cartularyhq/core @aleksei-s-popov
+lib/**/security/ @cartularyhq/core @aleksei-s-popov
+lib/**/tenan*/ @cartularyhq/core @aleksei-s-popov
+lib/**/scope*/ @cartularyhq/core @aleksei-s-popov
+
+# Future governance, audit, ledger, lifecycle, pipeline, and job paths.
+lib/**/audit*/ @cartularyhq/core @aleksei-s-popov
+lib/**/govern*/ @cartularyhq/core @aleksei-s-popov
+lib/**/ledger*/ @cartularyhq/core @aleksei-s-popov
+lib/**/lifecycle*/ @cartularyhq/core @aleksei-s-popov
+lib/**/pipeline*/ @cartularyhq/core @aleksei-s-popov
+lib/**/oban*/ @cartularyhq/core @aleksei-s-popov
+lib/**/workers/ @cartularyhq/core @aleksei-s-popov
+lib/**/jobs/ @cartularyhq/core @aleksei-s-popov
+
+# Future storage, migrations, release, deployment, and backend-parity paths.
+lib/**/repo* @cartularyhq/core @aleksei-s-popov
+lib/**/storage/ @cartularyhq/core @aleksei-s-popov
+lib/**/vector*/ @cartularyhq/core @aleksei-s-popov
+lib/**/retrieval*/ @cartularyhq/core @aleksei-s-popov
+docker-compose*.yml @cartularyhq/core @aleksei-s-popov
+Dockerfile* @cartularyhq/core @aleksei-s-popov
