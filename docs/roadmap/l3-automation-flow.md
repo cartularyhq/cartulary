@@ -34,3 +34,5 @@ Codex can rely on them:
 
 Until those are configured, this repo should prefer inert placeholders and
 reviewable documentation over active automation.
+
+For detailed operator steps, use `manual-automation-setup.md`.
