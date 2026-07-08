@@ -1,24 +1,25 @@
 ---
 name: AI-ready task
-about: Scoped task template with architecture anchors, risk class, tests, and Codex guardrails
-title: ''
-labels: ''
-assignees: ''
+about: Create a small, bounded, testable task that Codex may implement after ai-ready is applied
+title: "Task: "
+labels: ""
+assignees: ""
 ---
 
 ## Goal
 
-<!-- Describe the one outcome this issue should achieve. Keep it small enough for one focused PR. -->
+<!-- Describe exactly one outcome this issue should achieve. Keep it small enough for one focused PR. -->
 
 ## Architecture anchors
+
+<!-- Cite stable blueprint anchors that constrain the work. Do not change anchor meanings in this issue. -->
 
 Relevant anchors:
 
 - AINV-
 - AD-
+- FR-
 - NFR-
-
-<!-- Cite stable blueprint anchors that constrain the work. Do not change anchor meanings in this issue. -->
 
 ## Scope
 
@@ -32,16 +33,18 @@ Out of scope:
 
 ## Expected behavior
 
-<!-- Describe observable behavior after the task is complete. Include user-visible, operator-visible, or review-visible behavior as applicable. -->
+<!-- Describe the observable behavior after completion. Include user-visible, operator-visible, API-visible, or review-visible behavior as applicable. -->
 
 ## Acceptance criteria
+
+<!-- Make each item independently reviewable. -->
 
 - [ ]
 - [ ]
 
 ## Required tests
 
-<!-- Check every lane required for this change. If a lane is unavailable, explain why in the issue or PR. -->
+<!-- Check every lane required for this change. If a lane is unavailable, explain why in the issue and PR. -->
 
 - [ ] Documentation inspection
 - [ ] Unit
@@ -52,9 +55,13 @@ Out of scope:
 - [ ] Security test
 - [ ] Eval scenario
 
+Required evidence notes:
+
+-
+
 ## Risk class
 
-<!-- Select exactly one primary risk class and add the matching label guidance below. -->
+<!-- Select exactly one primary risk class. Add the matching labels from the guidance below. -->
 
 - [ ] Low: docs/tests/internal cleanup
 - [ ] Medium: normal source change
@@ -65,12 +72,12 @@ Out of scope:
 
 Execution-control labels:
 
-- `ai-ready`: Codex may implement only after goal, anchors, scope, acceptance criteria, required tests, and risk class are clear.
+- `ai-ready`: Codex may implement only after the goal, architecture anchors, scope, expected behavior, acceptance criteria, required tests, and risk class are clear.
 - `ai-assisted`: AI may help, but a human must closely steer the implementation.
 - `ai-review-only`: Codex may review, but must not implement.
 - `human-only`: Codex must not implement; reserve for human decisions or implementation.
 
-Risk labels to add when applicable:
+Risk and routing labels:
 
 - `needs-adr`: Requires an ADR before implementation.
 - `security-sensitive`: Security review required.
@@ -83,7 +90,8 @@ Risk labels to add when applicable:
 
 ## Codex instruction
 
-Codex may implement this only if the issue has label `ai-ready`.
-Codex must not implement issues labeled `human-only`, even if another label appears to permit implementation.
-Keep the PR under 300 changed lines unless explicitly approved.
+Codex may implement this issue only if the `ai-ready` label is applied.
+Codex must not implement this issue if `human-only` is applied, even if another label appears to permit implementation.
+Codex must implement only the in-scope acceptance criteria and must not batch unrelated tasks into the PR.
+Codex must report real check evidence in the PR and final response; unavailable checks must be called out explicitly.
 Do not introduce new dependencies without explanation.
