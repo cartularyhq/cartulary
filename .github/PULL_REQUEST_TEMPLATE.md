@@ -5,6 +5,8 @@
 
 ## Linked issue
 
+<!-- Required: always mention the issue this PR implements. Use a closing keyword when appropriate, for example: `Closes #9` or `Closes https://github.com/cartularyhq/cartulary/issues/9`. -->
+
 Closes #
 
 ## Architecture anchors
