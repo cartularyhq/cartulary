@@ -16,6 +16,20 @@ reported successfully at least once.
 - `deps-audit` — `mix deps.audit`
 - `sqlite` — `MIX_ENV=test CARTULARY_DATA_LAYER=sqlite mix test --only sqlite`
 
+
+## Implemented issue coverage
+
+This workflow intentionally implements the initial CI issue batch as one PR:
+
+- [#12](https://github.com/cartularyhq/cartulary/issues/12) — Elixir formatter check.
+- [#13](https://github.com/cartularyhq/cartulary/issues/13) — warnings-as-errors compile check.
+- [#14](https://github.com/cartularyhq/cartulary/issues/14) — unit test check.
+- [#15](https://github.com/cartularyhq/cartulary/issues/15) — Credo strict static-analysis check.
+- [#16](https://github.com/cartularyhq/cartulary/issues/16) — Dialyzer type-analysis check with PLT caching.
+- [#17](https://github.com/cartularyhq/cartulary/issues/17) — Sobelow security scan.
+- [#18](https://github.com/cartularyhq/cartulary/issues/18) — dependency audit check.
+- [#19](https://github.com/cartularyhq/cartulary/issues/19) — SQLite/single-node backend test lane.
+
 The repository does not yet contain `mix.exs`, so each job exits with an
 explicit GitHub Actions notice until the Mix/Phoenix project lands. Once
 `mix.exs` exists, the same jobs install dependencies and run the commands above;
