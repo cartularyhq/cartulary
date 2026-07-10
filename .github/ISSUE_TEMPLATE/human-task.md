@@ -1,14 +1,18 @@
 ---
-name: AI-ready task
-about: Create a small, bounded, testable task that Codex may implement after ai-ready is applied
-title: "Task: "
-labels: ""
+name: Human-scoped task
+about: Create a task for human maintainers when Codex should not implement the work
+title: "Human task: "
+labels: "human-only"
 assignees: ""
 ---
 
 ## Goal
 
-<!-- Describe exactly one outcome this issue should achieve. Keep it small enough for one focused PR. -->
+<!-- Describe exactly one outcome this human-led issue should achieve. -->
+
+## Why this needs human ownership
+
+<!-- Explain the decision, access, product, licensing, security, or coordination concern that makes this human-only. -->
 
 ## Architecture anchors
 
@@ -42,7 +46,7 @@ Out of scope:
 - [ ]
 - [ ]
 
-## Required tests
+## Required tests or review evidence
 
 <!-- Check every lane required for this change. If a lane is unavailable, explain why in the issue and PR. -->
 
@@ -54,6 +58,7 @@ Out of scope:
 - [ ] Property/invariant test
 - [ ] Security test
 - [ ] Eval scenario
+- [ ] Manual maintainer review
 
 Required evidence notes:
 
@@ -63,19 +68,18 @@ Required evidence notes:
 
 <!-- Select exactly one primary risk class. Add the matching labels from the guidance below. -->
 
-- [ ] Low: docs/tests/internal cleanup
-- [ ] Medium: normal source change
+- [ ] Low: docs/process/manual setup
+- [ ] Medium: normal source change needing human coordination
 - [ ] High: tenancy/security/audit/pipeline/release/migration
-- [ ] Human-only: architecture/licensing/security model
+- [ ] Human-only: architecture/licensing/security model/repository administration
 
 ## Label guidance
 
 Execution-control labels:
 
-- `ai-ready`: Codex may implement only after the goal, architecture anchors, scope, expected behavior, acceptance criteria, required tests, and risk class are clear.
-- `ai-assisted`: AI may help, but a human must closely steer the implementation.
-- `ai-review-only`: Codex may review, but must not implement.
-- `human-only`: Codex must not implement; reserve for human decisions or implementation.
+- `human-only`: Codex must not implement this issue; use for human decisions, repository administration, credentials, product calls, licensing, or sensitive implementation.
+- `ai-review-only`: Codex may review a human-authored change but must not implement it.
+- `ai-assisted`: AI may help only with close human steering.
 
 Risk and routing labels:
 
@@ -86,12 +90,8 @@ Risk and routing labels:
 - `pipeline-sensitive`: Oban, transactional outbox, ingest, or background-job review required.
 - `backend-parity-required`: SQLite and Postgres parity evidence required.
 - `eval-required`: Eval scenario or workflow evidence required.
-- `good-first-agent-task`: Small, low-risk task suitable for Codex.
 
-## Codex instruction
+## Human implementation notes
 
-Codex may implement this issue only if the `ai-ready` label is applied.
-Codex must not implement this issue if `human-only` is applied, even if another label appears to permit implementation.
-Codex must implement only the in-scope acceptance criteria and must not batch unrelated tasks into the PR.
-Codex must report real check evidence in the PR and final response; unavailable checks must be called out explicitly.
-Do not introduce new dependencies without explanation.
+Do not apply `ai-ready` to this issue unless a maintainer rewrites it as a separate Codex-executable task.
+Keep any follow-up Codex work in a new issue with explicit scope, acceptance criteria, tests, and risk class.
