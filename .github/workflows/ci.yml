@@ -1,0 +1,195 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  merge_group:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up BEAM
+        if: ${{ hashFiles('mix.exs') != '' }}
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: '27'
+          elixir-version: '1.18'
+      - name: Check formatting
+        run: |
+          if [ ! -f mix.exs ]; then
+            echo '::notice::mix.exs is not present yet; skipping format check until the Mix project exists.'
+            exit 0
+          fi
+          mix deps.get
+          mix format --check-formatted
+
+  compile:
+    name: Compile
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up BEAM
+        if: ${{ hashFiles('mix.exs') != '' }}
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: '27'
+          elixir-version: '1.18'
+      - name: Compile with warnings as errors
+        run: |
+          if [ ! -f mix.exs ]; then
+            echo '::notice::mix.exs is not present yet; skipping compile check until the Mix project exists.'
+            exit 0
+          fi
+          mix deps.get
+          mix compile --warnings-as-errors
+
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up BEAM
+        if: ${{ hashFiles('mix.exs') != '' }}
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: '27'
+          elixir-version: '1.18'
+      - name: Run unit tests
+        run: |
+          if [ ! -f mix.exs ]; then
+            echo '::notice::mix.exs is not present yet; skipping unit tests until the Mix project exists.'
+            exit 0
+          fi
+          mix deps.get
+          mix test
+
+  credo:
+    name: Credo
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up BEAM
+        if: ${{ hashFiles('mix.exs') != '' }}
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: '27'
+          elixir-version: '1.18'
+      - name: Run Credo strict
+        run: |
+          if [ ! -f mix.exs ]; then
+            echo '::notice::mix.exs is not present yet; skipping Credo until the Mix project exists.'
+            exit 0
+          fi
+          mix deps.get
+          mix credo --strict
+
+  dialyzer:
+    name: Dialyzer
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up BEAM
+        if: ${{ hashFiles('mix.exs') != '' }}
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: '27'
+          elixir-version: '1.18'
+      - name: Restore PLT cache
+        if: ${{ hashFiles('mix.exs') != '' }}
+        uses: actions/cache@v4
+        with:
+          path: priv/plts
+          key: ${{ runner.os }}-plt-${{ hashFiles('mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-plt-
+      - name: Run Dialyzer
+        run: |
+          if [ ! -f mix.exs ]; then
+            echo '::notice::mix.exs is not present yet; skipping Dialyzer until the Mix project exists.'
+            exit 0
+          fi
+          mix deps.get
+          mix dialyzer
+
+  sobelow:
+    name: Sobelow
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up BEAM
+        if: ${{ hashFiles('mix.exs') != '' }}
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: '27'
+          elixir-version: '1.18'
+      - name: Run Sobelow
+        run: |
+          if [ ! -f mix.exs ]; then
+            echo '::notice::mix.exs is not present yet; skipping Sobelow until the Phoenix project exists.'
+            exit 0
+          fi
+          mix deps.get
+          mix sobelow --config
+
+  deps-audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up BEAM
+        if: ${{ hashFiles('mix.exs') != '' }}
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: '27'
+          elixir-version: '1.18'
+      - name: Run dependency audit
+        run: |
+          if [ ! -f mix.exs ]; then
+            echo '::notice::mix.exs is not present yet; skipping dependency audit until the Mix project exists.'
+            exit 0
+          fi
+          mix deps.get
+          mix deps.audit
+
+  sqlite:
+    name: SQLite tests
+    runs-on: ubuntu-latest
+    env:
+      MIX_ENV: test
+      CARTULARY_DATA_LAYER: sqlite
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up BEAM
+        if: ${{ hashFiles('mix.exs') != '' }}
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: '27'
+          elixir-version: '1.18'
+      - name: Run SQLite-marked tests
+        run: |
+          if [ ! -f mix.exs ]; then
+            echo '::notice::mix.exs is not present yet; skipping SQLite test lane until backend tests exist.'
+            exit 0
+          fi
+          mix deps.get
+          mix test --only sqlite
