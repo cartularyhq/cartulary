@@ -9,6 +9,19 @@
 
 Closes #
 
+## Reference docs
+
+<!-- List the internal docs actually used to scope, implement, and review this PR. Include the closest specific document(s), not every possible doc. Use `N/A` only when a category truly does not apply. -->
+
+- Blueprint requirements: `blueprint/memory-system-functional-requirements.md` (`FR-*` anchors):
+- Blueprint architecture/NFRs: `blueprint/memory-system-architecture-and-nfr.md` (`AD-*`, `AINV-*`, `NFR-*` anchors):
+- Product context: `blueprint/memory-system-product-blueprint.md`:
+- ADRs: `docs/adr/README.md` or `docs/adr/<adr-file>.md`:
+- Architecture notes: `docs/architecture/README.md` or `docs/architecture/<note>.md`:
+- Roadmap/process docs: `docs/roadmap/l3-automation-flow.md`, `docs/roadmap/manual-automation-setup.md`, or `docs/roadmap/main-branch-ruleset.md`:
+- Security/eval docs: `docs/security/README.md`, `docs/eval/README.md`, or a specific note:
+- Other internal docs:
+
 ## Architecture anchors
 
 List the blueprint anchors this PR depends on or preserves. Use `N/A` only for truly mechanical changes.
