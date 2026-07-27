@@ -29,3 +29,6 @@ The current development observability runbook is
 `docs/observability/README.md`. Use it for local OpenTelemetry collection,
 Langfuse forwarding, trace/log safety defaults, and experiment measurement
 discipline.
+
+The implemented F1 resource/action/policy boundary and its remaining transition
+tickets are recorded in `docs/architecture/f1-ash-domain-backbone.md`.

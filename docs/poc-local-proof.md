@@ -16,6 +16,13 @@ can be treated as the durable Cartulary architecture.
   `pgvector`.
 - Added Ash domains/resources as the declared domain boundary for the POC data
   model.
+- Completed roadmap F1 with nine configured Ash Domains and the full
+  26-resource backbone, authoritative Ash actions/policies, attribute tenancy,
+  PostgreSQL RLS, generated resource snapshots/migrations, and deterministic
+  action/DB isolation tests.
+- Converted `Cartulary.Memory` durable reads and writes to Ash actions while
+  preserving `poc-0`; the remaining parameterized retrieval SQL is isolated in
+  `Cartulary.Memory.Query` under the F7 transition ticket.
 - Added `Cartulary.Memory` as the POC write/read path for message ingestion,
   pipeline extraction, knowledge insertion, search, ask, and context reads.
 - Added a pipeline extractor that uses an OpenAI-compatible endpoint when a key
@@ -71,9 +78,12 @@ OpenRouter key.
 - `mix format --check-formatted` passed.
 - `mix compile --warnings-as-errors` passed.
 - `mix ecto.migrate` passed, including `CREATE EXTENSION IF NOT EXISTS vector`.
-- `mix test` passed with 22 tests, including the F0 HTTP, persistence,
+- `mix test` passed with 26 tests, including the F0 HTTP, persistence,
   inheritance, Account-selection, pipeline-write, lifecycle, deterministic
-  fallback, and eval-fixture contracts.
+  fallback, eval-fixture contracts, and the F1 Ash action/RLS suite.
+- `mix ash.codegen --check` passed with no resource/snapshot drift.
+- The F1 suite passed against a newly created partitioned test database,
+  exercising the complete migration chain from an empty database.
 - `mix credo --strict` passed with no issues.
 - `mix dialyzer` passed with 0 errors.
 - `mix sobelow --config` passed with no findings after two targeted
@@ -102,10 +112,6 @@ wired as CI branch-protection gates.
 
 These shortcuts are acceptable only for the local POC.
 
-- **Ash boundary is mostly declarative.** Resources exist, but the operational
-  write/read path in `Cartulary.Memory` uses direct SQL through Ecto. This keeps
-  the POC small but bypasses Ash actions, changesets, policies, validations,
-  and authorization.
 - **Oban is wired directly.** The target is Oban through AshOban with stronger
   workflow ownership. The POC can enqueue extraction, but defaults to synchronous
   extraction so smoke runs are deterministic.
@@ -113,9 +119,11 @@ These shortcuts are acceptable only for the local POC.
   and sensitivity fields. It does not implement the full governed promotion
   matrix, consent handling, blast-radius checks, peer review, or manual
   validation.
-- **Account isolation is local-only.** API account selection comes from
-  `x-cartulary-account-key`. The body cannot override it, but there is no real
-  identity provider, authz policy, RLS, or key ownership model.
+- **Identity remains POC-local.** API account selection still comes from
+  `x-cartulary-account-key`, although request bodies cannot override it and Ash
+  policy/tenancy plus PostgreSQL RLS now enforce the Account wall. F3 still
+  needs a real identity provider, key ownership, single-Account free-mode
+  enforcement, and inherited RBAC.
 - **Retrieval is inline and partial.** Lexical, temporal, and salience/recency
   strategies are implemented as SQL branches in one module with RRF fusion.
   There are no strategy behaviours, per-strategy budgets, async fan-out,
@@ -145,43 +153,40 @@ These shortcuts are acceptable only for the local POC.
   caller-header Account selection, downward scope inheritance, message and
   knowledge persistence, creation lifecycle events, deterministic extraction,
   eval normalization/scoring, and the missing direct knowledge-write route.
-  It does not yet cover transactional rollback across audit/jobs, real
-  identity/RLS isolation, Oban async extraction, the full lifecycle ledger, or
-  provider failure modes.
+  F1 adds deterministic Ash action-policy and non-owner PostgreSQL RLS tests.
+  The suite does not yet cover transactional rollback across audit/jobs, real
+  identity, Oban async extraction, the full lifecycle ledger, or provider
+  failure modes.
 
 ## Required Refactors After POC
 
-1. Move raw SQL write/read behavior into Ash resources, actions, changesets,
-   validations, policies, and query APIs while preserving pipeline-only
-   knowledge writes.
-2. Add AshOban integration and make extraction, lifecycle, audit writes, and
+1. Add AshOban integration and make extraction, lifecycle, audit writes, and
    job enqueueing transactionally owned by the Ash action layer.
-3. Implement real identity-derived accounts, authorization policies, Postgres
-   RLS, and tests proving request bodies cannot cross account boundaries.
-4. Replace the placeholder Gate B with governed lifecycle actions for proposal,
+2. Implement real identity-derived accounts, single-Account free enforcement,
+   and inherited scope RBAC over the F1 Ash policy/RLS boundary.
+3. Replace the placeholder Gate B with governed lifecycle actions for proposal,
    validation, promotion, demotion, supersession, expiry, revalidation, consent,
    and audit.
-5. Split retrieval into strategy modules with explicit behaviours, profile
+4. Split retrieval into strategy modules with explicit behaviours, profile
    versions, weights, per-strategy evidence, deadline budgets, async fan-out,
    dropped-strategy reporting, and ablation support.
-6. Add embeddings: provider-neutral embedding role, local/offline embedding
+5. Add embeddings: provider-neutral embedding role, local/offline embedding
    path, `pgvector` column/index, backfill jobs, semantic retrieval, and rebuild
    evidence.
-7. Replace the direct OpenRouter client with the intended provider-neutral model
+6. Replace the direct OpenRouter client with the intended provider-neutral model
    seam while preserving OpenAI-compatible endpoints and local model options.
-8. Harden the LoCoMo, LongMemEval, and BEAM eval runner with upstream LLM-judge
+7. Harden the LoCoMo, LongMemEval, and BEAM eval runner with upstream LLM-judge
    parity, held-out tuning discipline, strategy-ablation matrices, regression
    thresholds, generated release reports, and operator-run Postgres parity
    evidence.
-9. Pin and package pg0 for local mode, supervise its lifecycle from the release,
+8. Pin and package pg0 for local mode, supervise its lifecycle from the release,
    handle port conflicts and stale data directories, and document the external
    Postgres escape hatch.
-10. Add durable projections and rebuildable caches for context reads, including
-    session summaries, scope cards, peer profiles, and derived indexes.
-11. Expand tests to cover migrations, HTTP surfaces, Ash actions, policies, RLS,
-    Oban jobs, model fallback, retrieval fusion, lifecycle audit, and eval smoke
-    reports.
-12. Wire the configured static analysis/security lanes into CI and branch
+9. Add durable projections and rebuildable caches for context reads, including
+   session summaries, scope cards, peer profiles, and derived indexes.
+10. Expand tests to cover transactional workflows, AshOban jobs, model fallback,
+    retrieval fusion, lifecycle audit, and eval smoke reports.
+11. Wire the configured static analysis/security lanes into CI and branch
     protection when the repository automation is ready to maintain them.
 
 ## Current Local Commands

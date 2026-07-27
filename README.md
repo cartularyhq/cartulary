@@ -1,8 +1,9 @@
 # Cartulary
 
 Cartulary is an Elixir/Ash/Phoenix/Oban memory system prototype for governed
-agent memory on the BEAM. The current repository state is a local proof of
-concept, not a finished product architecture.
+agent memory on the BEAM. The current repository state combines the frozen
+local POC contract with the implemented F1 Ash Domain Backbone; it is not yet a
+finished product architecture.
 
 The POC can run against local Postgres from pg0 and use an OpenAI-compatible
 model endpoint such as OpenRouter with `openai/gpt-oss-120b`.
@@ -14,17 +15,23 @@ the Ash/Phoenix/Oban architecture, abstraction layers, decomposition, migration
 phases, and feature coverage needed for a complete single-Account community
 solution.
 
-Roadmap phase F0 is complete: the current `poc-0` HTTP, persistence, scope
-inheritance, pipeline-only knowledge-write, Account-selection, and tiny eval
-fixture behavior is frozen as a regression contract before the Ash migration
-begins.
+Roadmap phases F0 and F1 are complete. The current `poc-0` HTTP, persistence,
+scope inheritance, pipeline-only knowledge-write, Account-selection, and tiny
+eval fixture behavior remains frozen, while nine Ash Domains and 26 Resources
+now own the durable data boundary.
 
 ## What Runs Today
 
 - Phoenix API skeleton with health, ingest, search, ask, context, and knowledge
   endpoints.
 - Postgres schema for accounts, peers, scopes, sessions, raw messages,
-  knowledge items, and lifecycle events.
+  documents, knowledge/provenance/lifecycle, governance/config, projections,
+  entities, skill cards, and usage events.
+- Ash actions and policies for Account isolation, scope reads, pipeline-only
+  knowledge writes, governance separation, immutable content, and append-only
+  ledgers.
+- PostgreSQL RLS on every Account-scoped table, plus generated AshPostgres
+  snapshots/migrations, foreign keys, FTS, and supporting indexes.
 - pgcrypto, Postgres FTS, Oban tables, and pgvector extension migration.
 - A single POC memory service that writes raw messages, extracts knowledge
   through the pipeline, retrieves candidates, and returns grounded answers with
@@ -132,9 +139,10 @@ or before migrating POC behavior into the free-core architecture.
 
 ## Frozen POC Contract
 
-F0 freezes behavior, not the POC's internal design. `Cartulary.Memory` remains a
-temporary direct-SQL facade until F1/F2 replace it with Ash actions and
-transactional AshOban workflows.
+F0 freezes behavior, not the POC's internal design. `Cartulary.Memory` is now a
+compatibility facade over authoritative Ash actions. F2 will add transactional
+audit/AshOban ownership; the only remaining static SQL is the named F7
+retrieval transition helper in `Cartulary.Memory.Query`.
 
 The contract evidence covers:
 
@@ -158,6 +166,21 @@ mix test \
 
 The authoritative checklist and evidence paths are in
 `docs/roadmap/free-core-roadmap.md`.
+
+## F1 Ash Domain Backbone
+
+F1 registers Account, topology, observation, knowledge, governance, model,
+retrieval, skill, and operations domains. Message/document-version content is
+create-only; knowledge statements can only be minted or merged by a pipeline
+actor; lifecycle/audit/usage records are append-only.
+
+Account isolation is enforced by Ash actor/tenant policy and PostgreSQL RLS.
+The local POC edge still derives the Account key from
+`x-cartulary-account-key`; real authentication and single-Account free-mode
+enforcement remain F3 work.
+
+Read the implementation boundary, resource map, evidence, and transition
+tickets in `docs/architecture/f1-ash-domain-backbone.md`.
 
 ## Free Core Direction
 
@@ -190,9 +213,8 @@ applicable license.
 
 The important cuts are intentional and temporary:
 
-- Core writes are implemented in a narrow service module with SQL, while the
-  long-term target is Ash resources, actions, policies, and data-layer
-  contracts.
+- Core durable reads and writes now use Ash. The POC retrieval strategies still
+  use static parameterized SQL in the explicit F7 transition helper.
 - Oban is wired directly for the POC; AshOban and full transactional workflow
   ownership remain to be added.
 - Retrieval is Postgres FTS plus simple temporal and salience/recency queries;
@@ -201,9 +223,10 @@ The important cuts are intentional and temporary:
 - LoCoMo, LongMemEval, and BEAM fixture import/scoring exists for the POC, but
   upstream judge parity, ablation matrices, release thresholds, and backend
   parity evidence are not implemented.
-- Account identity is derived from an HTTP header for local testing; production
-  identity, RLS, authorization, consent, and full Gate B governance are not
-  implemented.
+- Account identity is derived from an HTTP header for local testing. Ash
+  authorization and PostgreSQL RLS are implemented; production identity,
+  single-Account free enforcement, inherited RBAC, consent, and full Gate B
+  governance remain F3/F4 work.
 
 ## Checks
 
@@ -211,6 +234,7 @@ For code changes, run:
 
 ```bash
 mix deps.get
+mix ash.codegen --check
 mix format --check-formatted
 mix compile --warnings-as-errors
 mix test

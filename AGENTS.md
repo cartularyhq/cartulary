@@ -24,6 +24,8 @@ Before editing, read the smallest authoritative set needed for the task:
    `docs/roadmap/free-core-roadmap.md`.
 7. For observability, tracing, logging, telemetry, evaluation instrumentation,
    or experiment-comparison work, also read `docs/observability/README.md`.
+8. For work touching Ash resources, actions, policies, tenancy, or migrations,
+   also read `docs/architecture/f1-ash-domain-backbone.md`.
 
 Blueprint anchors are stable review handles. Preserve existing `FR-*`, `AD-*`,
 `AINV-*`, and `NFR-*` meanings unless the task explicitly asks for a blueprint
@@ -118,6 +120,19 @@ refactoring:
   `test/cartulary/eval/fixture_contract_test.exs`, and
   `test/fixtures/eval/poc-contract-baseline.json`. Run those tests before and
   after any POC-to-Ash migration slice.
+- F1 makes the nine configured Ash Domains and their 26 Resources the
+  authoritative durable-data boundary. F1 evidence is kept in
+  `test/cartulary/f1_ash_domain_backbone_test.exs`,
+  `priv/resource_snapshots/`, and
+  `priv/repo/migrations/20260727142300_f1_ash_domain_backbone.exs`. Do not add
+  durable writes outside Ash actions.
+- Direct Repo/Ecto SQL access is confined to infrastructure/data-layer modules
+  and explicitly ticketed custom query helpers. The current exception is
+  `Cartulary.Memory.Query`, whose removal ticket is roadmap F7. New exceptions
+  require a named roadmap/issue transition and durable documentation.
+- Keep Ash resources and `priv/resource_snapshots/` synchronized. Resource
+  changes must use `mix ash.codegen`, manually review generated migrations, and
+  keep custom pgcrypto/pgvector/FTS/index/RLS DDL intact.
 - Roadmap checkboxes are evidence markers. Mark an F-phase deliverable or
   acceptance item `[x]` only when implementation, regression evidence, and the
   closest durable documentation are present and current; return it to `[ ]` if
@@ -189,6 +204,7 @@ When `mix.exs` exists, run the standard Elixir gate:
 
 ```bash
 mix deps.get
+mix ash.codegen --check
 mix format --check-formatted
 mix compile --warnings-as-errors
 mix test

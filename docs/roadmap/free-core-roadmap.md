@@ -2,7 +2,7 @@
 
 # Free Core Architecture And Roadmap
 
-Status: active roadmap; F0 complete
+Status: active roadmap; F0-F1 complete
 Date: 2026-07-27
 
 This roadmap turns the working local POC into the complete free self-host core:
@@ -260,27 +260,35 @@ Goal: make Ash Resources and Actions the authoritative domain boundary.
 
 Deliverables:
 
-- [ ] Resource model for Account, Peer, external identity, Scope, ScopeRelation,
+- [x] Resource model for Account, Peer, external identity, Scope, ScopeRelation,
   RoleGrant, Session, SessionScope, SessionParticipant, Message, Document,
   DocumentVersion, KnowledgeItem, Attribution, Provenance, KnowledgeRelation,
   LifecycleEvent, AuditEvent, UsageEvent, PolicyConfig, ModelRoleConfig,
   RetrievalProfile, SkillRequirementCard, Projection, Entity, and EntityMention.
-- [ ] Ash Domains matching the decomposition above.
-- [ ] Generated migrations plus custom Postgres DDL for pgcrypto, pgvector, PG-FTS,
+- [x] Ash Domains matching the decomposition above.
+- [x] Generated migrations plus custom Postgres DDL for pgcrypto, pgvector, PG-FTS,
   indexes, and RLS.
-- [ ] Ash actions for create/read/update operations where updates are legal, with
+- [x] Ash actions for create/read/update operations where updates are legal, with
   create-only content and append-only lifecycle/audit events.
-- [ ] Ash policies for Account wall, scope read access, and governance action
+- [x] Ash policies for Account wall, scope read access, and governance action
   separation.
 
 Acceptance:
 
-- [ ] `Cartulary.Memory` can call Ash actions for accounts, scopes, peers,
+- [x] `Cartulary.Memory` can call Ash actions for accounts, scopes, peers,
   sessions, messages, and knowledge.
-- [ ] Direct Repo access is confined to infrastructure/data-layer modules and
+- [x] Direct Repo access is confined to infrastructure/data-layer modules and
   custom query helpers that have an explicit transition ticket.
-- [ ] Cross-account isolation has deterministic tests at action and DB policy
+- [x] Cross-account isolation has deterministic tests at action and DB policy
   levels.
+
+F1 evidence lives in the domain modules under `lib/cartulary/`,
+`priv/resource_snapshots/`,
+`priv/repo/migrations/20260727142300_f1_ash_domain_backbone.exs`, and
+`test/cartulary/f1_ash_domain_backbone_test.exs`. The implementation boundary
+and F2/F3/F7 transition tickets are documented in
+`docs/architecture/f1-ash-domain-backbone.md`. The F0 `poc-0` contract remains
+unchanged.
 
 ### F2: Transactional Writes, Audit, And Jobs
 
@@ -561,7 +569,7 @@ Acceptance:
 
 | POC area | Current state | Target | Roadmap phase |
 | --- | --- | --- | --- |
-| `Cartulary.Memory` | Direct SQL service owns reads/writes | Facade over Ash actions, then removed or reduced to compatibility wrapper | F1, F2 |
+| `Cartulary.Memory` | Compatibility facade over Ash actions; F7 retrieval helper retains static SQL | Remove or reduce after F2/F7 surface migration | F1, F2, F7 |
 | Accounts | Header-selected local Account key | Identity-derived Account, single-Account free enforcement, RLS | F3 |
 | Scopes | Path rows, limited inheritance | Scope tree plus relations, role inheritance, nearest-wins config | F1, F3 |
 | Sessions/messages | Basic persistence | Multi-peer sessions, dynamic scope set, raw observations/documents | F1, F6 |

@@ -49,6 +49,7 @@ defmodule Cartulary.MixProject do
       {:postgrex, ">= 0.0.0"},
       {:ash, "~> 3.30"},
       {:ash_postgres, "~> 2.11"},
+      {:simple_sat, "~> 0.1.4"},
       {:oban, "~> 2.19"},
       {:req, "~> 0.6.3"},
       {:dotenvy, "~> 1.1"},

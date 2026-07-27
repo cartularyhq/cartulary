@@ -2,28 +2,39 @@
 
 defmodule Cartulary.Memory do
   @moduledoc """
-  POC memory operations.
+  Compatibility facade over authoritative Ash actions.
 
-  This module is the single write path for raw observations and pipeline-created
-  knowledge in the local proof of concept.
-
-  This is a temporary compatibility facade whose `poc-0` behavior is frozen by
-  the F0 contract tests. F1 and F2 replace its direct SQL with authoritative Ash
-  actions and transactional AshOban workflows; public callers should not add
-  new dependencies on this module or bypass it to write knowledge.
+  The public `poc-0` behavior remains frozen by F0, while F1 moves Account,
+  topology, observation, and knowledge reads/writes behind Ash tenancy,
+  policies, validations, and actions. Static retrieval SQL is isolated in
+  `Cartulary.Memory.Query` under the explicit F7 transition ticket.
   """
 
+  alias Cartulary.Accounts.Peer
   alias Cartulary.Clock
+  alias Cartulary.DataLayer
+  alias Cartulary.Knowledge.Attribution
+  alias Cartulary.Knowledge.KnowledgeItem
+  alias Cartulary.Knowledge.LifecycleEvent
+  alias Cartulary.Knowledge.Provenance
+  alias Cartulary.Memory.Query
   alias Cartulary.Observability
+  alias Cartulary.Observations.Message
+  alias Cartulary.Observations.Session
+  alias Cartulary.Observations.SessionParticipant
+  alias Cartulary.Observations.SessionScope
   alias Cartulary.Pipeline.Extractor
   alias Cartulary.Pipeline.ExtractWorker
-  alias Cartulary.Repo
+  alias Cartulary.Topology.Scope
+
+  require Ash.Query
 
   @default_limit 12
 
   def ingest_message(attrs) do
     Observability.with_span(:memory, "cartulary.memory.ingest_message", fn ->
       attrs = normalize_attrs(attrs)
+      account_key = Map.fetch!(attrs, "account_key")
       sync_extract? = Map.get(attrs, "sync_extract", true)
       enqueue_extract? = Map.get(attrs, "enqueue_extract", not sync_extract?)
 
@@ -35,41 +46,59 @@ defmodule Cartulary.Memory do
           String.length(to_string(Map.get(attrs, "content", "")))
       })
 
-      {:ok, message} =
-        Repo.transaction(fn ->
-          account = ensure_account!(Map.fetch!(attrs, "account_key"))
-          scope = ensure_scope!(account["id"], Map.fetch!(attrs, "scope_path"))
+      message =
+        DataLayer.with_account_key(account_key, fn account, actor ->
+          scope = ensure_scope!(account.id, actor, Map.fetch!(attrs, "scope_path"))
 
           peer =
             ensure_peer!(
-              account["id"],
+              account.id,
+              actor,
               Map.fetch!(attrs, "peer_key"),
               Map.get(attrs, "peer_name")
             )
 
           session =
             ensure_session!(
-              account["id"],
-              scope["id"],
-              peer["id"],
+              account.id,
+              actor,
+              scope.id,
+              peer.id,
               Map.fetch!(attrs, "session_id")
             )
 
-          message = insert_message!(account["id"], scope["id"], peer["id"], session["id"], attrs)
+          ensure_session_scope!(account.id, actor, session.id, scope.id)
+          ensure_session_participant!(account.id, actor, session.id, peer.id)
+
+          message =
+            create!(
+              Message,
+              :create,
+              %{
+                session_id: session.id,
+                scope_id: scope.id,
+                peer_id: peer.id,
+                role: Map.get(attrs, "role", "user"),
+                content: Map.fetch!(attrs, "content"),
+                occurred_at: coerce_datetime!(Map.get(attrs, "occurred_at"))
+              },
+              account.id,
+              actor
+            )
 
           if enqueue_extract? do
-            %{message_id: message["id"]}
+            %{message_id: message.id, account_key: account.key}
             |> ExtractWorker.new(unique: [period: 86_400, keys: [:message_id]])
             |> OpentelemetryOban.insert!()
           end
 
-          message
+          record_to_map(message)
         end)
 
       Observability.set_attribute(:memory, "cartulary.message.id", message["id"])
 
       if sync_extract? do
-        {:ok, knowledge} = extract_message(message["id"])
+        {:ok, knowledge} = extract_message(message["id"], account_key)
 
         Observability.set_attribute(
           :memory,
@@ -84,17 +113,18 @@ defmodule Cartulary.Memory do
     end)
   end
 
-  def extract_message(message_id) do
+  def extract_message(message_id, account_key \\ nil) do
     Observability.with_span(:memory, "cartulary.memory.extract_message", fn ->
       Observability.set_attribute(:memory, "cartulary.message.id", message_id)
+      account_key = account_key || Query.message_account_key!(message_id)
 
-      message = fetch_message!(message_id)
-      items = Extractor.extract(message)
-      Observability.set_attribute(:memory, "cartulary.extract.item_count", length(items))
-
-      {:ok, knowledge} =
-        Repo.transaction(fn ->
-          Enum.map(items, &insert_knowledge!(message, &1))
+      knowledge =
+        DataLayer.with_account_key(account_key, [role: :system, pipeline?: true], fn
+          account, actor ->
+            message = fetch_message!(account, actor, message_id)
+            items = Extractor.extract(message)
+            Observability.set_attribute(:memory, "cartulary.extract.item_count", length(items))
+            Enum.map(items, &insert_knowledge!(account.id, actor, message, &1))
         end)
 
       Observability.set_attribute(:memory, "cartulary.knowledge.created_count", length(knowledge))
@@ -105,33 +135,33 @@ defmodule Cartulary.Memory do
   def query_knowledge(filters) do
     Observability.with_span(:memory, "cartulary.memory.query_knowledge", fn ->
       filters = normalize_attrs(filters)
-      account = account_from_filters!(filters)
-      scope_paths = visible_scope_paths(account["id"], Map.get(filters, "scope_path", "/poc"))
       state = Map.get(filters, "state", "active")
       limit = parse_int(Map.get(filters, "limit"), @default_limit)
 
-      Observability.set_attributes(:memory, %{
-        "cartulary.knowledge.state" => state,
-        "cartulary.query.limit" => limit,
-        "cartulary.query.scope_count" => length(scope_paths)
-      })
-
-      params = [db_uuid!(account["id"]), scope_paths, state, limit]
-
       rows =
-        """
-        SELECT k.id, k.statement, k.kind, k.confidence, k.sensitivity, k.state,
-               k.source_message_ids, k.extracting_model, k.pipeline_version,
-               s.path AS scope_path, k.inserted_at
-        FROM knowledge_items k
-        JOIN scopes s ON s.id = k.scope_id
-        WHERE k.account_id = $1
-          AND s.path = ANY($2)
-          AND k.state = $3
-        ORDER BY k.confidence DESC, k.inserted_at DESC
-        LIMIT $4
-        """
-        |> all(params)
+        with_account(filters, fn account, actor ->
+          scopes = visible_scopes(account.id, actor, Map.get(filters, "scope_path", "/poc"))
+          scope_ids = Enum.map(scopes, & &1.id)
+          scope_paths = Map.new(scopes, &{&1.id, &1.path})
+
+          Observability.set_attributes(:memory, %{
+            "cartulary.knowledge.state" => state,
+            "cartulary.query.limit" => limit,
+            "cartulary.query.scope_count" => length(scope_ids)
+          })
+
+          KnowledgeItem
+          |> Ash.Query.filter(scope_id in ^scope_ids and state == ^state)
+          |> Ash.Query.sort(confidence: :desc, inserted_at: :desc)
+          |> Ash.Query.limit(limit)
+          |> Ash.Query.set_tenant(account.id)
+          |> Ash.read!(actor: actor)
+          |> Enum.map(fn item ->
+            item
+            |> record_to_map()
+            |> Map.put("scope_path", Map.fetch!(scope_paths, item.scope_id))
+          end)
+        end)
 
       Observability.set_attribute(:memory, "cartulary.query.result_count", length(rows))
       rows
@@ -141,17 +171,29 @@ defmodule Cartulary.Memory do
   def search(filters) do
     Observability.with_span(:memory, "cartulary.memory.search", fn ->
       filters = normalize_attrs(filters)
-      account = account_from_filters!(filters)
       query = Map.get(filters, "query", "")
       scope_path = Map.get(filters, "scope_path", "/poc")
       profile = parse_profile(Map.get(filters, "profile", "balanced"))
       limit = parse_int(Map.get(filters, "limit"), @default_limit)
       deadline? = Map.get(filters, "deadline", "enabled")
       started_at = System.monotonic_time(:millisecond)
-
       profile_config = profile_config(profile)
       strategies = Map.fetch!(profile_config, :strategies)
-      scope_paths = visible_scope_paths(account["id"], scope_path)
+
+      {strategy_results, scope_count} =
+        with_account(filters, fn account, actor ->
+          scope_paths =
+            account.id
+            |> visible_scopes(actor, scope_path)
+            |> Enum.map(& &1.path)
+
+          results =
+            Enum.map(strategies, fn strategy ->
+              {strategy, Query.run_strategy(strategy, account.id, scope_paths, query, limit)}
+            end)
+
+          {results, length(scope_paths)}
+        end)
 
       Observability.set_attributes(:memory, %{
         "cartulary.retrieval.profile" => Atom.to_string(profile),
@@ -159,14 +201,8 @@ defmodule Cartulary.Memory do
         "cartulary.retrieval.strategy_count" => length(strategies),
         "cartulary.query.limit" => limit,
         "cartulary.query.text_length" => String.length(query),
-        "cartulary.query.scope_count" => length(scope_paths)
+        "cartulary.query.scope_count" => scope_count
       })
-
-      strategy_results =
-        strategies
-        |> Enum.map(fn strategy ->
-          {strategy, run_strategy(strategy, account["id"], scope_paths, query, limit)}
-        end)
 
       fused = fuse(strategy_results, limit)
       latency_ms = System.monotonic_time(:millisecond) - started_at
@@ -243,282 +279,242 @@ defmodule Cartulary.Memory do
     end)
   end
 
-  defp normalize_attrs(attrs) when is_map(attrs) do
-    Map.new(attrs, fn {key, value} -> {to_string(key), value} end)
-  end
+  defp ensure_peer!(account_id, actor, key, nil),
+    do: ensure_peer!(account_id, actor, key, key)
 
-  defp account_from_filters!(%{"account_key" => key}) when is_binary(key),
-    do: ensure_account!(key)
-
-  defp account_from_filters!(%{"account_id" => id}) when is_binary(id),
-    do: one!("SELECT * FROM accounts WHERE id = $1", [db_uuid!(id)])
-
-  defp account_from_filters!(_filters) do
-    raise ArgumentError,
-          "account_key is required; derive it from caller identity or x-cartulary-account-key"
-  end
-
-  defp ensure_account!(key) do
-    name = String.replace(key, ~r/[-_]+/, " ")
-
-    one!(
-      """
-      INSERT INTO accounts (key, name, inserted_at, updated_at)
-      VALUES ($1, $2, NOW(), NOW())
-      ON CONFLICT (key) DO UPDATE SET updated_at = NOW()
-      RETURNING *
-      """,
-      [key, name]
+  defp ensure_peer!(account_id, actor, key, name) do
+    create!(
+      Peer,
+      :ensure,
+      %{key: key, name: name, kind: "human"},
+      account_id,
+      actor
     )
   end
 
-  defp ensure_peer!(account_id, key, nil), do: ensure_peer!(account_id, key, key)
-
-  defp ensure_peer!(account_id, key, name) do
-    one!(
-      """
-      INSERT INTO peers (account_id, key, name, inserted_at, updated_at)
-      VALUES ($1, $2, $3, NOW(), NOW())
-      ON CONFLICT (account_id, key) DO UPDATE SET name = EXCLUDED.name, updated_at = NOW()
-      RETURNING *
-      """,
-      [db_uuid!(account_id), key, name]
-    )
-  end
-
-  defp ensure_scope!(account_id, path) do
+  defp ensure_scope!(account_id, actor, path) do
     path
     |> normalize_path()
     |> scope_segments()
     |> Enum.reduce(nil, fn {key, scope_path}, parent ->
-      one!(
-        """
-        INSERT INTO scopes (account_id, parent_id, key, name, path, inserted_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-        ON CONFLICT (account_id, path) DO UPDATE SET updated_at = NOW()
-        RETURNING *
-        """,
-        [db_uuid!(account_id), db_uuid(parent && parent["id"]), key, key, scope_path]
+      create!(
+        Scope,
+        :ensure,
+        %{
+          parent_id: parent && parent.id,
+          key: key,
+          name: key,
+          path: scope_path,
+          state: "active"
+        },
+        account_id,
+        actor
       )
     end)
   end
 
-  defp ensure_session!(account_id, scope_id, peer_id, external_id) do
-    one!(
-      """
-      INSERT INTO sessions (account_id, scope_id, peer_id, external_id, inserted_at, updated_at)
-      VALUES ($1, $2, $3, $4, NOW(), NOW())
-      ON CONFLICT (account_id, external_id) DO UPDATE SET updated_at = NOW()
-      RETURNING *
-      """,
-      [db_uuid!(account_id), db_uuid!(scope_id), db_uuid!(peer_id), external_id]
+  defp ensure_session!(account_id, actor, scope_id, peer_id, external_id) do
+    create!(
+      Session,
+      :ensure,
+      %{
+        scope_id: scope_id,
+        peer_id: peer_id,
+        external_id: external_id,
+        status: "open",
+        opened_at: Clock.utc_now()
+      },
+      account_id,
+      actor
     )
   end
 
-  defp insert_message!(account_id, scope_id, peer_id, session_id, attrs) do
-    occurred_at = Map.get(attrs, "occurred_at") || Clock.utc_now()
-
-    one!(
-      """
-      INSERT INTO messages
-        (account_id, session_id, scope_id, peer_id, role, content, occurred_at, inserted_at, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
-      RETURNING *
-      """,
-      [
-        db_uuid!(account_id),
-        db_uuid!(session_id),
-        db_uuid!(scope_id),
-        db_uuid!(peer_id),
-        Map.get(attrs, "role", "user"),
-        Map.fetch!(attrs, "content"),
-        coerce_datetime!(occurred_at)
-      ]
+  defp ensure_session_scope!(account_id, actor, session_id, scope_id) do
+    create!(
+      SessionScope,
+      :ensure,
+      %{
+        session_id: session_id,
+        scope_id: scope_id,
+        classification: "confirmed",
+        confirmed_at: Clock.utc_now()
+      },
+      account_id,
+      actor
     )
   end
 
-  defp fetch_message!(message_id) do
-    one!(
-      """
-      SELECT m.*, p.key AS peer_key, s.path AS scope_path, a.key AS account_key
-      FROM messages m
-      JOIN peers p ON p.id = m.peer_id
-      JOIN scopes s ON s.id = m.scope_id
-      JOIN accounts a ON a.id = m.account_id
-      WHERE m.id = $1
-      """,
-      [db_uuid!(message_id)]
+  defp ensure_session_participant!(account_id, actor, session_id, peer_id) do
+    create!(
+      SessionParticipant,
+      :ensure,
+      %{
+        session_id: session_id,
+        peer_id: peer_id,
+        role: "participant",
+        joined_at: Clock.utc_now()
+      },
+      account_id,
+      actor
     )
   end
 
-  defp insert_knowledge!(message, item) do
+  defp fetch_message!(account, actor, message_id) do
+    message =
+      Message
+      |> Ash.Query.filter(id == ^message_id)
+      |> Ash.Query.set_tenant(account.id)
+      |> Ash.read_one!(actor: actor)
+
+    peer = read_one_by_id!(Peer, message.peer_id, account.id, actor)
+    scope = read_one_by_id!(Scope, message.scope_id, account.id, actor)
+
+    message
+    |> record_to_map()
+    |> Map.merge(%{
+      "peer_key" => peer.key,
+      "scope_path" => scope.path,
+      "account_key" => account.key
+    })
+  end
+
+  defp insert_knowledge!(account_id, actor, message, item) do
     state =
       if item.confidence >= 0.5 and item.sensitivity in ["public", "internal"],
         do: "active",
         else: "proposed"
 
     existing =
-      maybe_one(
-        """
-        SELECT *
-        FROM knowledge_items
-        WHERE account_id = $1
-          AND scope_id = $2
-          AND lower(statement) = lower($3)
-          AND state IN ('active', 'proposed')
-        LIMIT 1
-        """,
-        [db_uuid!(message["account_id"]), db_uuid!(message["scope_id"]), item.statement]
+      KnowledgeItem
+      |> Ash.Query.filter(
+        scope_id == ^message["scope_id"] and statement == ^item.statement and
+          state in ["active", "proposed"]
       )
+      |> Ash.Query.limit(1)
+      |> Ash.Query.set_tenant(account_id)
+      |> Ash.read_one!(actor: actor)
 
     knowledge =
       if existing do
-        one!(
-          """
-          UPDATE knowledge_items
-          SET source_message_ids = (SELECT array_agg(DISTINCT x) FROM unnest(source_message_ids || ARRAY[$2::uuid]) AS x),
-              confidence = GREATEST(confidence, $3),
-              updated_at = NOW()
-          WHERE id = $1
-          RETURNING *
-          """,
-          [db_uuid!(existing["id"]), db_uuid!(message["id"]), item.confidence]
-        )
+        source_message_ids = Enum.uniq(existing.source_message_ids ++ [message["id"]])
+
+        existing
+        |> Ash.Changeset.for_update(:merge_from_pipeline, %{
+          source_message_ids: source_message_ids,
+          confidence: max(existing.confidence, item.confidence)
+        })
+        |> Ash.Changeset.set_tenant(account_id)
+        |> Ash.update!(actor: actor)
       else
-        one!(
-          """
-          INSERT INTO knowledge_items
-            (account_id, scope_id, subject_peer_id, subject_scope_id, statement, kind, confidence,
-             sensitivity, state, source_message_ids, extracting_model, pipeline_version, inserted_at, updated_at)
-          VALUES ($1, $2, $3, NULL, $4, $5, $6, $7, $8, ARRAY[$9::uuid], $10, $11, NOW(), NOW())
-          RETURNING *
-          """,
-          [
-            db_uuid!(message["account_id"]),
-            db_uuid!(message["scope_id"]),
-            db_uuid!(message["peer_id"]),
-            item.statement,
-            item.kind,
-            item.confidence,
-            item.sensitivity,
-            state,
-            db_uuid!(message["id"]),
-            item.extracting_model,
-            item.pipeline_version
-          ]
+        create!(
+          KnowledgeItem,
+          :create_from_pipeline,
+          %{
+            scope_id: message["scope_id"],
+            subject_peer_id: message["peer_id"],
+            statement: item.statement,
+            kind: item.kind,
+            confidence: item.confidence,
+            sensitivity: item.sensitivity,
+            state: state,
+            source_message_ids: [message["id"]],
+            extracting_model: item.extracting_model,
+            pipeline_version: item.pipeline_version
+          },
+          account_id,
+          actor
         )
       end
 
-    insert_lifecycle!(knowledge, nil, knowledge["state"], "poc_auto_gate")
-    knowledge
-  end
-
-  defp insert_lifecycle!(knowledge, from_state, to_state, reason) do
-    one!(
-      """
-      INSERT INTO knowledge_lifecycle_events
-        (account_id, knowledge_item_id, from_state, to_state, reason, occurred_at, inserted_at, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-      RETURNING *
-      """,
-      [
-        db_uuid!(knowledge["account_id"]),
-        db_uuid!(knowledge["id"]),
-        from_state,
-        to_state,
-        reason,
-        Clock.utc_now()
-      ]
+    create!(
+      Attribution,
+      :create_from_pipeline,
+      %{
+        knowledge_item_id: knowledge.id,
+        scope_id: knowledge.scope_id,
+        target_type: "peer",
+        target_peer_id: message["peer_id"],
+        level: "self"
+      },
+      account_id,
+      actor
     )
+
+    create!(
+      Provenance,
+      :create_from_pipeline,
+      %{
+        knowledge_item_id: knowledge.id,
+        scope_id: knowledge.scope_id,
+        source_type: "message",
+        message_id: message["id"],
+        extracting_model: item.extracting_model,
+        pipeline_version: item.pipeline_version,
+        occurred_at: Clock.utc_now()
+      },
+      account_id,
+      actor
+    )
+
+    create!(
+      LifecycleEvent,
+      :record,
+      %{
+        knowledge_item_id: knowledge.id,
+        scope_id: knowledge.scope_id,
+        to_state: knowledge.state,
+        reason: "poc_auto_gate",
+        occurred_at: Clock.utc_now()
+      },
+      account_id,
+      actor
+    )
+
+    record_to_map(knowledge)
   end
 
-  defp visible_scope_paths(account_id, path) do
-    normalized = normalize_path(path)
-    ancestor_paths = ancestor_paths(normalized)
+  defp visible_scopes(account_id, actor, path) do
+    ancestor_paths = path |> normalize_path() |> ancestor_paths()
 
-    """
-    SELECT path
-    FROM scopes
-    WHERE account_id = $1 AND path = ANY($2)
-    ORDER BY length(path) DESC
-    """
-    |> all([db_uuid!(account_id), ancestor_paths])
-    |> Enum.map(& &1["path"])
+    Scope
+    |> Ash.Query.filter(path in ^ancestor_paths)
+    |> Ash.Query.sort(path: :desc)
+    |> Ash.Query.set_tenant(account_id)
+    |> Ash.read!(actor: actor)
+    |> Enum.sort_by(&String.length(&1.path), :desc)
   end
 
-  defp run_strategy(:lexical, account_id, scope_paths, query, limit) do
-    loose_query = lexical_tsquery(query)
-
-    """
-    SELECT k.id, k.statement, k.kind, k.confidence, k.sensitivity, k.state,
-           k.source_message_ids, k.extracting_model, k.pipeline_version,
-           s.path AS scope_path,
-           (
-             CASE WHEN $3 = '' THEN 0.0 ELSE ts_rank(k.search_vector, plainto_tsquery('english', $3)) END +
-             CASE WHEN $4 = '' THEN 0.0 ELSE ts_rank(k.search_vector, to_tsquery('english', $4)) END
-           ) AS score
-    FROM knowledge_items k
-    JOIN scopes s ON s.id = k.scope_id
-    WHERE k.account_id = $1
-      AND s.path = ANY($2)
-      AND k.state = 'active'
-      AND (
-        $3 = ''
-        OR k.search_vector @@ plainto_tsquery('english', $3)
-        OR ($4 != '' AND k.search_vector @@ to_tsquery('english', $4))
-      )
-    ORDER BY score DESC, k.confidence DESC, k.inserted_at DESC
-    LIMIT $5
-    """
-    |> all([db_uuid!(account_id), scope_paths, query, loose_query, limit])
-    |> ranked(:lexical)
+  defp read_one_by_id!(resource, id, account_id, actor) do
+    resource
+    |> Ash.Query.filter(id == ^id)
+    |> Ash.Query.set_tenant(account_id)
+    |> Ash.read_one!(actor: actor)
   end
 
-  defp run_strategy(:temporal, account_id, scope_paths, _query, limit) do
-    """
-    SELECT k.id, k.statement, k.kind, k.confidence, k.sensitivity, k.state,
-           k.source_message_ids, k.extracting_model, k.pipeline_version,
-           s.path AS scope_path,
-           CASE WHEN k.relevant_from IS NULL AND k.relevant_until IS NULL THEN 0.5 ELSE 1.0 END AS score
-    FROM knowledge_items k
-    JOIN scopes s ON s.id = k.scope_id
-    WHERE k.account_id = $1
-      AND s.path = ANY($2)
-      AND k.state = 'active'
-      AND (k.expires_at IS NULL OR k.expires_at > NOW())
-    ORDER BY score DESC, k.inserted_at DESC
-    LIMIT $3
-    """
-    |> all([db_uuid!(account_id), scope_paths, limit])
-    |> ranked(:temporal)
+  defp create!(resource, action, attrs, account_id, actor) do
+    resource
+    |> Ash.Changeset.for_create(action, attrs)
+    |> Ash.Changeset.set_tenant(account_id)
+    |> Ash.create!(actor: actor)
   end
 
-  defp run_strategy(:salience_recency, account_id, scope_paths, _query, limit) do
-    """
-    SELECT k.id, k.statement, k.kind, k.confidence, k.sensitivity, k.state,
-           k.source_message_ids, k.extracting_model, k.pipeline_version,
-           s.path AS scope_path,
-           k.confidence AS score
-    FROM knowledge_items k
-    JOIN scopes s ON s.id = k.scope_id
-    WHERE k.account_id = $1
-      AND s.path = ANY($2)
-      AND k.state = 'active'
-    ORDER BY k.confidence DESC, k.inserted_at DESC
-    LIMIT $3
-    """
-    |> all([db_uuid!(account_id), scope_paths, limit])
-    |> ranked(:salience_recency)
+  defp with_account(%{"account_key" => key}, fun) when is_binary(key),
+    do: DataLayer.with_account_key(key, fun)
+
+  defp with_account(%{"account_id" => id}, fun) when is_binary(id),
+    do: DataLayer.with_account_id(id, fun)
+
+  defp with_account(_filters, _fun) do
+    raise ArgumentError,
+          "account_key is required; derive it from caller identity or x-cartulary-account-key"
   end
 
-  defp ranked(rows, strategy) do
-    rows
-    |> Enum.with_index(1)
-    |> Enum.map(fn {row, rank} ->
-      row
-      |> Map.put("rank", rank)
-      |> Map.put("strategy", Atom.to_string(strategy))
-    end)
+  defp record_to_map(record) do
+    record.__struct__
+    |> Ash.Resource.Info.public_attributes()
+    |> Enum.map(& &1.name)
+    |> then(&Map.take(record, &1))
+    |> Map.new(fn {key, value} -> {Atom.to_string(key), value} end)
   end
 
   defp fuse(strategy_results, limit) do
@@ -611,15 +607,8 @@ defmodule Cartulary.Memory do
   defp strategy_name(strategy, []), do: "#{strategy}:empty"
   defp strategy_name(strategy, _rows), do: Atom.to_string(strategy)
 
-  defp lexical_tsquery(query) when is_binary(query) do
-    query
-    |> String.downcase()
-    |> String.split(~r/[^[:alnum:]_]+/, trim: true)
-    |> Enum.reject(&(&1 in ~w(the and for with what which does kind used should start scale)))
-    |> Enum.filter(&(String.length(&1) >= 3))
-    |> Enum.uniq()
-    |> Enum.take(16)
-    |> Enum.map_join(" | ", &"#{&1}:*")
+  defp normalize_attrs(attrs) when is_map(attrs) do
+    Map.new(attrs, fn {key, value} -> {to_string(key), value} end)
   end
 
   defp normalize_path(path) when is_binary(path) do
@@ -628,8 +617,8 @@ defmodule Cartulary.Memory do
     |> case do
       "" -> "/poc"
       "/" -> "/poc"
-      "/" <> _ = path -> path
-      path -> "/" <> path
+      "/" <> _ = normalized -> normalized
+      normalized -> "/" <> normalized
     end
   end
 
@@ -648,9 +637,10 @@ defmodule Cartulary.Memory do
   defp ancestor_paths(path) do
     path
     |> scope_segments()
-    |> Enum.map(fn {_segment, path} -> path end)
+    |> Enum.map(fn {_segment, segment_path} -> segment_path end)
   end
 
+  defp coerce_datetime!(nil), do: Clock.utc_now()
   defp coerce_datetime!(%DateTime{} = datetime), do: datetime
 
   defp coerce_datetime!(value) when is_binary(value) do
@@ -672,66 +662,4 @@ defmodule Cartulary.Memory do
   end
 
   defp parse_int(_value, default), do: default
-
-  defp one!(sql, params) do
-    case all(sql, params) do
-      [row] -> row
-      [] -> raise Ecto.NoResultsError, queryable: sql
-      rows -> raise "expected one row, got #{length(rows)}"
-    end
-  end
-
-  defp maybe_one(sql, params) do
-    case all(sql, params) do
-      [row] -> row
-      [] -> nil
-      rows -> raise "expected zero or one row, got #{length(rows)}"
-    end
-  end
-
-  # POC callers pass static SQL strings and separate Postgrex parameters.
-  # sobelow_skip ["SQL.Query"]
-  defp all(sql, params) do
-    %{columns: columns, rows: rows} = Ecto.Adapters.SQL.query!(Repo, sql, params)
-
-    Enum.map(rows, fn row ->
-      columns
-      |> Enum.zip(row)
-      |> Map.new(fn {column, value} -> {column, normalize_db_value(column, value)} end)
-    end)
-  end
-
-  defp normalize_db_value(column, value)
-       when column == "id" or binary_part(column, byte_size(column) - 3, 3) == "_id" do
-    normalize_uuid(value)
-  end
-
-  defp normalize_db_value("source_message_ids", values) when is_list(values) do
-    Enum.map(values, &normalize_uuid/1)
-  end
-
-  defp normalize_db_value("search_vector", _value), do: nil
-
-  defp normalize_db_value(_column, value), do: value
-
-  defp normalize_uuid(<<_::128>> = value) do
-    case Ecto.UUID.load(value) do
-      {:ok, uuid} -> uuid
-      :error -> value
-    end
-  end
-
-  defp normalize_uuid(value), do: value
-
-  defp db_uuid(nil), do: nil
-  defp db_uuid(value), do: db_uuid!(value)
-
-  defp db_uuid!(<<_::128>> = value), do: value
-
-  defp db_uuid!(value) when is_binary(value) do
-    case Ecto.UUID.dump(value) do
-      {:ok, dumped} -> dumped
-      :error -> raise ArgumentError, "invalid uuid #{inspect(value)}"
-    end
-  end
 end

@@ -9,9 +9,21 @@
 # General application configuration
 import Config
 
+config :ash, :missed_notifications, :ignore
+
 config :cartulary,
   ecto_repos: [Cartulary.Repo],
-  ash_domains: [Cartulary.Memory.Domain],
+  ash_domains: [
+    Cartulary.Accounts,
+    Cartulary.Topology,
+    Cartulary.Observations,
+    Cartulary.Knowledge,
+    Cartulary.Governance,
+    Cartulary.Model,
+    Cartulary.Retrieval,
+    Cartulary.Skills,
+    Cartulary.Operations
+  ],
   generators: [timestamp_type: :utc_datetime]
 
 config :cartulary, Oban,
