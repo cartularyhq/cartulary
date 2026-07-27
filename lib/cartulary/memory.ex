@@ -605,6 +605,8 @@ defmodule Cartulary.Memory do
     end
   end
 
+  # POC callers pass static SQL strings and separate Postgrex parameters.
+  # sobelow_skip ["SQL.Query"]
   defp all(sql, params) do
     %{columns: columns, rows: rows} = Ecto.Adapters.SQL.query!(Repo, sql, params)
 

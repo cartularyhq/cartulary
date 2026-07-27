@@ -1,0 +1,42 @@
+[
+  {
+    "question_id": "lme_minimal_ie",
+    "question_type": "single-session-user",
+    "question": "Which editor does Jordan use for drafting release notes?",
+    "answer": "Helix",
+    "question_date": "2026-04-10",
+    "haystack_session_ids": ["session_editor"],
+    "haystack_dates": ["2026-04-03T12:00:00Z"],
+    "haystack_sessions": [
+      [
+        {
+          "role": "user",
+          "content": "Jordan uses Helix when drafting release notes."
+        },
+        {
+          "role": "assistant",
+          "content": "The release-note drafting preference is Helix."
+        }
+      ]
+    ],
+    "answer_session_ids": ["session_editor"]
+  },
+  {
+    "question_id": "lme_minimal_abs_abs",
+    "question_type": "single-session-user",
+    "question": "Which airline did Jordan choose for the Paris trip?",
+    "answer": "No information available.",
+    "question_date": "2026-04-10",
+    "haystack_session_ids": ["session_editor"],
+    "haystack_dates": ["2026-04-03T12:00:00Z"],
+    "haystack_sessions": [
+      [
+        {
+          "role": "user",
+          "content": "Jordan uses Helix when drafting release notes."
+        }
+      ]
+    ],
+    "answer_session_ids": []
+  }
+]

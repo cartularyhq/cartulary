@@ -1,0 +1,61 @@
+{
+  "chats": [
+    {
+      "chat_id": "beam-minimal-128k",
+      "chat_size": "128K",
+      "domain": "general",
+      "messages": [
+        {
+          "turn_id": "b128-t1",
+          "role": "user",
+          "content": "Riley wants all architecture summaries to mention the audit ledger."
+        },
+        {
+          "turn_id": "b128-t2",
+          "role": "assistant",
+          "content": "Future architecture summaries should mention the audit ledger."
+        }
+      ],
+      "probing_questions": [
+        {
+          "question_id": "beam-128k-if",
+          "question": "What must Riley's architecture summaries mention?",
+          "answer": "the audit ledger",
+          "ability": "Instruction Following",
+          "evidence_turns": ["b128-t1"]
+        }
+      ]
+    },
+    {
+      "chat_id": "beam-minimal-500k",
+      "chat_size": "500K",
+      "domain": "general",
+      "messages": [
+        {
+          "turn_id": "b500-t1",
+          "role": "user",
+          "content": "Taylor first set the incident review owner to Priya."
+        },
+        {
+          "turn_id": "b500-t2",
+          "role": "assistant",
+          "content": "The first incident review owner was Priya."
+        },
+        {
+          "turn_id": "b500-t3",
+          "role": "user",
+          "content": "Taylor later changed the incident review owner to Mateo."
+        }
+      ],
+      "probing_questions": [
+        {
+          "question_id": "beam-500k-ku",
+          "question": "Who is the latest incident review owner?",
+          "answer": "Mateo",
+          "ability": "Knowledge Update",
+          "evidence_turns": ["b500-t3"]
+        }
+      ]
+    }
+  ]
+}

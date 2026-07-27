@@ -37,6 +37,20 @@ mix cartulary.eval.smoke --profile balanced --account eval-poc
 
 The smoke task includes tiny LoCoMo, LongMemEval, and BEAM-style examples and
 can write a JSON report with `--output`.
+- Added full benchmark fixture ingestion and deterministic scoring:
+
+```bash
+mix cartulary.eval.benchmark --benchmark locomo --dataset path/to/locomo10.json
+mix cartulary.eval.benchmark --benchmark longmemeval --dataset path/to/longmemeval_s_cleaned.json
+mix cartulary.eval.benchmark --benchmark beam --dataset path/to/beam.json
+```
+
+The benchmark runner normalizes LoCoMo, LongMemEval, BEAM-style, and local
+Cartulary JSON fixtures into one eval case shape, ingests turns through
+`Cartulary.Memory`, asks through the real POC retrieval/answer path, resolves
+citations back to benchmark evidence references, and reports per-question,
+per-category, latency, citation, abstention, token-F1, and BEAM scale-curve
+metrics.
 
 ## Verified
 
@@ -47,15 +61,27 @@ OpenRouter key.
 - `mix format --check-formatted` passed.
 - `mix compile --warnings-as-errors` passed.
 - `mix ecto.migrate` passed, including `CREATE EXTENSION IF NOT EXISTS vector`.
-- `mix test` passed with 3 tests.
+- `mix test` passed with 9 tests.
+- `mix credo --strict` passed with no issues.
+- `mix dialyzer` passed with 0 errors.
+- `mix sobelow --config` passed with no findings after two targeted
+  POC false-positive skips:
+  - local benchmark fixture reads in `Cartulary.Eval.Adapter`.
+  - the internal static-SQL helper in `Cartulary.Memory`.
 - `mix cartulary.eval.smoke --profile balanced --account eval-openrouter-current`
   ingested 3 messages and answered all 3 smoke questions with citations.
+- `mix cartulary.eval.benchmark --dataset test/fixtures/eval/cartulary-smoke.json --benchmark cartulary --profile balanced --account eval-benchmark-local --run-id docs-poc-check-2 --no-model`
+  ingested 2 messages and scored 1 deterministic question through the full
+  benchmark runner.
+- Minimal LoCoMo, LongMemEval, and BEAM fixtures were run through the full
+  benchmark runner and wrote repository-local JSON reports. Results are
+  recorded in `docs/eval/minimal-benchmark-results.md`.
 - `GET /api/health` returned status `ok`.
 - HTTP ingest and ask were verified locally; the ask response returned a cited
   knowledge item extracted by `openai/gpt-oss-120b`.
 
-Credo, Dialyzer, and Sobelow are not configured in this repository state and
-were not run.
+Credo, Dialyzer, and Sobelow are configured for local checks. They are not yet
+wired as CI branch-protection gates.
 
 ## Corners Cut
 
@@ -85,10 +111,11 @@ These shortcuts are acceptable only for the local POC.
 - **Model abstraction is thin.** The POC uses `Req` directly against an
   OpenAI-compatible endpoint. The target provider-neutral seam over ReqLLM,
   local Ortex/ONNX embeddings, and self-hosted models is not implemented.
-- **Evaluation is smoke only.** The LoCoMo, LongMemEval, and BEAM paths are tiny
-  built-in examples. There are no benchmark fixture importers, scorers,
-  per-category metrics, latency histograms, ablations, held-out sets, or CI
-  gates.
+- **Evaluation is still POC-grade.** Full LoCoMo, LongMemEval, and BEAM-style
+  fixture importers now exist, with deterministic answer/citation scoring,
+  category metrics, latency summaries, and BEAM scale curves. Missing pieces are
+  upstream LLM-judge parity, held-out weight tuning, broader strategy-ablation
+  matrices, release thresholds, CI gates, and backend parity evidence.
 - **pg0 is manually launched.** The local test used `/private/tmp/pg0`; the
   release does not yet download, pin, supervise, health-check, or recover pg0.
 - **Lifecycle audit is minimal.** The POC writes creation state transitions, but
@@ -124,9 +151,10 @@ These shortcuts are acceptable only for the local POC.
    evidence.
 7. Replace the direct OpenRouter client with the intended provider-neutral model
    seam while preserving OpenAI-compatible endpoints and local model options.
-8. Build full LoCoMo, LongMemEval, and BEAM adapters with fixture import,
-   deterministic replay, scoring, category metrics, latency reporting,
-   generated reports, and regression thresholds.
+8. Harden the LoCoMo, LongMemEval, and BEAM eval runner with upstream LLM-judge
+   parity, held-out tuning discipline, strategy-ablation matrices, regression
+   thresholds, generated release reports, and operator-run Postgres parity
+   evidence.
 9. Pin and package pg0 for local mode, supervise its lifecycle from the release,
    handle port conflicts and stale data directories, and document the external
    Postgres escape hatch.
@@ -135,8 +163,8 @@ These shortcuts are acceptable only for the local POC.
 11. Expand tests to cover migrations, HTTP surfaces, Ash actions, policies, RLS,
     Oban jobs, model fallback, retrieval fusion, lifecycle audit, and eval smoke
     reports.
-12. Add configured static analysis/security lanes only when the project is ready
-    to maintain them: Credo, Dialyzer, Sobelow, and CI check wiring.
+12. Wire the configured static analysis/security lanes into CI and branch
+    protection when the repository automation is ready to maintain them.
 
 ## Current Local Commands
 

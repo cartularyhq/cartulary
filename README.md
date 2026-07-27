@@ -146,8 +146,9 @@ The important cuts are intentional and temporary:
 - Retrieval is Postgres FTS plus simple temporal and salience/recency queries;
   pgvector is enabled but semantic embeddings and ANN indexes are not yet
   implemented.
-- LoCoMo, LongMemEval, and BEAM coverage is a smoke harness only, not full
-  benchmark import, scoring, or regression gating.
+- LoCoMo, LongMemEval, and BEAM fixture import/scoring exists for the POC, but
+  upstream judge parity, ablation matrices, release thresholds, and backend
+  parity evidence are not implemented.
 - Account identity is derived from an HTTP header for local testing; production
   identity, RLS, authorization, consent, and full Gate B governance are not
   implemented.
@@ -161,6 +162,7 @@ mix deps.get
 mix format --check-formatted
 mix compile --warnings-as-errors
 mix test
+mix credo --strict
+mix dialyzer
+mix sobelow --config
 ```
-
-Credo, Dialyzer, and Sobelow are not configured yet in the current POC.

@@ -1,0 +1,49 @@
+[
+  {
+    "sample_id": "locomo-minimal-1",
+    "conversation": {
+      "speaker_a": "Maya",
+      "speaker_b": "Noah",
+      "session_1_date_time": "9:00 am on 1 March, 2026",
+      "session_1": [
+        {
+          "speaker": "Maya",
+          "dia_id": "D1:1",
+          "text": "Maya prefers weekly planning notes in bullet form."
+        },
+        {
+          "speaker": "Noah",
+          "dia_id": "D1:2",
+          "text": "Noah will keep Maya's planning notes short and structured."
+        }
+      ],
+      "session_2_date_time": "4:30 pm on 8 March, 2026",
+      "session_2": [
+        {
+          "speaker": "Maya",
+          "dia_id": "D2:1",
+          "text": "Maya moved the garden project review to Friday."
+        },
+        {
+          "speaker": "Noah",
+          "dia_id": "D2:2",
+          "text": "Noah confirmed that Friday is now the garden project review day."
+        }
+      ]
+    },
+    "qa": [
+      {
+        "question": "What format does Maya prefer for weekly planning notes?",
+        "answer": "bullet form",
+        "evidence": ["D1:1"],
+        "category": 1
+      },
+      {
+        "question": "When is the garden project review now scheduled?",
+        "answer": "Friday",
+        "evidence": ["D2:1"],
+        "category": 2
+      }
+    ]
+  }
+]

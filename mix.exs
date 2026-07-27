@@ -11,6 +11,7 @@ defmodule Cartulary.MixProject do
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
+      dialyzer: dialyzer(),
       deps: deps(),
       package: package(),
       listeners: [Phoenix.CodeReloader]
@@ -55,7 +56,17 @@ defmodule Cartulary.MixProject do
       {:telemetry_poller, "~> 1.0"},
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.2.0"},
-      {:bandit, "~> 1.5"}
+      {:bandit, "~> 1.5"},
+      {:credo, "~> 1.7.19", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.4.7", only: [:dev, :test], runtime: false},
+      {:sobelow, "~> 0.14.1", only: [:dev, :test], runtime: false}
+    ]
+  end
+
+  defp dialyzer do
+    [
+      plt_add_apps: [:mix, :ex_unit],
+      plt_file: {:no_warn, "priv/plts/dialyzer.plt"}
     ]
   end
 
@@ -87,7 +98,14 @@ defmodule Cartulary.MixProject do
       "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
-      precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"]
+      static: ["credo --strict", "sobelow --config"],
+      precommit: [
+        "compile --warnings-as-errors",
+        "deps.unlock --unused",
+        "format",
+        "static",
+        "test"
+      ]
     ]
   end
 end

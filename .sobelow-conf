@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+[
+  exit: :low,
+  format: "txt",
+  ignore_files: [],
+  ignore: [],
+  out: nil,
+  private: true,
+  router: nil,
+  skip: true,
+  threshold: :low,
+  verbose: false,
+  version: false
+]
