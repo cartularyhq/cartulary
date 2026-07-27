@@ -347,12 +347,14 @@ MCP behaviour for a human decision.
 | `FR-API-13` | Narrow "governance actions" to curator gate decisions, scope confirmation, and decisions about other peers; carve out peer self-validation |
 | `FR-GOV-8` | Concretize "inline" for peer routing — MCP delivery, not SDK-only |
 | `FR-GOV-10` | Inline surfacing delivered over MCP as well as SDK |
-| `FR-API-27` (new) | Read tools may carry at most one pending peer validation; attachment never affects the reasoning-free guarantee; on failure the read returns unchanged |
-| `FR-API-28` (new) | `resolve_validation` and `set_ask_preference`; preference writes clamp-only |
+| `FR-API-30` (new) | Read tools may carry at most one pending peer validation; attachment never affects the reasoning-free guarantee; on failure the read returns unchanged |
+| `FR-API-31` (new) | `resolve_validation` and `set_ask_preference`; preference writes clamp-only |
 | `FR-GOV-22` (new) | Channel assurance: unverified-channel answers defer revalidation timers only, never raise confidence, never satisfy FR-GOV-12 consent |
 
 FR ids are append-only per the FR spec's own rule, so these take the next free
-numbers in their areas.
+numbers in their areas. `FR-API-27/28/29` are already held by ADR-0004
+(retrieval profiles, deadline-bounding, disagreement-as-abstention), so the new
+API requirements start at 30.
 
 ARCH additions: `AD-PIPE-8` (answer correlation as a dream-time Reactor step)
 and a note on `AD-PIPE-2` that `Attach` is the single deadline-bounded
