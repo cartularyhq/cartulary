@@ -5,13 +5,17 @@ blueprint specs.
 
 Authoritative inputs remain:
 
-- `blueprint/memory-system-functional-requirements.md` for product behavior and
+- `specs/memory-system-functional-requirements.md` for product behavior and
   stable `FR-*` anchors.
-- `blueprint/memory-system-architecture-and-nfr.md` for architecture decisions,
+- `specs/memory-system-architecture-and-nfr.md` for architecture decisions,
   non-functional targets, and `AD-*` / `AINV-*` / `NFR-*` anchors.
-- `blueprint/memory-system-product-blueprint.md` for product positioning,
+- `specs/memory-system-product-blueprint.md` for product positioning,
   sequencing, and go-to-market context.
 
 Keep notes here short, traceable to blueprint anchors, and subordinate to the
-blueprint documents until a later task promotes them into formal implementation
+spec documents until a later task promotes them into formal implementation
 specifications.
+
+The current local POC implementation log is `docs/poc-local-proof.md`. Treat it
+as evidence of what runs today and as a debt list, not as a replacement for the
+architecture specs or ADRs.

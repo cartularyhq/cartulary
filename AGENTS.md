@@ -10,14 +10,16 @@ Before editing, read the smallest authoritative set needed for the task:
 
 1. This `AGENTS.md`.
 2. The relevant blueprint anchors in:
-   - `blueprint/memory-system-functional-requirements.md`
-   - `blueprint/memory-system-architecture-and-nfr.md`
-   - `blueprint/memory-system-product-blueprint.md`
+   - `specs/memory-system-functional-requirements.md`
+   - `specs/memory-system-architecture-and-nfr.md`
+   - `specs/memory-system-product-blueprint.md`
 3. For automation/process work, also read:
    - `docs/roadmap/l3-automation-flow.md`
    - `docs/roadmap/manual-automation-setup.md`
 4. Any ADRs, architecture notes, eval notes, security notes, or nested
    instructions that govern the files you will touch.
+5. For work touching the current local POC, also read
+   `docs/poc-local-proof.md`.
 
 Blueprint anchors are stable review handles. Preserve existing `FR-*`, `AD-*`,
 `AINV-*`, and `NFR-*` meanings unless the task explicitly asks for a blueprint
@@ -43,12 +45,13 @@ Cartulary is an Elixir/Ash/Phoenix/Oban system:
   carry the ports-and-adapters structure.
 - **Surfaces:** Phoenix HTTP, LiveView, Channels/PubSub, AshJsonApi, gateway
   proxy, and the `ash_ai` MCP server where appropriate.
-- **Jobs:** Oban through AshOban. Use `Oban.Engines.Lite` for SQLite
-  single-node mode and the Postgres engine for queue-mode. Do not introduce
-  Redis/BullMQ or a separate worker fleet.
-- **Storage:** AshSqlite + SQLite FTS5 + in-memory HNSW cache in single-node;
-  AshPostgres + pgvector + Postgres FTS in queue-mode. Keep vector/lexical
-  indices and projections as rebuildable derived caches.
+- **Jobs:** Oban through AshOban on the Postgres engine in every deployment
+  mode. Do not introduce Redis/BullMQ, `Oban.Engines.Lite`, or a separate
+  worker fleet.
+- **Storage:** AshPostgres + pgvector + Postgres FTS in every deployment mode.
+  Local single-node uses pg0 as the embedded Postgres launcher; queue-mode uses
+  an operator-run Postgres. Keep vector/lexical indices and projections as
+  rebuildable derived caches.
 - **Models:** provider-neutral model roles over ReqLLM; self-hosted and
   OpenAI-compatible endpoints must remain possible. Default embedding strategy
   should remain compatible with local/offline Ortex/ONNX.
@@ -83,15 +86,19 @@ refactoring:
     rebuildable.
 11. **Transactional integrity is mandatory.** State changes, audit entries, and
     Oban enqueue/outbox effects that belong to one operation commit together.
-12. **Infrastructure ports and domain strategies are different seams.** Swapping
-    AshSqlite for AshPostgres changes where data lives, not product behavior;
-    swapping a retrieval or gate strategy changes behavior and needs explicit
-    review.
+12. **Infrastructure ports and domain strategies are different seams.** Pointing
+    the release at pg0 or an operator-run Postgres changes where Postgres lives,
+    not product behavior; swapping a retrieval or gate strategy changes behavior
+    and needs explicit review.
 
 ## Development discipline
 
 - Keep each change traceable to the task, issue, and blueprint anchors it
   implements.
+- Treat the current local POC as a checkpoint, not as finished architecture.
+  Its implemented scope, shortcuts, and required refactors are logged in
+  `docs/poc-local-proof.md`. Do not convert a POC shortcut into a permanent
+  pattern without updating the relevant ADR/spec and citing the reason.
 - Implement only the requested scope. Do not opportunistically add later-roadmap
   artifacts such as `CONTRIBUTING.md`, `SECURITY.md`, PR templates,
   CODEOWNERS, CI workflows, prompt wiring, or automation unless the current task
@@ -108,6 +115,32 @@ refactoring:
   seams. If a new seam is unavoidable, document the reason and cite anchors.
 - Do not put `try`/`catch` or equivalent defensive wrappers around imports or
   aliases. Fix dependency/configuration problems directly.
+
+## Licensing discipline
+
+Cartulary is fair-code / source-available, modelled on the blueprint's
+open-core stance:
+
+- Community/core files are governed by `LICENSE.md` and should carry
+  `SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0` when the file format
+  supports comments.
+- Enterprise-only files are governed by `LICENSE_EE.md`, must live under an
+  `ee` directory or use `.ee.` in the filename, and should carry
+  `SPDX-License-Identifier: Cartulary-Enterprise`.
+- Do not add enterprise-gated behavior, move a feature across the license
+  boundary, or change entitlement semantics unless a human has explicitly made
+  that licensing decision in an issue, ADR, or blueprint update. ADR-0002 treats
+  licensing boundaries as human-only decisions.
+- The community build must remain coherent and buildable without enterprise
+  code. Core must not import enterprise modules; enterprise code may depend on
+  core through the explicit OTP app / runtime entitlement boundary described by
+  `AD-TOPO-3` and `AD-CFG-3`.
+- Gate scale, operations, governance, compliance, and support by license. Do not
+  gate core answer quality or retrieval correctness unless the maintainer
+  resolves the open ADR-0004 licensing question differently.
+- Never remove, alter, or obscure copyright, license, or SPDX notices.
+- Third-party code and vendored dependencies keep their upstream licenses. Do
+  not add Cartulary SPDX headers under `deps/` or other vendored trees.
 
 ## Required local checks before opening a PR
 
@@ -143,9 +176,9 @@ For documentation-only changes before the project exists, inspect the changed
 Markdown directly and run any available repo-local Markdown or link check. If no
 such tool exists, say so and include the manual inspection scope.
 
-For changes touching both SQLite/single-node and Postgres/queue-mode behavior,
-provide parity evidence for both backends once those test lanes exist. Until
-then, clearly mark the missing lane as not yet available.
+For changes touching local single-node and queue-mode behavior, provide parity
+evidence for pg0-backed and operator-run Postgres paths once those test lanes
+exist. Until then, clearly mark the missing lane as not yet available.
 
 ## Review guidance
 
