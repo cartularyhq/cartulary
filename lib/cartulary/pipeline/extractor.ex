@@ -32,9 +32,7 @@ defmodule Cartulary.Pipeline.Extractor do
   end
 
   defp model_configured? do
-    key =
-      Keyword.get(Application.fetch_env!(:cartulary, :models), :api_key) ||
-        System.get_env("OPENROUTER_API_KEY")
+    key = Keyword.get(Application.fetch_env!(:cartulary, :models), :api_key)
 
     is_binary(key) and key != ""
   end

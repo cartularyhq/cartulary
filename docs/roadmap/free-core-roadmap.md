@@ -368,26 +368,36 @@ Goal: replace the POC auto-activation shortcut with governed lifecycle actions.
 
 Deliverables:
 
-- [ ] Gate matrix resource for confidence x target level x sensitivity.
-- [ ] Gate A decision path: keep, reject, defer, provisional peer-level visibility.
-- [ ] Gate B decision path: attribution level, blast-radius checks, personal
+- [x] Gate matrix resource for confidence x target level x sensitivity.
+- [x] Gate A decision path: keep, reject, defer, provisional peer-level visibility.
+- [x] Gate B decision path: attribution level, blast-radius checks, personal
   consent, curator routing, and held scope-level proposals.
-- [ ] Validation queue resource and LiveView UI for approve, edit, reject, merge,
+- [x] Validation queue resource and LiveView UI for approve, edit, reject, merge,
   defer, bulk actions, and conflict bundles.
-- [ ] Peer self-view, contest/redact, right-to-be-forgotten, proportionate erasure,
+- [x] Peer self-view, contest/redact, right-to-be-forgotten, proportionate erasure,
   strict erasure, and affected projection/entity recomputation.
-- [ ] Revalidation timers, confidence decay, pending aging, escalation, and
+- [x] Revalidation timers, confidence decay, pending aging, escalation, and
   auto-reject policy.
-- [ ] MCP inline peer validation attachment and answer resolution following
+- [x] MCP inline peer validation attachment and answer resolution following
   `FR-API-30`, `FR-API-31`, and `FR-GOV-22`.
 
 Acceptance:
 
-- [ ] Agents cannot reach curator governance actions through MCP or machine API
+- [x] Agents cannot reach curator governance actions through MCP or machine API
   credentials.
-- [ ] Scope-level pending knowledge is not surfaced before approval.
-- [ ] Upward personal attribution cannot become active without subject consent.
-- [ ] Every gate and lifecycle change is visible in history/diff and audit.
+- [x] Scope-level pending knowledge is not surfaced before approval.
+- [x] Upward personal attribution cannot become active without subject consent.
+- [x] Every gate and lifecycle change is visible in history/diff and audit.
+
+F4 evidence lives in the 36-resource Ash boundary and governance operation
+layer under `lib/cartulary/governance/`, the human/self/MCP adapters under
+`lib/cartulary_web/`, the generated F4 migration and resource snapshots,
+`test/cartulary/f4_real_gate_a_b_governance_test.exs`, and the updated F0
+contract suite. Matrix precedence, state transitions, consent assurance,
+human-only curator authorization, content-safe audit/history, inline deadline
+behavior, erasure/recomputation, the intentional `f4-1` lifecycle transition,
+and remaining later-phase seams are documented in
+`docs/architecture/f4-real-gate-a-b-governance.md`.
 
 ### F5: Model Layer And Structured Extraction
 

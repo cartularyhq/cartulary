@@ -1,0 +1,11 @@
+<%!-- SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0 --%>
+<main style="font-family:system-ui;max-width:32rem;margin:4rem auto;padding:0 1rem;">
+  <h1>Cartulary governance</h1>
+  <p :if={@invalid_credentials?} role="alert">Invalid human curator credentials.</p>
+  <form method="post" action="/governance/sign-in" style="display:grid;gap:1rem;">
+    <input type="hidden" name="_csrf_token" value={@csrf_token} />
+    <label>Email <input type="email" name="email" required /></label>
+    <label>Password <input type="password" name="password" required /></label>
+    <button type="submit">Sign in</button>
+  </form>
+</main>

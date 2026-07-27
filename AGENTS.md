@@ -151,6 +151,31 @@ refactoring:
   with `allow|deny` effects and per-grant propagation. Any applicable deny
   removes access to that scope. Cross-linked scope reads require access to both
   relation endpoints; a cross-link never grants access.
+- F4 adds eight persisted governance Resources and takes the authoritative
+  durable boundary to 36 Resources. F4 evidence is kept in
+  `test/cartulary/f4_real_gate_a_b_governance_test.exs`,
+  `docs/architecture/f4-real-gate-a-b-governance.md`,
+  `priv/resource_snapshots/`, and
+  `priv/repo/migrations/20260727220024_f4_real_gate_a_b_governance.exs`.
+  New extracted knowledge must enter `proposed` and pass
+  `Cartulary.Governance.Engine`; do not reintroduce auto-activation outside the
+  versioned Gate matrix.
+- F4 curator decisions are human-only. Machine credentials and MCP may submit
+  raw observations, read governed memory, resolve only the calling peer's
+  frozen inline question, and lower that peer's ask limits; they must never
+  expose or invoke approve, edit, reject, merge, defer, promotion, Gate-rule
+  administration, or bulk curator actions.
+- F4 scope/account proposals remain `held` and absent from retrieval until Gate
+  B approval. Upward personal knowledge additionally requires target-specific,
+  verified subject consent; curator approval cannot substitute for that
+  consent. Every automatic/human gate result must preserve immutable decision,
+  lifecycle, content-safe audit, and replay-keyed continuation evidence.
+- F4 erasure goes through `Cartulary.Governance.Erasure`. Proportionate erasure
+  removes subject content and scrubs shared provenance; strict erasure removes
+  all knowledge sourced only through the subject path. Both must recompute or
+  dirty affected projections/entities while retaining content-safe audit
+  evidence. Inline delivery text is erasable and must not be copied into audit,
+  telemetry, or Oban arguments.
 - Direct Repo/Ecto SQL access is confined to infrastructure/data-layer modules
   and explicitly ticketed custom query helpers. The current exception is
   `Cartulary.Memory.Query`, whose removal ticket is roadmap F7.

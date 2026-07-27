@@ -199,7 +199,10 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
         end
       )
 
-    assert length(events) == 4
+    assert length(events) >= 4
+    assert Enum.any?(events, &(&1.action == "knowledge.transitioned"))
+    assert Enum.any?(events, &(&1.action == "gate_a.defer"))
+    assert Enum.any?(events, &(&1.action == "gate_b.provisional"))
 
     events
     |> Enum.reduce(nil, fn event, previous_hash ->

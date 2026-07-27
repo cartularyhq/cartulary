@@ -49,8 +49,15 @@ defmodule Cartulary.PocContractTest do
                  message_id,
                  "Avery prefers concise weekly release summaries.",
                  knowledge_id,
-                 "active",
-                 "poc_auto_gate"
+                 "proposed",
+                 "f4_pipeline_proposed"
+               ],
+               [
+                 message_id,
+                 "Avery prefers concise weekly release summaries.",
+                 knowledge_id,
+                 "provisional",
+                 "f4_gate_a_b_deferred"
                ]
              ]
            } =
@@ -62,6 +69,7 @@ defmodule Cartulary.PocContractTest do
                JOIN knowledge_items AS k ON m.id = ANY(k.source_message_ids)
                JOIN knowledge_lifecycle_events AS event ON event.knowledge_item_id = k.id
                WHERE m.id = $1
+               ORDER BY event.occurred_at, event.inserted_at, event.id
                """,
                [Ecto.UUID.dump!(message["id"])]
              )

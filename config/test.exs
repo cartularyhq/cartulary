@@ -27,6 +27,10 @@ config :logger, level: :warning
 
 config :cartulary, Oban, testing: :manual
 
+# Tests must remain deterministic even when the developer shell has a live
+# model credential. The runtime model config deliberately clears that key.
+config :cartulary, :governance, attach_deadline_ms: 1_000
+
 # Initialize plugs at runtime for faster test compilation
 config :phoenix, :plug_init_mode, :runtime
 

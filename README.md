@@ -4,7 +4,8 @@ Cartulary is an Elixir/Ash/Phoenix/Oban memory system prototype for governed
 agent memory on the BEAM. The current repository state combines the frozen
 local POC contract with the implemented F1 Ash Domain Backbone and F2
 Transactional Writes, Audit, And Jobs plus F3 Identity, Tenancy, And Basic
-RBAC; it is not yet a finished product architecture.
+RBAC and F4 Real Gate A/B Governance; it is not yet a finished product
+architecture.
 
 The POC can run against local Postgres from pg0 and use an OpenAI-compatible
 model endpoint such as OpenRouter with `openai/gpt-oss-120b`.
@@ -16,11 +17,12 @@ the Ash/Phoenix/Oban architecture, abstraction layers, decomposition, migration
 phases, and feature coverage needed for a complete single-Account community
 solution.
 
-Roadmap phases F0 through F3 are complete. The current `poc-0` response,
-persistence, scope inheritance, pipeline-only knowledge-write, and tiny eval
-fixture behavior remains frozen. Nine Ash Domains and 28 Resources own the
-durable boundary; F3 intentionally replaces the POC Account header with
-identity-derived Account and scope authorization.
+Roadmap phases F0 through F4 are complete. F0 response shapes, persistence,
+scope inheritance, pipeline-only knowledge writes, and tiny eval fixtures
+remain regression floors. F4 intentionally versions lifecycle behavior to
+`f4-1`: new proposals are provisionally peer-visible or held for governance
+instead of being auto-activated. Nine Ash Domains and 36 Resources own the
+durable boundary.
 
 ## What Runs Today
 
@@ -32,6 +34,18 @@ identity-derived Account and scope authorization.
 - Ash actions and policies for Account isolation, scope reads, pipeline-only
   knowledge writes, governance separation, immutable content, and append-only
   ledgers.
+- Versioned Gate A/B matrix evaluation with provisional peer visibility, held
+  wider-scope proposals, corroboration thresholds, subject consent, and
+  immutable decision history.
+- Password-session-only LiveView governance queue with approve,
+  edit-as-replacement, reject, merge, defer, bulk, provenance, and conflict
+  handling.
+- Peer self-view, contest/redact, proportionate/strict erasure, projection/entity
+  recomputation, revalidation, expiry, confidence decay, escalation, and stale
+  auto-rejection.
+- AshAi MCP tools for raw ingest and governed reads, including deadline-bounded
+  inline self-validation with transcript assurance and peer-lowerable ask
+  limits. Curator actions are not exposed to MCP or machine credentials.
 - AshAuthentication password/JWT identities for humans and hashed API-key
   identities for agents, linked to Peers with assurance levels.
 - One authenticated community Account, enforced by a database free-edition
@@ -148,6 +162,12 @@ curl -fsS -X POST http://127.0.0.1:4000/api/auth/password \
 All `/api/v1` routes require a password JWT or agent API key. Account headers
 and Account fields in request bodies do not select tenancy.
 
+Human account administrators and curators can sign in to the governance queue
+at `http://localhost:4000/governance/sign-in`. Authenticated human peers can
+inspect, contest, redact, or erase their own subject knowledge through the
+`/api/v1/self/*` routes. Machine credentials cannot use those human-governance
+routes. The MCP endpoint is `/mcp`.
+
 Run the local smoke eval:
 
 ```bash
@@ -173,7 +193,7 @@ plan are maintained in:
 Read both documents before treating any POC code as an architectural precedent
 or before migrating POC behavior into the free-core architecture.
 
-## Frozen POC Contract
+## F0 Contract And F4 Lifecycle Version
 
 F0 freezes behavior, not the POC's internal design. `Cartulary.Memory` is now a
 compatibility facade over authoritative Ash actions. F2 owns transactional
@@ -190,6 +210,12 @@ The contract evidence covers:
 - the absence of a direct agent knowledge-write route; and
 - stable source hashes plus normalized IDs for the tiny Cartulary, LoCoMo,
   LongMemEval, and BEAM fixtures.
+
+F4 intentionally changes the lifecycle portion of that contract from the POC
+`active` shortcut to `proposed → provisional` by default, with scope-level
+promotion held until Gate B approval and any required consent. Health reports
+`f4-1`; extractor and retrieval profile identifiers remain `poc-0` until their
+F5/F7 migrations.
 
 Run the focused F0 contract:
 
@@ -249,6 +275,26 @@ the identity-to-Ash-tenant/RLS contract.
 Read the identity flows, API-key RLS bootstrap, role algorithm, contract
 transition, and evidence in
 `docs/architecture/f3-identity-tenancy-basic-rbac.md`.
+
+## F4 Real Gate A/B Governance
+
+Every extracted knowledge item now enters the real governance lifecycle. A
+versioned Account/scope matrix decides whether Gate A keeps, rejects, or defers
+it and whether Gate B may place it at the requested blast radius. The
+conservative default is peer-level provisional visibility plus human review;
+pending scope/account knowledge remains held and cannot enter retrieval.
+Personal upward promotion additionally requires verified subject consent.
+
+Curator actions are available only to authenticated password identities through
+the LiveView queue and human-only Ash policies. Peer confirmation, consent, and
+revalidation can ride on MCP reads, but only for the calling peer and only when
+the frozen statement is evidenced in the ingested transcript. Governance
+history and the audit chain store content-safe identifiers and hashes rather
+than copying knowledge into telemetry or job arguments.
+
+Read the resource map, state flow, surfaces, aging/erasure behavior, contract
+transition, and evidence in
+`docs/architecture/f4-real-gate-a-b-governance.md`.
 
 ## Free Core Direction
 

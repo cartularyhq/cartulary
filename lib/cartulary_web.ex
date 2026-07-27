@@ -28,6 +28,7 @@ defmodule CartularyWeb do
       # Import common connection and controller functions to use in pipelines
       import Plug.Conn
       import Phoenix.Controller
+      import Phoenix.LiveView.Router
     end
   end
 
@@ -42,6 +43,31 @@ defmodule CartularyWeb do
       use Phoenix.Controller, formats: [:html, :json]
 
       import Plug.Conn
+
+      unquote(verified_routes())
+    end
+  end
+
+  def live_view do
+    quote do
+      use Phoenix.LiveView, layout: false
+
+      unquote(html_helpers())
+    end
+  end
+
+  def html do
+    quote do
+      use Phoenix.Component
+
+      unquote(html_helpers())
+    end
+  end
+
+  def html_helpers do
+    quote do
+      import Phoenix.HTML
+      import Phoenix.Component
 
       unquote(verified_routes())
     end

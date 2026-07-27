@@ -39,7 +39,10 @@ defmodule Cartulary.Pipeline.Workflows.DreamTimeReasoning do
     async? false
 
     run fn %{pipeline_run: run}, _context ->
-      Cartulary.Pipeline.Workflows.Stage.run(run)
+      case run.kind do
+        "dream_time" -> Cartulary.Governance.Sweeper.run(run.account_id, "dream_time")
+        _other -> Cartulary.Pipeline.Workflows.Stage.run(run)
+      end
     end
   end
 
@@ -97,8 +100,14 @@ defmodule Cartulary.Pipeline.Workflows.Maintenance do
 
     run fn %{pipeline_run: run}, _context ->
       case run.kind do
-        "reconciler" -> Cartulary.Pipeline.Reconciler.run(run.account_id)
-        _other -> Cartulary.Pipeline.Workflows.Stage.run(run)
+        "reconciler" ->
+          Cartulary.Pipeline.Reconciler.run(run.account_id)
+
+        kind when kind in ["revalidation", "expiry"] ->
+          Cartulary.Governance.Sweeper.run(run.account_id, kind)
+
+        _other ->
+          Cartulary.Pipeline.Workflows.Stage.run(run)
       end
     end
   end

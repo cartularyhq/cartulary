@@ -32,3 +32,7 @@ discipline.
 
 The implemented F1 resource/action/policy boundary and its remaining transition
 tickets are recorded in `docs/architecture/f1-ash-domain-backbone.md`.
+
+The implemented F4 Gate A/B matrix, validation/consent lifecycle, human and MCP
+adapters, erasure semantics, and `f4-1` contract transition are recorded in
+`docs/architecture/f4-real-gate-a-b-governance.md`.

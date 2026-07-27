@@ -15,6 +15,7 @@ defmodule Cartulary.Memory do
   alias Cartulary.Clock
   alias Cartulary.DataLayer
   alias Cartulary.Governance.Audit
+  alias Cartulary.Governance.Engine
   alias Cartulary.Identity.RoleResolver
   alias Cartulary.Knowledge.Attribution
   alias Cartulary.Knowledge.KnowledgeItem
@@ -162,8 +163,8 @@ defmodule Cartulary.Memory do
             "cartulary.query.scope_count" => length(scope_ids)
           })
 
-          KnowledgeItem
-          |> Ash.Query.filter(scope_id in ^scope_ids and state == ^state)
+          scope_ids
+          |> knowledge_read_query(state, actor)
           |> Ash.Query.sort(confidence: :desc, inserted_at: :desc)
           |> Ash.Query.limit(limit)
           |> Ash.Query.set_tenant(account.id)
@@ -201,7 +202,15 @@ defmodule Cartulary.Memory do
 
           results =
             Enum.map(strategies, fn strategy ->
-              {strategy, Query.run_strategy(strategy, account.id, scope_paths, query, limit)}
+              {strategy,
+               Query.run_strategy(
+                 strategy,
+                 account.id,
+                 scope_paths,
+                 actor.peer_id,
+                 query,
+                 limit
+               )}
             end)
 
           {results, length(scope_paths)}
@@ -428,11 +437,6 @@ defmodule Cartulary.Memory do
   end
 
   defp insert_knowledge!(account_id, actor, message, item) do
-    state =
-      if item.confidence >= 0.5 and item.sensitivity in ["public", "internal"],
-        do: "active",
-        else: "proposed"
-
     statement_hash = Idempotency.content_hash(item.statement)
     Lock.acquire!(account_id, "knowledge:#{message["scope_id"]}:#{statement_hash}")
 
@@ -440,7 +444,7 @@ defmodule Cartulary.Memory do
       KnowledgeItem
       |> Ash.Query.filter(
         scope_id == ^message["scope_id"] and statement_hash == ^statement_hash and
-          state in ["active", "proposed"]
+          state in ["active", "proposed", "provisional", "held", "needs_revalidation"]
       )
       |> Ash.Query.limit(1)
       |> Ash.Query.set_tenant(account_id)
@@ -454,7 +458,8 @@ defmodule Cartulary.Memory do
           existing
           |> Ash.Changeset.for_update(:merge_from_pipeline, %{
             source_message_ids: source_message_ids,
-            confidence: max(existing.confidence, item.confidence)
+            confidence: max(existing.confidence, item.confidence),
+            corroboration_count: existing.corroboration_count + 1
           })
           |> Ash.Changeset.set_tenant(account_id)
           |> Ash.update!(actor: actor)
@@ -472,7 +477,9 @@ defmodule Cartulary.Memory do
               kind: item.kind,
               confidence: item.confidence,
               sensitivity: item.sensitivity,
-              state: state,
+              state: "proposed",
+              target_level: "peer",
+              verification: "pending",
               source_message_ids: [message["id"]],
               extracting_model: item.extracting_model,
               pipeline_version: item.pipeline_version
@@ -496,22 +503,12 @@ defmodule Cartulary.Memory do
           knowledge_item_id: knowledge.id,
           scope_id: knowledge.scope_id,
           to_state: knowledge.state,
-          reason: "poc_auto_gate",
+          reason: "f4_pipeline_proposed",
           occurred_at: Clock.utc_now()
         },
         account_id,
         actor
       )
-
-      Audit.append!(actor, account_id, %{
-        scope_id: knowledge.scope_id,
-        category: "gate",
-        action: "gate.poc_auto_decided",
-        resource_type: "knowledge_item",
-        resource_id: knowledge.id,
-        content_hash: statement_hash,
-        metadata: %{"to_state" => knowledge.state}
-      })
 
       Audit.append!(actor, account_id, %{
         scope_id: knowledge.scope_id,
@@ -535,6 +532,7 @@ defmodule Cartulary.Memory do
       })
     end
 
+    knowledge = if created?, do: Engine.evaluate_proposal(knowledge, actor), else: knowledge
     record_to_map(knowledge)
   end
 
@@ -651,6 +649,25 @@ defmodule Cartulary.Memory do
 
   defp put_identity_actor(attrs, _actor), do: attrs
 
+  defp knowledge_read_query(scope_ids, "active", %{peer_id: peer_id})
+       when is_binary(peer_id) do
+    KnowledgeItem
+    |> Ash.Query.filter(
+      scope_id in ^scope_ids and
+        (state == "active" or (state == "provisional" and subject_peer_id == ^peer_id))
+    )
+  end
+
+  defp knowledge_read_query(scope_ids, "active", _actor) do
+    KnowledgeItem
+    |> Ash.Query.filter(scope_id in ^scope_ids and state in ["active", "provisional"])
+  end
+
+  defp knowledge_read_query(scope_ids, state, _actor) do
+    KnowledgeItem
+    |> Ash.Query.filter(scope_id in ^scope_ids and state == ^state)
+  end
+
   defp identity_actor(%{"_cartulary_actor" => %Actor{} = actor}), do: actor
   defp identity_actor(_attrs), do: nil
 
@@ -679,9 +696,7 @@ defmodule Cartulary.Memory do
   end
 
   defp model_configured? do
-    key =
-      Keyword.get(Application.fetch_env!(:cartulary, :models), :api_key) ||
-        System.get_env("OPENROUTER_API_KEY")
+    key = Keyword.get(Application.fetch_env!(:cartulary, :models), :api_key)
 
     is_binary(key) and key != ""
   end

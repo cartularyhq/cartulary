@@ -47,6 +47,10 @@ defmodule Cartulary.Observations.Session do
     update :update do
       accept [:status, :closed_at]
     end
+
+    destroy :erase do
+      require_atomic? false
+    end
   end
 
   policies do
@@ -56,6 +60,10 @@ defmodule Cartulary.Observations.Session do
 
     policy action_type(:read) do
       authorize_if {Cartulary.Policy.ScopeAccess, attribute: :scope_id}
+    end
+
+    policy action(:erase) do
+      authorize_if actor_attribute_equals(:pipeline?, true)
     end
   end
 
@@ -101,6 +109,10 @@ defmodule Cartulary.Observations.SessionScope do
     update :confirm do
       accept [:classification, :confirmed_at]
     end
+
+    destroy :erase do
+      require_atomic? false
+    end
   end
 
   policies do
@@ -110,6 +122,10 @@ defmodule Cartulary.Observations.SessionScope do
 
     policy action_type(:read) do
       authorize_if {Cartulary.Policy.ScopeAccess, attribute: :scope_id}
+    end
+
+    policy action(:erase) do
+      authorize_if actor_attribute_equals(:pipeline?, true)
     end
   end
 
@@ -154,11 +170,19 @@ defmodule Cartulary.Observations.SessionParticipant do
     update :leave do
       accept [:left_at]
     end
+
+    destroy :erase do
+      require_atomic? false
+    end
   end
 
   policies do
     policy always() do
       authorize_if expr(account_id == ^actor(:account_id))
+    end
+
+    policy action(:erase) do
+      authorize_if actor_attribute_equals(:pipeline?, true)
     end
   end
 
@@ -203,6 +227,10 @@ defmodule Cartulary.Observations.Message do
       accept [:extraction_completed_at]
       require_atomic? false
     end
+
+    destroy :erase do
+      require_atomic? false
+    end
   end
 
   policies do
@@ -215,6 +243,10 @@ defmodule Cartulary.Observations.Message do
     end
 
     policy action(:mark_extracted) do
+      authorize_if actor_attribute_equals(:pipeline?, true)
+    end
+
+    policy action(:erase) do
       authorize_if actor_attribute_equals(:pipeline?, true)
     end
   end

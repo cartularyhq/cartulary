@@ -56,6 +56,67 @@ defmodule Cartulary.Policy.RoleIn do
   def match?(_actor, _context, _opts), do: false
 end
 
+defmodule Cartulary.Policy.HumanRoleIn do
+  @moduledoc false
+
+  use Ash.Policy.SimpleCheck
+
+  @impl true
+  def describe(opts),
+    do: "authenticated human actor has one of #{inspect(Keyword.fetch!(opts, :roles))}"
+
+  @impl true
+  def match?(%{identity_kind: :password, role: role}, _context, opts),
+    do: role in Keyword.fetch!(opts, :roles)
+
+  def match?(_actor, _context, _opts), do: false
+end
+
+defmodule Cartulary.Policy.HumanScopeRole do
+  @moduledoc false
+
+  use Ash.Policy.FilterCheck
+
+  @impl true
+  def describe(opts),
+    do: "authenticated human has a permitted role at #{opts[:attribute] || :scope_id}"
+
+  @impl true
+  def filter(%{identity_kind: :password, scope_roles: scope_roles}, _context, opts)
+      when is_map(scope_roles) do
+    attribute = Keyword.get(opts, :attribute, :scope_id)
+    roles = Keyword.fetch!(opts, :roles)
+
+    scope_ids =
+      for {scope_id, role} <- scope_roles,
+          role in roles,
+          do: scope_id
+
+    expr(^ref(attribute) in ^scope_ids)
+  end
+
+  def filter(_actor, _context, _opts), do: false
+end
+
+defmodule Cartulary.Policy.HumanOwns do
+  @moduledoc false
+
+  use Ash.Policy.FilterCheck
+
+  @impl true
+  def describe(opts),
+    do: "authenticated human owns #{opts[:attribute] || :subject_peer_id}"
+
+  @impl true
+  def filter(%{identity_kind: :password, peer_id: peer_id}, _context, opts)
+      when is_binary(peer_id) do
+    attribute = Keyword.get(opts, :attribute, :subject_peer_id)
+    expr(^ref(attribute) == ^peer_id)
+  end
+
+  def filter(_actor, _context, _opts), do: false
+end
+
 defmodule Cartulary.Policy.ScopeRelationAccess do
   @moduledoc false
 

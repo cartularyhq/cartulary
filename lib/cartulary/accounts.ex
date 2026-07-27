@@ -161,6 +161,10 @@ defmodule Cartulary.Accounts.Peer do
       argument :api_key, :string, allow_nil?: false, sensitive?: true
       prepare AshAuthentication.Strategy.ApiKey.SignInPreparation
     end
+
+    destroy :erase do
+      require_atomic? false
+    end
   end
 
   policies do
@@ -170,6 +174,10 @@ defmodule Cartulary.Accounts.Peer do
 
     policy always() do
       authorize_if expr(account_id == ^actor(:account_id))
+    end
+
+    policy action(:erase) do
+      authorize_if actor_attribute_equals(:pipeline?, true)
     end
   end
 
@@ -228,6 +236,10 @@ defmodule Cartulary.Accounts.ExternalIdentity do
     update :update do
       accept [:email, :assurance, :active, :metadata]
     end
+
+    destroy :erase do
+      require_atomic? false
+    end
   end
 
   policies do
@@ -237,6 +249,10 @@ defmodule Cartulary.Accounts.ExternalIdentity do
 
     policy action_type([:create, :update, :destroy]) do
       authorize_if {Cartulary.Policy.RoleIn, roles: [:account_admin, :system]}
+    end
+
+    policy action(:erase) do
+      authorize_if actor_attribute_equals(:pipeline?, true)
     end
   end
 

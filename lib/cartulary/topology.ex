@@ -148,6 +148,10 @@ defmodule Cartulary.Topology.RoleGrant do
     update :update do
       accept [:role, :effect, :propagate]
     end
+
+    destroy :erase do
+      require_atomic? false
+    end
   end
 
   policies do
@@ -161,6 +165,10 @@ defmodule Cartulary.Topology.RoleGrant do
 
     policy action_type([:create, :update, :destroy]) do
       authorize_if {Cartulary.Policy.ScopeRole, attribute: :scope_id, roles: [:account_admin]}
+    end
+
+    policy action(:erase) do
+      authorize_if actor_attribute_equals(:pipeline?, true)
     end
   end
 

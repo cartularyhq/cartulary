@@ -16,7 +16,11 @@ defmodule CartularyWeb.Plugs.RequireIdentity do
   def call(conn, _opts) do
     with ["Bearer " <> credential] <- get_req_header(conn, "authorization"),
          {:ok, actor} <- Identity.authenticate_bearer(credential) do
-      assign(conn, :current_actor, actor)
+      conn
+      |> assign(:current_actor, actor)
+      |> Ash.PlugHelpers.set_actor(actor)
+      |> Ash.PlugHelpers.set_tenant(actor.account_id)
+      |> Ash.PlugHelpers.set_context(%{cartulary_actor: actor})
     else
       _ ->
         conn

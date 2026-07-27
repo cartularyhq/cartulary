@@ -14,6 +14,8 @@ defmodule Cartulary.Knowledge.Changes.RecordTransition do
     Ash.Changeset.after_action(changeset, fn changeset, knowledge ->
       actor = get_in(changeset.context, [:private, :actor])
       from_state = changeset.data.state
+      reason = Ash.Changeset.get_argument(changeset, :reason)
+      channel = Ash.Changeset.get_argument(changeset, :channel)
 
       lifecycle_result =
         LifecycleEvent
@@ -24,7 +26,7 @@ defmodule Cartulary.Knowledge.Changes.RecordTransition do
           scope_id: knowledge.scope_id,
           from_state: from_state,
           to_state: knowledge.state,
-          reason: "governance_transition",
+          reason: reason,
           occurred_at: Clock.utc_now()
         })
         |> Ash.create(actor: actor)
@@ -41,7 +43,9 @@ defmodule Cartulary.Knowledge.Changes.RecordTransition do
                content_hash: knowledge.statement_hash,
                metadata: %{
                  "from_state" => from_state,
-                 "to_state" => knowledge.state
+                 "to_state" => knowledge.state,
+                 "reason" => reason,
+                 "channel" => channel
                }
              }) do
         {:ok, knowledge}

@@ -138,7 +138,7 @@ config :cartulary, :identity,
 
 config :cartulary, :models,
   base_url: env_get.("CARTULARY_OPENAI_COMPAT_BASE_URL", "https://openrouter.ai/api/v1"),
-  api_key: env_get.("OPENROUTER_API_KEY", nil),
+  api_key: if(config_env() == :test, do: nil, else: env_get.("OPENROUTER_API_KEY", nil)),
   api_key_env: "OPENROUTER_API_KEY",
   ingest: env_get.("CARTULARY_MODEL_INGEST", "openai/gpt-oss-120b"),
   dream: env_get.("CARTULARY_MODEL_DREAM", "openai/gpt-oss-120b"),

@@ -1,6 +1,6 @@
 # Local POC Implementation Log
 
-Date: 2026-07-27
+Date: 2026-07-28
 
 This document records what was actually built for the local proof of concept,
 what corners were cut to get there, and what must be refactored before the POC
@@ -27,8 +27,14 @@ can be treated as the durable Cartulary architecture.
 - Completed roadmap F3 with AshAuthentication password/JWT and API-key
   identities, linked Peer assurance, one authenticated community Account,
   Account RLS for credentials, and inherited deny-wins scope RBAC.
+- Completed roadmap F4 with the versioned Gate A/B matrix, provisional and held
+  states, curator/peer validation queues, target-specific personal consent,
+  immutable decision/lifecycle/audit evidence, a human-only LiveView queue,
+  peer self-service and erasure, dream-time revalidation/decay, and AshAi MCP
+  inline validation with transcript assurance.
 - Converted `Cartulary.Memory` durable reads and writes to Ash actions while
-  preserving `poc-0`; the remaining parameterized retrieval SQL is isolated in
+  preserving the F0 shapes and intentionally versioning lifecycle semantics to
+  `f4-1`; the remaining parameterized retrieval SQL is isolated in
   `Cartulary.Memory.Query` under the F7 transition ticket.
 - Added `Cartulary.Memory` as the POC write/read path for message ingestion,
   pipeline extraction, knowledge insertion, search, ask, and context reads.
@@ -85,12 +91,13 @@ OpenRouter key.
 - `mix format --check-formatted` passed.
 - `mix compile --warnings-as-errors` passed.
 - `mix ecto.migrate` passed, including `CREATE EXTENSION IF NOT EXISTS vector`.
-- `mix test` passed with 39 tests, including the F0 HTTP, persistence,
+- `mix test` passed with 47 tests, including the F0 HTTP, persistence,
   inheritance, Account-selection, pipeline-write, lifecycle, deterministic
   fallback, eval-fixture contracts, the F1 Ash action/RLS suite, and the F2
   transaction/audit/AshOban/Reactor/replay/provider-outage suite plus F3
   password/API-key, single-Account, opaque-failure, cross-link, and property
-  suites.
+  suites and F4 matrix, consent, curator/MCP separation, inline assurance,
+  revalidation/decay, LiveView, and erasure coverage.
 - `mix ash.codegen --check` passed with no resource/snapshot drift.
 - The F1 suite passed against a newly created partitioned test database,
   exercising the complete migration chain from an empty database.
@@ -98,6 +105,9 @@ OpenRouter key.
   generated AshOban worker and ingest Reactor.
 - The combined F1/F2 suite passed against a newly created `f2` partitioned test
   database, exercising the complete migration chain from an empty database.
+- The complete F0-F4 suite passed against a newly created `f4_final`
+  partitioned test database, exercising the complete migration chain from an
+  empty database.
 - `mix credo --strict` passed with no issues.
 - `mix dialyzer` passed with 0 errors.
 - `mix sobelow --config` passed with no findings after two targeted
@@ -115,7 +125,7 @@ OpenRouter key.
 - The Cartulary, LoCoMo, LongMemEval, and BEAM F0 fixtures match the committed
   `poc-0` hash and normalization baseline in
   `test/fixtures/eval/poc-contract-baseline.json`.
-- `GET /api/health` returned status `ok`.
+- `GET /api/health` returned status `ok` and lifecycle contract `f4-1`.
 - HTTP ingest and ask were verified locally; the ask response returned a cited
   knowledge item extracted by `openai/gpt-oss-120b`.
 
@@ -128,13 +138,10 @@ These shortcuts are acceptable only for the local POC.
 
 - **Later pipeline behavior is parked behind F2 continuations.** AshOban and
   Ash.Reactor now own durable execution and the POC-compatible synchronous
-  response is replay-safe, but real dream-time, revalidation/expiry, connector,
-  import, projection, and answer-correlation semantics remain in their later
+  response is replay-safe. F4 now implements governance revalidation, expiry,
+  validation continuation, and transcript answer-correlation semantics;
+  connector, import, and full projection-refresh behavior remain in their later
   roadmap phases.
-- **Gate B is a placeholder.** The POC auto-activates knowledge from confidence
-  and sensitivity fields. It does not implement the full governed promotion
-  matrix, consent handling, blast-radius checks, peer review, or manual
-  validation.
 - **Human identity is local free-core identity.** F3 now uses
   AshAuthentication password/JWT identities and per-Peer API keys. Enterprise
   SSO/SAML/SCIM, multi-Account provisioning, advanced RBAC administration, and
@@ -156,14 +163,13 @@ These shortcuts are acceptable only for the local POC.
   matrices, release thresholds, CI gates, and backend parity evidence.
 - **pg0 is manually launched.** The local test used `/private/tmp/pg0`; the
   release does not yet download, pin, supervise, health-check, or recover pg0.
-- **Lifecycle audit is minimal.** The POC writes creation state transitions, but
-  does not yet model review, supersession, expiry, revalidation, consent changes,
-  or cross-scope promotion events.
 - **Projection layer is absent.** Profiles, scope cards, session summaries,
   peer profiles, ETS caches, `persistent_term` caches, and rebuild jobs are not
-  implemented.
-- **Surfaces are minimal.** There is no LiveView, AshJsonApi, MCP server,
-  gateway proxy, admin UI, import UI, or export UI.
+  implemented. F4 erasure marks the existing projection resource dirty and
+  recomputes entity derivations, ready for the full F6/F9 builders.
+- **Surfaces are partial.** F4 adds the curator LiveView, peer self-service API,
+  and AshAi MCP tools. AshJsonApi, generated SDKs, gateway proxy, and
+  import/export administration remain later phases.
 - **Tests are still POC-scoped.** F0 now covers the six HTTP endpoints,
   caller-header Account selection, downward scope inheritance, message and
   knowledge persistence, creation lifecycle events, deterministic extraction,
@@ -177,16 +183,13 @@ These shortcuts are acceptable only for the local POC.
 
 ## Required Refactors After POC
 
-1. Replace the placeholder Gate B with governed lifecycle actions for proposal,
-   validation, promotion, demotion, supersession, expiry, revalidation, consent,
-   and audit.
-2. Split retrieval into strategy modules with explicit behaviours, profile
+1. Split retrieval into strategy modules with explicit behaviours, profile
    versions, weights, per-strategy evidence, deadline budgets, async fan-out,
    dropped-strategy reporting, and ablation support.
-3. Add embeddings: provider-neutral embedding role, local/offline embedding
+2. Add embeddings: provider-neutral embedding role, local/offline embedding
    path, `pgvector` column/index, backfill jobs, semantic retrieval, and rebuild
    evidence.
-4. Replace the direct OpenRouter client with the intended provider-neutral model
+3. Replace the direct OpenRouter client with the intended provider-neutral model
    seam while preserving OpenAI-compatible endpoints and local model options.
 5. Harden the LoCoMo, LongMemEval, and BEAM eval runner with upstream LLM-judge
    parity, held-out tuning discipline, strategy-ablation matrices, regression

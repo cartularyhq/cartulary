@@ -49,6 +49,12 @@ defmodule Cartulary.Knowledge.KnowledgeItem do
         :confidence,
         :sensitivity,
         :state,
+        :target_level,
+        :verification,
+        :held_scope_id,
+        :corroboration_count,
+        :supersedes_id,
+        :source_message_ids,
         :expires_at,
         :revalidate_after,
         :relevant_from,
@@ -62,14 +68,37 @@ defmodule Cartulary.Knowledge.KnowledgeItem do
     end
 
     update :merge_from_pipeline do
-      accept [:confidence, :source_message_ids]
+      accept [:confidence, :source_message_ids, :corroboration_count]
       require_atomic? false
     end
 
     update :transition do
-      accept [:state, :expires_at, :revalidate_after, :relevant_from, :relevant_until]
+      argument :reason, :string, allow_nil?: false
+      argument :channel, :string, default: "governance"
+
+      accept [
+        :scope_id,
+        :state,
+        :target_level,
+        :verification,
+        :held_scope_id,
+        :confidence,
+        :sensitivity,
+        :corroboration_count,
+        :supersedes_id,
+        :expires_at,
+        :revalidate_after,
+        :relevant_from,
+        :relevant_until,
+        :deleted_at
+      ]
+
       require_atomic? false
       change Cartulary.Knowledge.Changes.RecordTransition
+    end
+
+    destroy :erase do
+      require_atomic? false
     end
   end
 
@@ -80,14 +109,16 @@ defmodule Cartulary.Knowledge.KnowledgeItem do
 
     policy action_type(:read) do
       authorize_if {Cartulary.Policy.ScopeAccess, attribute: :scope_id}
+      authorize_if expr(subject_peer_id == ^actor(:peer_id))
     end
 
     policy action([:create_from_pipeline, :merge_from_pipeline]) do
       authorize_if actor_attribute_equals(:pipeline?, true)
     end
 
-    policy action(:transition) do
-      authorize_if {Cartulary.Policy.RoleIn, roles: [:account_admin, :curator, :system]}
+    policy action([:transition, :erase]) do
+      authorize_if {Cartulary.Policy.HumanRoleIn, roles: [:account_admin, :curator]}
+      authorize_if actor_attribute_equals(:pipeline?, true)
     end
   end
 
@@ -103,6 +134,11 @@ defmodule Cartulary.Knowledge.KnowledgeItem do
     attribute :confidence, :float, allow_nil?: false, default: 0.5, public?: true
     attribute :sensitivity, :string, allow_nil?: false, default: "internal", public?: true
     attribute :state, :string, allow_nil?: false, default: "proposed", public?: true
+    attribute :target_level, :string, allow_nil?: false, default: "peer", public?: true
+    attribute :verification, :string, allow_nil?: false, default: "pending", public?: true
+    attribute :held_scope_id, :uuid, public?: true
+    attribute :corroboration_count, :integer, allow_nil?: false, default: 1, public?: true
+    attribute :supersedes_id, :uuid, public?: true
     attribute :expires_at, :utc_datetime_usec, public?: true
     attribute :revalidate_after, :utc_datetime_usec, public?: true
     attribute :relevant_from, :utc_datetime_usec, public?: true
@@ -110,6 +146,7 @@ defmodule Cartulary.Knowledge.KnowledgeItem do
     attribute :source_message_ids, {:array, :uuid}, allow_nil?: false, default: [], public?: true
     attribute :extracting_model, :string, public?: true
     attribute :pipeline_version, :string, allow_nil?: false, default: "poc-0", public?: true
+    attribute :deleted_at, :utc_datetime_usec
     create_timestamp :inserted_at
     update_timestamp :updated_at
   end
@@ -138,6 +175,10 @@ defmodule Cartulary.Knowledge.Attribution do
         :level
       ]
     end
+
+    destroy :erase do
+      require_atomic? false
+    end
   end
 
   policies do
@@ -150,6 +191,10 @@ defmodule Cartulary.Knowledge.Attribution do
     end
 
     policy action(:create_from_pipeline) do
+      authorize_if actor_attribute_equals(:pipeline?, true)
+    end
+
+    policy action(:erase) do
       authorize_if actor_attribute_equals(:pipeline?, true)
     end
   end
@@ -197,6 +242,10 @@ defmodule Cartulary.Knowledge.Provenance do
         :occurred_at
       ]
     end
+
+    destroy :erase do
+      require_atomic? false
+    end
   end
 
   policies do
@@ -209,6 +258,10 @@ defmodule Cartulary.Knowledge.Provenance do
     end
 
     policy action(:create_from_pipeline) do
+      authorize_if actor_attribute_equals(:pipeline?, true)
+    end
+
+    policy action(:erase) do
       authorize_if actor_attribute_equals(:pipeline?, true)
     end
   end
@@ -398,6 +451,10 @@ defmodule Cartulary.Knowledge.Entity do
     update :recompute_from_pipeline do
       accept [:canonical_name, :kind, :aliases, :derived_from]
     end
+
+    destroy :erase do
+      require_atomic? false
+    end
   end
 
   policies do
@@ -406,6 +463,10 @@ defmodule Cartulary.Knowledge.Entity do
     end
 
     policy action([:read, :create_from_pipeline, :recompute_from_pipeline]) do
+      authorize_if actor_attribute_equals(:pipeline?, true)
+    end
+
+    policy action(:erase) do
       authorize_if actor_attribute_equals(:pipeline?, true)
     end
   end
@@ -442,6 +503,10 @@ defmodule Cartulary.Knowledge.EntityMention do
     create :create_from_pipeline do
       accept [:knowledge_item_id, :scope_id, :entity_id, :surface_form, :confidence]
     end
+
+    destroy :erase do
+      require_atomic? false
+    end
   end
 
   policies do
@@ -450,6 +515,10 @@ defmodule Cartulary.Knowledge.EntityMention do
     end
 
     policy action([:read, :create_from_pipeline]) do
+      authorize_if actor_attribute_equals(:pipeline?, true)
+    end
+
+    policy action(:erase) do
       authorize_if actor_attribute_equals(:pipeline?, true)
     end
   end

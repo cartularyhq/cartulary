@@ -22,7 +22,7 @@ defmodule Cartulary.Memory.Query do
     |> Map.fetch!("key")
   end
 
-  def run_strategy(:lexical, account_id, scope_paths, query, limit) do
+  def run_strategy(:lexical, account_id, scope_paths, peer_id, query, limit) do
     loose_query = lexical_tsquery(query)
 
     """
@@ -30,27 +30,30 @@ defmodule Cartulary.Memory.Query do
            k.source_message_ids, k.extracting_model, k.pipeline_version,
            s.path AS scope_path,
            (
-             CASE WHEN $3 = '' THEN 0.0 ELSE ts_rank(k.search_vector, plainto_tsquery('english', $3)) END +
-             CASE WHEN $4 = '' THEN 0.0 ELSE ts_rank(k.search_vector, to_tsquery('english', $4)) END
+             CASE WHEN $4 = '' THEN 0.0 ELSE ts_rank(k.search_vector, plainto_tsquery('english', $4)) END +
+             CASE WHEN $5 = '' THEN 0.0 ELSE ts_rank(k.search_vector, to_tsquery('english', $5)) END
            ) AS score
     FROM knowledge_items k
     JOIN scopes s ON s.id = k.scope_id
     WHERE k.account_id = $1
       AND s.path = ANY($2)
-      AND k.state = 'active'
       AND (
-        $3 = ''
-        OR k.search_vector @@ plainto_tsquery('english', $3)
-        OR ($4 != '' AND k.search_vector @@ to_tsquery('english', $4))
+        k.state = 'active'
+        OR (k.state = 'provisional' AND ($3::uuid IS NULL OR k.subject_peer_id = $3))
+      )
+      AND (
+        $4 = ''
+        OR k.search_vector @@ plainto_tsquery('english', $4)
+        OR ($5 != '' AND k.search_vector @@ to_tsquery('english', $5))
       )
     ORDER BY score DESC, k.confidence DESC, k.inserted_at DESC
-    LIMIT $5
+    LIMIT $6
     """
-    |> all([db_uuid!(account_id), scope_paths, query, loose_query, limit])
+    |> all([db_uuid!(account_id), scope_paths, db_uuid(peer_id), query, loose_query, limit])
     |> ranked(:lexical)
   end
 
-  def run_strategy(:temporal, account_id, scope_paths, _query, limit) do
+  def run_strategy(:temporal, account_id, scope_paths, peer_id, _query, limit) do
     """
     SELECT k.id, k.statement, k.kind, k.confidence, k.sensitivity, k.state,
            k.source_message_ids, k.extracting_model, k.pipeline_version,
@@ -60,16 +63,19 @@ defmodule Cartulary.Memory.Query do
     JOIN scopes s ON s.id = k.scope_id
     WHERE k.account_id = $1
       AND s.path = ANY($2)
-      AND k.state = 'active'
+      AND (
+        k.state = 'active'
+        OR (k.state = 'provisional' AND ($3::uuid IS NULL OR k.subject_peer_id = $3))
+      )
       AND (k.expires_at IS NULL OR k.expires_at > NOW())
     ORDER BY score DESC, k.inserted_at DESC
-    LIMIT $3
+    LIMIT $4
     """
-    |> all([db_uuid!(account_id), scope_paths, limit])
+    |> all([db_uuid!(account_id), scope_paths, db_uuid(peer_id), limit])
     |> ranked(:temporal)
   end
 
-  def run_strategy(:salience_recency, account_id, scope_paths, _query, limit) do
+  def run_strategy(:salience_recency, account_id, scope_paths, peer_id, _query, limit) do
     """
     SELECT k.id, k.statement, k.kind, k.confidence, k.sensitivity, k.state,
            k.source_message_ids, k.extracting_model, k.pipeline_version,
@@ -79,11 +85,14 @@ defmodule Cartulary.Memory.Query do
     JOIN scopes s ON s.id = k.scope_id
     WHERE k.account_id = $1
       AND s.path = ANY($2)
-      AND k.state = 'active'
+      AND (
+        k.state = 'active'
+        OR (k.state = 'provisional' AND ($3::uuid IS NULL OR k.subject_peer_id = $3))
+      )
     ORDER BY k.confidence DESC, k.inserted_at DESC
-    LIMIT $3
+    LIMIT $4
     """
-    |> all([db_uuid!(account_id), scope_paths, limit])
+    |> all([db_uuid!(account_id), scope_paths, db_uuid(peer_id), limit])
     |> ranked(:salience_recency)
   end
 
@@ -156,4 +165,7 @@ defmodule Cartulary.Memory.Query do
       :error -> raise ArgumentError, "invalid uuid #{inspect(value)}"
     end
   end
+
+  defp db_uuid(nil), do: nil
+  defp db_uuid(value), do: db_uuid!(value)
 end

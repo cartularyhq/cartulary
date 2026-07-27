@@ -8,11 +8,30 @@ defmodule Cartulary.Governance do
   F1, `FR-GOV-*`, and `AD-SEC-3`.
   """
 
-  use Ash.Domain
+  use Ash.Domain, extensions: [AshAi]
 
   resources do
     resource Cartulary.Governance.AuditEvent
     resource Cartulary.Governance.PolicyConfig
+    resource Cartulary.Governance.GateRule
+    resource Cartulary.Governance.ValidationItem
+    resource Cartulary.Governance.GateDecision
+    resource Cartulary.Governance.Consent
+    resource Cartulary.Governance.PeerQuery
+    resource Cartulary.Governance.PeerQueryDelivery
+    resource Cartulary.Governance.PeerAskPreference
+    resource Cartulary.Governance.ErasureRequest
+    resource Cartulary.Governance.McpTools
+  end
+
+  tools do
+    tool(:ingest, Cartulary.Governance.McpTools, :ingest)
+    tool(:get_context, Cartulary.Governance.McpTools, :get_context)
+    tool(:search, Cartulary.Governance.McpTools, :search)
+    tool(:ask, Cartulary.Governance.McpTools, :ask)
+    tool(:query_knowledge, Cartulary.Governance.McpTools, :query_knowledge)
+    tool(:resolve_validation, Cartulary.Governance.McpTools, :resolve_validation)
+    tool(:set_ask_preference, Cartulary.Governance.McpTools, :set_ask_preference)
   end
 end
 

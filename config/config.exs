@@ -62,6 +62,15 @@ config :cartulary, :retrieval_profiles,
     deadline_ms: 1500
   }
 
+config :cartulary, :governance,
+  attach_deadline_ms: 15,
+  relevance_floor: 0.62,
+  max_per_session: 3,
+  max_per_day: 10,
+  max_attempts: 2,
+  attempt_cooldown_hours: 48,
+  answer_window_turns: 6
+
 # Configure the endpoint
 config :cartulary, CartularyWeb.Endpoint,
   url: [host: "localhost"],
