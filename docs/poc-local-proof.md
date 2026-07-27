@@ -140,6 +140,19 @@ These shortcuts are acceptable only for the local POC.
 
 ## Current Local Commands
 
+Create local configuration:
+
+```bash
+cp .env.example .env
+```
+
+Install pg0 into `/private/tmp` on macOS ARM64:
+
+```bash
+curl -fL https://github.com/vectorize-io/pg0/releases/latest/download/pg0-darwin-aarch64 -o /private/tmp/pg0
+chmod +x /private/tmp/pg0
+```
+
 Start pg0:
 
 ```bash

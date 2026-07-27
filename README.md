@@ -25,13 +25,59 @@ model endpoint such as OpenRouter with `openai/gpt-oss-120b`.
 mix cartulary.eval.smoke --profile balanced --account eval-poc
 ```
 
-## Local Run
+## Local Setup
 
-Start Postgres through pg0, then run migrations and the server:
+Prerequisites:
+
+- Elixir 1.17 or newer.
+- A local pg0 binary. The current POC expects a Postgres-compatible server on
+  `localhost:5432`.
+
+Install pg0 into `/private/tmp` on macOS ARM64:
+
+```bash
+curl -fL https://github.com/vectorize-io/pg0/releases/latest/download/pg0-darwin-aarch64 -o /private/tmp/pg0
+chmod +x /private/tmp/pg0
+```
+
+For another OS or CPU architecture, download the matching binary from the pg0
+releases page:
+
+```bash
+https://github.com/vectorize-io/pg0/releases
+```
+
+Create your local environment file:
+
+```bash
+cp .env.example .env
+```
+
+`OPENROUTER_API_KEY` is optional. If it is blank, the POC uses a deterministic
+fallback extractor so local tests and smoke runs still work. To use OpenRouter
+or another OpenAI-compatible endpoint, set:
+
+```bash
+OPENROUTER_API_KEY=...
+CARTULARY_OPENAI_COMPAT_BASE_URL=https://openrouter.ai/api/v1
+```
+
+Start Postgres through pg0:
 
 ```bash
 /private/tmp/pg0 start --name cartulary --port 5432 --username postgres --password postgres --database cartulary_dev
+```
+
+Install dependencies and migrate:
+
+```bash
+mix deps.get
 mix ecto.migrate
+```
+
+Start the Phoenix server:
+
+```bash
 mix phx.server
 ```
 
@@ -45,6 +91,20 @@ Health check:
 
 ```bash
 curl -fsS http://127.0.0.1:4000/api/health
+```
+
+Run the local smoke eval:
+
+```bash
+mix cartulary.eval.smoke --profile balanced --account eval-poc
+```
+
+Run the test gate:
+
+```bash
+mix format --check-formatted
+mix compile --warnings-as-errors
+mix test
 ```
 
 ## POC Log
