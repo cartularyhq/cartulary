@@ -7,6 +7,13 @@ concept, not a finished product architecture.
 The POC can run against local Postgres from pg0 and use an OpenAI-compatible
 model endpoint such as OpenRouter with `openai/gpt-oss-120b`.
 
+The target free self-host core is documented in
+`docs/roadmap/free-core-roadmap.md`. That plan starts from the POC handoff,
+keeps the ARCH directive of one codebase and identical guarantees, and lays out
+the Ash/Phoenix/Oban architecture, abstraction layers, decomposition, migration
+phases, and feature coverage needed for a complete single-Account community
+solution.
+
 ## What Runs Today
 
 - Phoenix API skeleton with health, ingest, search, ask, context, and knowledge
@@ -113,8 +120,19 @@ The implementation log, known shortcuts, verification evidence, and refactor
 plan are maintained in:
 
 - `docs/poc-local-proof.md`
+- `docs/roadmap/free-core-roadmap.md`
 
-Read that document before treating any POC code as an architectural precedent.
+Read both documents before treating any POC code as an architectural precedent
+or before migrating POC behavior into the free-core architecture.
+
+## Free Core Direction
+
+The free core is intended to include the full memory engine, single-node
+self-hosting, local/offline model options, MCP, generated SDKs, gateway proxy,
+basic RBAC, governed validation, document ingestion, retrieval, export/import,
+and release-grade evals. Enterprise remains the scale and compliance tier:
+multiple Accounts, queue mode, SSO/SAML/SCIM, schema/db-per-Account isolation,
+CMK, SIEM streaming, and advanced compliance operations.
 
 ## License
 
@@ -166,3 +184,30 @@ mix credo --strict
 mix dialyzer
 mix sobelow --config
 ```
+
+## Development Observability
+
+Cartulary can export development traces through OpenTelemetry. The local
+collector stack is in `dev/observability/` and gives you Jaeger for traces,
+Prometheus for collector metrics, collector debug logs, and an optional
+Langfuse-forwarding config for LLM experiment analysis.
+
+Start the stack:
+
+```bash
+docker compose -f dev/observability/docker-compose.yml up
+```
+
+Enable app export in `.env`:
+
+```bash
+CARTULARY_OTEL_ENABLED=true
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:14318
+```
+
+Watch traces at `http://localhost:16686` with service `cartulary-dev`. The
+collector's host OTLP port defaults to `14318` to avoid common local `4318`
+conflicts; override `CARTULARY_OTEL_HTTP_PORT` if needed. Each HTTP response
+includes `x-trace-id`, which you can paste into Jaeger. Read
+`docs/observability/README.md` for the measurement checklist, Langfuse setup,
+safe logging defaults, and eval evidence workflow.

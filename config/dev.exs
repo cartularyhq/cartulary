@@ -8,8 +8,9 @@ config :cartulary, Cartulary.Repo,
   password: "postgres",
   hostname: "localhost",
   database: "cartulary_dev",
+  log: false,
   stacktrace: true,
-  show_sensitive_data_on_connection_error: true,
+  show_sensitive_data_on_connection_error: false,
   pool_size: 10
 
 # For development, we disable any cache and enable
@@ -54,8 +55,11 @@ config :cartulary, CartularyWeb.Endpoint,
 # Enable dev routes for dashboard and mailbox
 config :cartulary, dev_routes: true
 
-# Do not include metadata nor timestamps in development logs
-config :logger, :default_formatter, format: "[$level] $message\n"
+# Include request and trace metadata in development logs so terminal output can
+# be correlated with collector traces.
+config :logger, :default_formatter,
+  format: "[$level] $metadata$message\n",
+  metadata: [:request_id, :trace_id, :span_id]
 
 # Set a higher stacktrace during development. Avoid configuring such
 # in production as building large stacktraces may be expensive.

@@ -19,3 +19,13 @@ specifications.
 The current local POC implementation log is `docs/poc-local-proof.md`. Treat it
 as evidence of what runs today and as a debt list, not as a replacement for the
 architecture specs or ADRs.
+
+The architecture-first execution plan for completing the free self-host core is
+`docs/roadmap/free-core-roadmap.md`. It records the target abstraction layers,
+module decomposition, POC migration posture, and implementation phases while
+remaining subordinate to the blueprint anchors above.
+
+The current development observability runbook is
+`docs/observability/README.md`. Use it for local OpenTelemetry collection,
+Langfuse forwarding, trace/log safety defaults, and experiment measurement
+discipline.

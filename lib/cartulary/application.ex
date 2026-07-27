@@ -9,6 +9,8 @@ defmodule Cartulary.Application do
 
   @impl true
   def start(_type, _args) do
+    Cartulary.Observability.setup()
+
     children = [
       CartularyWeb.Telemetry,
       Cartulary.Repo,

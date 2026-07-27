@@ -9,6 +9,7 @@ defmodule Cartulary.Memory do
   """
 
   alias Cartulary.Clock
+  alias Cartulary.Observability
   alias Cartulary.Pipeline.Extractor
   alias Cartulary.Pipeline.ExtractWorker
   alias Cartulary.Repo
@@ -16,145 +17,225 @@ defmodule Cartulary.Memory do
   @default_limit 12
 
   def ingest_message(attrs) do
-    attrs = normalize_attrs(attrs)
-    sync_extract? = Map.get(attrs, "sync_extract", true)
-    enqueue_extract? = Map.get(attrs, "enqueue_extract", not sync_extract?)
+    Observability.with_span(:memory, "cartulary.memory.ingest_message", fn ->
+      attrs = normalize_attrs(attrs)
+      sync_extract? = Map.get(attrs, "sync_extract", true)
+      enqueue_extract? = Map.get(attrs, "enqueue_extract", not sync_extract?)
 
-    {:ok, message} =
-      Repo.transaction(fn ->
-        account = ensure_account!(Map.fetch!(attrs, "account_key"))
-        scope = ensure_scope!(account["id"], Map.fetch!(attrs, "scope_path"))
+      Observability.set_attributes(:memory, %{
+        "cartulary.ingest.sync_extract" => sync_extract?,
+        "cartulary.ingest.enqueue_extract" => enqueue_extract?,
+        "cartulary.message.role" => Map.get(attrs, "role", "user"),
+        "cartulary.message.content_length" =>
+          String.length(to_string(Map.get(attrs, "content", "")))
+      })
 
-        peer =
-          ensure_peer!(account["id"], Map.fetch!(attrs, "peer_key"), Map.get(attrs, "peer_name"))
+      {:ok, message} =
+        Repo.transaction(fn ->
+          account = ensure_account!(Map.fetch!(attrs, "account_key"))
+          scope = ensure_scope!(account["id"], Map.fetch!(attrs, "scope_path"))
 
-        session =
-          ensure_session!(account["id"], scope["id"], peer["id"], Map.fetch!(attrs, "session_id"))
+          peer =
+            ensure_peer!(
+              account["id"],
+              Map.fetch!(attrs, "peer_key"),
+              Map.get(attrs, "peer_name")
+            )
 
-        message = insert_message!(account["id"], scope["id"], peer["id"], session["id"], attrs)
+          session =
+            ensure_session!(
+              account["id"],
+              scope["id"],
+              peer["id"],
+              Map.fetch!(attrs, "session_id")
+            )
 
-        if enqueue_extract? do
-          %{message_id: message["id"]}
-          |> ExtractWorker.new(unique: [period: 86_400, keys: [:message_id]])
-          |> Oban.insert!()
-        end
+          message = insert_message!(account["id"], scope["id"], peer["id"], session["id"], attrs)
 
-        message
-      end)
+          if enqueue_extract? do
+            %{message_id: message["id"]}
+            |> ExtractWorker.new(unique: [period: 86_400, keys: [:message_id]])
+            |> OpentelemetryOban.insert!()
+          end
 
-    if sync_extract? do
-      {:ok, knowledge} = extract_message(message["id"])
-      {:ok, Map.put(message, "knowledge", knowledge)}
-    else
-      {:ok, message}
-    end
+          message
+        end)
+
+      Observability.set_attribute(:memory, "cartulary.message.id", message["id"])
+
+      if sync_extract? do
+        {:ok, knowledge} = extract_message(message["id"])
+
+        Observability.set_attribute(
+          :memory,
+          "cartulary.knowledge.created_count",
+          length(knowledge)
+        )
+
+        {:ok, Map.put(message, "knowledge", knowledge)}
+      else
+        {:ok, message}
+      end
+    end)
   end
 
   def extract_message(message_id) do
-    message = fetch_message!(message_id)
-    items = Extractor.extract(message)
+    Observability.with_span(:memory, "cartulary.memory.extract_message", fn ->
+      Observability.set_attribute(:memory, "cartulary.message.id", message_id)
 
-    {:ok, knowledge} =
-      Repo.transaction(fn ->
-        Enum.map(items, &insert_knowledge!(message, &1))
-      end)
+      message = fetch_message!(message_id)
+      items = Extractor.extract(message)
+      Observability.set_attribute(:memory, "cartulary.extract.item_count", length(items))
 
-    {:ok, knowledge}
+      {:ok, knowledge} =
+        Repo.transaction(fn ->
+          Enum.map(items, &insert_knowledge!(message, &1))
+        end)
+
+      Observability.set_attribute(:memory, "cartulary.knowledge.created_count", length(knowledge))
+      {:ok, knowledge}
+    end)
   end
 
   def query_knowledge(filters) do
-    filters = normalize_attrs(filters)
-    account = account_from_filters!(filters)
-    scope_paths = visible_scope_paths(account["id"], Map.get(filters, "scope_path", "/poc"))
-    state = Map.get(filters, "state", "active")
-    limit = parse_int(Map.get(filters, "limit"), @default_limit)
+    Observability.with_span(:memory, "cartulary.memory.query_knowledge", fn ->
+      filters = normalize_attrs(filters)
+      account = account_from_filters!(filters)
+      scope_paths = visible_scope_paths(account["id"], Map.get(filters, "scope_path", "/poc"))
+      state = Map.get(filters, "state", "active")
+      limit = parse_int(Map.get(filters, "limit"), @default_limit)
 
-    params = [db_uuid!(account["id"]), scope_paths, state, limit]
+      Observability.set_attributes(:memory, %{
+        "cartulary.knowledge.state" => state,
+        "cartulary.query.limit" => limit,
+        "cartulary.query.scope_count" => length(scope_paths)
+      })
 
-    """
-    SELECT k.id, k.statement, k.kind, k.confidence, k.sensitivity, k.state,
-           k.source_message_ids, k.extracting_model, k.pipeline_version,
-           s.path AS scope_path, k.inserted_at
-    FROM knowledge_items k
-    JOIN scopes s ON s.id = k.scope_id
-    WHERE k.account_id = $1
-      AND s.path = ANY($2)
-      AND k.state = $3
-    ORDER BY k.confidence DESC, k.inserted_at DESC
-    LIMIT $4
-    """
-    |> all(params)
+      params = [db_uuid!(account["id"]), scope_paths, state, limit]
+
+      rows =
+        """
+        SELECT k.id, k.statement, k.kind, k.confidence, k.sensitivity, k.state,
+               k.source_message_ids, k.extracting_model, k.pipeline_version,
+               s.path AS scope_path, k.inserted_at
+        FROM knowledge_items k
+        JOIN scopes s ON s.id = k.scope_id
+        WHERE k.account_id = $1
+          AND s.path = ANY($2)
+          AND k.state = $3
+        ORDER BY k.confidence DESC, k.inserted_at DESC
+        LIMIT $4
+        """
+        |> all(params)
+
+      Observability.set_attribute(:memory, "cartulary.query.result_count", length(rows))
+      rows
+    end)
   end
 
   def search(filters) do
-    filters = normalize_attrs(filters)
-    account = account_from_filters!(filters)
-    query = Map.get(filters, "query", "")
-    scope_path = Map.get(filters, "scope_path", "/poc")
-    profile = parse_profile(Map.get(filters, "profile", "balanced"))
-    limit = parse_int(Map.get(filters, "limit"), @default_limit)
-    deadline? = Map.get(filters, "deadline", "enabled")
-    started_at = System.monotonic_time(:millisecond)
+    Observability.with_span(:memory, "cartulary.memory.search", fn ->
+      filters = normalize_attrs(filters)
+      account = account_from_filters!(filters)
+      query = Map.get(filters, "query", "")
+      scope_path = Map.get(filters, "scope_path", "/poc")
+      profile = parse_profile(Map.get(filters, "profile", "balanced"))
+      limit = parse_int(Map.get(filters, "limit"), @default_limit)
+      deadline? = Map.get(filters, "deadline", "enabled")
+      started_at = System.monotonic_time(:millisecond)
 
-    profile_config = profile_config(profile)
-    strategies = Map.fetch!(profile_config, :strategies)
-    scope_paths = visible_scope_paths(account["id"], scope_path)
+      profile_config = profile_config(profile)
+      strategies = Map.fetch!(profile_config, :strategies)
+      scope_paths = visible_scope_paths(account["id"], scope_path)
 
-    strategy_results =
-      strategies
-      |> Enum.map(fn strategy ->
-        {strategy, run_strategy(strategy, account["id"], scope_paths, query, limit)}
-      end)
+      Observability.set_attributes(:memory, %{
+        "cartulary.retrieval.profile" => Atom.to_string(profile),
+        "cartulary.retrieval.profile_version" => Map.fetch!(profile_config, :version),
+        "cartulary.retrieval.strategy_count" => length(strategies),
+        "cartulary.query.limit" => limit,
+        "cartulary.query.text_length" => String.length(query),
+        "cartulary.query.scope_count" => length(scope_paths)
+      })
 
-    fused = fuse(strategy_results, limit)
+      strategy_results =
+        strategies
+        |> Enum.map(fn strategy ->
+          {strategy, run_strategy(strategy, account["id"], scope_paths, query, limit)}
+        end)
 
-    %{
-      "query" => query,
-      "profile" => Atom.to_string(profile),
-      "profile_version" => Map.fetch!(profile_config, :version),
-      "deadline" => deadline?,
-      "latency_ms" => System.monotonic_time(:millisecond) - started_at,
-      "contributed_strategies" =>
-        Enum.map(strategy_results, fn {strategy, rows} -> strategy_name(strategy, rows) end),
-      "dropped_strategies" => [],
-      "candidates" => fused
-    }
+      fused = fuse(strategy_results, limit)
+      latency_ms = System.monotonic_time(:millisecond) - started_at
+
+      Observability.set_attributes(:memory, %{
+        "cartulary.retrieval.candidate_count" => length(fused),
+        "cartulary.retrieval.latency_ms" => latency_ms
+      })
+
+      %{
+        "query" => query,
+        "profile" => Atom.to_string(profile),
+        "profile_version" => Map.fetch!(profile_config, :version),
+        "deadline" => deadline?,
+        "latency_ms" => latency_ms,
+        "contributed_strategies" =>
+          Enum.map(strategy_results, fn {strategy, rows} -> strategy_name(strategy, rows) end),
+        "dropped_strategies" => [],
+        "candidates" => fused
+      }
+    end)
   end
 
   def ask(attrs) do
-    attrs = normalize_attrs(attrs)
-    question = Map.fetch!(attrs, "question")
-    profile = Map.get(attrs, "profile", "thorough")
+    Observability.with_span(:memory, "cartulary.memory.ask", fn ->
+      attrs = normalize_attrs(attrs)
+      question = Map.fetch!(attrs, "question")
+      profile = Map.get(attrs, "profile", "thorough")
 
-    retrieval =
-      attrs
-      |> Map.put("query", question)
-      |> Map.put("profile", profile)
-      |> search()
+      Observability.set_attributes(:memory, %{
+        "cartulary.ask.question_length" => String.length(question),
+        "cartulary.retrieval.profile" => profile
+      })
 
-    candidates = Map.fetch!(retrieval, "candidates")
+      retrieval =
+        attrs
+        |> Map.put("query", question)
+        |> Map.put("profile", profile)
+        |> search()
 
-    answer =
-      if model_configured?() and candidates != [] do
-        model_answer(question, candidates)
-      else
-        fallback_answer(question, candidates)
-      end
+      candidates = Map.fetch!(retrieval, "candidates")
 
-    Map.merge(retrieval, answer)
+      answer =
+        if model_configured?() and candidates != [] do
+          model_answer(question, candidates)
+        else
+          fallback_answer(question, candidates)
+        end
+
+      Observability.set_attributes(:memory, %{
+        "cartulary.ask.candidate_count" => length(candidates),
+        "cartulary.ask.used_model" => model_configured?() and candidates != [],
+        "cartulary.ask.abstained" => Map.get(answer, "abstained", false)
+      })
+
+      Map.merge(retrieval, answer)
+    end)
   end
 
   def get_context(attrs) do
-    attrs = normalize_attrs(attrs)
-    knowledge = query_knowledge(Map.put(attrs, "limit", Map.get(attrs, "limit", 8)))
+    Observability.with_span(:memory, "cartulary.memory.get_context", fn ->
+      attrs = normalize_attrs(attrs)
+      knowledge = query_knowledge(Map.put(attrs, "limit", Map.get(attrs, "limit", 8)))
 
-    %{
-      "profile_version" => "poc-0",
-      "session_summary" => nil,
-      "scope_cards" => [],
-      "peer_profile" => [],
-      "knowledge" => knowledge
-    }
+      Observability.set_attribute(:memory, "cartulary.context.knowledge_count", length(knowledge))
+
+      %{
+        "profile_version" => "poc-0",
+        "session_summary" => nil,
+        "scope_cards" => [],
+        "peer_profile" => [],
+        "knowledge" => knowledge
+      }
+    end)
   end
 
   defp normalize_attrs(attrs) when is_map(attrs) do
@@ -535,8 +616,6 @@ defmodule Cartulary.Memory do
     |> Enum.take(16)
     |> Enum.map_join(" | ", &"#{&1}:*")
   end
-
-  defp lexical_tsquery(_query), do: ""
 
   defp normalize_path(path) when is_binary(path) do
     path

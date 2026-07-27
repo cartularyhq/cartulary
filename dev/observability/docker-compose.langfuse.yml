@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.157.0
+    command: ["--config=/etc/otelcol/config.yml"]
+    environment:
+      LANGFUSE_OTLP_ENDPOINT: ${LANGFUSE_OTLP_ENDPOINT:-https://cloud.langfuse.com/api/public/otel}
+      LANGFUSE_OTLP_AUTHORIZATION: ${LANGFUSE_OTLP_AUTHORIZATION:-Basic replace-me}
+    volumes:
+      - ./otel-collector-langfuse.yml:/etc/otelcol/config.yml:ro
+    ports:
+      - "${CARTULARY_OTEL_HTTP_PORT:-14318}:4318"
+      - "8888:8888"
+      - "8889:8889"
+    depends_on:
+      - jaeger
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+
+  prometheus:
+    image: prom/prometheus:latest
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=24h"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - otel-collector

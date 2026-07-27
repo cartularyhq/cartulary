@@ -7,3 +7,6 @@ Start with `l3-automation-flow.md` for the intended one-task-per-PR workflow.
 
 Use `manual-automation-setup.md` for repository-owner setup steps and
 `main-branch-ruleset.md` for the initial `main` branch ruleset checklist.
+
+Use `free-core-roadmap.md` for the architecture-first roadmap that migrates the
+working local POC into the complete free self-host core.

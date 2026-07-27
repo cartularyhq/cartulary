@@ -6,6 +6,90 @@ import Dotenvy
 env = source!([".env", System.get_env()])
 env_get = fn key, default -> Map.get(env, key, default) end
 
+env_true? = fn key ->
+  String.downcase(env_get.(key, "false")) in ~w(true 1 yes on)
+end
+
+env_bool = fn key, default ->
+  value = if default, do: "true", else: "false"
+  String.downcase(env_get.(key, value)) in ~w(true 1 yes on)
+end
+
+env_headers = fn key ->
+  key
+  |> env_get.("")
+  |> String.split(",", trim: true)
+  |> Enum.flat_map(fn header ->
+    case String.split(header, "=", parts: 2) do
+      [name, value] -> [{String.trim(name), String.trim(value)}]
+      _ -> []
+    end
+  end)
+end
+
+env_protocol = fn key, default ->
+  case env_get.(key, default) do
+    "grpc" -> :grpc
+    "http_protobuf" -> :http_protobuf
+    _ -> :http_protobuf
+  end
+end
+
+env_float = fn key, default ->
+  case Float.parse(env_get.(key, default)) do
+    {value, ""} -> value
+    _ -> String.to_float(default)
+  end
+end
+
+env_sampler = fn ->
+  sampler = env_get.("OTEL_TRACES_SAMPLER", "parentbased_always_on")
+
+  case sampler do
+    "always_on" ->
+      :always_on
+
+    "always_off" ->
+      :always_off
+
+    "traceidratio" ->
+      {:trace_id_ratio_based, env_float.("OTEL_TRACES_SAMPLER_ARG", "1.0")}
+
+    "parentbased_always_off" ->
+      {:parent_based, %{root: :always_off}}
+
+    "parentbased_traceidratio" ->
+      {:parent_based,
+       %{root: {:trace_id_ratio_based, env_float.("OTEL_TRACES_SAMPLER_ARG", "1.0")}}}
+
+    _ ->
+      {:parent_based, %{root: :always_on}}
+  end
+end
+
+env_oban_span_relationship = fn ->
+  case env_get.("CARTULARY_OTEL_OBAN_SPAN_RELATIONSHIP", "child") do
+    "link" -> :link
+    "none" -> :none
+    _ -> :child
+  end
+end
+
+env_otlp_config = fn ->
+  config = [
+    otlp_protocol: env_protocol.("OTEL_EXPORTER_OTLP_PROTOCOL", "http_protobuf"),
+    otlp_traces_protocol: env_protocol.("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", "http_protobuf"),
+    otlp_endpoint: env_get.("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318"),
+    otlp_headers: env_headers.("OTEL_EXPORTER_OTLP_HEADERS"),
+    otlp_traces_headers: env_headers.("OTEL_EXPORTER_OTLP_TRACES_HEADERS")
+  ]
+
+  case env_get.("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", nil) do
+    nil -> config
+    endpoint -> Keyword.put(config, :otlp_traces_endpoint, endpoint)
+  end
+end
+
 # config/runtime.exs is executed for all environments, including
 # during releases. It is executed after compilation and before the
 # system starts, so it is typically used to load production configuration
@@ -36,6 +120,44 @@ config :cartulary, :models,
   ingest: env_get.("CARTULARY_MODEL_INGEST", "openai/gpt-oss-120b"),
   dream: env_get.("CARTULARY_MODEL_DREAM", "openai/gpt-oss-120b"),
   ask: env_get.("CARTULARY_MODEL_ASK", "openai/gpt-oss-120b")
+
+otel_db_statement =
+  if env_true?.("CARTULARY_OTEL_DB_STATEMENT_ENABLED"), do: :enabled, else: :disabled
+
+config :cartulary, :observability,
+  db_statement: otel_db_statement,
+  http_spans: env_bool.("CARTULARY_OTEL_HTTP_SPANS_ENABLED", true),
+  phoenix_spans: env_bool.("CARTULARY_OTEL_PHOENIX_SPANS_ENABLED", true),
+  ecto_spans: env_bool.("CARTULARY_OTEL_ECTO_SPANS_ENABLED", false),
+  oban_spans: env_bool.("CARTULARY_OTEL_OBAN_SPANS_ENABLED", true),
+  oban_span_relationship: env_oban_span_relationship.(),
+  memory_spans: env_bool.("CARTULARY_OTEL_MEMORY_SPANS_ENABLED", true),
+  model_spans: env_bool.("CARTULARY_OTEL_MODEL_SPANS_ENABLED", true)
+
+config :opentelemetry,
+  resource: %{
+    :service => %{
+      name: env_get.("OTEL_SERVICE_NAME", "cartulary-dev"),
+      namespace: "cartulary"
+    },
+    :deployment => %{
+      environment: env_get.("CARTULARY_ENVIRONMENT", "development")
+    },
+    "cartulary.experiment.name" => env_get.("CARTULARY_EXPERIMENT_NAME", "local-dev"),
+    "cartulary.experiment.run_id" => env_get.("CARTULARY_EXPERIMENT_RUN_ID", "manual"),
+    "cartulary.retrieval.variant" => env_get.("CARTULARY_RETRIEVAL_VARIANT", "poc-baseline")
+  },
+  sampler: env_sampler.()
+
+if env_true?.("CARTULARY_OTEL_ENABLED") do
+  config :opentelemetry,
+    span_processor: :batch,
+    traces_exporter: :otlp
+
+  config :opentelemetry_exporter, env_otlp_config.()
+else
+  config :opentelemetry, traces_exporter: :none
+end
 
 if database_url = env_get.("DATABASE_URL", nil) do
   config :cartulary, Cartulary.Repo,

@@ -20,6 +20,10 @@ Before editing, read the smallest authoritative set needed for the task:
    instructions that govern the files you will touch.
 5. For work touching the current local POC, also read
    `docs/poc-local-proof.md`.
+6. For work migrating the POC toward the complete free self-host core, also read
+   `docs/roadmap/free-core-roadmap.md`.
+7. For observability, tracing, logging, telemetry, evaluation instrumentation,
+   or experiment-comparison work, also read `docs/observability/README.md`.
 
 Blueprint anchors are stable review handles. Preserve existing `FR-*`, `AD-*`,
 `AINV-*`, and `NFR-*` meanings unless the task explicitly asks for a blueprint
@@ -99,6 +103,10 @@ refactoring:
   Its implemented scope, shortcuts, and required refactors are logged in
   `docs/poc-local-proof.md`. Do not convert a POC shortcut into a permanent
   pattern without updating the relevant ADR/spec and citing the reason.
+- Use `docs/roadmap/free-core-roadmap.md` as the execution map for completing
+  the free self-host core. It does not replace the blueprint specs; it decomposes
+  their free-core scope into architecture boundaries, migration phases, and
+  feature coverage.
 - Implement only the requested scope. Do not opportunistically add later-roadmap
   artifacts such as `CONTRIBUTING.md`, `SECURITY.md`, PR templates,
   CODEOWNERS, CI workflows, prompt wiring, or automation unless the current task
@@ -111,6 +119,13 @@ refactoring:
 - Keep docs, code, tests, eval fixtures, and ADRs aligned. If behavior changes,
   update the closest durable documentation or explain why no doc update is
   needed.
+- Keep observability content-safe. Traces and logs may record ids, counts,
+  profile names, model names, strategy names, timings, token counts, and error
+  classes; they must not record raw messages, prompts, answers, API keys,
+  account keys, peer keys, restricted knowledge, or secrets.
+- Preserve per-request trace correlation. HTTP responses should expose
+  `x-trace-id`; callers with W3C `traceparent` should keep their incoming trace
+  id, and callers without one should get a newly generated request trace id.
 - Do not invent architecture that bypasses Ash, Phoenix, Oban, or the blueprint
   seams. If a new seam is unavoidable, document the reason and cite anchors.
 - Do not put `try`/`catch` or equivalent defensive wrappers around imports or

@@ -8,6 +8,10 @@ validation against Postgres.
 The broader POC implementation log and refactor list is maintained in
 `docs/poc-local-proof.md`.
 
+For development traces, experiment labels, Langfuse forwarding, and the
+measurement checklist that should accompany eval reports, read
+`docs/observability/README.md`.
+
 Minimal LoCoMo, LongMemEval, and BEAM benchmark results are checked in at
 `docs/eval/minimal-benchmark-results.md`, with raw JSON reports under
 `docs/eval/results/`.
