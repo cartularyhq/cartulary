@@ -113,6 +113,29 @@ end
 config :cartulary, CartularyWeb.Endpoint,
   http: [port: String.to_integer(env_get.("PORT", "4000"))]
 
+auth_signing_secret =
+  case env_get.("CARTULARY_AUTH_SIGNING_SECRET", nil) do
+    secret when is_binary(secret) and byte_size(secret) >= 64 ->
+      secret
+
+    _missing_or_short ->
+      if config_env() == :prod do
+        raise """
+        environment variable CARTULARY_AUTH_SIGNING_SECRET must contain at least
+        64 bytes. Generate an independent random secret.
+        """
+      else
+        :cartulary
+        |> Application.fetch_env!(CartularyWeb.Endpoint)
+        |> Keyword.fetch!(:secret_key_base)
+      end
+  end
+
+config :cartulary, :identity,
+  account_key: env_get.("CARTULARY_FREE_ACCOUNT_KEY", "local"),
+  account_name: env_get.("CARTULARY_FREE_ACCOUNT_NAME", "Local Cartulary"),
+  signing_secret: auth_signing_secret
+
 config :cartulary, :models,
   base_url: env_get.("CARTULARY_OPENAI_COMPAT_BASE_URL", "https://openrouter.ai/api/v1"),
   api_key: env_get.("OPENROUTER_API_KEY", nil),

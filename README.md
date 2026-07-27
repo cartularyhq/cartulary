@@ -3,8 +3,8 @@
 Cartulary is an Elixir/Ash/Phoenix/Oban memory system prototype for governed
 agent memory on the BEAM. The current repository state combines the frozen
 local POC contract with the implemented F1 Ash Domain Backbone and F2
-Transactional Writes, Audit, And Jobs; it is not yet a finished product
-architecture.
+Transactional Writes, Audit, And Jobs plus F3 Identity, Tenancy, And Basic
+RBAC; it is not yet a finished product architecture.
 
 The POC can run against local Postgres from pg0 and use an OpenAI-compatible
 model endpoint such as OpenRouter with `openai/gpt-oss-120b`.
@@ -16,10 +16,11 @@ the Ash/Phoenix/Oban architecture, abstraction layers, decomposition, migration
 phases, and feature coverage needed for a complete single-Account community
 solution.
 
-Roadmap phases F0, F1, and F2 are complete. The current `poc-0` HTTP, persistence,
-scope inheritance, pipeline-only knowledge-write, Account-selection, and tiny
-eval fixture behavior remains frozen, while nine Ash Domains and 26 Resources
-own the F1 durable data boundary and F2 adds the durable `PipelineRun` resource.
+Roadmap phases F0 through F3 are complete. The current `poc-0` response,
+persistence, scope inheritance, pipeline-only knowledge-write, and tiny eval
+fixture behavior remains frozen. Nine Ash Domains and 28 Resources own the
+durable boundary; F3 intentionally replaces the POC Account header with
+identity-derived Account and scope authorization.
 
 ## What Runs Today
 
@@ -31,6 +32,11 @@ own the F1 durable data boundary and F2 adds the durable `PipelineRun` resource.
 - Ash actions and policies for Account isolation, scope reads, pipeline-only
   knowledge writes, governance separation, immutable content, and append-only
   ledgers.
+- AshAuthentication password/JWT identities for humans and hashed API-key
+  identities for agents, linked to Peers with assurance levels.
+- One authenticated community Account, enforced by a database free-edition
+  slot, with inherited allow/deny role grants for account-admin, curator,
+  member, and reader.
 - Transactional message/document ingestion that commits a content-safe
   hash-chain audit event, durable idempotency record, and AshOban job together.
 - Eleven AshOban lanes for extraction, dream-time, revalidation, expiry,
@@ -104,6 +110,15 @@ mix deps.get
 mix ecto.migrate
 ```
 
+Bootstrap the community Account and first administrator:
+
+```bash
+CARTULARY_BOOTSTRAP_PASSWORD='replace-with-a-long-password' \
+  mix cartulary.identity.bootstrap \
+    --email admin@example.test \
+    --name 'Local Admin'
+```
+
 Start the Phoenix server:
 
 ```bash
@@ -121,6 +136,17 @@ Health check:
 ```bash
 curl -fsS http://127.0.0.1:4000/api/health
 ```
+
+Sign in and use the returned token as `Authorization: Bearer <token>`:
+
+```bash
+curl -fsS -X POST http://127.0.0.1:4000/api/auth/password \
+  -H 'content-type: application/json' \
+  -d '{"email":"admin@example.test","password":"replace-with-a-long-password"}'
+```
+
+All `/api/v1` routes require a password JWT or agent API key. Account headers
+and Account fields in request bodies do not select tenancy.
 
 Run the local smoke eval:
 
@@ -159,8 +185,8 @@ The contract evidence covers:
 - all six HTTP endpoints: health, ingest, search, ask, context, and knowledge;
 - raw message persistence, pipeline-created knowledge, lifecycle insertion, and
   downward-only scope inheritance;
-- POC caller Account selection through `x-cartulary-account-key`, including a
-  regression proving body data cannot override it;
+- identity-derived HTTP Account selection, including regressions proving the
+  deprecated header and body data cannot override it;
 - the absence of a direct agent knowledge-write route; and
 - stable source hashes plus normalized IDs for the tiny Cartulary, LoCoMo,
   LongMemEval, and BEAM fixtures.
@@ -185,9 +211,8 @@ create-only; knowledge statements can only be minted or merged by a pipeline
 actor; lifecycle/audit/usage records are append-only.
 
 Account isolation is enforced by Ash actor/tenant policy and PostgreSQL RLS.
-The local POC edge still derives the Account key from
-`x-cartulary-account-key`; real authentication and single-Account free-mode
-enforcement remain F3 work.
+F3 now supplies the authenticated actor at the Phoenix edge; legacy account-key
+helpers are internal eval/migration compatibility adapters only.
 
 Read the implementation boundary, resource map, evidence, and transition
 tickets in `docs/architecture/f1-ash-domain-backbone.md`.
@@ -208,6 +233,22 @@ same job and queue implementation runs against pg0 and operator-run Postgres.
 Read the full transaction map, job/Reactor lanes, audit-chain format,
 later-phase boundaries, and evidence in
 `docs/architecture/f2-transactional-writes-audit-jobs.md`.
+
+## F3 Identity, Tenancy, And Basic RBAC
+
+Humans authenticate locally through the AshAuthentication password strategy
+and receive tenant-bound JWTs. Agents use per-Peer AshAuthentication API keys;
+only hashes are stored. External identity links record assurance, and every
+request actor receives effective scope roles from propagating grants with
+deny-wins subtree carve-outs.
+
+The community release provisions one authenticated Account. A later
+enterprise migration can replace that provisioning constraint without changing
+the identity-to-Ash-tenant/RLS contract.
+
+Read the identity flows, API-key RLS bootstrap, role algorithm, contract
+transition, and evidence in
+`docs/architecture/f3-identity-tenancy-basic-rbac.md`.
 
 ## Free Core Direction
 
@@ -251,10 +292,8 @@ The important cuts are intentional and temporary:
 - LoCoMo, LongMemEval, and BEAM fixture import/scoring exists for the POC, but
   upstream judge parity, ablation matrices, release thresholds, and backend
   parity evidence are not implemented.
-- Account identity is derived from an HTTP header for local testing. Ash
-  authorization and PostgreSQL RLS are implemented; production identity,
-  single-Account free enforcement, inherited RBAC, consent, and full Gate B
-  governance remain F3/F4 work.
+- F3 identity and basic RBAC are implemented. Human governance UI separation,
+  consent, validation queues, and the full Gate A/B lifecycle remain F4 work.
 
 ## Checks
 

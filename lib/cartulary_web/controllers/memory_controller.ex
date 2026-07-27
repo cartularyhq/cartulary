@@ -12,8 +12,7 @@ defmodule CartularyWeb.MemoryController do
   def ingest(conn, params) do
     {:ok, message} =
       params
-      |> with_account(conn)
-      |> Memory.ingest_message()
+      |> Memory.ingest_message(conn.assigns.current_actor)
 
     json(conn, %{data: message})
   end
@@ -21,8 +20,7 @@ defmodule CartularyWeb.MemoryController do
   def search(conn, params) do
     result =
       params
-      |> with_account(conn)
-      |> Memory.search()
+      |> Memory.search(conn.assigns.current_actor)
 
     json(conn, %{data: result})
   end
@@ -30,8 +28,7 @@ defmodule CartularyWeb.MemoryController do
   def ask(conn, params) do
     result =
       params
-      |> with_account(conn)
-      |> Memory.ask()
+      |> Memory.ask(conn.assigns.current_actor)
 
     json(conn, %{data: result})
   end
@@ -39,8 +36,7 @@ defmodule CartularyWeb.MemoryController do
   def context(conn, params) do
     result =
       params
-      |> with_account(conn)
-      |> Memory.get_context()
+      |> Memory.get_context(conn.assigns.current_actor)
 
     json(conn, %{data: result})
   end
@@ -48,22 +44,8 @@ defmodule CartularyWeb.MemoryController do
   def knowledge(conn, params) do
     result =
       params
-      |> with_account(conn)
-      |> Memory.query_knowledge()
+      |> Memory.query_knowledge(conn.assigns.current_actor)
 
     json(conn, %{data: result})
-  end
-
-  defp with_account(params, conn) do
-    account_key =
-      conn
-      |> get_req_header("x-cartulary-account-key")
-      |> List.first()
-      |> case do
-        nil -> "local-poc"
-        value -> value
-      end
-
-    Map.put(params, "account_key", account_key)
   end
 end

@@ -99,7 +99,8 @@ defmodule Cartulary.Topology.ScopeRelation do
     end
 
     policy action_type(:read) do
-      authorize_if {Cartulary.Policy.ScopeAccess, attribute: :source_scope_id}
+      authorize_if {Cartulary.Policy.ScopeRelationAccess,
+                    source_attribute: :source_scope_id, target_attribute: :target_scope_id}
     end
   end
 
@@ -133,11 +134,19 @@ defmodule Cartulary.Topology.RoleGrant do
     defaults [:read]
 
     create :create do
-      accept [:scope_id, :peer_id, :role, :propagate]
+      accept [
+        :scope_id,
+        :peer_id,
+        :role,
+        :effect,
+        :propagate,
+        :granted_by_peer_id,
+        :granted_at
+      ]
     end
 
     update :update do
-      accept [:role, :propagate]
+      accept [:role, :effect, :propagate]
     end
   end
 
@@ -151,7 +160,7 @@ defmodule Cartulary.Topology.RoleGrant do
     end
 
     policy action_type([:create, :update, :destroy]) do
-      authorize_if {Cartulary.Policy.RoleIn, roles: [:account_admin, :curator, :system]}
+      authorize_if {Cartulary.Policy.ScopeRole, attribute: :scope_id, roles: [:account_admin]}
     end
   end
 
@@ -161,12 +170,15 @@ defmodule Cartulary.Topology.RoleGrant do
     attribute :scope_id, :uuid, allow_nil?: false, public?: true
     attribute :peer_id, :uuid, allow_nil?: false, public?: true
     attribute :role, :string, allow_nil?: false, public?: true
+    attribute :effect, :string, allow_nil?: false, default: "allow", public?: true
     attribute :propagate, :boolean, allow_nil?: false, default: true, public?: true
+    attribute :granted_by_peer_id, :uuid, public?: true
+    attribute :granted_at, :utc_datetime_usec, allow_nil?: false, public?: true
     create_timestamp :inserted_at
     update_timestamp :updated_at
   end
 
   identities do
-    identity :unique_grant, [:scope_id, :peer_id]
+    identity :unique_grant, [:scope_id, :peer_id, :role, :effect]
   end
 end

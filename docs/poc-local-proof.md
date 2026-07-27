@@ -24,6 +24,9 @@ can be treated as the durable Cartulary architecture.
   observation/audit/AshOban writes, deterministic keys, per-Account hash
   chains, replay-safe extraction, Ash.Reactor continuations, and
   reconciliation.
+- Completed roadmap F3 with AshAuthentication password/JWT and API-key
+  identities, linked Peer assurance, one authenticated community Account,
+  Account RLS for credentials, and inherited deny-wins scope RBAC.
 - Converted `Cartulary.Memory` durable reads and writes to Ash actions while
   preserving `poc-0`; the remaining parameterized retrieval SQL is isolated in
   `Cartulary.Memory.Query` under the F7 transition ticket.
@@ -82,10 +85,12 @@ OpenRouter key.
 - `mix format --check-formatted` passed.
 - `mix compile --warnings-as-errors` passed.
 - `mix ecto.migrate` passed, including `CREATE EXTENSION IF NOT EXISTS vector`.
-- `mix test` passed with 33 tests, including the F0 HTTP, persistence,
+- `mix test` passed with 39 tests, including the F0 HTTP, persistence,
   inheritance, Account-selection, pipeline-write, lifecycle, deterministic
   fallback, eval-fixture contracts, the F1 Ash action/RLS suite, and the F2
-  transaction/audit/AshOban/Reactor/replay/provider-outage suite.
+  transaction/audit/AshOban/Reactor/replay/provider-outage suite plus F3
+  password/API-key, single-Account, opaque-failure, cross-link, and property
+  suites.
 - `mix ash.codegen --check` passed with no resource/snapshot drift.
 - The F1 suite passed against a newly created partitioned test database,
   exercising the complete migration chain from an empty database.
@@ -130,11 +135,10 @@ These shortcuts are acceptable only for the local POC.
   and sensitivity fields. It does not implement the full governed promotion
   matrix, consent handling, blast-radius checks, peer review, or manual
   validation.
-- **Identity remains POC-local.** API account selection still comes from
-  `x-cartulary-account-key`, although request bodies cannot override it and Ash
-  policy/tenancy plus PostgreSQL RLS now enforce the Account wall. F3 still
-  needs a real identity provider, key ownership, single-Account free-mode
-  enforcement, and inherited RBAC.
+- **Human identity is local free-core identity.** F3 now uses
+  AshAuthentication password/JWT identities and per-Peer API keys. Enterprise
+  SSO/SAML/SCIM, multi-Account provisioning, advanced RBAC administration, and
+  channel-linking UX remain later licensed/governance work.
 - **Retrieval is inline and partial.** Lexical, temporal, and salience/recency
   strategies are implemented as SQL branches in one module with RRF fusion.
   There are no strategy behaviours, per-strategy budgets, async fan-out,
@@ -166,38 +170,38 @@ These shortcuts are acceptable only for the local POC.
   eval normalization/scoring, and the missing direct knowledge-write route.
   F1 adds deterministic Ash action-policy and non-owner PostgreSQL RLS tests.
   F2 adds transactional rollback, actual AshOban extraction, replay,
-  hash-chain, reconciler, and provider-outage persistence coverage. The suite
-  does not yet cover real identity or the later phases' complete lifecycle,
+  hash-chain, reconciler, and provider-outage persistence coverage. F3 adds
+  identity, Account-wall, inheritance/deny, cross-link, and opaque-failure
+  coverage. The suite does not yet cover the later phases' complete lifecycle,
   connector, projection, and model-provider behavior.
 
 ## Required Refactors After POC
 
-1. Implement real identity-derived accounts, single-Account free enforcement,
-   and inherited scope RBAC over the F1 Ash policy/RLS boundary.
-2. Replace the placeholder Gate B with governed lifecycle actions for proposal,
+1. Replace the placeholder Gate B with governed lifecycle actions for proposal,
    validation, promotion, demotion, supersession, expiry, revalidation, consent,
    and audit.
-3. Split retrieval into strategy modules with explicit behaviours, profile
+2. Split retrieval into strategy modules with explicit behaviours, profile
    versions, weights, per-strategy evidence, deadline budgets, async fan-out,
    dropped-strategy reporting, and ablation support.
-4. Add embeddings: provider-neutral embedding role, local/offline embedding
+3. Add embeddings: provider-neutral embedding role, local/offline embedding
    path, `pgvector` column/index, backfill jobs, semantic retrieval, and rebuild
    evidence.
-5. Replace the direct OpenRouter client with the intended provider-neutral model
+4. Replace the direct OpenRouter client with the intended provider-neutral model
    seam while preserving OpenAI-compatible endpoints and local model options.
-6. Harden the LoCoMo, LongMemEval, and BEAM eval runner with upstream LLM-judge
+5. Harden the LoCoMo, LongMemEval, and BEAM eval runner with upstream LLM-judge
    parity, held-out tuning discipline, strategy-ablation matrices, regression
    thresholds, generated release reports, and operator-run Postgres parity
    evidence.
-7. Pin and package pg0 for local mode, supervise its lifecycle from the release,
+6. Pin and package pg0 for local mode, supervise its lifecycle from the release,
    handle port conflicts and stale data directories, and document the external
    Postgres escape hatch.
-8. Add durable projections and rebuildable caches for context reads, including
+7. Add durable projections and rebuildable caches for context reads, including
    session summaries, scope cards, peer profiles, and derived indexes.
-9. Expand tests beyond F2 transaction/replay/provider-outage coverage into real
-   dream-time, connector, projection, governance continuation, model fallback,
-   retrieval fusion, lifecycle audit, and eval smoke behavior.
-10. Wire the configured static analysis/security lanes into CI and branch
+8. Expand tests beyond F3 identity/RBAC and F2
+   transaction/replay/provider-outage coverage into real dream-time, connector,
+   projection, governance continuation, model fallback, retrieval fusion,
+   lifecycle audit, and eval smoke behavior.
+9. Wire the configured static analysis/security lanes into CI and branch
     protection when the repository automation is ready to maintain them.
 
 ## Current Local Commands

@@ -26,6 +26,10 @@ config :cartulary,
   ],
   generators: [timestamp_type: :utc_datetime]
 
+config :cartulary, :identity,
+  account_key: "local",
+  account_name: "Local Cartulary"
+
 config :cartulary, Oban,
   engine: Oban.Engines.Basic,
   repo: Cartulary.Repo,

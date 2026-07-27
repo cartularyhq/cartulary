@@ -1,0 +1,7 @@
+{
+  "installed": [
+    "pgcrypto",
+    "vector",
+    "citext"
+  ]
+}

@@ -55,3 +55,53 @@ defmodule Cartulary.Policy.RoleIn do
   def match?(%{role: role}, _context, opts), do: role in Keyword.fetch!(opts, :roles)
   def match?(_actor, _context, _opts), do: false
 end
+
+defmodule Cartulary.Policy.ScopeRelationAccess do
+  @moduledoc false
+
+  use Ash.Policy.FilterCheck
+
+  @impl true
+  def describe(_opts), do: "actor may read both ends of the scope relation"
+
+  @impl true
+  def filter(%{scope_ids: :all}, _context, _opts), do: true
+
+  def filter(%{scope_ids: scope_ids}, _context, opts) when is_list(scope_ids) do
+    source_attribute = Keyword.fetch!(opts, :source_attribute)
+    target_attribute = Keyword.fetch!(opts, :target_attribute)
+
+    expr(
+      ^ref(source_attribute) in ^scope_ids and
+        ^ref(target_attribute) in ^scope_ids
+    )
+  end
+
+  def filter(_actor, _context, _opts), do: false
+end
+
+defmodule Cartulary.Policy.ScopeRole do
+  @moduledoc false
+
+  use Ash.Policy.FilterCheck
+
+  @impl true
+  def describe(opts), do: "actor has a permitted role at #{opts[:attribute] || :scope_id}"
+
+  @impl true
+  def filter(%{role: :system}, _context, _opts), do: true
+
+  def filter(%{scope_roles: scope_roles}, _context, opts) when is_map(scope_roles) do
+    attribute = Keyword.get(opts, :attribute, :scope_id)
+    roles = Keyword.fetch!(opts, :roles)
+
+    scope_ids =
+      for {scope_id, role} <- scope_roles,
+          role in roles,
+          do: scope_id
+
+    expr(^ref(attribute) in ^scope_ids)
+  end
+
+  def filter(_actor, _context, _opts), do: false
+end

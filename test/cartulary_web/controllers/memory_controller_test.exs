@@ -3,6 +3,7 @@
 defmodule CartularyWeb.MemoryControllerTest do
   use CartularyWeb.ConnCase, async: false
 
+  alias Cartulary.Identity
   alias Cartulary.Memory
 
   setup do
@@ -22,7 +23,14 @@ defmodule CartularyWeb.MemoryControllerTest do
       Application.put_env(:cartulary, :models, original_models)
     end)
 
-    :ok
+    bootstrap =
+      Identity.bootstrap_human(%{
+        email: "admin@example.test",
+        name: "Test Admin",
+        password: "correct horse battery staple"
+      })
+
+    {:ok, actor: bootstrap.actor, token: bootstrap.token}
   end
 
   test "GET /api/health freezes the POC health contract", %{conn: conn} do
@@ -34,10 +42,13 @@ defmodule CartularyWeb.MemoryControllerTest do
     assert_trace_id(conn)
   end
 
-  test "POST /api/v1/ingest freezes raw ingest and extraction contract", %{conn: conn} do
+  test "POST /api/v1/ingest freezes raw ingest and extraction contract", %{
+    conn: conn,
+    token: token
+  } do
     conn =
       conn
-      |> with_account("http-ingest")
+      |> with_identity(token)
       |> post(~p"/api/v1/ingest", ingest_attrs("ingest-session", "/contract/http/ingest"))
 
     assert %{
@@ -55,12 +66,16 @@ defmodule CartularyWeb.MemoryControllerTest do
     assert_trace_id(conn)
   end
 
-  test "POST /api/v1/search freezes scoped retrieval contract", %{conn: conn} do
-    seed_memory!("http-search", "/contract/http/search")
+  test "POST /api/v1/search freezes scoped retrieval contract", %{
+    conn: conn,
+    actor: actor,
+    token: token
+  } do
+    seed_memory!(actor, "http-search", "/contract/http/search")
 
     conn =
       conn
-      |> with_account("http-search")
+      |> with_identity(token)
       |> post(~p"/api/v1/search", %{
         "scope_path" => "/contract/http/search",
         "query" => "release summaries"
@@ -79,12 +94,16 @@ defmodule CartularyWeb.MemoryControllerTest do
     assert_trace_id(conn)
   end
 
-  test "POST /api/v1/ask freezes grounded fallback answer contract", %{conn: conn} do
-    seed_memory!("http-ask", "/contract/http/ask")
+  test "POST /api/v1/ask freezes grounded fallback answer contract", %{
+    conn: conn,
+    actor: actor,
+    token: token
+  } do
+    seed_memory!(actor, "http-ask", "/contract/http/ask")
 
     conn =
       conn
-      |> with_account("http-ask")
+      |> with_identity(token)
       |> post(~p"/api/v1/ask", %{
         "scope_path" => "/contract/http/ask",
         "question" => "What kind of release summaries does Avery prefer?"
@@ -104,12 +123,16 @@ defmodule CartularyWeb.MemoryControllerTest do
     assert_trace_id(conn)
   end
 
-  test "POST /api/v1/context freezes reasoning-free context contract", %{conn: conn} do
-    seed_memory!("http-context", "/contract/http/context")
+  test "POST /api/v1/context freezes reasoning-free context contract", %{
+    conn: conn,
+    actor: actor,
+    token: token
+  } do
+    seed_memory!(actor, "http-context", "/contract/http/context")
 
     conn =
       conn
-      |> with_account("http-context")
+      |> with_identity(token)
       |> post(~p"/api/v1/context", %{"scope_path" => "/contract/http/context"})
 
     assert %{
@@ -126,12 +149,16 @@ defmodule CartularyWeb.MemoryControllerTest do
     assert_trace_id(conn)
   end
 
-  test "GET /api/v1/knowledge freezes structured knowledge reads", %{conn: conn} do
-    seed_memory!("http-knowledge", "/contract/http/knowledge")
+  test "GET /api/v1/knowledge freezes structured knowledge reads", %{
+    conn: conn,
+    actor: actor,
+    token: token
+  } do
+    seed_memory!(actor, "http-knowledge", "/contract/http/knowledge")
 
     conn =
       conn
-      |> with_account("http-knowledge")
+      |> with_identity(token)
       |> get(~p"/api/v1/knowledge?scope_path=/contract/http/knowledge")
 
     assert %{
@@ -148,10 +175,14 @@ defmodule CartularyWeb.MemoryControllerTest do
     assert_trace_id(conn)
   end
 
-  test "caller Account header overrides body Account data", %{conn: conn} do
+  test "authenticated identity overrides deprecated header and body Account data", %{
+    conn: conn,
+    token: token
+  } do
     conn =
       conn
-      |> with_account("caller-account")
+      |> put_req_header("x-cartulary-account-key", "header-selected-account")
+      |> with_identity(token)
       |> post(
         ~p"/api/v1/ingest",
         ingest_attrs("account-session", "/contract/http/account")
@@ -160,26 +191,26 @@ defmodule CartularyWeb.MemoryControllerTest do
 
     assert %{"data" => %{"knowledge" => [_ | _]}} = json_response(conn, 200)
 
-    assert %{rows: [["caller-account"]]} =
+    assert %{rows: [["local"]]} =
              Ecto.Adapters.SQL.query!(
                Cartulary.Repo,
                """
                SELECT account.key
                FROM accounts AS account
-               WHERE account.key IN ('caller-account', 'body-selected-account')
+               WHERE account.key IN ('local', 'header-selected-account', 'body-selected-account')
                ORDER BY account.key
                """
              )
   end
 
-  test "agents have no direct knowledge-write route", %{conn: conn} do
+  test "agents have no direct knowledge-write route", %{conn: conn, token: token} do
     refute Enum.any?(CartularyWeb.Router.__routes__(), fn route ->
              route.verb == :post and route.path == "/api/v1/knowledge"
            end)
 
     conn =
       conn
-      |> with_account("http-direct-write")
+      |> with_identity(token)
       |> post("/api/v1/knowledge", %{
         "statement" => "An agent tried to write this as knowledge.",
         "state" => "active"
@@ -198,12 +229,9 @@ defmodule CartularyWeb.MemoryControllerTest do
              )
   end
 
-  defp seed_memory!(account_key, scope_path) do
+  defp seed_memory!(actor, key, scope_path) do
     assert {:ok, _message} =
-             Memory.ingest_message(
-               ingest_attrs("#{account_key}-session", scope_path)
-               |> Map.put("account_key", account_key)
-             )
+             Memory.ingest_message(ingest_attrs("#{key}-session", scope_path), actor)
   end
 
   defp ingest_attrs(session_id, scope_path) do
@@ -216,9 +244,8 @@ defmodule CartularyWeb.MemoryControllerTest do
     }
   end
 
-  defp with_account(conn, account_key) do
-    put_req_header(conn, "x-cartulary-account-key", account_key)
-  end
+  defp with_identity(conn, token),
+    do: put_req_header(conn, "authorization", "Bearer #{token}")
 
   defp assert_trace_id(conn) do
     assert [trace_id] = get_resp_header(conn, "x-trace-id")

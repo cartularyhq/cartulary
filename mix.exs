@@ -48,6 +48,7 @@ defmodule Cartulary.MixProject do
       {:ecto_sql, "~> 3.13"},
       {:postgrex, ">= 0.0.0"},
       {:ash, "~> 3.30"},
+      {:ash_authentication, "~> 4.14"},
       {:ash_postgres, "~> 2.11"},
       {:ash_oban, "~> 0.8.10"},
       {:simple_sat, "~> 0.1.4"},
@@ -69,7 +70,8 @@ defmodule Cartulary.MixProject do
       {:bandit, "~> 1.5"},
       {:credo, "~> 1.7.19", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4.7", only: [:dev, :test], runtime: false},
-      {:sobelow, "~> 0.14.1", only: [:dev, :test], runtime: false}
+      {:sobelow, "~> 0.14.1", only: [:dev, :test], runtime: false},
+      {:stream_data, "~> 1.2"}
     ]
   end
 

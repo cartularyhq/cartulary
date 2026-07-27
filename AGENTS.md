@@ -137,13 +137,29 @@ refactoring:
   `Cartulary.Pipeline.Idempotency`; durable source records need a reconciler
   path; and content-bearing values must not be copied into audit metadata or
   Oban arguments.
+- F3 adds `Cartulary.Accounts.ApiKey` as the 28th Resource, makes HTTP Account
+  selection identity-derived, enforces one authenticated community Account,
+  and resolves deny-wins inherited basic roles. F3 evidence is kept in
+  `test/cartulary/f3_identity_tenancy_basic_rbac_test.exs`,
+  `test/cartulary_web/controllers/memory_controller_test.exs`,
+  `docs/architecture/f3-identity-tenancy-basic-rbac.md`,
+  `priv/resource_snapshots/`, and the `202607271555*`/`202607272055*`
+  migrations. Do not reintroduce request-selected Account identity, store
+  plaintext API keys, or bypass `Cartulary.Identity.RoleResolver` for
+  authenticated scope reads.
+- F3 role grants use exactly `account-admin`, `curator`, `member`, and `reader`
+  with `allow|deny` effects and per-grant propagation. Any applicable deny
+  removes access to that scope. Cross-linked scope reads require access to both
+  relation endpoints; a cross-link never grants access.
 - Direct Repo/Ecto SQL access is confined to infrastructure/data-layer modules
   and explicitly ticketed custom query helpers. The current exception is
   `Cartulary.Memory.Query`, whose removal ticket is roadmap F7.
   `Cartulary.Pipeline.Lock` is an F2 infrastructure helper for parameterized
-  transaction-scoped advisory locks and performs no durable write. New
-  exceptions require a named roadmap/issue transition and durable
-  documentation.
+  transaction-scoped advisory locks and performs no durable write.
+  `Cartulary.Identity.CredentialLocator` is the F3 bootstrap helper that maps
+  only an opaque AshAuthentication API-key id to `account_id` through the
+  reviewed security-definer function before Account RLS can be installed. New
+  exceptions require a named roadmap/issue transition and durable documentation.
 - Keep Ash resources and `priv/resource_snapshots/` synchronized. Resource
   changes must use `mix ash.codegen`, manually review generated migrations, and
   keep custom pgcrypto/pgvector/FTS/index/RLS DDL intact.

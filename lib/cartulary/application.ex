@@ -14,6 +14,7 @@ defmodule Cartulary.Application do
     children = [
       CartularyWeb.Telemetry,
       Cartulary.Repo,
+      {AshAuthentication.Supervisor, otp_app: :cartulary},
       {Oban,
        AshOban.config(
          Application.fetch_env!(:cartulary, :ash_domains),

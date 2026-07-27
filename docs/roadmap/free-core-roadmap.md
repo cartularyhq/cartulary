@@ -335,23 +335,32 @@ Account and scope authorization.
 
 Deliverables:
 
-- [ ] AshAuthentication local identity: password or magic-link for humans, API-key
+- [x] AshAuthentication local identity: password or magic-link for humans, API-key
   strategy for agents.
-- [ ] Peer and external identity linking with assurance levels.
-- [ ] Single-Account enforcement for the free release with an explicit migration
+- [x] Peer and external identity linking with assurance levels.
+- [x] Single-Account enforcement for the free release with an explicit migration
   path for later enterprise multi-Account enablement.
-- [ ] Role grants for account-admin, curator, member, reader with inheritance down
+- [x] Role grants for account-admin, curator, member, reader with inheritance down
   the scope tree.
-- [ ] Postgres RLS keyed on Account everywhere, even though free mode is limited to
+- [x] Postgres RLS keyed on Account everywhere, even though free mode is limited to
   one Account.
-- [ ] Scope read checks for containment path and cross-linked scopes.
+- [x] Scope read checks for containment path and cross-linked scopes.
 
 Acceptance:
 
-- [ ] Account is derived from authenticated identity on every surface.
-- [ ] Unknown or foreign IDs return non-leaking failures where required, especially
+- [x] Account is derived from authenticated identity on every surface.
+- [x] Unknown or foreign IDs return non-leaking failures where required, especially
   peer inline validation IDs.
-- [ ] Property tests cover account wall and scope inheritance.
+- [x] Property tests cover account wall and scope inheritance.
+
+F3 evidence lives in the AshAuthentication-enabled Account resources and
+identity/RBAC resolver under `lib/cartulary/`, the authenticated Phoenix edge,
+`priv/repo/migrations/20260727155503_f3_identity_tenancy_basic_rbac.exs`,
+`priv/resource_snapshots/`, and
+`test/cartulary/f3_identity_tenancy_basic_rbac_test.exs`. The identity,
+single-Account, RLS bootstrap, inherited deny-wins RBAC, cross-link, F0
+compatibility, and later enterprise migration seams are documented in
+`docs/architecture/f3-identity-tenancy-basic-rbac.md`.
 
 ### F4: Real Gate A/B Governance
 

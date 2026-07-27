@@ -4,10 +4,11 @@ defmodule Cartulary.DataLayer do
   @moduledoc """
   Infrastructure boundary for Account-scoped Ash transactions and PostgreSQL RLS.
 
-  The Account comes from the caller adapter, is installed as both the Ash
-  actor/tenant and transaction-local PostgreSQL settings, and cannot be
-  overridden by action input. F2 uses this same transaction for domain writes,
-  hash-chain audit, durable pipeline identities, and AshOban enqueue effects.
+  The Account comes from an authenticated actor (or a named internal
+  compatibility adapter), is installed as both the Ash actor/tenant and
+  transaction-local PostgreSQL settings, and cannot be overridden by action
+  input. F2 uses this same transaction for domain writes, hash-chain audit,
+  durable pipeline identities, and AshOban enqueue effects.
   """
 
   alias Cartulary.Accounts.Account
@@ -38,6 +39,55 @@ defmodule Cartulary.DataLayer do
     end
   end
 
+  def with_free_account(fun) when is_function(fun, 2) do
+    identity_config = Application.fetch_env!(:cartulary, :identity)
+    account_key = Keyword.fetch!(identity_config, :account_key)
+    account_name = Keyword.fetch!(identity_config, :account_name)
+
+    case Repo.transaction(fn ->
+           set_account_key!(account_key)
+
+           account =
+             Account
+             |> Ash.Changeset.for_create(:provision_free, %{
+               key: account_key,
+               name: account_name
+             })
+             |> Ash.create!(actor: Actor.bootstrap(account_key))
+
+           set_account_id!(account.id)
+           actor = Actor.for_account(account, role: :system)
+           fun.(account, actor)
+         end) do
+      {:ok, result} -> result
+      {:error, error} -> raise "Free Account transaction failed: #{inspect(error)}"
+    end
+  end
+
+  def with_existing_free_account(fun) when is_function(fun, 2) do
+    identity_config = Application.fetch_env!(:cartulary, :identity)
+    account_key = Keyword.fetch!(identity_config, :account_key)
+
+    case Repo.transaction(fn ->
+           set_account_key!(account_key)
+           bootstrap_actor = Actor.bootstrap(account_key)
+
+           account =
+             Account
+             |> Ash.Query.filter(key == ^account_key and edition_slot == "community-free")
+             |> Ash.read_one!(actor: bootstrap_actor)
+
+           if is_nil(account), do: raise(Ecto.NoResultsError, queryable: Account)
+
+           set_account_id!(account.id)
+           actor = Actor.for_account(account, role: :system)
+           fun.(account, actor)
+         end) do
+      {:ok, result} -> result
+      {:error, error} -> raise "Free Account lookup failed: #{inspect(error)}"
+    end
+  end
+
   def with_account_id(account_id, actor_overrides \\ [], fun)
       when is_binary(account_id) and is_function(fun, 2) do
     case Repo.transaction(fn ->
@@ -61,6 +111,23 @@ defmodule Cartulary.DataLayer do
          end) do
       {:ok, result} -> result
       {:error, error} -> raise "Account-scoped transaction failed: #{inspect(error)}"
+    end
+  end
+
+  def with_actor(%Actor{account_id: account_id} = actor, fun)
+      when is_binary(account_id) and is_function(fun, 2) do
+    case Repo.transaction(fn ->
+           set_account_id!(account_id)
+
+           account =
+             Account
+             |> Ash.Query.filter(id == ^account_id)
+             |> Ash.read_one!(actor: actor)
+
+           fun.(account, actor)
+         end) do
+      {:ok, result} -> result
+      {:error, error} -> raise "Identity-scoped transaction failed: #{inspect(error)}"
     end
   end
 

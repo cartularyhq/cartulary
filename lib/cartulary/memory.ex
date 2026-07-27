@@ -11,9 +11,11 @@ defmodule Cartulary.Memory do
   """
 
   alias Cartulary.Accounts.Peer
+  alias Cartulary.Actor
   alias Cartulary.Clock
   alias Cartulary.DataLayer
   alias Cartulary.Governance.Audit
+  alias Cartulary.Identity.RoleResolver
   alias Cartulary.Knowledge.Attribution
   alias Cartulary.Knowledge.KnowledgeItem
   alias Cartulary.Knowledge.LifecycleEvent
@@ -33,10 +35,9 @@ defmodule Cartulary.Memory do
 
   @default_limit 12
 
-  def ingest_message(attrs) do
+  def ingest_message(attrs, identity_actor \\ nil) do
     Observability.with_span(:memory, "cartulary.memory.ingest_message", fn ->
-      attrs = normalize_attrs(attrs)
-      account_key = Map.fetch!(attrs, "account_key")
+      attrs = attrs |> normalize_attrs() |> put_identity_actor(identity_actor)
       sync_extract? = Map.get(attrs, "sync_extract", true)
       enqueue_extract? = true
 
@@ -49,16 +50,10 @@ defmodule Cartulary.Memory do
       })
 
       message =
-        DataLayer.with_account_key(account_key, fn account, actor ->
+        with_account(attrs, fn account, actor ->
           scope = ensure_scope!(account.id, actor, Map.fetch!(attrs, "scope_path"))
 
-          peer =
-            ensure_peer!(
-              account.id,
-              actor,
-              Map.fetch!(attrs, "peer_key"),
-              Map.get(attrs, "peer_name")
-            )
+          {peer, actor} = request_peer_and_actor!(account, actor, attrs)
 
           session =
             ensure_session!(
@@ -94,7 +89,14 @@ defmodule Cartulary.Memory do
       Observability.set_attribute(:memory, "cartulary.message.id", message["id"])
 
       if sync_extract? do
-        {:ok, knowledge} = extract_message(message["id"], account_key)
+        {:ok, knowledge} =
+          case identity_actor(attrs) do
+            %Actor{account_id: account_id} ->
+              extract_message_for_account(message["id"], account_id)
+
+            nil ->
+              extract_message(message["id"], Map.fetch!(attrs, "account_key"))
+          end
 
         Observability.set_attribute(
           :memory,
@@ -142,9 +144,9 @@ defmodule Cartulary.Memory do
     end)
   end
 
-  def query_knowledge(filters) do
+  def query_knowledge(filters, identity_actor \\ nil) do
     Observability.with_span(:memory, "cartulary.memory.query_knowledge", fn ->
-      filters = normalize_attrs(filters)
+      filters = filters |> normalize_attrs() |> put_identity_actor(identity_actor)
       state = Map.get(filters, "state", "active")
       limit = parse_int(Map.get(filters, "limit"), @default_limit)
 
@@ -178,9 +180,9 @@ defmodule Cartulary.Memory do
     end)
   end
 
-  def search(filters) do
+  def search(filters, identity_actor \\ nil) do
     Observability.with_span(:memory, "cartulary.memory.search", fn ->
-      filters = normalize_attrs(filters)
+      filters = filters |> normalize_attrs() |> put_identity_actor(identity_actor)
       query = Map.get(filters, "query", "")
       scope_path = Map.get(filters, "scope_path", "/poc")
       profile = parse_profile(Map.get(filters, "profile", "balanced"))
@@ -236,9 +238,9 @@ defmodule Cartulary.Memory do
     end)
   end
 
-  def ask(attrs) do
+  def ask(attrs, identity_actor \\ nil) do
     Observability.with_span(:memory, "cartulary.memory.ask", fn ->
-      attrs = normalize_attrs(attrs)
+      attrs = attrs |> normalize_attrs() |> put_identity_actor(identity_actor)
       question = Map.fetch!(attrs, "question")
       profile = Map.get(attrs, "profile", "thorough")
 
@@ -272,9 +274,9 @@ defmodule Cartulary.Memory do
     end)
   end
 
-  def get_context(attrs) do
+  def get_context(attrs, identity_actor \\ nil) do
     Observability.with_span(:memory, "cartulary.memory.get_context", fn ->
-      attrs = normalize_attrs(attrs)
+      attrs = attrs |> normalize_attrs() |> put_identity_actor(identity_actor)
       knowledge = query_knowledge(Map.put(attrs, "limit", Map.get(attrs, "limit", 8)))
 
       Observability.set_attribute(:memory, "cartulary.context.knowledge_count", length(knowledge))
@@ -300,6 +302,34 @@ defmodule Cartulary.Memory do
       account_id,
       actor
     )
+  end
+
+  defp request_peer_and_actor!(account, %Actor{peer_id: peer_id} = actor, _attrs)
+       when is_binary(peer_id) do
+    system = Actor.for_account(account, role: :system)
+    peer = read_one_by_id!(Peer, peer_id, account.id, system)
+
+    refreshed_actor =
+      RoleResolver.resolve(account, peer,
+        identity_id: actor.identity_id,
+        kind: actor.identity_kind,
+        assurance: actor.assurance,
+        api_key: %{scope_id: actor.credential_scope_id}
+      )
+
+    {peer, refreshed_actor}
+  end
+
+  defp request_peer_and_actor!(account, actor, attrs) do
+    peer =
+      ensure_peer!(
+        account.id,
+        actor,
+        Map.fetch!(attrs, "peer_key"),
+        Map.get(attrs, "peer_name")
+      )
+
+    {peer, actor}
   end
 
   defp ensure_scope!(account_id, actor, path) do
@@ -602,6 +632,9 @@ defmodule Cartulary.Memory do
     |> Ash.create!(actor: actor)
   end
 
+  defp with_account(%{"_cartulary_actor" => %Actor{} = actor}, fun),
+    do: DataLayer.with_actor(actor, fun)
+
   defp with_account(%{"account_key" => key}, fun) when is_binary(key),
     do: DataLayer.with_account_key(key, fun)
 
@@ -610,8 +643,16 @@ defmodule Cartulary.Memory do
 
   defp with_account(_filters, _fun) do
     raise ArgumentError,
-          "account_key is required; derive it from caller identity or x-cartulary-account-key"
+          "an authenticated identity actor or internal account adapter is required"
   end
+
+  defp put_identity_actor(attrs, %Actor{} = actor),
+    do: Map.put(attrs, "_cartulary_actor", actor)
+
+  defp put_identity_actor(attrs, _actor), do: attrs
+
+  defp identity_actor(%{"_cartulary_actor" => %Actor{} = actor}), do: actor
+  defp identity_actor(_attrs), do: nil
 
   defp record_to_map(record) do
     record.__struct__

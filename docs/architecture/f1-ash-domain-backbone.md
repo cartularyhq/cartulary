@@ -12,7 +12,7 @@ contract while replacing the POC service's direct writes with Ash actions.
 
 | Ash domain | Resources |
 | --- | --- |
-| `Cartulary.Accounts` | Account, Peer, ExternalIdentity |
+| `Cartulary.Accounts` | Account, Peer, ExternalIdentity, ApiKey (added by F3) |
 | `Cartulary.Topology` | Scope, ScopeRelation, RoleGrant |
 | `Cartulary.Observations` | Session, SessionScope, SessionParticipant, Message, Document, DocumentVersion |
 | `Cartulary.Knowledge` | KnowledgeItem, Attribution, Provenance, KnowledgeRelation, LifecycleEvent, Projection, Entity, EntityMention |
@@ -57,10 +57,10 @@ The F1 Account wall has three in-process/database layers:
    `account_id`. Policies use transaction-local `cartulary.account_id` (and
    `cartulary.account_key` only while bootstrapping the POC Account).
 
-The local HTTP adapter still obtains the Account key from
-`x-cartulary-account-key`. F3 replaces that adapter with real identity,
-single-Account free-mode enforcement, and inherited RBAC; the Ash actor/tenant
-and RLS contract does not change.
+F3 has replaced the local HTTP Account header with password/JWT and API-key
+identities, single-Account free-mode enforcement, and inherited RBAC. The Ash
+actor/tenant and RLS contract introduced here did not change; legacy
+account-key adapters remain internal to eval/migration compatibility paths.
 
 ## Migration and evidence
 
@@ -80,3 +80,8 @@ pipeline-run records, and AshOban enqueue effects. Its implementation boundary
 and evidence are documented in
 `docs/architecture/f2-transactional-writes-audit-jobs.md`. F7 owns the
 remaining retrieval SQL transition.
+
+F3 adds the 28th Resource, `Cartulary.Accounts.ApiKey`, and the authenticated
+edge/RBAC resolver without changing F1's domain ownership. Its implementation
+and evidence are documented in
+`docs/architecture/f3-identity-tenancy-basic-rbac.md`.
