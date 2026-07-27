@@ -325,7 +325,7 @@ is visible rather than silent.
 Both additions depend on §4.2's apparatus to be measurable, which is why the
 sequencing in §5 puts evaluation first.
 
-### 4.4 `AD-PIPE-8` — read/write cost asymmetry
+### 4.4 `AD-PIPE-9` — read/write cost asymmetry
 
 A new anchor stating an existing policy:
 
@@ -400,7 +400,7 @@ evaluation spec, which does not exist.
    tier. Fill in `NFR-1`'s bands.
 3. Specify `EV-TASK`. It is independent of entity resolution and measures the
    moat that has no instrument.
-4. Blueprint re-anchoring, the `AD-PIPE-8` principle, the FR §12 non-goal, and
+4. Blueprint re-anchoring, the `AD-PIPE-9` principle, the FR §12 non-goal, and
    the ARCH §18 deferral. All documentation, all independent of the above, and
    all doable in parallel.
 5. ADR-0006 and entity resolution, measured against the step-2 baseline.
@@ -411,7 +411,7 @@ evaluation spec, which does not exist.
 |---|---|
 | Entity resolution, `EntityMatch`, stage-4 retarget | ADR-0006 (new) |
 | Entity resource and mention semantics | New `FR-KN-*` anchors |
-| Entity as derived cache; export exclusion | New `AD-DATA-*` anchor |
+| Entity as derived cache; export exclusion | `AD-DATA-10` (new) |
 | Erasure recomputation of entities | `FR-GOV-15` / `FR-GOV-16` amendment |
 | Entity identity as a `merge` signal | `FR-FORM-14` amendment |
 | `EntityMatch` in the strategy set and profiles | `AD-SEAM-3` and ADR-0004 amendments |
@@ -419,7 +419,7 @@ evaluation spec, which does not exist.
 | `EV-TASK` | Evaluation-framework spec (to be written) |
 | Token efficiency | `NFR-11` (new) |
 | `ask` and `search` bands | `NFR-1` amendment |
-| Read/write asymmetry | `AD-PIPE-8` (new) |
+| Read/write asymmetry | `AD-PIPE-9` (new) |
 | Moat citations; incumbent-number counter | Blueprint §6, §7, §16 |
 | Agent-writes non-goal | FR §12 |
 | Peer merge | ARCH §18 |
@@ -443,7 +443,7 @@ deterministic PR gate rather than the release tier.
 
 **Dream-time cost grows.** Resolution adds a stage to a lane that is already
 budget-capped and shed first (`AD-PIPE-3`). The failure mode is unresolved
-mentions and staler projections, consistent with `AD-PIPE-8`.
+mentions and staler projections, consistent with `AD-PIPE-9`.
 
 **`EV-TASK` fixtures overfit.** A hand-built repeated-task fixture can be
 constructed to show improvement. Mitigation: the same held-out discipline
