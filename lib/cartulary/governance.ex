@@ -33,14 +33,16 @@ defmodule Cartulary.Governance.AuditEvent do
       accept [
         :scope_id,
         :actor_peer_id,
+        :category,
         :action,
         :resource_type,
         :resource_id,
         :metadata,
-        :previous_hash,
-        :event_hash,
+        :content_hash,
         :occurred_at
       ]
+
+      change Cartulary.Governance.Changes.HashAuditEvent
     end
   end
 
@@ -64,10 +66,12 @@ defmodule Cartulary.Governance.AuditEvent do
     attribute :account_id, :uuid, allow_nil?: false
     attribute :scope_id, :uuid
     attribute :actor_peer_id, :uuid
+    attribute :category, :string, allow_nil?: false, public?: true
     attribute :action, :string, allow_nil?: false, public?: true
     attribute :resource_type, :string, allow_nil?: false, public?: true
     attribute :resource_id, :uuid, public?: true
     attribute :metadata, :map, allow_nil?: false, default: %{}
+    attribute :content_hash, :string, public?: true
     attribute :previous_hash, :string
     attribute :event_hash, :string, allow_nil?: false
     attribute :occurred_at, :utc_datetime_usec, allow_nil?: false, public?: true
@@ -90,10 +94,23 @@ defmodule Cartulary.Governance.PolicyConfig do
 
     create :create do
       accept [:scope_id, :key, :value, :version, :active]
+
+      change {Cartulary.Governance.Changes.AuditResource,
+              category: "configuration",
+              action: "policy_config.created",
+              resource_type: "policy_config",
+              content_fields: [:key, :value, :version, :active]}
     end
 
     update :update do
       accept [:value, :version, :active]
+      require_atomic? false
+
+      change {Cartulary.Governance.Changes.AuditResource,
+              category: "configuration",
+              action: "policy_config.updated",
+              resource_type: "policy_config",
+              content_fields: [:key, :value, :version, :active]}
     end
   end
 

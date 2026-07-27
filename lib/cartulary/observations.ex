@@ -6,7 +6,8 @@ defmodule Cartulary.Observations do
 
   Message and document-version content is create-only. This preserves
   `FR-FORM-7`, `FR-FORM-8`, and the authored-artifact versioning rule while
-  giving F2 a stable transaction boundary to extend.
+  F2 changes attach content hashes, audit, durable processing identity, and
+  AshOban enqueue effects to the same transaction.
   """
 
   use Ash.Domain
@@ -193,6 +194,14 @@ defmodule Cartulary.Observations.Message do
 
     create :create do
       accept [:session_id, :scope_id, :peer_id, :role, :content, :occurred_at]
+
+      change Cartulary.Observations.Changes.HashContent
+      change Cartulary.Observations.Changes.AuditAndEnqueueMessage
+    end
+
+    update :mark_extracted do
+      accept [:extraction_completed_at]
+      require_atomic? false
     end
   end
 
@@ -204,6 +213,10 @@ defmodule Cartulary.Observations.Message do
     policy action_type(:read) do
       authorize_if {Cartulary.Policy.ScopeAccess, attribute: :scope_id}
     end
+
+    policy action(:mark_extracted) do
+      authorize_if actor_attribute_equals(:pipeline?, true)
+    end
   end
 
   attributes do
@@ -214,7 +227,9 @@ defmodule Cartulary.Observations.Message do
     attribute :peer_id, :uuid, allow_nil?: false, public?: true
     attribute :role, :string, allow_nil?: false, public?: true
     attribute :content, :string, allow_nil?: false, public?: true
+    attribute :content_hash, :string, allow_nil?: false
     attribute :occurred_at, :utc_datetime_usec, allow_nil?: false, public?: true
+    attribute :extraction_completed_at, :utc_datetime_usec
     create_timestamp :inserted_at
     update_timestamp :updated_at
   end
@@ -292,10 +307,12 @@ defmodule Cartulary.Observations.DocumentVersion do
         :scope_id,
         :version,
         :content,
-        :content_hash,
         :media_type,
         :occurred_at
       ]
+
+      change Cartulary.Observations.Changes.HashContent
+      change Cartulary.Observations.Changes.AuditAndEnqueueDocument
     end
   end
 

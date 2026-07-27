@@ -20,6 +20,10 @@ can be treated as the durable Cartulary architecture.
   26-resource backbone, authoritative Ash actions/policies, attribute tenancy,
   PostgreSQL RLS, generated resource snapshots/migrations, and deterministic
   action/DB isolation tests.
+- Completed roadmap F2 with the `PipelineRun` resource, transactional
+  observation/audit/AshOban writes, deterministic keys, per-Account hash
+  chains, replay-safe extraction, Ash.Reactor continuations, and
+  reconciliation.
 - Converted `Cartulary.Memory` durable reads and writes to Ash actions while
   preserving `poc-0`; the remaining parameterized retrieval SQL is isolated in
   `Cartulary.Memory.Query` under the F7 transition ticket.
@@ -78,12 +82,17 @@ OpenRouter key.
 - `mix format --check-formatted` passed.
 - `mix compile --warnings-as-errors` passed.
 - `mix ecto.migrate` passed, including `CREATE EXTENSION IF NOT EXISTS vector`.
-- `mix test` passed with 26 tests, including the F0 HTTP, persistence,
+- `mix test` passed with 33 tests, including the F0 HTTP, persistence,
   inheritance, Account-selection, pipeline-write, lifecycle, deterministic
-  fallback, eval-fixture contracts, and the F1 Ash action/RLS suite.
+  fallback, eval-fixture contracts, the F1 Ash action/RLS suite, and the F2
+  transaction/audit/AshOban/Reactor/replay/provider-outage suite.
 - `mix ash.codegen --check` passed with no resource/snapshot drift.
 - The F1 suite passed against a newly created partitioned test database,
   exercising the complete migration chain from an empty database.
+- The F2 suite passed with a real manual-mode Oban queue drain through the
+  generated AshOban worker and ingest Reactor.
+- The combined F1/F2 suite passed against a newly created `f2` partitioned test
+  database, exercising the complete migration chain from an empty database.
 - `mix credo --strict` passed with no issues.
 - `mix dialyzer` passed with 0 errors.
 - `mix sobelow --config` passed with no findings after two targeted
@@ -112,9 +121,11 @@ wired as CI branch-protection gates.
 
 These shortcuts are acceptable only for the local POC.
 
-- **Oban is wired directly.** The target is Oban through AshOban with stronger
-  workflow ownership. The POC can enqueue extraction, but defaults to synchronous
-  extraction so smoke runs are deterministic.
+- **Later pipeline behavior is parked behind F2 continuations.** AshOban and
+  Ash.Reactor now own durable execution and the POC-compatible synchronous
+  response is replay-safe, but real dream-time, revalidation/expiry, connector,
+  import, projection, and answer-correlation semantics remain in their later
+  roadmap phases.
 - **Gate B is a placeholder.** The POC auto-activates knowledge from confidence
   and sensitivity fields. It does not implement the full governed promotion
   matrix, consent handling, blast-radius checks, peer review, or manual
@@ -154,39 +165,39 @@ These shortcuts are acceptable only for the local POC.
   knowledge persistence, creation lifecycle events, deterministic extraction,
   eval normalization/scoring, and the missing direct knowledge-write route.
   F1 adds deterministic Ash action-policy and non-owner PostgreSQL RLS tests.
-  The suite does not yet cover transactional rollback across audit/jobs, real
-  identity, Oban async extraction, the full lifecycle ledger, or provider
-  failure modes.
+  F2 adds transactional rollback, actual AshOban extraction, replay,
+  hash-chain, reconciler, and provider-outage persistence coverage. The suite
+  does not yet cover real identity or the later phases' complete lifecycle,
+  connector, projection, and model-provider behavior.
 
 ## Required Refactors After POC
 
-1. Add AshOban integration and make extraction, lifecycle, audit writes, and
-   job enqueueing transactionally owned by the Ash action layer.
-2. Implement real identity-derived accounts, single-Account free enforcement,
+1. Implement real identity-derived accounts, single-Account free enforcement,
    and inherited scope RBAC over the F1 Ash policy/RLS boundary.
-3. Replace the placeholder Gate B with governed lifecycle actions for proposal,
+2. Replace the placeholder Gate B with governed lifecycle actions for proposal,
    validation, promotion, demotion, supersession, expiry, revalidation, consent,
    and audit.
-4. Split retrieval into strategy modules with explicit behaviours, profile
+3. Split retrieval into strategy modules with explicit behaviours, profile
    versions, weights, per-strategy evidence, deadline budgets, async fan-out,
    dropped-strategy reporting, and ablation support.
-5. Add embeddings: provider-neutral embedding role, local/offline embedding
+4. Add embeddings: provider-neutral embedding role, local/offline embedding
    path, `pgvector` column/index, backfill jobs, semantic retrieval, and rebuild
    evidence.
-6. Replace the direct OpenRouter client with the intended provider-neutral model
+5. Replace the direct OpenRouter client with the intended provider-neutral model
    seam while preserving OpenAI-compatible endpoints and local model options.
-7. Harden the LoCoMo, LongMemEval, and BEAM eval runner with upstream LLM-judge
+6. Harden the LoCoMo, LongMemEval, and BEAM eval runner with upstream LLM-judge
    parity, held-out tuning discipline, strategy-ablation matrices, regression
    thresholds, generated release reports, and operator-run Postgres parity
    evidence.
-8. Pin and package pg0 for local mode, supervise its lifecycle from the release,
+7. Pin and package pg0 for local mode, supervise its lifecycle from the release,
    handle port conflicts and stale data directories, and document the external
    Postgres escape hatch.
-9. Add durable projections and rebuildable caches for context reads, including
+8. Add durable projections and rebuildable caches for context reads, including
    session summaries, scope cards, peer profiles, and derived indexes.
-10. Expand tests to cover transactional workflows, AshOban jobs, model fallback,
-    retrieval fusion, lifecycle audit, and eval smoke reports.
-11. Wire the configured static analysis/security lanes into CI and branch
+9. Expand tests beyond F2 transaction/replay/provider-outage coverage into real
+   dream-time, connector, projection, governance continuation, model fallback,
+   retrieval fusion, lifecycle audit, and eval smoke behavior.
+10. Wire the configured static analysis/security lanes into CI and branch
     protection when the repository automation is ready to maintain them.
 
 ## Current Local Commands

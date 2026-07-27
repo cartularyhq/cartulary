@@ -57,14 +57,19 @@ defmodule Cartulary.Knowledge.KnowledgeItem do
         :extracting_model,
         :pipeline_version
       ]
+
+      change Cartulary.Knowledge.Changes.HashStatement
     end
 
     update :merge_from_pipeline do
       accept [:confidence, :source_message_ids]
+      require_atomic? false
     end
 
     update :transition do
       accept [:state, :expires_at, :revalidate_after, :relevant_from, :relevant_until]
+      require_atomic? false
+      change Cartulary.Knowledge.Changes.RecordTransition
     end
   end
 
@@ -93,6 +98,7 @@ defmodule Cartulary.Knowledge.KnowledgeItem do
     attribute :subject_peer_id, :uuid, public?: true
     attribute :subject_scope_id, :uuid, public?: true
     attribute :statement, :string, allow_nil?: false, public?: true
+    attribute :statement_hash, :string, allow_nil?: false
     attribute :kind, :string, allow_nil?: false, default: "fact", public?: true
     attribute :confidence, :float, allow_nil?: false, default: 0.5, public?: true
     attribute :sensitivity, :string, allow_nil?: false, default: "internal", public?: true

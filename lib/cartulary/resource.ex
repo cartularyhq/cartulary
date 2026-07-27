@@ -6,13 +6,15 @@ defmodule Cartulary.Resource do
   defmacro __using__(opts) do
     domain = Keyword.fetch!(opts, :domain)
     table = Keyword.fetch!(opts, :table)
+    extensions = Keyword.get(opts, :extensions, [])
 
     quote do
       use Ash.Resource,
         otp_app: :cartulary,
         domain: unquote(domain),
         data_layer: AshPostgres.DataLayer,
-        authorizers: [Ash.Policy.Authorizer]
+        authorizers: [Ash.Policy.Authorizer],
+        extensions: unquote(extensions)
 
       postgres do
         table unquote(table)

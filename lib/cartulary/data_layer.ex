@@ -6,8 +6,8 @@ defmodule Cartulary.DataLayer do
 
   The Account comes from the caller adapter, is installed as both the Ash
   actor/tenant and transaction-local PostgreSQL settings, and cannot be
-  overridden by action input. F2 will extend these transactions with AshOban
-  and audit ownership.
+  overridden by action input. F2 uses this same transaction for domain writes,
+  hash-chain audit, durable pipeline identities, and AshOban enqueue effects.
   """
 
   alias Cartulary.Accounts.Account

@@ -14,7 +14,11 @@ defmodule Cartulary.Application do
     children = [
       CartularyWeb.Telemetry,
       Cartulary.Repo,
-      {Oban, Application.fetch_env!(:cartulary, Oban)},
+      {Oban,
+       AshOban.config(
+         Application.fetch_env!(:cartulary, :ash_domains),
+         Application.fetch_env!(:cartulary, Oban)
+       )},
       {DNSCluster, query: Application.get_env(:cartulary, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Cartulary.PubSub},
       # Start a worker by calling: Cartulary.Worker.start_link(arg)

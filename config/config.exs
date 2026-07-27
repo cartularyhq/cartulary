@@ -29,8 +29,21 @@ config :cartulary,
 config :cartulary, Oban,
   engine: Oban.Engines.Basic,
   repo: Cartulary.Repo,
-  queues: [ingest: 10, dream: 2],
+  queues: [
+    ingest: 10,
+    dream: 2,
+    lifecycle: 2,
+    projection: 2,
+    governance: 2,
+    connector: 2,
+    portability: 1,
+    reconciler: 1
+  ],
   plugins: false
+
+config :ash_oban,
+  authorize?: true,
+  shared_context: [:job]
 
 config :cartulary, :retrieval_profiles,
   fast: %{version: "poc-0", strategies: [:lexical, :salience_recency], deadline_ms: 250},

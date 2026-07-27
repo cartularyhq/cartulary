@@ -4,15 +4,16 @@ defmodule Cartulary.Memory do
   @moduledoc """
   Compatibility facade over authoritative Ash actions.
 
-  The public `poc-0` behavior remains frozen by F0, while F1 moves Account,
-  topology, observation, and knowledge reads/writes behind Ash tenancy,
-  policies, validations, and actions. Static retrieval SQL is isolated in
-  `Cartulary.Memory.Query` under the explicit F7 transition ticket.
+  The public `poc-0` behavior remains frozen by F0. F1 owns durable data
+  through Ash tenancy/actions and F2 owns transactional audit and AshOban
+  execution. Static retrieval SQL is isolated in `Cartulary.Memory.Query`
+  under the explicit F7 transition ticket.
   """
 
   alias Cartulary.Accounts.Peer
   alias Cartulary.Clock
   alias Cartulary.DataLayer
+  alias Cartulary.Governance.Audit
   alias Cartulary.Knowledge.Attribution
   alias Cartulary.Knowledge.KnowledgeItem
   alias Cartulary.Knowledge.LifecycleEvent
@@ -24,7 +25,8 @@ defmodule Cartulary.Memory do
   alias Cartulary.Observations.SessionParticipant
   alias Cartulary.Observations.SessionScope
   alias Cartulary.Pipeline.Extractor
-  alias Cartulary.Pipeline.ExtractWorker
+  alias Cartulary.Pipeline.Idempotency
+  alias Cartulary.Pipeline.Lock
   alias Cartulary.Topology.Scope
 
   require Ash.Query
@@ -36,7 +38,7 @@ defmodule Cartulary.Memory do
       attrs = normalize_attrs(attrs)
       account_key = Map.fetch!(attrs, "account_key")
       sync_extract? = Map.get(attrs, "sync_extract", true)
-      enqueue_extract? = Map.get(attrs, "enqueue_extract", not sync_extract?)
+      enqueue_extract? = true
 
       Observability.set_attributes(:memory, %{
         "cartulary.ingest.sync_extract" => sync_extract?,
@@ -86,12 +88,6 @@ defmodule Cartulary.Memory do
               actor
             )
 
-          if enqueue_extract? do
-            %{message_id: message.id, account_key: account.key}
-            |> ExtractWorker.new(unique: [period: 86_400, keys: [:message_id]])
-            |> OpentelemetryOban.insert!()
-          end
-
           record_to_map(message)
         end)
 
@@ -119,13 +115,27 @@ defmodule Cartulary.Memory do
       account_key = account_key || Query.message_account_key!(message_id)
 
       knowledge =
-        DataLayer.with_account_key(account_key, [role: :system, pipeline?: true], fn
-          account, actor ->
-            message = fetch_message!(account, actor, message_id)
-            items = Extractor.extract(message)
-            Observability.set_attribute(:memory, "cartulary.extract.item_count", length(items))
-            Enum.map(items, &insert_knowledge!(account.id, actor, message, &1))
-        end)
+        DataLayer.with_account_key(
+          account_key,
+          [role: :system, pipeline?: true],
+          &extract_in_account(&1, &2, message_id)
+        )
+
+      Observability.set_attribute(:memory, "cartulary.knowledge.created_count", length(knowledge))
+      {:ok, knowledge}
+    end)
+  end
+
+  def extract_message_for_account(message_id, account_id) do
+    Observability.with_span(:memory, "cartulary.memory.extract_message", fn ->
+      Observability.set_attribute(:memory, "cartulary.message.id", message_id)
+
+      knowledge =
+        DataLayer.with_account_id(
+          account_id,
+          [role: :system, pipeline?: true],
+          &extract_in_account(&1, &2, message_id)
+        )
 
       Observability.set_attribute(:memory, "cartulary.knowledge.created_count", length(knowledge))
       {:ok, knowledge}
@@ -378,99 +388,191 @@ defmodule Cartulary.Memory do
     })
   end
 
+  defp extract_in_account(account, actor, message_id) do
+    message = fetch_message!(account, actor, message_id)
+    items = Extractor.extract(message)
+    Observability.set_attribute(:memory, "cartulary.extract.item_count", length(items))
+    knowledge = Enum.map(items, &insert_knowledge!(account.id, actor, message, &1))
+    mark_message_extracted!(account.id, actor, message_id)
+    knowledge
+  end
+
   defp insert_knowledge!(account_id, actor, message, item) do
     state =
       if item.confidence >= 0.5 and item.sensitivity in ["public", "internal"],
         do: "active",
         else: "proposed"
 
+    statement_hash = Idempotency.content_hash(item.statement)
+    Lock.acquire!(account_id, "knowledge:#{message["scope_id"]}:#{statement_hash}")
+
     existing =
       KnowledgeItem
       |> Ash.Query.filter(
-        scope_id == ^message["scope_id"] and statement == ^item.statement and
+        scope_id == ^message["scope_id"] and statement_hash == ^statement_hash and
           state in ["active", "proposed"]
       )
       |> Ash.Query.limit(1)
       |> Ash.Query.set_tenant(account_id)
       |> Ash.read_one!(actor: actor)
 
-    knowledge =
+    {knowledge, created?} =
       if existing do
         source_message_ids = Enum.uniq(existing.source_message_ids ++ [message["id"]])
 
-        existing
-        |> Ash.Changeset.for_update(:merge_from_pipeline, %{
-          source_message_ids: source_message_ids,
-          confidence: max(existing.confidence, item.confidence)
-        })
-        |> Ash.Changeset.set_tenant(account_id)
-        |> Ash.update!(actor: actor)
+        knowledge =
+          existing
+          |> Ash.Changeset.for_update(:merge_from_pipeline, %{
+            source_message_ids: source_message_ids,
+            confidence: max(existing.confidence, item.confidence)
+          })
+          |> Ash.Changeset.set_tenant(account_id)
+          |> Ash.update!(actor: actor)
+
+        {knowledge, false}
       else
-        create!(
-          KnowledgeItem,
-          :create_from_pipeline,
-          %{
-            scope_id: message["scope_id"],
-            subject_peer_id: message["peer_id"],
-            statement: item.statement,
-            kind: item.kind,
-            confidence: item.confidence,
-            sensitivity: item.sensitivity,
-            state: state,
-            source_message_ids: [message["id"]],
-            extracting_model: item.extracting_model,
-            pipeline_version: item.pipeline_version
-          },
-          account_id,
-          actor
-        )
+        knowledge =
+          create!(
+            KnowledgeItem,
+            :create_from_pipeline,
+            %{
+              scope_id: message["scope_id"],
+              subject_peer_id: message["peer_id"],
+              statement: item.statement,
+              kind: item.kind,
+              confidence: item.confidence,
+              sensitivity: item.sensitivity,
+              state: state,
+              source_message_ids: [message["id"]],
+              extracting_model: item.extracting_model,
+              pipeline_version: item.pipeline_version
+            },
+            account_id,
+            actor
+          )
+
+        {knowledge, true}
       end
 
-    create!(
-      Attribution,
-      :create_from_pipeline,
-      %{
-        knowledge_item_id: knowledge.id,
-        scope_id: knowledge.scope_id,
-        target_type: "peer",
-        target_peer_id: message["peer_id"],
-        level: "self"
-      },
-      account_id,
-      actor
-    )
+    attribution = ensure_attribution!(account_id, actor, knowledge, message)
 
-    create!(
-      Provenance,
-      :create_from_pipeline,
-      %{
-        knowledge_item_id: knowledge.id,
-        scope_id: knowledge.scope_id,
-        source_type: "message",
-        message_id: message["id"],
-        extracting_model: item.extracting_model,
-        pipeline_version: item.pipeline_version,
-        occurred_at: Clock.utc_now()
-      },
-      account_id,
-      actor
-    )
+    ensure_provenance!(account_id, actor, knowledge, message, item)
 
-    create!(
-      LifecycleEvent,
-      :record,
-      %{
-        knowledge_item_id: knowledge.id,
+    if created? do
+      create!(
+        LifecycleEvent,
+        :record,
+        %{
+          knowledge_item_id: knowledge.id,
+          scope_id: knowledge.scope_id,
+          to_state: knowledge.state,
+          reason: "poc_auto_gate",
+          occurred_at: Clock.utc_now()
+        },
+        account_id,
+        actor
+      )
+
+      Audit.append!(actor, account_id, %{
         scope_id: knowledge.scope_id,
-        to_state: knowledge.state,
-        reason: "poc_auto_gate",
-        occurred_at: Clock.utc_now()
-      },
-      account_id,
-      actor
-    )
+        category: "gate",
+        action: "gate.poc_auto_decided",
+        resource_type: "knowledge_item",
+        resource_id: knowledge.id,
+        content_hash: statement_hash,
+        metadata: %{"to_state" => knowledge.state}
+      })
+
+      Audit.append!(actor, account_id, %{
+        scope_id: knowledge.scope_id,
+        category: "lifecycle",
+        action: "knowledge.created",
+        resource_type: "knowledge_item",
+        resource_id: knowledge.id,
+        content_hash: statement_hash,
+        metadata: %{"to_state" => knowledge.state}
+      })
+
+      Audit.append!(actor, account_id, %{
+        scope_id: knowledge.scope_id,
+        actor_peer_id: message["peer_id"],
+        category: "attribution",
+        action: "attribution.created",
+        resource_type: "attribution",
+        resource_id: attribution.id,
+        content_hash: statement_hash,
+        metadata: %{"knowledge_item_id" => knowledge.id, "level" => "self"}
+      })
+    end
 
     record_to_map(knowledge)
+  end
+
+  defp mark_message_extracted!(account_id, actor, message_id) do
+    message = read_one_by_id!(Message, message_id, account_id, actor)
+
+    message
+    |> Ash.Changeset.for_update(:mark_extracted, %{
+      extraction_completed_at: Clock.utc_now()
+    })
+    |> Ash.Changeset.set_tenant(account_id)
+    |> Ash.update!(actor: actor)
+  end
+
+  defp ensure_provenance!(account_id, actor, knowledge, message, item) do
+    existing =
+      Provenance
+      |> Ash.Query.filter(
+        knowledge_item_id == ^knowledge.id and source_type == "message" and
+          message_id == ^message["id"]
+      )
+      |> Ash.Query.limit(1)
+      |> Ash.Query.set_tenant(account_id)
+      |> Ash.read_one!(actor: actor)
+
+    existing ||
+      create!(
+        Provenance,
+        :create_from_pipeline,
+        %{
+          knowledge_item_id: knowledge.id,
+          scope_id: knowledge.scope_id,
+          source_type: "message",
+          message_id: message["id"],
+          extracting_model: item.extracting_model,
+          pipeline_version: item.pipeline_version,
+          occurred_at: Clock.utc_now()
+        },
+        account_id,
+        actor
+      )
+  end
+
+  defp ensure_attribution!(account_id, actor, knowledge, message) do
+    existing =
+      Attribution
+      |> Ash.Query.filter(
+        knowledge_item_id == ^knowledge.id and target_type == "peer" and
+          target_peer_id == ^message["peer_id"] and level == "self"
+      )
+      |> Ash.Query.limit(1)
+      |> Ash.Query.set_tenant(account_id)
+      |> Ash.read_one!(actor: actor)
+
+    existing ||
+      create!(
+        Attribution,
+        :create_from_pipeline,
+        %{
+          knowledge_item_id: knowledge.id,
+          scope_id: knowledge.scope_id,
+          target_type: "peer",
+          target_peer_id: message["peer_id"],
+          level: "self"
+        },
+        account_id,
+        actor
+      )
   end
 
   defp visible_scopes(account_id, actor, path) do
@@ -493,8 +595,10 @@ defmodule Cartulary.Memory do
 
   defp create!(resource, action, attrs, account_id, actor) do
     resource
-    |> Ash.Changeset.for_create(action, attrs)
+    |> Ash.Changeset.new()
     |> Ash.Changeset.set_tenant(account_id)
+    |> Ash.Changeset.set_context(%{cartulary_actor: actor})
+    |> Ash.Changeset.for_create(action, attrs)
     |> Ash.create!(actor: actor)
   end
 

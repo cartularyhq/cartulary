@@ -47,6 +47,7 @@ defmodule Cartulary.F1AshDomainBackboneTest do
     Cartulary.Observations.Session,
     Cartulary.Observations.SessionParticipant,
     Cartulary.Observations.SessionScope,
+    Cartulary.Operations.PipelineRun,
     Cartulary.Operations.UsageEvent,
     Cartulary.Retrieval.RetrievalProfile,
     Cartulary.Skills.SkillRequirementCard,
@@ -58,7 +59,7 @@ defmodule Cartulary.F1AshDomainBackboneTest do
   @rls_tables ~w(
     accounts attributions audit_events document_versions documents entities entity_mentions
     external_identities knowledge_items knowledge_lifecycle_events knowledge_relations
-    messages model_role_configs peers policy_configs projections provenances retrieval_profiles
+    messages model_role_configs peers pipeline_runs policy_configs projections provenances retrieval_profiles
     role_grants scope_relations scopes session_participants session_scopes sessions
     skill_requirement_cards usage_events
   )
@@ -149,7 +150,7 @@ defmodule Cartulary.F1AshDomainBackboneTest do
   end
 
   test "create-only content and append-only ledgers have no update or destroy actions" do
-    assert action_types(Message) == [:create, :read]
+    assert action_types(Message) == [:create, :read, :update]
     assert action_types(LifecycleEvent) == [:create, :read]
     assert action_types(AuditEvent) == [:create, :read]
 

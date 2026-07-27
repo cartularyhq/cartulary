@@ -126,10 +126,24 @@ refactoring:
   `priv/resource_snapshots/`, and
   `priv/repo/migrations/20260727142300_f1_ash_domain_backbone.exs`. Do not add
   durable writes outside Ash actions.
+- F2 adds `Cartulary.Operations.PipelineRun` as the 27th Resource and makes
+  raw observation, content-safe hash-chain audit, durable idempotency record,
+  and AshOban enqueue one transaction. F2 evidence is kept in
+  `test/cartulary/f2_transactional_writes_audit_jobs_test.exs`,
+  `docs/architecture/f2-transactional-writes-audit-jobs.md`,
+  `priv/resource_snapshots/`, and the two `202607271507*` migrations. Do not
+  enqueue pipeline work outside the `PipelineRun` Ash actions.
+- F2 pipeline execution is replay-safe. New jobs need a deterministic key in
+  `Cartulary.Pipeline.Idempotency`; durable source records need a reconciler
+  path; and content-bearing values must not be copied into audit metadata or
+  Oban arguments.
 - Direct Repo/Ecto SQL access is confined to infrastructure/data-layer modules
   and explicitly ticketed custom query helpers. The current exception is
-  `Cartulary.Memory.Query`, whose removal ticket is roadmap F7. New exceptions
-  require a named roadmap/issue transition and durable documentation.
+  `Cartulary.Memory.Query`, whose removal ticket is roadmap F7.
+  `Cartulary.Pipeline.Lock` is an F2 infrastructure helper for parameterized
+  transaction-scoped advisory locks and performs no durable write. New
+  exceptions require a named roadmap/issue transition and durable
+  documentation.
 - Keep Ash resources and `priv/resource_snapshots/` synchronized. Resource
   changes must use `mix ash.codegen`, manually review generated migrations, and
   keep custom pgcrypto/pgvector/FTS/index/RLS DDL intact.

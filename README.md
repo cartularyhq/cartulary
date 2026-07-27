@@ -2,8 +2,9 @@
 
 Cartulary is an Elixir/Ash/Phoenix/Oban memory system prototype for governed
 agent memory on the BEAM. The current repository state combines the frozen
-local POC contract with the implemented F1 Ash Domain Backbone; it is not yet a
-finished product architecture.
+local POC contract with the implemented F1 Ash Domain Backbone and F2
+Transactional Writes, Audit, And Jobs; it is not yet a finished product
+architecture.
 
 The POC can run against local Postgres from pg0 and use an OpenAI-compatible
 model endpoint such as OpenRouter with `openai/gpt-oss-120b`.
@@ -15,10 +16,10 @@ the Ash/Phoenix/Oban architecture, abstraction layers, decomposition, migration
 phases, and feature coverage needed for a complete single-Account community
 solution.
 
-Roadmap phases F0 and F1 are complete. The current `poc-0` HTTP, persistence,
+Roadmap phases F0, F1, and F2 are complete. The current `poc-0` HTTP, persistence,
 scope inheritance, pipeline-only knowledge-write, Account-selection, and tiny
 eval fixture behavior remains frozen, while nine Ash Domains and 26 Resources
-now own the durable data boundary.
+own the F1 durable data boundary and F2 adds the durable `PipelineRun` resource.
 
 ## What Runs Today
 
@@ -30,6 +31,15 @@ now own the durable data boundary.
 - Ash actions and policies for Account isolation, scope reads, pipeline-only
   knowledge writes, governance separation, immutable content, and append-only
   ledgers.
+- Transactional message/document ingestion that commits a content-safe
+  hash-chain audit event, durable idempotency record, and AshOban job together.
+- Eleven AshOban lanes for extraction, dream-time, revalidation, expiry,
+  projection/entity refresh, connector sync, portability rebuild,
+  reconciliation, and governance continuations.
+- Ash.Reactor flows for ingest extraction, dream-time reasoning, validation
+  continuation, and transcript answer correlation.
+- Per-Account SHA-256 audit chains and an Account-scoped reconciler for raw
+  messages not yet processed.
 - PostgreSQL RLS on every Account-scoped table, plus generated AshPostgres
   snapshots/migrations, foreign keys, FTS, and supporting indexes.
 - pgcrypto, Postgres FTS, Oban tables, and pgvector extension migration.
@@ -140,9 +150,9 @@ or before migrating POC behavior into the free-core architecture.
 ## Frozen POC Contract
 
 F0 freezes behavior, not the POC's internal design. `Cartulary.Memory` is now a
-compatibility facade over authoritative Ash actions. F2 will add transactional
-audit/AshOban ownership; the only remaining static SQL is the named F7
-retrieval transition helper in `Cartulary.Memory.Query`.
+compatibility facade over authoritative Ash actions. F2 owns transactional
+audit/AshOban behavior; the only remaining static retrieval SQL is the named
+F7 transition helper in `Cartulary.Memory.Query`.
 
 The contract evidence covers:
 
@@ -182,6 +192,23 @@ enforcement remain F3 work.
 Read the implementation boundary, resource map, evidence, and transition
 tickets in `docs/architecture/f1-ash-domain-backbone.md`.
 
+## F2 Transactional Writes, Audit, And Jobs
+
+Every message ingest now commits its raw observation, immutable content-safe
+audit event, deterministic `PipelineRun`, and AshOban job in one Postgres
+transaction. A failure after enqueue rolls the whole operation back. The raw
+write and job commit before any model call, so provider outages delay
+freshness rather than losing observations.
+
+Pipeline jobs use deterministic keys and Account-local advisory locks where a
+knowledge merge must serialize. Replays merge attribution/provenance into the
+existing item and do not duplicate knowledge or its creation lifecycle. The
+same job and queue implementation runs against pg0 and operator-run Postgres.
+
+Read the full transaction map, job/Reactor lanes, audit-chain format,
+later-phase boundaries, and evidence in
+`docs/architecture/f2-transactional-writes-audit-jobs.md`.
+
 ## Free Core Direction
 
 The free core is intended to include the full memory engine, single-node
@@ -215,8 +242,9 @@ The important cuts are intentional and temporary:
 
 - Core durable reads and writes now use Ash. The POC retrieval strategies still
   use static parameterized SQL in the explicit F7 transition helper.
-- Oban is wired directly for the POC; AshOban and full transactional workflow
-  ownership remain to be added.
+- F2 provides the durable lanes for dream-time, lifecycle, connector,
+  portability, and projection work. Their domain behavior remains owned by
+  F4/F5/F6/F9/F12 and currently stops at typed continuation seams.
 - Retrieval is Postgres FTS plus simple temporal and salience/recency queries;
   pgvector is enabled but semantic embeddings and ANN indexes are not yet
   implemented.

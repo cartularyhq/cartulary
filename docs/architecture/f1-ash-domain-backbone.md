@@ -75,6 +75,8 @@ Deterministic evidence is in:
 - the frozen F0 contract tests listed in `AGENTS.md`; and
 - `mix ash.codegen --check`, which detects resource/snapshot drift.
 
-F2 remains responsible for transactionally coupling state transitions, audit
-entries, and AshOban enqueue effects. F7 owns the remaining retrieval SQL
-transition.
+F2 now transactionally couples state transitions, audit entries, durable
+pipeline-run records, and AshOban enqueue effects. Its implementation boundary
+and evidence are documented in
+`docs/architecture/f2-transactional-writes-audit-jobs.md`. F7 owns the
+remaining retrieval SQL transition.

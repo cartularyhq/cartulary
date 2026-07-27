@@ -297,24 +297,36 @@ to one operation commits together.
 
 Deliverables:
 
-- [ ] AshOban integration for extraction, dream-time, revalidation, expiry,
+- [x] AshOban integration for extraction, dream-time, revalidation, expiry,
   projection refresh, connector sync, export/import cache rebuild, and
   reconciler jobs.
-- [ ] Ash.Reactor flows for ingest-time extraction, dream-time reasoning, validation
+- [x] Ash.Reactor flows for ingest-time extraction, dream-time reasoning, validation
   continuation, and answer-correlation continuation.
-- [ ] Idempotency keys for message extraction, document extraction, dream-time by
+- [x] Idempotency keys for message extraction, document extraction, dream-time by
   scope/watermark, projection refresh, entity resolution, and import rebuilds.
-- [ ] Hash-chained per-Account audit events for lifecycle, gate, attribution,
+- [x] Hash-chained per-Account audit events for lifecycle, gate, attribution,
   deletion, configuration, and governance decisions.
-- [ ] Reconciler jobs for durable records that were committed but not processed.
+- [x] Reconciler jobs for durable records that were committed but not processed.
 
 Acceptance:
 
-- [ ] Tests prove rollback removes the raw write, audit entry, and queued job
+- [x] Tests prove rollback removes the raw write, audit entry, and queued job
   together.
-- [ ] Re-running any pipeline job is safe and produces no duplicate knowledge beyond
+- [x] Re-running any pipeline job is safe and produces no duplicate knowledge beyond
   allowed provenance merges.
-- [ ] Ingest persists raw observations even when model providers are unavailable.
+- [x] Ingest persists raw observations even when model providers are unavailable.
+
+F2 evidence lives in `Cartulary.Operations.PipelineRun`, the AshOban triggers
+and Ash.Reactor flows under `lib/cartulary/pipeline/`,
+`priv/repo/migrations/20260727150730_f2_transactional_writes_audit_jobs.exs`,
+`priv/repo/migrations/20260727150740_update_oban_v14.exs`, and
+`test/cartulary/f2_transactional_writes_audit_jobs_test.exs`. The transaction,
+idempotency, audit-chain, reconciliation, and later-phase continuation
+boundaries are documented in
+`docs/architecture/f2-transactional-writes-audit-jobs.md`. The F0 `poc-0`
+surface remains compatible: synchronous extraction is an after-commit
+compatibility path while every ingest also commits its durable asynchronous
+work.
 
 ### F3: Identity, Tenancy, And Basic RBAC
 

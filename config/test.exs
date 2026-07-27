@@ -25,6 +25,8 @@ config :cartulary, CartularyWeb.Endpoint,
 # Print only warnings and errors during test
 config :logger, level: :warning
 
+config :cartulary, Oban, testing: :manual
+
 # Initialize plugs at runtime for faster test compilation
 config :phoenix, :plug_init_mode, :runtime
 
