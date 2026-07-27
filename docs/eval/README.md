@@ -16,6 +16,15 @@ Minimal LoCoMo, LongMemEval, and BEAM benchmark results are checked in at
 `docs/eval/minimal-benchmark-results.md`, with raw JSON reports under
 `docs/eval/results/`.
 
+F0 also freezes the four tiny input fixtures independently of volatile database
+UUIDs and latency values. `test/fixtures/eval/poc-contract-baseline.json`
+records each Cartulary, LoCoMo, LongMemEval, and BEAM fixture's SHA-256 plus its
+normalized case, message, and question IDs.
+
+```bash
+mix test test/cartulary/eval/fixture_contract_test.exs
+```
+
 ```bash
 mix cartulary.eval.smoke --profile balanced --account eval-poc
 ```

@@ -1,0 +1,53 @@
+{
+  "contract_version": "poc-0",
+  "fixtures": [
+    {
+      "benchmark": "cartulary",
+      "path": "test/fixtures/eval/cartulary-smoke.json",
+      "sha256": "0f4640648955c216f15bde411de889a33e8d14dd53c7e24e1a77fc26ce058a3a",
+      "normalized": {
+        "benchmark": "cartulary",
+        "source_format": "cartulary",
+        "case_ids": ["smoke"],
+        "message_ids": ["m1", "m2"],
+        "question_ids": ["q1"]
+      }
+    },
+    {
+      "benchmark": "locomo",
+      "path": "test/fixtures/eval/locomo-minimal.json",
+      "sha256": "a058aeaf8342849114adfecd77740602f4e277a1073ed7ba5f2f3f6dd1180704",
+      "normalized": {
+        "benchmark": "locomo",
+        "source_format": "locomo10",
+        "case_ids": ["locomo-minimal-1"],
+        "message_ids": ["D1:1", "D1:2", "D2:1", "D2:2"],
+        "question_ids": ["locomo-minimal-1-qa-1", "locomo-minimal-1-qa-2"]
+      }
+    },
+    {
+      "benchmark": "longmemeval",
+      "path": "test/fixtures/eval/longmemeval-minimal.json",
+      "sha256": "b0b857877602d4c23734a776260c101065ac935b26bf2daba1d033ef2dd4cd52",
+      "normalized": {
+        "benchmark": "longmemeval",
+        "source_format": "longmemeval-cleaned",
+        "case_ids": ["lme_minimal_ie", "lme_minimal_abs_abs"],
+        "message_ids": ["session_editor:1", "session_editor:2", "session_editor:1"],
+        "question_ids": ["lme_minimal_ie", "lme_minimal_abs_abs"]
+      }
+    },
+    {
+      "benchmark": "beam",
+      "path": "test/fixtures/eval/beam-minimal.json",
+      "sha256": "382b9ba04797284e11ff15c0746f9a70ad84cf80ec5786988b883563166913b6",
+      "normalized": {
+        "benchmark": "beam",
+        "source_format": "beam",
+        "case_ids": ["beam-minimal-128k", "beam-minimal-500k"],
+        "message_ids": ["b128-t1", "b128-t2", "b500-t1", "b500-t2", "b500-t3"],
+        "question_ids": ["beam-128k-if", "beam-500k-ku"]
+      }
+    }
+  ]
+}

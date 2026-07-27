@@ -107,6 +107,21 @@ refactoring:
   the free self-host core. It does not replace the blueprint specs; it decomposes
   their free-core scope into architecture boundaries, migration phases, and
   feature coverage.
+- Treat the completed F0 `poc-0` contract as the regression floor while
+  migrating internals. Changes to POC HTTP behavior, Account selection,
+  downward scope inheritance, raw-message persistence, pipeline-only knowledge
+  writes, lifecycle insertion, deterministic fallback, or normalized eval
+  fixtures must update the corresponding contract evidence and document whether
+  the contract remains `poc-0` or is intentionally versioned.
+- F0 contract evidence is kept in `test/cartulary/poc_contract_test.exs`,
+  `test/cartulary_web/controllers/memory_controller_test.exs`,
+  `test/cartulary/eval/fixture_contract_test.exs`, and
+  `test/fixtures/eval/poc-contract-baseline.json`. Run those tests before and
+  after any POC-to-Ash migration slice.
+- Roadmap checkboxes are evidence markers. Mark an F-phase deliverable or
+  acceptance item `[x]` only when implementation, regression evidence, and the
+  closest durable documentation are present and current; return it to `[ ]` if
+  that evidence is removed or fails.
 - Implement only the requested scope. Do not opportunistically add later-roadmap
   artifacts such as `CONTRIBUTING.md`, `SECURITY.md`, PR templates,
   CODEOWNERS, CI workflows, prompt wiring, or automation unless the current task

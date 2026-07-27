@@ -159,7 +159,17 @@ else
   config :opentelemetry, traces_exporter: :none
 end
 
-if database_url = env_get.("DATABASE_URL", nil) do
+# A developer's .env normally points at cartulary_dev and must not override the
+# sandboxed database from config/test.exs. CI may still opt into a test database
+# URL by exporting DATABASE_URL explicitly.
+database_url =
+  if config_env() == :test do
+    System.get_env("DATABASE_URL")
+  else
+    env_get.("DATABASE_URL", nil)
+  end
+
+if database_url do
   config :cartulary, Cartulary.Repo,
     url: database_url,
     pool_size: String.to_integer(env_get.("POOL_SIZE", "10"))

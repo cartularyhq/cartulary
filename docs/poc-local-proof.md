@@ -29,6 +29,16 @@ can be treated as the durable Cartulary architecture.
   - `POST /api/v1/ask`
   - `POST /api/v1/context`
   - `GET /api/v1/knowledge`
+- Froze the `poc-0` behavior as roadmap phase F0:
+  - HTTP contracts for all six endpoints.
+  - Database-backed contracts for caller Account selection, downward scope
+    inheritance, raw message persistence, pipeline-created knowledge, and
+    lifecycle insertion.
+  - A negative contract proving agents have no direct knowledge-write route.
+  - Stable hashes and normalized IDs for the tiny Cartulary, LoCoMo,
+    LongMemEval, and BEAM fixtures.
+  - Test database isolation from a development `DATABASE_URL` loaded through
+    `.env`.
 - Added a small smoke eval task:
 
 ```bash
@@ -61,7 +71,9 @@ OpenRouter key.
 - `mix format --check-formatted` passed.
 - `mix compile --warnings-as-errors` passed.
 - `mix ecto.migrate` passed, including `CREATE EXTENSION IF NOT EXISTS vector`.
-- `mix test` passed with 9 tests.
+- `mix test` passed with 22 tests, including the F0 HTTP, persistence,
+  inheritance, Account-selection, pipeline-write, lifecycle, deterministic
+  fallback, and eval-fixture contracts.
 - `mix credo --strict` passed with no issues.
 - `mix dialyzer` passed with 0 errors.
 - `mix sobelow --config` passed with no findings after two targeted
@@ -76,6 +88,9 @@ OpenRouter key.
 - Minimal LoCoMo, LongMemEval, and BEAM fixtures were run through the full
   benchmark runner and wrote repository-local JSON reports. Results are
   recorded in `docs/eval/minimal-benchmark-results.md`.
+- The Cartulary, LoCoMo, LongMemEval, and BEAM F0 fixtures match the committed
+  `poc-0` hash and normalization baseline in
+  `test/fixtures/eval/poc-contract-baseline.json`.
 - `GET /api/health` returned status `ok`.
 - HTTP ingest and ask were verified locally; the ask response returned a cited
   knowledge item extracted by `openai/gpt-oss-120b`.
@@ -126,10 +141,13 @@ These shortcuts are acceptable only for the local POC.
   implemented.
 - **Surfaces are minimal.** There is no LiveView, AshJsonApi, MCP server,
   gateway proxy, admin UI, import UI, or export UI.
-- **Tests are thin.** Current tests cover the deterministic extractor and
-  generated Phoenix error JSON. They do not yet cover database transactions,
-  account isolation, HTTP endpoints, Oban async extraction, lifecycle audit,
-  retrieval scoring, or model failure modes.
+- **Tests are still POC-scoped.** F0 now covers the six HTTP endpoints,
+  caller-header Account selection, downward scope inheritance, message and
+  knowledge persistence, creation lifecycle events, deterministic extraction,
+  eval normalization/scoring, and the missing direct knowledge-write route.
+  It does not yet cover transactional rollback across audit/jobs, real
+  identity/RLS isolation, Oban async extraction, the full lifecycle ledger, or
+  provider failure modes.
 
 ## Required Refactors After POC
 
@@ -201,6 +219,15 @@ Run the smoke eval:
 
 ```bash
 mix cartulary.eval.smoke --profile balanced --account eval-poc
+```
+
+Run the focused frozen POC contract:
+
+```bash
+mix test \
+  test/cartulary/poc_contract_test.exs \
+  test/cartulary_web/controllers/memory_controller_test.exs \
+  test/cartulary/eval/fixture_contract_test.exs
 ```
 
 Start the local API:

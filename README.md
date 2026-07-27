@@ -14,6 +14,11 @@ the Ash/Phoenix/Oban architecture, abstraction layers, decomposition, migration
 phases, and feature coverage needed for a complete single-Account community
 solution.
 
+Roadmap phase F0 is complete: the current `poc-0` HTTP, persistence, scope
+inheritance, pipeline-only knowledge-write, Account-selection, and tiny eval
+fixture behavior is frozen as a regression contract before the Ash migration
+begins.
+
 ## What Runs Today
 
 - Phoenix API skeleton with health, ingest, search, ask, context, and knowledge
@@ -124,6 +129,35 @@ plan are maintained in:
 
 Read both documents before treating any POC code as an architectural precedent
 or before migrating POC behavior into the free-core architecture.
+
+## Frozen POC Contract
+
+F0 freezes behavior, not the POC's internal design. `Cartulary.Memory` remains a
+temporary direct-SQL facade until F1/F2 replace it with Ash actions and
+transactional AshOban workflows.
+
+The contract evidence covers:
+
+- all six HTTP endpoints: health, ingest, search, ask, context, and knowledge;
+- raw message persistence, pipeline-created knowledge, lifecycle insertion, and
+  downward-only scope inheritance;
+- POC caller Account selection through `x-cartulary-account-key`, including a
+  regression proving body data cannot override it;
+- the absence of a direct agent knowledge-write route; and
+- stable source hashes plus normalized IDs for the tiny Cartulary, LoCoMo,
+  LongMemEval, and BEAM fixtures.
+
+Run the focused F0 contract:
+
+```bash
+mix test \
+  test/cartulary/poc_contract_test.exs \
+  test/cartulary_web/controllers/memory_controller_test.exs \
+  test/cartulary/eval/fixture_contract_test.exs
+```
+
+The authoritative checklist and evidence paths are in
+`docs/roadmap/free-core-roadmap.md`.
 
 ## Free Core Direction
 

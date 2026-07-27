@@ -6,6 +6,11 @@ defmodule Cartulary.Memory do
 
   This module is the single write path for raw observations and pipeline-created
   knowledge in the local proof of concept.
+
+  This is a temporary compatibility facade whose `poc-0` behavior is frozen by
+  the F0 contract tests. F1 and F2 replace its direct SQL with authoritative Ash
+  actions and transactional AshOban workflows; public callers should not add
+  new dependencies on this module or bypass it to write knowledge.
   """
 
   alias Cartulary.Clock
