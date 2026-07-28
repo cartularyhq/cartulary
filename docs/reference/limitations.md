@@ -30,7 +30,34 @@ transparently.
 with citation verification inside the loop is not there.
 
 **Connector administration and Account archive administration UIs.** Both are
-driven from the command line. See [Mix tasks](mix-tasks.md).
+driven from the command line. See [Mix tasks](mix-tasks.md). The
+[web console](../guides/web-console.md) shows connector status and sync history
+but cannot create, edit, or trigger one.
+
+## What the web console does not do
+
+**It does not edit gate rules or retrieval tunings.** Both change behaviour for
+everyone in a scope, so the operations page shows what is in force and nothing
+more; changing them is a database or code-level act today.
+
+**It does not administer peers, roles, or API keys.** Role grants are listed on
+the scope directory, but granting, revoking, and provisioning are Mix tasks.
+
+**It has no bulk export.** Panels are capped at 50 rows and the explorer pages
+25 at a time. A complete copy of an Account is the portability archive — see
+[Export and import](../operations/portability.md).
+
+**It never shows resolved entities.** Entity and mention rows are a private
+recall cache whose rows span every scope that mentioned a name, so no canonical
+name, alias, surface form, or entity identifier appears in the console,
+including in the graph. This is a permanent design rule, not a missing feature.
+
+**It shows no embedding vectors or chunk contents,** only their counts and
+identities. They are rebuildable caches.
+
+**Readiness checks are for yourself only.** Checking another peer's readiness
+in the browser would disclose which knowledge exists about them in scopes you
+may not hold; the JSON surface is where an agent checks its own peer.
 
 ## Evaluation evidence is deliberately small
 

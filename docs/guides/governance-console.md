@@ -2,13 +2,22 @@
 
 # Curating memory
 
-The governance console at `/governance` is where humans decide what the
-organisation believes. It is a LiveView application, reachable only by a human
-password session holding the `curator` or `account-admin` role.
+The governance queue at `/governance` is where humans decide what the
+organisation believes. It is part of the web console, but reachable only by a
+human password session holding the `curator` or `account-admin` role.
 
 ```bash
 open http://127.0.0.1:4000/governance/sign-in
 ```
+
+If you are already signed in at `/sign-in`, the queue appears in the console
+navigation — both doors write the same session.
+
+Individual decisions can also be taken from a statement's own page in the
+console, where the evidence and history sit alongside the controls. The queue
+is the place for working through everything that is waiting, including bulk
+approve, reject, and defer. See
+[Exploring memory in the web console](web-console.md).
 
 ## Signing in
 

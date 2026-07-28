@@ -26,14 +26,20 @@ reads an Account from a header, a query parameter, or a JSON body. The legacy
 `x-cartulary-account-key` header and `account_key` body fields are inert:
 accepted and ignored, so an old client fails closed into its own Account.
 
-## Four kinds of caller
+## Five kinds of caller
 
 | Caller | Credential | May reach |
 | --- | --- | --- |
-| Anonymous | none | `/api/health`, `/api/ready`, password sign-in, the curator sign-in form |
+| Anonymous | none | `/api/health`, `/api/ready`, password sign-in, the two browser sign-in forms |
 | Any authenticated identity | password token **or** agent API key | `/api/v1` memory routes, `/mcp` |
 | Human password identity | a token minted by password sign-in | additionally `/api/v1/self/*` |
-| Human curator browser session | cookie session + CSRF + role re-check on every mount | `/governance` |
+| Any human browser session | cookie session + CSRF + re-check on every mount | `/console/*` |
+| Human curator browser session | the same session, narrowed at mount to curator or account-admin | `/governance` |
+
+A browser session admits every human role, because reading the memory your
+grants reach is not privileged; the console pages decide what each role sees
+and may do. A machine credential cannot establish one at all — the sign-in
+forms accept only an email and password.
 
 An agent API key gets a 403 on `/api/v1/self/*` even when it belongs to the
 same peer as a human token. Contesting, redacting, and erasing one's own

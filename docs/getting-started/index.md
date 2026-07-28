@@ -50,7 +50,10 @@ Once running, Cartulary serves:
 
 - a JSON API at `/api/v1` for ingest, search, ask, context, and readiness;
 - an MCP endpoint at `/mcp` for agent tooling;
-- a curator web console at `/governance` for humans;
+- a web console at `/console` where any signed-in person can explore the memory
+  their roles reach, see where each statement came from, and act on what they
+  are entitled to act on;
+- a curator queue at `/governance` for approving, editing, and rejecting;
 - liveness and readiness probes at `/api/health` and `/api/ready`.
 
 The full list is in the [HTTP API reference](../reference/http-api.md).

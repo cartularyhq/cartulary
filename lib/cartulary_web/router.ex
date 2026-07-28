@@ -4,10 +4,11 @@ defmodule CartularyWeb.Router do
   @moduledoc """
   Every HTTP path into Cartulary, and the authentication each one demands.
 
-  There are four kinds of caller and they are kept strictly apart:
+  There are five kinds of caller and they are kept strictly apart:
 
-  - **Anonymous.** Only the liveness/readiness probes, the password sign-in endpoint, and the
-    curator sign-in form and its POST. No Account is resolved yet on these requests.
+  - **Anonymous.** Only the liveness/readiness probes, the password sign-in endpoint, the two
+    browser sign-in forms and their POSTs, and the bare origin's redirect. No Account is
+    resolved yet on these requests.
   - **Any authenticated identity** (`/api/v1` memory routes, `/mcp`). Requires
     `Authorization: Bearer <credential>`, where the credential is either a human sign-in token
     or an agent API key. This is the surface agents use.
@@ -15,8 +16,16 @@ defmodule CartularyWeb.Router do
     credential must have been minted by a password sign-in. An agent API key gets 403 here
     even if it belongs to the same peer, because contesting, redacting, and erasing one's own
     knowledge are personal decisions that a machine may not take on a person's behalf.
-  - **A human curator browser session** (`/governance/*`). Cookie session plus CSRF plus a
-    re-check on every LiveView mount, restricted to the account-admin and curator roles.
+  - **Any human browser session** (`/console/*`). Cookie session plus CSRF plus a re-check on
+    every LiveView mount. Every role is admitted — reading the memory your grants reach is
+    not privileged — and the pages themselves decide what each role may see and do.
+  - **A human curator browser session** (`/governance/*`). The same session, narrowed at
+    mount to the account-admin and curator roles. This is the only place curator decisions
+    can be taken.
+
+  Both browser surfaces read the same session key, so one sign-in opens whichever of them the
+  reader's role allows. Keep it that way: two keys would mean a curator signing in at one door
+  found the other locked.
 
   **Account is derived from the credential, never from the request.** The authentication plug
   resolves the verified identity into an actor and installs that actor's Account as the Ash
@@ -65,6 +74,11 @@ defmodule CartularyWeb.Router do
   pipeline :browser do
     plug :accepts, ["html"]
     plug :fetch_session
+    # Flash must be fetched on the HTTP request, not only inside the socket. A
+    # LiveView that puts a flash while still rendering statically — the
+    # operations page declining a member and redirecting, for instance — would
+    # otherwise raise instead of redirecting.
+    plug :fetch_live_flash
     plug :protect_from_forgery
     plug :put_root_layout, html: {CartularyWeb.Layouts, :root}
 
@@ -117,6 +131,41 @@ defmodule CartularyWeb.Router do
       post "/readiness", MemoryController, :readiness
       get "/knowledge", MemoryController, :knowledge
       get "/operations/costs", MemoryController, :costs
+    end
+  end
+
+  # The browser console: the reading and self-governance surface, open to every human role.
+  #
+  # Sign-in here stores the same session token the curator area reads, so a curator who signs
+  # in at this door does not have to sign in again at the other one.
+  scope "/", CartularyWeb do
+    pipe_through :browser
+
+    # The bare origin is a redirect rather than a page of its own. Whether the visitor is
+    # signed in is decided by the console's mount hook, in one place.
+    get "/", SessionController, :home
+
+    get "/sign-in", SessionController, :new
+    post "/sign-in", SessionController, :create
+    delete "/sign-out", SessionController, :delete
+
+    # The mount hook re-verifies the session token and the password identity kind on the
+    # initial render and again on every socket reconnect, redirecting to sign-in otherwise.
+    # It does not check the role: these pages admit readers, members, curators, and account
+    # admins alike, and each page decides for itself what that role may see and do. The
+    # operations page turns away anyone who is not an account admin, because the resources
+    # behind it refuse a lesser role outright rather than returning an empty result.
+    live_session :console,
+      on_mount: [{CartularyWeb.ConsoleAuth, :default}] do
+      live "/console", ConsoleLive.Dashboard, :index
+      live "/console/knowledge", ConsoleLive.Knowledge, :index
+      live "/console/knowledge/:id", ConsoleLive.KnowledgeDetail, :show
+      live "/console/scopes", ConsoleLive.Scopes, :index
+      live "/console/graph", ConsoleLive.Graph, :index
+      live "/console/sources", ConsoleLive.Sources, :index
+      live "/console/skills", ConsoleLive.Skills, :index
+      live "/console/me", ConsoleLive.Me, :index
+      live "/console/operations", ConsoleLive.Operations, :index
     end
   end
 

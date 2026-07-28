@@ -11,6 +11,37 @@ changelog entry and contract-version transition.
 
 ### Added
 
+- A browser console at `/console`, open to every human role. It carries an
+  overview dashboard scoped to the reader's grants, a knowledge explorer with
+  attribute filters and a side-by-side retrieval preview reporting contributed
+  and dropped strategies, a per-statement page showing provenance, extraction
+  and embedding identity, lifecycle timeline, gate decisions, relations, and
+  the raw observations and document versions behind the claim, a scope
+  directory, a deterministic server-rendered SVG graph of scopes and
+  statements, a sources page, a skill card library with a self readiness check,
+  a personal self-governance page, and an account-admin operations page.
+  Curator decisions, promotion requests, and subject verdicts are dispatched to
+  the existing operation layer; the console performs no durable write of its
+  own and exposes no entity row, vector, chunk, or secret.
+  `CartularyWeb.Console.Access` holds its two visibility rules — a
+  `provisional` statement is visible only to its subject, and undecided or
+  withdrawn states are curator-only except about oneself. New surface entry
+  `browser_console` in `specs/eval/surface-contract-inventory.json`, gated by
+  `test/cartulary_web/live/console_live_test.exs`,
+  `test/cartulary_web/console/access_test.exs`, and
+  `test/cartulary_web/console/graph_test.exs`. Design note:
+  `specs/architecture/browser-console.md`; guide:
+  `docs/guides/web-console.md`. No contract version identity changed.
+- A general browser sign-in at `/sign-in` admitting any human password
+  identity, plus `/sign-out` and a redirect from the bare origin to
+  `/console`. It writes the same session key the curator sign-in uses, so one
+  sign-in opens whichever surface the reader's role allows.
+- A `docs/`, `README.md`, and `AGENTS.md` obligation binding browser-console
+  changes to their documentation: a new row in the `AGENTS.md` change table and
+  a "Browser console" discipline section covering the visibility rules,
+  operation-layer-only writes, entity non-exposure, and the no-bundler and
+  no-inline-script constraints on new controls.
+
 - A published user documentation site built with MkDocs Material from `docs/`
   and deployed to GitHub Pages by `.github/workflows/docs.yml`. The site covers
   installation, a quickstart, how the system works (memory model, ingest
@@ -28,6 +59,15 @@ changelog entry and contract-version transition.
 
 ### Changed
 
+- The curator queue at `/governance` now renders inside the shared console
+  frame and takes its appearance from `priv/static/assets/console.css` instead
+  of inline styles. Its route, module, events, decisions, and rendered heading
+  are unchanged, so the curator-surface and skill-card regression evidence
+  still holds. Curators reach it from the console navigation, and individual
+  decisions can now also be taken from a statement's own page, where the
+  evidence sits beside the controls.
+- The browser pipeline now fetches the live flash, so a LiveView that reports a
+  refusal while still rendering statically redirects instead of raising.
 - Separated the documentation trees. `docs/` now holds only setup, usage, and
   operations documentation for readers of the published site; every
   design-facing document moved to `specs/`: `docs/adr/` → `specs/adr/`,

@@ -4,10 +4,11 @@ defmodule CartularyWeb.Layouts do
   @moduledoc """
   The single HTML document shell wrapped around every browser page.
 
-  Cartulary's only browser surface is the human curator area: the password sign-in page and
-  the governance LiveView. Both render inside `root/1`; there is no second, nested layout, and
-  LiveViews are configured to skip one, so this file is the one place the document head, the
-  CSRF token, and the client bootstrap exist.
+  Cartulary's browser surface is the console — the sign-in pages, the exploration and
+  self-governance pages under `/console`, and the curator area at `/governance`. They all
+  render inside `root/1`; there is no second, nested layout, and LiveViews are configured to
+  skip one, so this file is the one place the document head, the stylesheet link, the CSRF
+  token, and the client bootstrap exist.
 
   The JSON API never reaches this module. API responses are rendered without a layout.
   """
@@ -29,9 +30,12 @@ defmodule CartularyWeb.Layouts do
   - The script is served as a plain ES module from the static assets directory and imports
     the framework JavaScript from same-origin vendor paths. There is no bundler in this
     project; editing that file is the whole client build.
+  - The stylesheet is a plain file served from the same origin, which the browser policy's
+    `style-src 'self'` permits. It is the only place appearance is decided: components emit
+    class names, not inline styles, so a visual change is a change to one file.
 
-  The rendered page must stay free of stored content: it is a shell, and everything a curator
-  reads arrives through the LiveView that renders inside it.
+  The rendered page must stay free of stored content: it is a shell, and everything a reader
+  sees arrives through the LiveView that renders inside it.
   """
   attr :inner_content, :any, required: true
 
@@ -43,7 +47,8 @@ defmodule CartularyWeb.Layouts do
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="csrf-token" content={Plug.CSRFProtection.get_csrf_token()} />
-        <title>Cartulary governance</title>
+        <title>Cartulary</title>
+        <link rel="stylesheet" href="/assets/console.css" />
       </head>
       <body>
         {@inner_content}

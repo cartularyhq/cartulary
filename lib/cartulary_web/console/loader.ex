@@ -1,0 +1,857 @@
+# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+
+defmodule CartularyWeb.Console.Loader do
+  @moduledoc """
+  Every database read the browser console performs, in one place.
+
+  The console's LiveViews own rendering and event dispatch; they do not query.
+  Each function here opens one Account-scoped transaction through
+  `Cartulary.DataLayer.with_actor/2`, runs its reads inside it as the signed-in
+  actor, and returns plain maps and lists ready for a template. Keeping the
+  reads together is what makes the console's access rules auditable: there is
+  one file to check, rather than nine.
+
+  ## Why the transaction wrapper is mandatory
+
+  `with_actor/2` installs the Account into the transaction-local PostgreSQL
+  setting that row-level security compares against. Without it a query is not
+  merely unfiltered — every Ash policy still applies, but the database's second
+  wall is absent, so a policy mistake would have nothing behind it. Never run a
+  console read outside the wrapper, and never widen the actor inside one.
+
+  ## What is deliberately never read here
+
+  * **Entity and entity-mention rows.** They are a private recall cache whose
+    rows span every scope that ever mentioned a name, so a canonical name, an
+    alias, a surface form, or an entity id must never reach a rendered page.
+    Their read actions are pipeline-only, so an accidental query fails loudly
+    rather than leaking — do not "fix" such a failure by elevating the actor.
+  * **Embedding vectors and document chunks.** Rebuildable derived caches with
+    no meaning to a reader.
+  * **Password hashes, API key hashes, connector secrets, and blob bytes.**
+
+  ## Reads that are gated before they are attempted
+
+  Some resources answer a read with an outright refusal rather than an empty
+  list, because their policies are plain role checks with no filter behind
+  them: gate decisions, gate rules, usage events, and pipeline runs are all
+  curator- or administrator-only. Calling them as a member raises
+  `Ash.Error.Forbidden` instead of returning nothing. Each such read is
+  therefore guarded by `CartularyWeb.Console.Access.can?/2` before it is
+  issued, and the guard must stay — deleting it turns a member's dashboard into
+  a crash.
+
+  ## Scope paths
+
+  Rows store a `scope_id`; a person recognises a path. Every function that
+  returns rows also returns, or folds in, a path lookup built from the scopes
+  the actor may read. A scope missing from that lookup means a row surfaced
+  from a scope the caller cannot see, which is a policy defect — the paths are
+  resolved with `Map.get/3` and a `nil` renders as an explicit unknown marker
+  rather than being silently dropped, so the defect stays visible.
+  """
+
+  alias Cartulary.Actor
+  alias Cartulary.DataLayer
+  alias Cartulary.Documents.ConnectorConfig
+  alias Cartulary.Governance.Consent
+  alias Cartulary.Governance.ErasureRequest
+  alias Cartulary.Governance.GateDecision
+  alias Cartulary.Governance.GateRule
+  alias Cartulary.Governance.ValidationItem
+  alias Cartulary.Knowledge.Attribution
+  alias Cartulary.Knowledge.KnowledgeItem
+  alias Cartulary.Knowledge.KnowledgeRelation
+  alias Cartulary.Knowledge.LifecycleEvent
+  alias Cartulary.Knowledge.Projection
+  alias Cartulary.Knowledge.Provenance
+  alias Cartulary.Observations.Document
+  alias Cartulary.Observations.DocumentVersion
+  alias Cartulary.Observations.Message
+  alias Cartulary.Observations.Session
+  alias Cartulary.Retrieval.RetrievalProfile
+  alias Cartulary.Skills.SkillRequirementCard
+  alias Cartulary.Topology.RoleGrant
+  alias Cartulary.Topology.Scope
+  alias Cartulary.Topology.ScopeRelation
+  alias CartularyWeb.Console.Access
+
+  require Ash.Query
+
+  # Rows per page in the knowledge explorer. Chosen so a page fits one screen
+  # of a laptop without scrolling the filter controls out of view; raising it
+  # costs nothing but readability.
+  @page_size 25
+
+  # Upper bound on rows any single list panel loads — recent activity, sessions,
+  # messages, documents. The console is a browsing surface, not an export: a
+  # panel that would need more than this should be reached through the filtered
+  # explorer instead. Exports go through the portability archive.
+  @panel_limit 50
+
+  @doc """
+  Rows per page in the knowledge explorer.
+
+  Exposed so a LiveView can tell whether a full page came back and therefore
+  whether a "next page" control should be offered, without hard-coding the
+  number in a second place.
+  """
+  def page_size, do: @page_size
+
+  @doc """
+  Everything the dashboard shows.
+
+  Returns a map with the Account, the actor's visible scope count, the
+  knowledge totals broken down by lifecycle state and by sensitivity, counts of
+  documents, sessions and raw observations, the open governance queue depth,
+  the number of statements about the viewer personally, the count of cached
+  context projections currently marked dirty, and the most recent lifecycle
+  events.
+
+  The state breakdown covers only the states this viewer is entitled to see, so
+  a member's dashboard does not disclose how many proposals are waiting behind
+  a gate. Counts are computed as SQL aggregates rather than by loading rows,
+  which keeps a dashboard cheap on an Account with a large corpus.
+  """
+  def overview(%Actor{} = actor) do
+    DataLayer.with_actor(actor, fn account, current_actor ->
+      scopes = scopes(account.id, current_actor)
+      states = Access.visible_states(actor)
+
+      state_counts =
+        Map.new(states, fn state ->
+          {state, count(knowledge_base_query(actor, state: state), account.id, current_actor)}
+        end)
+
+      sensitivity_counts =
+        Map.new(~w(public internal personal restricted), fn sensitivity ->
+          {sensitivity,
+           count(
+             knowledge_base_query(actor, sensitivity: sensitivity),
+             account.id,
+             current_actor
+           )}
+        end)
+
+      recent =
+        LifecycleEvent
+        |> Ash.Query.sort(occurred_at: :desc)
+        |> Ash.Query.limit(@panel_limit)
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read!(actor: current_actor)
+
+      %{
+        account: account,
+        scope_paths: scope_paths(scopes),
+        scope_count: length(scopes),
+        knowledge_total: count(knowledge_base_query(actor), account.id, current_actor),
+        state_counts: state_counts,
+        sensitivity_counts: sensitivity_counts,
+        document_count: count(Document, account.id, current_actor),
+        session_count: count(Session, account.id, current_actor),
+        message_count: count(Message, account.id, current_actor),
+        about_me_count: about_me_count(account.id, current_actor),
+        dirty_projection_count: dirty_projection_count(account.id, current_actor),
+        queue_depth: queue_depth(account.id, actor, current_actor),
+        recent_events: Enum.take(recent, 12)
+      }
+    end)
+  end
+
+  @doc """
+  One page of the knowledge explorer.
+
+  `filters` is a string-keyed map holding any of `"scope"` (a scope path whose
+  subtree is searched), `"state"`, `"kind"`, `"sensitivity"`, `"target_level"`,
+  `"subject"` (the string `"me"` narrows to statements about the viewer), and
+  `"page"`. An unknown or unauthorized scope path narrows to nothing rather
+  than widening to everything.
+
+  Returns `%{items:, scope_paths:, scopes:, page:, page_size:, total:}` where
+  each item is the knowledge row with a `:scope_path` key folded in for
+  display. The lifecycle-state and provisional rules from
+  `CartularyWeb.Console.Access` are applied inside the query, so paging is
+  correct: a page never comes back short because rows were dropped after the
+  fact.
+  """
+  def knowledge_list(%Actor{} = actor, filters) when is_map(filters) do
+    DataLayer.with_actor(actor, fn account, current_actor ->
+      scopes = scopes(account.id, current_actor)
+      paths = scope_paths(scopes)
+      page = page_number(filters)
+
+      query =
+        actor
+        |> knowledge_base_query(
+          state: blank_to_nil(filters["state"]),
+          kind: blank_to_nil(filters["kind"]),
+          sensitivity: blank_to_nil(filters["sensitivity"]),
+          target_level: blank_to_nil(filters["target_level"]),
+          subject_self?: filters["subject"] == "me",
+          scope_ids: subtree_scope_ids(scopes, blank_to_nil(filters["scope"]))
+        )
+
+      total = count(query, account.id, current_actor)
+
+      items =
+        query
+        # Confidence first, then recency: the most strongly held statements lead,
+        # and equally confident ones are ordered newest first so a fresh
+        # observation is not buried under an old one it agrees with.
+        |> Ash.Query.sort(confidence: :desc, inserted_at: :desc)
+        |> Ash.Query.limit(@page_size)
+        |> Ash.Query.offset((page - 1) * @page_size)
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read!(actor: current_actor)
+        |> Enum.map(&with_scope_path(&1, paths))
+
+      %{
+        items: items,
+        scopes: scopes,
+        scope_paths: paths,
+        page: page,
+        page_size: @page_size,
+        total: total
+      }
+    end)
+  end
+
+  @doc """
+  Everything the knowledge detail page shows for one statement, or `nil` when
+  the id names nothing this actor may see.
+
+  Returns a map holding the knowledge row (with `:scope_path`), its provenance
+  rows, its attributions, its outgoing and incoming relations, the source
+  messages and document versions named by its provenance, its lifecycle
+  timeline, the open queue entry if one exists, its gate decisions when the
+  viewer is a curator, the statement it supersedes and the statements that
+  supersede it, and the scope path lookup.
+
+  A row that exists but fails the console's lifecycle-state or provisional rule
+  returns `nil` — indistinguishable from a row that does not exist, so a
+  reader cannot probe for the ids of proposals they are not entitled to see.
+
+  Gate decisions are fetched only for curators and account administrators.
+  Their read policy is a plain role check with no filter behind it, so asking
+  as a member raises rather than returning an empty list; the empty list a
+  member receives here is produced by not asking.
+  """
+  def knowledge_detail(%Actor{} = actor, knowledge_id) when is_binary(knowledge_id) do
+    DataLayer.with_actor(actor, fn account, current_actor ->
+      item =
+        KnowledgeItem
+        |> Ash.Query.filter(id == ^knowledge_id)
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read_one!(actor: current_actor)
+
+      if is_nil(item) or not Access.visible_knowledge?(actor, item) do
+        nil
+      else
+        detail_bundle(account, actor, current_actor, item)
+      end
+    end)
+  end
+
+  @doc """
+  The scope containment tree, as a flat list in path order.
+
+  Each entry carries the scope, its depth in the tree, the viewer's effective
+  role there, and the number of knowledge statements, documents, and sessions
+  attached directly to it. Only scopes the actor's role grants reach appear, so
+  a subtree the viewer cannot see is absent rather than shown empty — and a
+  scope whose parent is invisible still appears, at its own depth, because
+  access is granted per scope and a hidden intermediate must not hide a granted
+  child.
+
+  Scope relations are returned alongside, as lateral cross-links between two
+  scopes that are not in a parent-child line. A relation widens what retrieval
+  may consider; it never widens what a caller may see.
+  """
+  def scope_directory(%Actor{} = actor) do
+    DataLayer.with_actor(actor, fn account, current_actor ->
+      scopes = scopes(account.id, current_actor)
+      paths = scope_paths(scopes)
+
+      rows =
+        Enum.map(scopes, fn scope ->
+          %{
+            scope: scope,
+            depth: depth(scope.path),
+            role: Access.scope_role(actor, scope.id),
+            knowledge_count:
+              count(
+                knowledge_base_query(actor, scope_ids: [scope.id]),
+                account.id,
+                current_actor
+              ),
+            document_count:
+              count(
+                Ash.Query.filter(Document, scope_id == ^scope.id),
+                account.id,
+                current_actor
+              ),
+            session_count:
+              count(
+                Ash.Query.filter(Session, scope_id == ^scope.id),
+                account.id,
+                current_actor
+              )
+          }
+        end)
+
+      relations =
+        ScopeRelation
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read!(actor: current_actor)
+
+      grants =
+        RoleGrant
+        |> Ash.Query.sort(granted_at: :desc)
+        |> Ash.Query.limit(@panel_limit)
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read!(actor: current_actor)
+
+      %{rows: rows, relations: relations, grants: grants, scope_paths: paths}
+    end)
+  end
+
+  @doc """
+  Nodes and edges for the graph view, already narrowed to what this actor may
+  see.
+
+  `opts` may carry `:scope` (a scope path whose subtree is drawn) and `:limit`
+  (how many knowledge nodes to include, capped at 150 because a force layout
+  over more than that is unreadable as well as slow).
+
+  Returns `%{scopes:, knowledge:, containment:, relations:, knowledge_edges:,
+  truncated?:}`. `truncated?` says whether the knowledge cap dropped rows, so
+  the page can say so out loud rather than presenting a partial graph as a
+  complete one.
+
+  The graph is built exclusively from scopes, scope relations, knowledge, and
+  knowledge relations. It contains no entity nodes: entity rows are a private
+  recall cache whose names cross scope boundaries, and drawing them would
+  expose exactly what that cache is forbidden to expose.
+  """
+  def graph(%Actor{} = actor, opts \\ []) do
+    limit = min(Keyword.get(opts, :limit, 90), 150)
+
+    DataLayer.with_actor(actor, fn account, current_actor ->
+      scopes = scopes(account.id, current_actor)
+      selected = subtree_scope_ids(scopes, Keyword.get(opts, :scope))
+      paths = scope_paths(scopes)
+
+      drawn_scopes =
+        case selected do
+          nil -> scopes
+          ids -> Enum.filter(scopes, &(&1.id in ids))
+        end
+
+      base = knowledge_base_query(actor, scope_ids: selected)
+      total = count(base, account.id, current_actor)
+
+      knowledge =
+        base
+        |> Ash.Query.sort(confidence: :desc, inserted_at: :desc)
+        |> Ash.Query.limit(limit)
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read!(actor: current_actor)
+        |> Enum.map(&with_scope_path(&1, paths))
+
+      knowledge_ids = MapSet.new(knowledge, & &1.id)
+
+      # Only edges whose *both* endpoints are drawn are returned. A relation to
+      # a statement outside the current view would otherwise render as a line
+      # to nowhere, and worse, would disclose that an unseen statement exists.
+      knowledge_edges =
+        KnowledgeRelation
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read!(actor: current_actor)
+        |> Enum.filter(
+          &(MapSet.member?(knowledge_ids, &1.source_knowledge_id) and
+              MapSet.member?(knowledge_ids, &1.target_knowledge_id))
+        )
+
+      drawn_scope_ids = MapSet.new(drawn_scopes, & &1.id)
+
+      relations =
+        ScopeRelation
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read!(actor: current_actor)
+        |> Enum.filter(
+          &(MapSet.member?(drawn_scope_ids, &1.source_scope_id) and
+              MapSet.member?(drawn_scope_ids, &1.target_scope_id))
+        )
+
+      containment =
+        drawn_scopes
+        |> Enum.filter(
+          &(not is_nil(&1.parent_id) and MapSet.member?(drawn_scope_ids, &1.parent_id))
+        )
+        |> Enum.map(&{&1.parent_id, &1.id})
+
+      %{
+        scopes: drawn_scopes,
+        knowledge: knowledge,
+        containment: containment,
+        relations: relations,
+        knowledge_edges: knowledge_edges,
+        scope_paths: paths,
+        all_scopes: scopes,
+        truncated?: total > length(knowledge)
+      }
+    end)
+  end
+
+  @doc """
+  The provenance surface: documents with their versions, and sessions with
+  their raw observations.
+
+  Returns `%{documents:, versions_by_document:, sessions:, messages:,
+  connectors:, scope_paths:}`. Lists are capped at a panel's worth of rows and
+  ordered newest first.
+
+  Raw message text and document titles are shown on purpose: this page exists
+  so a person can see what was actually said or uploaded before a statement was
+  extracted from it. That text is for the browser only — it must never be
+  copied into logs, telemetry, audit metadata, or job arguments.
+  """
+  def sources(%Actor{} = actor) do
+    DataLayer.with_actor(actor, fn account, current_actor ->
+      paths = scope_paths(scopes(account.id, current_actor))
+
+      documents =
+        Document
+        |> Ash.Query.sort(updated_at: :desc)
+        |> Ash.Query.limit(@panel_limit)
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read!(actor: current_actor)
+
+      document_ids = Enum.map(documents, & &1.id)
+
+      versions =
+        DocumentVersion
+        |> Ash.Query.filter(document_id in ^document_ids)
+        |> Ash.Query.sort(version: :desc)
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read!(actor: current_actor)
+        |> Enum.group_by(& &1.document_id)
+
+      sessions =
+        Session
+        |> Ash.Query.sort(inserted_at: :desc)
+        |> Ash.Query.limit(@panel_limit)
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read!(actor: current_actor)
+
+      messages =
+        Message
+        |> Ash.Query.sort(occurred_at: :desc)
+        |> Ash.Query.limit(@panel_limit)
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read!(actor: current_actor)
+
+      connectors =
+        ConnectorConfig
+        |> Ash.Query.sort(updated_at: :desc)
+        |> Ash.Query.limit(@panel_limit)
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read!(actor: current_actor)
+
+      %{
+        documents: documents,
+        versions_by_document: versions,
+        sessions: sessions,
+        messages: messages,
+        connectors: connectors,
+        scope_paths: paths
+      }
+    end)
+  end
+
+  @doc """
+  Published skill requirement cards, newest version first within each skill.
+
+  Every version is returned, not only the active one, because a retired version
+  is the record of what a skill used to demand and is what makes an old
+  readiness result readable after the fact.
+
+  Returns `%{cards:, scopes:, scope_paths:}` with each card carrying a
+  `:scope_path` for display.
+  """
+  def skills(%Actor{} = actor) do
+    DataLayer.with_actor(actor, fn account, current_actor ->
+      scopes = scopes(account.id, current_actor)
+      paths = scope_paths(scopes)
+
+      cards =
+        SkillRequirementCard
+        |> Ash.Query.sort(skill_key: :asc, version: :desc)
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read!(actor: current_actor)
+        |> Enum.map(&Map.put(&1, :scope_path, Map.get(paths, &1.scope_id)))
+
+      %{cards: cards, scopes: scopes, scope_paths: paths}
+    end)
+  end
+
+  @doc """
+  The viewer's own governance position: consent requests awaiting their answer,
+  their erasure requests, and the scope path lookup.
+
+  The statements about the viewer are *not* loaded here. They come from
+  `Cartulary.Governance.Engine.self_view/1`, which deliberately ignores scope
+  membership — a person may read what is recorded about them even in a scope
+  they hold no role on — and that exception belongs in the operation layer
+  rather than being re-implemented in the web layer.
+  """
+  def self_governance(%Actor{} = actor) do
+    DataLayer.with_actor(actor, fn account, current_actor ->
+      consents =
+        Consent
+        |> Ash.Query.filter(subject_peer_id == ^current_actor.peer_id)
+        |> Ash.Query.sort(inserted_at: :desc)
+        |> Ash.Query.limit(@panel_limit)
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read!(actor: current_actor)
+
+      erasures =
+        ErasureRequest
+        |> Ash.Query.filter(peer_id == ^current_actor.peer_id)
+        |> Ash.Query.sort(requested_at: :desc)
+        |> Ash.Query.limit(@panel_limit)
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read!(actor: current_actor)
+
+      %{
+        consents: consents,
+        erasures: erasures,
+        scope_paths: scope_paths(scopes(account.id, current_actor))
+      }
+    end)
+  end
+
+  @doc """
+  The administrator's operations view: gate rules and retrieval profiles as
+  stored, plus the queue of open validations.
+
+  Raises `Ash.Error.Forbidden` if called by anyone who is not a
+  password-authenticated account administrator. That is deliberate: gate rules
+  and the usage ledger have plain role checks with no filter behind them, so
+  there is no meaningful "empty" answer to give a member. Callers gate on
+  `CartularyWeb.Console.Access.can?(actor, :administer)` first.
+  """
+  def operations(%Actor{} = actor) do
+    DataLayer.with_actor(actor, fn account, current_actor ->
+      paths = scope_paths(scopes(account.id, current_actor))
+
+      gate_rules =
+        GateRule
+        |> Ash.Query.sort(priority: :desc, version: :desc)
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read!(actor: current_actor)
+
+      profiles =
+        RetrievalProfile
+        |> Ash.Query.sort(name: :asc, version: :desc)
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read!(actor: current_actor)
+
+      %{gate_rules: gate_rules, retrieval_profiles: profiles, scope_paths: paths}
+    end)
+  end
+
+  # ----------------------------------------------------------------------------
+  # Query construction
+  # ----------------------------------------------------------------------------
+
+  # The single place the console's two visibility rules are turned into SQL.
+  #
+  # Every knowledge query in this module starts here, so neither rule can be
+  # forgotten by a caller. The two `or subject_peer_id == ...` branches are the
+  # self-view exemption: a person always sees statements about themselves,
+  # whatever their state and whatever role the viewer holds on the scope.
+  #
+  # When the actor has no peer id those branches are dropped rather than
+  # compared against nil, because `= NULL` becomes `IS NULL` in SQL and would
+  # match every statement about nobody — widening instead of narrowing.
+  defp knowledge_base_query(%Actor{} = actor, opts \\ []) do
+    {states, peer_id} = Access.knowledge_filter_terms(actor)
+
+    query =
+      if is_binary(peer_id) do
+        KnowledgeItem
+        |> Ash.Query.filter(state in ^states or subject_peer_id == ^peer_id)
+        |> Ash.Query.filter(state != "provisional" or subject_peer_id == ^peer_id)
+      else
+        KnowledgeItem
+        |> Ash.Query.filter(state in ^states)
+        |> Ash.Query.filter(state != "provisional")
+      end
+
+    # Soft-deleted rows are erased content that survived only as a tombstone.
+    # They are never shown, to anyone.
+    query = Ash.Query.filter(query, is_nil(deleted_at))
+
+    query
+    |> maybe_filter_state(Keyword.get(opts, :state))
+    |> maybe_filter_kind(Keyword.get(opts, :kind))
+    |> maybe_filter_sensitivity(Keyword.get(opts, :sensitivity))
+    |> maybe_filter_target_level(Keyword.get(opts, :target_level))
+    |> maybe_filter_scopes(Keyword.get(opts, :scope_ids))
+    |> maybe_filter_subject(Keyword.get(opts, :subject_self?), peer_id)
+  end
+
+  defp maybe_filter_state(query, nil), do: query
+  defp maybe_filter_state(query, state), do: Ash.Query.filter(query, state == ^state)
+
+  defp maybe_filter_kind(query, nil), do: query
+  defp maybe_filter_kind(query, kind), do: Ash.Query.filter(query, kind == ^kind)
+
+  defp maybe_filter_sensitivity(query, nil), do: query
+
+  defp maybe_filter_sensitivity(query, sensitivity),
+    do: Ash.Query.filter(query, sensitivity == ^sensitivity)
+
+  defp maybe_filter_target_level(query, nil), do: query
+
+  defp maybe_filter_target_level(query, level),
+    do: Ash.Query.filter(query, target_level == ^level)
+
+  defp maybe_filter_scopes(query, nil), do: query
+  defp maybe_filter_scopes(query, ids), do: Ash.Query.filter(query, scope_id in ^ids)
+
+  defp maybe_filter_subject(query, true, peer_id) when is_binary(peer_id),
+    do: Ash.Query.filter(query, subject_peer_id == ^peer_id)
+
+  defp maybe_filter_subject(query, _flag, _peer_id), do: query
+
+  # ----------------------------------------------------------------------------
+  # Detail assembly
+  # ----------------------------------------------------------------------------
+
+  defp detail_bundle(account, %Actor{} = actor, current_actor, item) do
+    paths = scope_paths(scopes(account.id, current_actor))
+
+    provenance =
+      Provenance
+      |> Ash.Query.filter(knowledge_item_id == ^item.id)
+      |> Ash.Query.sort(occurred_at: :asc)
+      |> Ash.Query.set_tenant(account.id)
+      |> Ash.read!(actor: current_actor)
+
+    attributions =
+      Attribution
+      |> Ash.Query.filter(knowledge_item_id == ^item.id)
+      |> Ash.Query.set_tenant(account.id)
+      |> Ash.read!(actor: current_actor)
+
+    lifecycle =
+      LifecycleEvent
+      |> Ash.Query.filter(knowledge_item_id == ^item.id)
+      |> Ash.Query.sort(occurred_at: :asc)
+      |> Ash.Query.set_tenant(account.id)
+      |> Ash.read!(actor: current_actor)
+
+    relations =
+      KnowledgeRelation
+      |> Ash.Query.filter(source_knowledge_id == ^item.id or target_knowledge_id == ^item.id)
+      |> Ash.Query.set_tenant(account.id)
+      |> Ash.read!(actor: current_actor)
+
+    message_ids =
+      provenance
+      |> Enum.map(& &1.message_id)
+      |> Enum.concat(item.source_message_ids)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    messages =
+      Message
+      |> Ash.Query.filter(id in ^message_ids)
+      |> Ash.Query.sort(occurred_at: :asc)
+      |> Ash.Query.set_tenant(account.id)
+      |> Ash.read!(actor: current_actor)
+
+    version_ids = provenance |> Enum.map(& &1.document_version_id) |> Enum.reject(&is_nil/1)
+
+    document_versions =
+      DocumentVersion
+      |> Ash.Query.filter(id in ^version_ids)
+      |> Ash.Query.set_tenant(account.id)
+      |> Ash.read!(actor: current_actor)
+
+    # The open queue entry, if any, is what makes the curator decision controls
+    # meaningful: approve, reject, defer, edit, and merge all act on a queue
+    # row, not directly on the statement.
+    validation =
+      ValidationItem
+      |> Ash.Query.filter(
+        knowledge_id == ^item.id and
+          state in ["pending", "deferred", "awaiting_consent", "escalated"]
+      )
+      |> Ash.Query.sort(due_at: :asc)
+      |> Ash.Query.limit(1)
+      |> Ash.Query.set_tenant(account.id)
+      |> Ash.read!(actor: current_actor)
+      |> List.first()
+
+    # Curator-only. The read policy behind gate decisions is a plain role check
+    # with no filter, so asking as a member raises rather than returning [].
+    gate_decisions =
+      if Access.can?(actor, :curate) do
+        GateDecision
+        |> Ash.Query.filter(knowledge_id == ^item.id)
+        |> Ash.Query.sort(decided_at: :asc)
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read!(actor: current_actor)
+      else
+        []
+      end
+
+    superseded = related_knowledge(account.id, actor, current_actor, [item.supersedes_id], paths)
+
+    successors =
+      KnowledgeItem
+      |> Ash.Query.filter(supersedes_id == ^item.id)
+      |> Ash.Query.set_tenant(account.id)
+      |> Ash.read!(actor: current_actor)
+      |> Enum.filter(&Access.visible_knowledge?(actor, &1))
+      |> Enum.map(&with_scope_path(&1, paths))
+
+    related_ids =
+      relations
+      |> Enum.flat_map(&[&1.source_knowledge_id, &1.target_knowledge_id])
+      |> Enum.reject(&(&1 == item.id))
+
+    %{
+      item: with_scope_path(item, paths),
+      provenance: provenance,
+      attributions: attributions,
+      lifecycle: lifecycle,
+      relations: relations,
+      related: related_knowledge(account.id, actor, current_actor, related_ids, paths),
+      messages: messages,
+      document_versions: document_versions,
+      validation: validation,
+      gate_decisions: gate_decisions,
+      superseded: List.first(superseded),
+      successors: successors,
+      scopes: scopes(account.id, current_actor),
+      scope_paths: paths
+    }
+  end
+
+  # Loads the statements a relation or a supersession link points at, dropping
+  # any the viewer may not see. A cross-reference to an invisible statement is
+  # omitted entirely rather than rendered as a dead id, because the presence of
+  # the link would itself disclose that the hidden statement exists.
+  defp related_knowledge(_account_id, _actor, _current_actor, [], _paths), do: []
+
+  defp related_knowledge(account_id, actor, current_actor, ids, paths) do
+    ids = ids |> Enum.reject(&is_nil/1) |> Enum.uniq()
+
+    if ids == [] do
+      []
+    else
+      KnowledgeItem
+      |> Ash.Query.filter(id in ^ids)
+      |> Ash.Query.set_tenant(account_id)
+      |> Ash.read!(actor: current_actor)
+      |> Enum.filter(&Access.visible_knowledge?(actor, &1))
+      |> Enum.map(&with_scope_path(&1, paths))
+    end
+  end
+
+  # ----------------------------------------------------------------------------
+  # Small shared helpers
+  # ----------------------------------------------------------------------------
+
+  defp scopes(account_id, current_actor) do
+    Scope
+    |> Ash.Query.sort(path: :asc)
+    |> Ash.Query.set_tenant(account_id)
+    |> Ash.read!(actor: current_actor)
+  end
+
+  defp scope_paths(scopes), do: Map.new(scopes, &{&1.id, &1.path})
+
+  defp with_scope_path(item, paths), do: Map.put(item, :scope_path, Map.get(paths, item.scope_id))
+
+  # Counts with a SQL aggregate rather than by loading rows, so a dashboard tile
+  # costs the same on an Account with ten statements and one with ten million.
+  # `query` may be a resource module or an already-filtered query; the Ash query
+  # functions coerce a module for us.
+  defp count(query, account_id, current_actor) do
+    query
+    |> Ash.Query.set_tenant(account_id)
+    |> Ash.count!(actor: current_actor)
+  end
+
+  defp about_me_count(account_id, current_actor) do
+    if is_binary(current_actor.peer_id) do
+      KnowledgeItem
+      |> Ash.Query.filter(subject_peer_id == ^current_actor.peer_id and is_nil(deleted_at))
+      |> count(account_id, current_actor)
+    else
+      0
+    end
+  end
+
+  defp dirty_projection_count(account_id, current_actor) do
+    Projection
+    |> Ash.Query.filter(dirty == true)
+    |> count(account_id, current_actor)
+  end
+
+  # Queue depth is shown to curators as the amount of work waiting, and to
+  # everyone else as the number of items waiting on *them* — the validation
+  # read policy filters a non-curator down to their own subject rows, so the
+  # same query answers both questions honestly without a branch.
+  defp queue_depth(account_id, %Actor{} = actor, current_actor) do
+    if Access.can?(actor, :self_govern) or Access.can?(actor, :curate) do
+      ValidationItem
+      |> Ash.Query.filter(state in ["pending", "deferred", "awaiting_consent", "escalated"])
+      |> count(account_id, current_actor)
+    else
+      0
+    end
+  end
+
+  # Turns a scope path into the ids of that scope and everything contained in
+  # it, using string prefix on the path — which is how containment is decided
+  # everywhere in this system, because a path is written once and never
+  # rewritten. `nil` means "no scope filter"; an unknown or unauthorized path
+  # yields an empty list, which narrows to nothing rather than widening to
+  # everything.
+  defp subtree_scope_ids(_scopes, nil), do: nil
+
+  defp subtree_scope_ids(scopes, path) do
+    scopes
+    |> Enum.filter(
+      &(&1.path == path or String.starts_with?(&1.path, ensure_trailing_slash(path)))
+    )
+    |> Enum.map(& &1.id)
+  end
+
+  defp ensure_trailing_slash("/"), do: "/"
+  defp ensure_trailing_slash(path), do: path <> "/"
+
+  # Depth of a path in the containment tree: the root "/" is 0, "/team" is 1.
+  defp depth("/"), do: 0
+
+  defp depth(path) do
+    path |> String.split("/", trim: true) |> length()
+  end
+
+  defp page_number(filters) do
+    case Integer.parse(to_string(filters["page"] || "1")) do
+      {page, _rest} when page > 0 -> page
+      _other -> 1
+    end
+  end
+
+  defp blank_to_nil(nil), do: nil
+  defp blank_to_nil(""), do: nil
+  defp blank_to_nil(value), do: value
+end

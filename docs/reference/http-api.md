@@ -27,11 +27,37 @@ There is **no generated OpenAPI description** in this release — see
 | `POST /api/v1/self/knowledge/:id/contest` | human only | Dispute a statement about you |
 | `POST /api/v1/self/knowledge/:id/redact` | human only | Withdraw a statement about you |
 | `POST /api/v1/self/erasure` | human only | Erase your data |
-| `/governance` | human curator session | Curator console (HTML/LiveView) |
 | `/mcp` | any identity | Model Context Protocol endpoint |
 
 "Any identity" means a human password token **or** an agent API key. "Human
 only" rejects an API key with 403 even when it belongs to the same peer.
+
+### Browser routes
+
+These serve HTML and LiveView rather than JSON, and authenticate with a signed
+session cookie plus CSRF rather than a bearer token. Both sign-in forms write
+the same session, so one sign-in opens whichever surface your role allows.
+
+| Route | Auth | Purpose |
+| --- | --- | --- |
+| `GET /` | none | Redirects to `/console` |
+| `GET`, `POST /sign-in` | none | Console sign-in for any human role |
+| `DELETE /sign-out` | session | Ends the browser session |
+| `/console` | any human session | Overview dashboard |
+| `/console/knowledge` | any human session | Knowledge explorer, filters and retrieval preview |
+| `/console/knowledge/:id` | any human session | One statement: evidence, history, available actions |
+| `/console/scopes` | any human session | Scope directory, relations, role grants |
+| `/console/graph` | any human session | Scopes and statements drawn as a graph |
+| `/console/sources` | any human session | Documents, versions, connectors, observations |
+| `/console/skills` | any human session | Skill cards and a readiness check |
+| `/console/me` | any human session | Statements about you, consent, erasure |
+| `/console/operations` | account-admin | Readiness, usage, gate rules, retrieval tunings |
+| `/governance/sign-in` | none | Curator sign-in |
+| `/governance` | human curator session | Gate queue and skill-card authoring |
+
+An agent API key cannot open a browser session at all: the sign-in forms accept
+only an email and password. See
+[Exploring memory in the web console](../guides/web-console.md).
 
 **Account is never selected by the request.** An `account_key` body field and
 the legacy `x-cartulary-account-key` header are accepted and ignored.

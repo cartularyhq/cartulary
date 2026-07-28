@@ -183,6 +183,7 @@ same patch, or state in the PR why no update is needed:
 | Governance, retrieval, pipeline, document, or skill behaviour | The affected page under `docs/concepts/`, and its architecture note under `specs/architecture/` |
 | A contract version identity | `docs/reference/contract-versions.md`, `CHANGELOG.md`, and the closest architecture note |
 | A surface becoming available or unavailable | `docs/reference/limitations.md` and `specs/eval/surface-contract-inventory.json` |
+| A browser console route, page, panel, control, or visibility rule | `docs/guides/web-console.md`, the browser routes table in `docs/reference/http-api.md`, and `specs/architecture/browser-console.md` |
 | A design decision or trade-off | `specs/` only — never `docs/` |
 
 ### Coding conventions
@@ -439,6 +440,43 @@ which rules it enforces, and what a caller may not do with it.
   synchronized with resource and migration changes. Projection changes must
   preserve dirty marking, bounded delta compaction, source ids, and PubSub/ETS
   invalidation; normal `get_context` assembly must not call a reasoning model.
+
+### Browser console
+
+- The browser surface is one console. `/console/*` admits any human password
+  identity through `CartularyWeb.ConsoleAuth`; `/governance` narrows the same
+  session to curator and account-admin through `CartularyWeb.GovernanceAuth`.
+  Both read the same session key, so one sign-in opens whichever surface the
+  role allows. A machine credential must never establish either.
+- Evidence: `test/cartulary_web/live/console_live_test.exs`,
+  `test/cartulary_web/console/access_test.exs`,
+  `test/cartulary_web/console/graph_test.exs`, and
+  `specs/architecture/browser-console.md`.
+- `CartularyWeb.Console.Access` is the only place the console's two visibility
+  rules live, and both are narrowing. A `provisional` statement is visible only
+  to its subject, for every role including account admin — the same condition
+  retrieval applies, and the two must stay identical. Curators and account
+  admins see every lifecycle state; everyone else sees only settled states plus
+  anything whose subject is themselves.
+- `CartularyWeb.Console.Loader` performs every console read, each inside one
+  `DataLayer.with_actor/2` transaction. Reads whose policies are plain role
+  checks with no filter behind them — gate decisions, gate rules, usage events,
+  pipeline runs — are gated by `Access.can?/2` before they are issued, because
+  they refuse rather than return empty.
+- The console writes nothing itself. Every gesture forwards to
+  `Cartulary.Governance.Engine`, `Cartulary.Governance.Erasure`, or
+  `Cartulary.Skills`, which own the transaction, the decision record, the
+  lifecycle event, and the audit entry. A rendered control is never
+  authorization: the operation layer re-checks a forged event.
+- Entity rows, entity mentions, embedding vectors, chunk contents, password and
+  key hashes, and connector secrets must not reach any console page, including
+  the graph. The graph is scopes, scope relations, statements, and statement
+  relations only.
+- Appearance lives in `priv/static/assets/console.css`; markup emits class
+  names, not inline styles. The browser policy forbids inline script and there
+  is no bundler, so a new control must work as a server round-trip and any
+  visualisation must be computed server-side and rendered as plain SVG. Keep
+  `CartularyWeb.Console.Graph` deterministic — no randomness, no wall clock.
 
 ### Skill readiness and procedural memory
 

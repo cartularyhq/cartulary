@@ -204,6 +204,18 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
     assert inventory["surfaces"]["phoenix_http"]["status"] == "gated"
     assert inventory["surfaces"]["mcp"]["status"] == "gated"
     assert inventory["surfaces"]["skill_readiness_helpers"]["status"] == "gated"
+    assert inventory["surfaces"]["browser_console"]["status"] == "gated"
+
+    # Every gated surface names the test lanes that hold its contract. A surface listed as
+    # shipped with no evidence is the failure this assertion exists to catch: it would let a
+    # release advertise something no test protects.
+    for surface <- ~w(phoenix_http mcp skill_readiness_helpers browser_console) do
+      assert inventory["surfaces"][surface]["evidence"] != []
+
+      for path <- inventory["surfaces"][surface]["evidence"] do
+        assert File.exists?(path), "#{surface} names missing evidence #{path}"
+      end
+    end
 
     # "unavailable" means not built yet, and it must stay that way until it is. Generated API
     # schemas and generated clients do not exist at this version; the hand-written readiness

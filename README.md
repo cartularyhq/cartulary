@@ -198,6 +198,17 @@ requirement overrides, and a reasoning-free gap report. Required gaps block,
 preferred gaps warn, and stale knowledge cannot satisfy a requirement.
 → `specs/architecture/skill-readiness-procedural-memory.md`
 
+**Web console** — A LiveView surface every human role can sign in to: a scoped
+dashboard, a knowledge explorer with a side-by-side retrieval preview that
+shows which strategies contributed and which were dropped, a per-statement page
+carrying provenance, extraction identity, lifecycle timeline, and
+cross-references, a scope directory, a deterministic server-rendered graph of
+scopes and statements, the raw observations and document versions behind it
+all, and the subject's own consent, contest, redact, and erasure controls.
+Curator decisions and promotion appear only for curators; the console writes
+nothing itself and never exposes entity rows, vectors, or secrets.
+→ `specs/architecture/browser-console.md`
+
 **Portability, packaging, and operations** — Cross-platform Mix releases with a
 checksum-pinned pg0 binary, supervised lifecycle, first-run migration,
 stale-lock recovery, and an external-Postgres escape hatch; a non-root
@@ -361,8 +372,9 @@ CARTULARY_S3_PORT=9000
 | `POST /api/auth/password` | Human sign-in |
 | `/api/v1/self/*` | Peer self-view, contest, redact, erase — human credentials only |
 | `/api/v1/operations/costs` | Self-host usage and cost, account-admin only |
-| `/governance` | Curator LiveView and skill-card authoring, password sessions only |
 | `/mcp` | AshAi MCP endpoint |
+| `/sign-in`, `/console/*` | Web console: dashboard, knowledge explorer and statement detail, scope directory, graph, sources, skills, personal self-governance, operations. Browser sessions only, every human role |
+| `/governance` | Curator queue and skill-card authoring, curator or account-admin browser sessions only |
 
 Every `/api/v1` route requires a password JWT or an agent API key. Account
 headers and Account fields in request bodies do not select tenancy.
@@ -488,7 +500,8 @@ prompts, answers, API keys, restricted knowledge, or secrets.
 | `lib/cartulary/context/`, `skills/` | Reasoning-free projection assembly, and skill requirement cards with their gap report. |
 | `lib/cartulary/portability/` | Whole-Account logical archive export, import, and audit-graph verification. |
 | `lib/cartulary/eval/` | The evaluation harness: dataset adapters, scorers, run orchestration, report provenance. |
-| `lib/cartulary_web/` | Phoenix router, controllers, plugs, the curator LiveView, and telemetry. |
+| `lib/cartulary_web/` | Phoenix router, controllers, plugs, and telemetry. |
+| `lib/cartulary_web/console/`, `live/console_live/` | The browser console: its access rules, every read it performs, the graph layout, and the nine pages. |
 | `lib/mix/tasks/` | Operator commands: eval runs, release checks, identity bootstrap, Account export/import. |
 | `config/` | `config.exs` and per-environment files run at compile time; `runtime.exs` runs at boot and chooses the deployment mode. |
 | `test/cartulary/` | Regression suites. The `f*` prefixes are frozen evidence identities, not phases; each module's moduledoc says what it pins. |
@@ -537,7 +550,7 @@ the running system behaves, with diagrams. Published to
 | --- | --- |
 | `docs/getting-started/` | Release, container, and source installs; the quickstart tutorial. |
 | `docs/concepts/` | How it works: memory model, pipeline, gates, retrieval, documents, skills, isolation, deployment modes. |
-| `docs/guides/` | Task-oriented usage: authentication, ingest, search and ask, context, readiness, curation, self-governance, MCP, SDK helpers. |
+| `docs/guides/` | Task-oriented usage: authentication, the web console, ingest, search and ask, context, readiness, curation, self-governance, MCP, SDK helpers. |
 | `docs/operations/` | Upgrades, health and cost, observability, backup and restore, export and import. |
 | `docs/reference/` | HTTP API, configuration, Mix tasks, contract versions, glossary, limitations. |
 

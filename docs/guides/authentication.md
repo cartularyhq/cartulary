@@ -13,8 +13,11 @@ flowchart LR
     A[Agent] -->|provisioned API key| K[API key string]
     T --> V["/api/v1 memory routes · /mcp"]
     K --> V
-    T --> S["/api/v1/self/* · /governance"]
+    T --> S["/api/v1/self/*"]
     K -. 403 .-> S
+    H -->|email + password in a browser| B["Session cookie"]
+    B --> C["/console/* · /governance"]
+    K -. cannot sign in .-> C
 ```
 
 ## Human sign-in
@@ -43,12 +46,37 @@ it then.
 
 An API key is enough for the memory routes and MCP. It is **not** enough for:
 
-- `/api/v1/self/*` — self-view, contest, redact, erase;
-- `/governance` — the curator console.
+- `/api/v1/self/*` — self-view, contest, redact, erase. These return 403 for a
+  machine credential even when it belongs to the same peer as a human identity;
+- the browser surface at `/console/*` and `/governance`. There is no header or
+  parameter that substitutes for the sign-in form, so a key has nothing it can
+  present; a key placed in a session cookie is refused like no credential.
 
-Both return 403 for a machine credential even when it belongs to the same peer
-as a human identity. Those are personal decisions a machine may not take on a
-person's behalf.
+Those are personal decisions a machine may not take on a person's behalf.
+
+## Browser sign-in
+
+The console and the curator queue authenticate with a signed session cookie
+rather than a bearer token.
+
+```bash
+open http://127.0.0.1:4000/sign-in
+```
+
+`/sign-in` admits any human role and lands on `/console`.
+`/governance/sign-in` additionally requires the `curator` or `account-admin`
+role. Both write the same session, so one sign-in opens whichever surface your
+role allows.
+
+The token, the identity kind, and — for the curator queue — the role are
+re-verified on the initial render **and on every socket reconnect**. Holding
+the cookie is never authorisation on its own, because a token can expire or a
+grant can be revoked while a tab stays open.
+
+Signing out drops the session. It does not revoke the token: session tokens are
+stateless and stay valid on their signature until they expire.
+
+See [Exploring memory in the web console](web-console.md).
 
 ## The Account comes from the credential
 

@@ -149,6 +149,20 @@ Promoting it to the scope or the whole Account is a separate, human decision —
 see [Governance gates](../concepts/governance.md) and
 [Curating memory](../guides/governance-console.md).
 
+## See it in the browser
+
+Everything above is visible, with its provenance and its history, in the web
+console:
+
+```bash
+open http://127.0.0.1:4000/sign-in
+```
+
+Sign in with the same email and password you bootstrapped. The overview counts
+what you just stored, the explorer lists the statement, and its own page shows
+the raw observation it was extracted from. See
+[Exploring memory in the web console](../guides/web-console.md).
+
 ## Next
 
 - [How it works](../concepts/index.md) — the model behind what you just did.

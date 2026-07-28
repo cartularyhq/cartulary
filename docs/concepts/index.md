@@ -17,7 +17,7 @@ flowchart TB
     subgraph Surfaces
         HTTP["Phoenix JSON API<br/>/api/v1"]
         MCP["MCP endpoint<br/>/mcp"]
-        LV["Curator LiveView<br/>/governance"]
+        LV["Web console<br/>/console · /governance"]
     end
 
     subgraph Core

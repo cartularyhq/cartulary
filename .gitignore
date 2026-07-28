@@ -24,10 +24,12 @@ priv/plts/
 # mode; a file here means someone pointed a tool at the wrong adapter.
 priv/repo/*.sqlite*
 
-# Compiled asset output is generated at build time. governance.js is the one
-# hand-written asset and is deliberately tracked.
+# Compiled asset output is generated at build time. There is no bundler in this
+# project, so the two hand-written assets below are the whole client build and
+# are deliberately tracked.
 priv/static/assets/*
 !priv/static/assets/governance.js
+!priv/static/assets/console.css
 priv/static/cache_manifest.json
 
 # The pg0 PostgreSQL binary is downloaded into the release overlay at package

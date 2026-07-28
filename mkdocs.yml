@@ -125,6 +125,7 @@ nav:
       - Deployment modes: concepts/deployment-modes.md
   - Guides:
       - Authentication: guides/authentication.md
+      - Exploring memory in the web console: guides/web-console.md
       - Recording observations: guides/ingesting-observations.md
       - Search and ask: guides/search-and-ask.md
       - Assembling context: guides/context.md

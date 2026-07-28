@@ -16,6 +16,15 @@
         "test/cartulary/f9_skill_readiness_procedural_memory_test.exs"
       ]
     },
+    "browser_console": {
+      "status": "gated",
+      "evidence": [
+        "test/cartulary_web/live/console_live_test.exs",
+        "test/cartulary_web/console/access_test.exs",
+        "test/cartulary_web/console/graph_test.exs",
+        "test/cartulary/f4_real_gate_a_b_governance_test.exs"
+      ]
+    },
     "skill_readiness_helpers": {
       "status": "gated",
       "evidence": [

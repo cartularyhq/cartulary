@@ -60,6 +60,8 @@ defmodule CartularyWeb.GovernanceLive.Index do
 
   use CartularyWeb, :live_view
 
+  import CartularyWeb.ConsoleComponents
+
   alias Cartulary.DataLayer
   alias Cartulary.Governance.Engine
   alias Cartulary.Governance.ValidationItem
@@ -219,34 +221,25 @@ defmodule CartularyWeb.GovernanceLive.Index do
   Renders the open queue, the per-item decision controls, and the skill-card
   authoring form.
 
-  Markup is intentionally plain: inline styles and no client-side JavaScript
-  beyond the LiveView socket itself. The browser pipeline serves this page
-  under a Content-Security-Policy that forbids inline script, so any control
-  added here must work as a server round-trip rather than a script hook.
+  The page uses the shared console frame, so a curator moving between the queue
+  and the exploration pages keeps the same navigation and the same visual
+  language. Everything here is a server round-trip: the browser policy on these
+  pages forbids inline script, so any control added must work without one.
   """
   @impl true
   def render(assigns) do
     ~H"""
-    <div style="font-family: system-ui; max-width: 1100px; margin: 2rem auto; padding: 0 1rem;">
-      <header style="display:flex; align-items:center; justify-content:space-between;">
-        <div>
-          <h1>Governance queue</h1>
-          <p>Gate A/B proposals, conflicts, consent holds, and lifecycle reviews.</p>
-        </div>
-        <%!--
-        Sign-out is a real form POST, not a link, because it destroys server
-        session state: the hidden _method turns the POST into the DELETE route,
-        and the CSRF token is mandatory for every state-changing browser
-        request here. A GET link would let a third-party page log the curator
-        out, and worse, would set the precedent that curator state changes can
-        travel by GET.
-        --%>
-        <form method="post" action="/governance/sign-out">
-          <input type="hidden" name="_method" value="delete" />
-          <input type="hidden" name="_csrf_token" value={Plug.CSRFProtection.get_csrf_token()} />
-          <button>Sign out</button>
-        </form>
-      </header>
+    <%!--
+    The heading is "Governance queue" rather than anything shorter because that
+    exact wording is asserted by the curator-surface regression test: it is how
+    that test tells a rendered queue apart from a redirect to sign-in. Renaming
+    it is a deliberate change to that evidence, not a copy edit.
+    --%>
+    <.shell actor={@current_actor} active={:queue} title="Governance queue" flash={@flash}>
+      <:subtitle>
+        Gate A/B proposals, conflicts, consent holds, and lifecycle reviews. Every decision
+        here is human-only and leaves an immutable record.
+      </:subtitle>
 
       <%!--
       The bulk toolbar holds no checkboxes of its own. Each queue row's
@@ -259,15 +252,20 @@ defmodule CartularyWeb.GovernanceLive.Index do
       per-item value a curator must actually look at, and neither is safe to
       apply blindly across a selection.
       --%>
-      <form id="bulk-form" phx-submit="bulk">
-        <div style="display:flex; gap:.5rem; margin:1rem 0;">
-          <button name="action" value="approve">Approve selected</button>
-          <button name="action" value="reject">Reject selected</button>
-          <button name="action" value="defer">Defer selected</button>
-        </div>
-      </form>
+      <.panel
+        title={"#{length(@items)} item(s) awaiting a decision"}
+        description="Oldest due date first. Decisions apply one at a time, each in its own transaction, so a bulk run that fails part-way leaves the earlier decisions committed."
+      >
+        <form id="bulk-form" phx-submit="bulk">
+          <div class="button-row">
+            <button class="primary" name="action" value="approve">Approve selected</button>
+            <button name="action" value="reject">Reject selected</button>
+            <button name="action" value="defer">Defer selected</button>
+          </div>
+        </form>
 
-      <p :if={@items == []}>The queue is clear.</p>
+        <.empty :if={@items == []} message="The queue is clear." />
+      </.panel>
 
       <%!--
       One card per open queue row. The statement is shown in full because a
@@ -279,87 +277,99 @@ defmodule CartularyWeb.GovernanceLive.Index do
       Provenance and conflict ids are rendered as opaque ids on purpose: they
       let a curator go look, without pulling more content onto the page.
       --%>
-      <article
-        :for={item <- @items}
-        style="border:1px solid #d0d7de; border-radius:8px; padding:1rem; margin:1rem 0;"
-      >
-        <div style="display:flex; gap:.75rem; align-items:start;">
+      <section :for={item <- @items} class="statement-card">
+        <div class="record-head">
           <%!--
           Bound to the bulk toolbar above by form id. The name makes the
           browser submit the selection as a map keyed by queue row id, so the
           handler gets exactly the checked ids and nothing else.
           --%>
-          <input
-            type="checkbox"
-            form="bulk-form"
-            name={"ids[#{item.id}]"}
-            value="true"
-          />
-          <div style="flex:1;">
-            <p><strong>{item.knowledge.statement}</strong></p>
-            <dl style="display:grid; grid-template-columns:10rem 1fr; gap:.25rem;">
-              <dt>Gate / target</dt><dd>{item.kind} / {item.target_level}</dd>
-              <dt>Confidence</dt><dd>{item.confidence}</dd>
-              <dt>Sensitivity</dt><dd>{item.sensitivity}</dd>
-              <dt>State / due</dt><dd>{item.state} / {item.due_at}</dd>
-              <dt>Provenance IDs</dt><dd>{Enum.join(item.provenance_ids, ", ")}</dd>
-              <dt>Conflicts</dt><dd>{Enum.join(item.conflict_knowledge_ids, ", ")}</dd>
-            </dl>
-
-            <%!--
-            Approve, reject, and defer need no extra input, so they are direct
-            clicks rather than forms. type="button" keeps them from ever being
-            treated as a submit control if this markup is later moved inside a
-            form; the decision must travel as this explicit event, never as an
-            incidental form submission.
-            --%>
-            <div style="display:flex; flex-wrap:wrap; gap:.5rem; margin-top:1rem;">
-              <button type="button" phx-click="decide" phx-value-id={item.id} phx-value-action="approve">
-                Approve
-              </button>
-              <button type="button" phx-click="decide" phx-value-id={item.id} phx-value-action="reject">
-                Reject
-              </button>
-              <button type="button" phx-click="decide" phx-value-id={item.id} phx-value-action="defer">
-                Defer
-              </button>
-            </div>
-
-            <%!--
-            "Edit as replacement" is the literal behaviour, not a euphemism.
-            Submitting does not overwrite the statement: it mints a new
-            pipeline-owned knowledge row with the corrected text, supersedes
-            this one, and runs the replacement through the gate from scratch.
-            The curator supplies wording; the pipeline stays the only writer,
-            and the original text remains recoverable through its history.
-            The field is pre-filled with the current statement so a curator
-            corrects rather than retypes, and a cleared field is dropped as
-            blank rather than saved as an empty claim.
-            --%>
-            <form phx-submit="decide" style="display:flex; gap:.5rem; margin-top:.75rem;">
-              <input type="hidden" name="validation_id" value={item.id} />
-              <input type="hidden" name="action" value="edit" />
-              <input name="statement" value={item.knowledge.statement} style="flex:1;" />
-              <button>Edit as replacement</button>
-            </form>
-
-            <%!--
-            Merge folds this item into an existing knowledge row: the target
-            keeps the higher confidence, the summed corroboration count, and
-            the union of source message ids, and this item is superseded. The
-            target is typed as a raw knowledge id because the curator arrives
-            here from the conflict ids listed above, which are the ids worth
-            merging into.
-            --%>
-            <form phx-submit="decide" style="display:flex; gap:.5rem; margin-top:.75rem;">
-              <input type="hidden" name="validation_id" value={item.id} />
-              <input type="hidden" name="action" value="merge" />
-              <input name="merge_into_id" placeholder="Knowledge ID to merge into" style="flex:1;" />
-              <button>Merge</button>
-            </form>
-          </div>
+          <label class="muted">
+            <input type="checkbox" form="bulk-form" name={"ids[#{item.id}]"} value="true" />
+            select
+          </label>
+          <.link navigate={~p"/console/knowledge/#{item.knowledge.id}"} class="ghost-link">
+            Full record and history
+          </.link>
         </div>
-      </article>
+
+        <p class="statement">{item.knowledge.statement}</p>
+
+        <div class="badge-row">
+          <.badge family="kind" value={item.kind} />
+          <.badge family="level" value={item.target_level} />
+          <.badge family="state" value={item.state} />
+          <.badge family="sensitivity" value={item.sensitivity} />
+          <span class="badge">confidence {item.confidence}</span>
+        </div>
+
+        <dl class="pairs">
+          <dt>Due</dt>
+          <dd>{item.due_at}</dd>
+          <dt>Provenance</dt>
+          <dd>{Enum.join(item.provenance_ids, ", ")}</dd>
+          <dt>Conflicts</dt>
+          <dd>{Enum.join(item.conflict_knowledge_ids, ", ")}</dd>
+        </dl>
+
+        <%!--
+        Approve, reject, and defer need no extra input, so they are direct
+        clicks rather than forms. type="button" keeps them from ever being
+        treated as a submit control if this markup is later moved inside a
+        form; the decision must travel as this explicit event, never as an
+        incidental form submission.
+        --%>
+        <div class="button-row">
+          <button type="button" class="primary" phx-click="decide" phx-value-id={item.id} phx-value-action="approve">
+            Approve
+          </button>
+          <button type="button" phx-click="decide" phx-value-id={item.id} phx-value-action="reject">
+            Reject
+          </button>
+          <button type="button" phx-click="decide" phx-value-id={item.id} phx-value-action="defer">
+            Defer
+          </button>
+        </div>
+
+        <%!--
+        "Edit as replacement" is the literal behaviour, not a euphemism.
+        Submitting does not overwrite the statement: it mints a new
+        pipeline-owned knowledge row with the corrected text, supersedes
+        this one, and runs the replacement through the gate from scratch.
+        The curator supplies wording; the pipeline stays the only writer,
+        and the original text remains recoverable through its history.
+        The field is pre-filled with the current statement so a curator
+        corrects rather than retypes, and a cleared field is dropped as
+        blank rather than saved as an empty claim.
+        --%>
+        <form phx-submit="decide" class="inline-form">
+          <input type="hidden" name="validation_id" value={item.id} />
+          <input type="hidden" name="action" value="edit" />
+          <label class="grow">
+            Corrected wording
+            <input name="statement" value={item.knowledge.statement} />
+          </label>
+          <button>Edit as replacement</button>
+        </form>
+
+        <%!--
+        Merge folds this item into an existing knowledge row: the target
+        keeps the higher confidence, the summed corroboration count, and
+        the union of source message ids, and this item is superseded. The
+        target is typed as a raw knowledge id because the curator arrives
+        here from the conflict ids listed above, which are the ids worth
+        merging into.
+        --%>
+        <form phx-submit="decide" class="inline-form">
+          <input type="hidden" name="validation_id" value={item.id} />
+          <input type="hidden" name="action" value="merge" />
+          <label class="grow">
+            Merge into knowledge id
+            <input name="merge_into_id" placeholder="Paste one of the conflict ids above" />
+          </label>
+          <button>Merge</button>
+        </form>
+      </section>
 
       <%!--
       Skill requirement cards share this page because both are curator work,
@@ -371,32 +381,38 @@ defmodule CartularyWeb.GovernanceLive.Index do
       readiness check, never a way to write the contract they are checked
       against.
       --%>
-      <section style="border-top:2px solid #d0d7de; margin-top:2rem; padding-top:1.5rem;">
-        <h2>Skill requirement cards</h2>
-        <p>
-          Author and review versioned procedural-memory contracts. Child scopes override
-          inherited requirements by requirement key.
-        </p>
+      <.panel
+        title="Skill requirement cards"
+        description="Versioned procedural-memory contracts. Child scopes override inherited requirements by requirement key."
+      >
+        <%!--
+        One form, deliberately. Every field below is part of the same published
+        version, so splitting them across two form elements would submit half a
+        card. The row of short fields and the JSON payload are separated
+        visually and not structurally.
+        --%>
+        <form phx-submit="publish_skill_card">
+          <div class="filters">
+            <%!--
+            Scope path rather than scope id: the path is what a curator can read
+            and verify. It is resolved against the scopes this curator is
+            authorized to see, so an unknown or unauthorized path is rejected
+            with a message instead of silently creating a card somewhere else.
+            --%>
+            <label class="grow">
+              Scope path
+              <input name="scope_path" placeholder="/marketing/social" required />
+            </label>
+            <label class="grow">
+              Skill key
+              <input name="skill_key" placeholder="write-copy" required />
+            </label>
+            <label class="grow">
+              Description
+              <input name="description" placeholder="Knowledge needed before writing copy" />
+            </label>
+          </div>
 
-        <form phx-submit="publish_skill_card" style="display:grid; gap:.75rem; margin:1rem 0;">
-          <%!--
-          Scope path rather than scope id: the path is what a curator can read
-          and verify. It is resolved against the scopes this curator is
-          authorized to see, so an unknown or unauthorized path is rejected
-          with a message instead of silently creating a card somewhere else.
-          --%>
-          <label>
-            Scope path
-            <input name="scope_path" placeholder="/marketing/social" required style="width:100%;" />
-          </label>
-          <label>
-            Skill key
-            <input name="skill_key" placeholder="write-copy" required style="width:100%;" />
-          </label>
-          <label>
-            Description
-            <input name="description" placeholder="Knowledge needed before writing copy" style="width:100%;" />
-          </label>
           <%!--
           "f9-1" is the pinned identity of the requirement-selector schema
           that is stored on every published card, so a reader of an old card
@@ -412,14 +428,16 @@ defmodule CartularyWeb.GovernanceLive.Index do
           asked), and a curator reviewing a contract should see the whole
           contract rather than a form that hides half of it.
           --%>
-          <label>
+          <label class="muted">
             Requirements (`f9-1` JSON)
-            <textarea name="requirements" rows="12" required style="width:100%;">{skill_card_example()}</textarea>
+            <textarea name="requirements" rows="12" required>{skill_card_example()}</textarea>
           </label>
-          <button>Publish new version</button>
+          <div class="button-row">
+            <button class="primary">Publish new version</button>
+          </div>
         </form>
 
-        <p :if={@skill_cards == []}>No skill cards have been authored.</p>
+        <.empty :if={@skill_cards == []} message="No skill cards have been authored." />
 
         <%!--
         Every version is listed, newest first within each skill key, not just
@@ -430,22 +448,21 @@ defmodule CartularyWeb.GovernanceLive.Index do
         check. Requirements are printed verbatim so a reviewer compares the
         stored contract, not a re-rendering of it.
         --%>
-        <article
-          :for={card <- @skill_cards}
-          style="border:1px solid #d0d7de; border-radius:8px; padding:1rem; margin:1rem 0;"
-        >
-          <p>
-            <strong>{card.skill_key}</strong>
-            · {card.scope_path}
-            · version {card.version}
-            · {card.requirement_schema_version}
-            · {if(card.active, do: "active", else: "retired")}
-          </p>
+        <article :for={card <- @skill_cards} class="record">
+          <div class="record-head">
+            <h3>{card.skill_key}</h3>
+            <div class="badge-row">
+              <span class="badge">{card.scope_path}</span>
+              <span class="badge">version {card.version}</span>
+              <span class="badge">{card.requirement_schema_version}</span>
+              <.badge family="state" value={if(card.active, do: "active", else: "retired")} />
+            </div>
+          </div>
           <p :if={card.description}>{card.description}</p>
-          <pre style="overflow:auto; white-space:pre-wrap;">{Jason.encode!(card.requirements, pretty: true)}</pre>
+          <pre class="code">{Jason.encode!(card.requirements, pretty: true)}</pre>
         </article>
-      </section>
-    </div>
+      </.panel>
+    </.shell>
     """
   end
 
