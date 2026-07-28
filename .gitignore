@@ -11,7 +11,8 @@ __pycache__/
 node_modules/
 priv/plts/
 priv/repo/*.sqlite*
-priv/static/assets/
+priv/static/assets/*
+!priv/static/assets/governance.js
 priv/static/cache_manifest.json
 rel/overlays/bin/pg0
 rel/overlays/bin/pg0.exe

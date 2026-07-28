@@ -37,6 +37,9 @@ changelog entry and contract-version transition.
 - Advanced the application version from `0.1.0` to `0.2.0`. Retrieval remains
   profile contract `f7-1`; F11 versions evaluation evidence and release policy,
   not product retrieval behavior.
+- Made the governance LiveView bootstrap asset part of the tracked release
+  source so clean CI checkouts and packaged builds exercise the same curator
+  surface as developer worktrees.
 
 ## [0.1.0] - 2026-07-28
 
