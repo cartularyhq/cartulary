@@ -2,12 +2,12 @@
 
 # GitHub Actions Workflows
 
-F11 makes the repository automation executable rather than placeholder-only.
-All workflows use read-only repository permissions.
-Repository action access is deliberately narrower than “allow all”: GitHub-owned
-actions and `erlef/setup-beam@*` are the only non-local actions needed. The
-matching repository setting is documented in
-`docs/roadmap/manual-automation-setup.md`.
+Evaluation, CI, and release readiness makes the repository automation executable
+rather than placeholder-only. All workflows use read-only repository
+permissions. Repository action access is deliberately narrower than “allow all”:
+GitHub-owned actions and `erlef/setup-beam@*` are the only non-local actions
+needed. The matching repository setting is documented in
+`docs/roadmap/beta-roadmap.md`.
 
 ## `ci.yml`
 

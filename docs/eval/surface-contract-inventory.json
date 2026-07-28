@@ -24,18 +24,18 @@
     },
     "ash_json_api_openapi": {
       "status": "unavailable",
-      "prerequisite": "F8",
-      "rule": "Do not advertise or package generated OpenAPI until F8 supplies and gates it."
+      "prerequisite": "integration-surfaces",
+      "rule": "Do not advertise or package generated OpenAPI until the integration-surfaces work supplies and gates it."
     },
     "generated_typescript_sdk": {
       "status": "unavailable",
-      "prerequisite": "F8",
-      "rule": "The F9 readiness helper is not a generated transport SDK."
+      "prerequisite": "integration-surfaces",
+      "rule": "The skill-readiness helper is not a generated transport SDK."
     },
     "generated_python_sdk": {
       "status": "unavailable",
-      "prerequisite": "F8",
-      "rule": "The F9 readiness helper is not a generated transport SDK."
+      "prerequisite": "integration-surfaces",
+      "rule": "The skill-readiness helper is not a generated transport SDK."
     }
   }
 }

@@ -1,12 +1,12 @@
 <!-- SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0 -->
 
-# F5 Model Layer And Structured Extraction
+# Model Layer And Structured Extraction
 
-F5 replaces the POC's direct OpenRouter extractor with one provider-neutral,
-metered model boundary. It implements `FR-KN-5`, `FR-KN-6`, `FR-KN-10`,
-`FR-KN-11`, `FR-FORM-13` through `FR-FORM-16`, `AD-MODEL-1` through
-`AD-MODEL-6`, `AD-OBS-4`, `AD-EVAL-1`, and the model-outage portion of
-`NFR-8`.
+The model layer and structured extraction replace the earlier direct
+OpenRouter extractor with one provider-neutral, metered model boundary. They
+implement `FR-KN-5`, `FR-KN-6`, `FR-KN-10`, `FR-KN-11`, `FR-FORM-13` through
+`FR-FORM-16`, `AD-MODEL-1` through `AD-MODEL-6`, `AD-OBS-4`, `AD-EVAL-1`, and
+the model-outage portion of `NFR-8`.
 
 ## Role and provider boundary
 
@@ -49,11 +49,12 @@ candidate is validated against `create_from_pipeline`. Each candidate includes:
 - expiry, revalidation, and valid-time bounds.
 
 Only known Peers and the current scope can be selected as subjects. New items
-still enter `proposed` and pass the F4 governance engine. The reasoning schema
-reuses the same candidate shape and adds typed
-`supports`/`contradicts`/`derived_from` relations. The F2 dream lane remains the
-durable retry and budget boundary; applying full higher-order reasoning results
-and building projections stay with the later pipeline/projection phases.
+still enter `proposed` and pass the Gate A/B governance engine. The reasoning
+schema reuses the same candidate shape and adds typed
+`supports`/`contradicts`/`derived_from` relations. The transactional dream job
+lane remains the durable retry and budget boundary; applying full higher-order
+reasoning results and building projections stay with the later
+pipeline/projection work.
 
 The dialectic response schema requires answer text, retrieved knowledge IDs,
 and an explicit abstention flag. `Memory.ask` verifies that every returned
@@ -73,9 +74,9 @@ Mismatch returns an `f5-1` `reembed_all` plan with
 `reuse_existing_vectors: false`; the engine never silently substitutes an
 incompatible vector space. The version covers the ONNX artifact, tokenizer,
 pooling strategy, and dimensions, so changing any of them requires a version
-bump. F7 now supplies the knowledge/document vector columns, replay-safe
-backfill, 384-dimensional HNSW indexes, semantic strategy, and tiny-corpus Nx
-baseline.
+bump. Retrieval, entity resolution, and context now supply the
+knowledge/document vector columns, replay-safe backfill, 384-dimensional HNSW
+indexes, semantic strategy, and tiny-corpus Nx baseline.
 
 ## Provenance, metering, and safety
 
@@ -95,8 +96,8 @@ metadata, spans, audit records, or Oban arguments.
 Raw observation, audit, `PipelineRun`, and AshOban enqueue still commit before
 any provider call. A provider error leaves the raw message and queued job
 durable, keeps extraction incomplete, and is returned for retry. The same
-behavior applies when a provider-backed dream step is composed into the F2
-lane. Context reads remain available during an outage.
+behavior applies when a provider-backed dream step is composed into the
+transactional job lane. Context reads remain available during an outage.
 
 The deterministic adapter is explicit configuration for tests and local
 development only. Development may select it when no key is present and
@@ -105,12 +106,14 @@ and never switches to deterministic output after a live provider fails.
 
 ## `f5-1` transition
 
-F0 response shapes, identity-derived tenancy, downward inheritance,
-pipeline-only writes, raw-message durability, F4 governance, and normalized
-eval fixtures remain regression floors. Extraction provenance and pipeline
-identity advance from `poc-0` to `f5-1`, and health now reports `f5-1`.
-F7 subsequently advances retrieval/context profile identity to `f7-1` without
-changing the F5 message/extractor identity.
+Baseline-contract response shapes, identity-derived tenancy, downward
+inheritance, pipeline-only writes, raw-message durability, Gate A/B governance,
+and normalized eval fixtures remain regression floors. Extraction provenance
+and pipeline identity advance from `poc-0` to `f5-1`, and health now reports
+`f5-1`. Retrieval, entity resolution, and context subsequently advance
+retrieval/context profile identity to `f7-1` without changing the
+message/extractor identity. These prefixes are historical version tags and no
+longer name roadmap phases.
 
 ## Evidence
 
@@ -120,11 +123,11 @@ changing the F5 message/extractor identity.
 - Resource migration:
   `priv/repo/migrations/20260727231504_f5_model_layer_structured_extraction.exs`
 - Generated resource snapshots: `priv/resource_snapshots/repo/`
-- F5 acceptance suite:
+- Model layer and structured extraction acceptance suite:
   `test/cartulary/f5_model_layer_structured_extraction_test.exs`
 - Deterministic replay adapter and cassette:
   `test/support/model_cassette_provider.ex` and
   `test/fixtures/model/f5-provider-cassette.json`
-- Updated F0 contract evidence:
+- Updated baseline contract evidence:
   `test/cartulary/poc_contract_test.exs` and
   `test/cartulary_web/controllers/memory_controller_test.exs`

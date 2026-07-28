@@ -12,7 +12,7 @@ defmodule Cartulary.ReleaseReadiness do
     version = mix_version!(root)
     assert_semver!(version)
     assert_changelog!(root, version)
-    assert_f11_docs!(root)
+    assert_release_docs!(root)
     assert_tag!(version, Keyword.get(opts, :tag))
 
     case Keyword.get(opts, :eval_report) do
@@ -55,22 +55,26 @@ defmodule Cartulary.ReleaseReadiness do
     end
   end
 
-  defp assert_f11_docs!(root) do
-    roadmap = read_local!(Path.join(root, "docs/roadmap/free-core-roadmap.md"))
-    [f11 | _rest] = String.split(roadmap, "### F11:", parts: 2) |> tl()
-    f11 = f11 |> String.split("\n## ", parts: 2) |> hd()
+  # The evaluation, CI, and release-readiness capability is implemented, so the
+  # roadmap no longer carries a phase section for it to be checked complete.
+  # The surviving guardrail is that every document a releaser reads must still
+  # describe the release gate under the same name.
+  @release_docs [
+    "README.md",
+    "AGENTS.md",
+    "docs/roadmap/beta-roadmap.md",
+    "docs/implementation-status.md",
+    "docs/architecture/evaluation-ci-release-readiness.md"
+  ]
 
-    if String.contains?(f11, "- [ ]") do
-      raise ArgumentError, "F11 roadmap contains incomplete deliverable or acceptance evidence"
-    end
+  defp assert_release_docs!(root) do
+    for file <- @release_docs do
+      body = root |> Path.join(file) |> read_local!() |> String.downcase()
 
-    for file <- [
-          "README.md",
-          "AGENTS.md",
-          "docs/architecture/f11-evaluation-ci-release-readiness.md"
-        ] do
-      body = read_local!(Path.join(root, file))
-      unless String.contains?(body, "F11"), do: raise(ArgumentError, "#{file} must document F11")
+      unless String.contains?(body, "release readiness") or
+               String.contains?(body, "release-readiness") do
+        raise ArgumentError, "#{file} must document evaluation, CI, and release readiness"
+      end
     end
   end
 

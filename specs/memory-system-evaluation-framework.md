@@ -2,7 +2,8 @@
 
 # Cartulary — Evaluation Framework
 
-> **Status:** v1.0 — F11 implementation contract.
+> **Status:** v1.0 — evaluation, CI, and release-readiness implementation
+> contract.
 >
 > **Companions:** `memory-system-functional-requirements.md` defines what the
 > product does; `memory-system-architecture-and-nfr.md` defines how it is built;
@@ -120,8 +121,9 @@ release gates because corpus shape and machine load affect them.
 ## 7. Stage 0, tuning, and ablation
 
 - **EV-STRAT-1 — Stage 0 first.** The checked-in 2026-07-27 `poc-0` minimal
-  reports remain the pre-F7 baseline. They are historical evidence, not current
-  `f7-1` claims.
+  reports remain the pre-retrieval baseline; `poc-0` is a historical version tag
+  rather than a roadmap phase. They are historical evidence, not current `f7-1`
+  claims.
 - **EV-STRAT-2 — Held-out tuning.** Fusion weights may be tuned only on the
   `held-out-tuning` split. The `release-evaluation` split never informs weights.
 - **EV-STRAT-3 — Ablation matrix.** Each engine benchmark runs the named profile
@@ -142,11 +144,14 @@ A release is ready only when:
 2. every deterministic guardrail passes;
 3. the release matrix validates against `f11-1` provenance;
 4. correctness/citation floors pass;
-5. the semantic version, tag, changelog, README, AGENTS contract, and F11
-   roadmap evidence agree; and
+5. the semantic version, tag, changelog, README, AGENTS contract, and
+   release-readiness roadmap evidence agree; and
 6. the release and container builds complete from the gated commit.
 
 Current transport coverage is recorded in
-`docs/eval/surface-contract-inventory.json`. F8-generated OpenAPI and complete
-SDK clients are explicitly unavailable in 0.2.0; the release must not advertise
-them, and F11 requires that inventory to switch to gated evidence when F8 lands.
+`docs/eval/surface-contract-inventory.json`. Generated OpenAPI and complete SDK
+clients are explicitly unavailable in 0.2.0; they belong to the
+integration-surfaces work (still to be implemented; tracked in
+`docs/roadmap/beta-roadmap.md`). The release must not advertise them, and
+release readiness requires that inventory to switch to gated evidence when those
+surfaces land.

@@ -73,5 +73,4 @@ verification evidence.
 ## Related Documents
 
 - `AGENTS.md`
-- `docs/roadmap/l3-automation-flow.md`
-- `docs/roadmap/manual-automation-setup.md`
+- `docs/roadmap/beta-roadmap.md`

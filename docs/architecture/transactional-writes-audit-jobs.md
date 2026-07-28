@@ -1,14 +1,16 @@
 <!-- SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0 -->
 
-# F2 Transactional Writes, Audit, And Jobs
+# Transactional Writes, Audit, And Jobs
 
 Status: implemented
 
-F2 makes an accepted raw observation, its immutable audit event, its durable
-processing identity, and its AshOban job one PostgreSQL transaction. It
-implements `AD-DATA-8`, `AD-PIPE-1`, `AD-PIPE-3`, `AD-PIPE-4`,
-`AD-SEAM-4.2`, `AD-SEAM-4.3`, `FR-KN-9`, `FR-FORM-8`, `FR-GOV-17`,
-`FR-GOV-20`, and `NFR-8` without changing the frozen `poc-0` HTTP surface.
+Transactional writes, audit, and jobs make an accepted raw observation, its
+immutable audit event, its durable processing identity, and its AshOban job
+one PostgreSQL transaction. They implement `AD-DATA-8`, `AD-PIPE-1`,
+`AD-PIPE-3`, `AD-PIPE-4`, `AD-SEAM-4.2`, `AD-SEAM-4.3`, `FR-KN-9`,
+`FR-FORM-8`, `FR-GOV-17`, `FR-GOV-20`, and `NFR-8` without changing the frozen
+`poc-0` HTTP surface. `poc-0` is a historical version tag for that frozen
+contract and no longer names a roadmap phase.
 
 ## Transaction boundary
 
@@ -44,12 +46,15 @@ both deployment modes.
 | import-derived-cache rebuild | `portability` | maintenance Reactor continuation |
 | unprocessed-record reconciliation | `reconciler` | Account-scoped reconciler |
 
-F2 owns durable execution, retry, uniqueness, and continuation seams. F4 owns
-the real gate/revalidation/expiry semantics, F5 owns document extraction and
-model-backed reasoning, F6 owns connector behavior, F9 owns projections, and
-F12 owns the logical import/export implementation. Until those phases land,
-their F2 lanes complete a typed durable continuation without inventing the
-later domain behavior.
+This capability owns durable execution, retry, uniqueness, and continuation
+seams. Gate A/B governance owns the real gate/revalidation/expiry semantics;
+the model layer and structured extraction own document extraction and
+model-backed reasoning; documents, connectors, and sync own connector
+behavior; retrieval, entity resolution, and context own projections; and
+portability, packaging, and operations own the logical import/export
+implementation. Until each of those capabilities lands, its lane here
+completes a typed durable continuation without inventing the later domain
+behavior.
 
 ## Idempotency and reconciliation
 
@@ -70,9 +75,9 @@ provenance rows and does not append a second creation lifecycle event. The
 Account-scoped reconciler scans raw messages without
 `extraction_completed_at` and re-enqueues the deterministic extraction key.
 
-`Cartulary.Pipeline.Lock` is the F2 infrastructure exception that uses a
-parameterized PostgreSQL advisory-lock query. It performs no durable write;
-all durable state still goes through Ash actions.
+`Cartulary.Pipeline.Lock` is the transactional-writes infrastructure exception
+that uses a parameterized PostgreSQL advisory-lock query. It performs no
+durable write; all durable state still goes through Ash actions.
 
 ## Audit chain
 
@@ -90,8 +95,8 @@ chain tip. Different Accounts do not block one another. The audit action reads
 the prior tip and inserts the new event in the same transaction as the domain
 change. Lifecycle, gate, attribution, observation, deletion, configuration,
 and governance categories are reserved; current message/knowledge and policy
-actions emit the applicable events, while F4 erasure and governance actions
-will use the same append API.
+actions emit the applicable events, while Gate A/B erasure and governance
+actions will use the same append API.
 
 ## Evidence
 
@@ -103,6 +108,8 @@ will use the same append API.
 - replay-safe knowledge/provenance/lifecycle behavior;
 - raw persistence while a configured model provider is unavailable;
 - deterministic audit-chain recomputation with no raw content in metadata; and
-- registration of every F2 trigger, Reactor, category, and key family.
+- registration of every transactional trigger, Reactor, category, and key
+  family.
 
-F0 contract tests and the F1 action/RLS suite remain regression gates.
+The frozen API baseline contract tests and the Ash domain backbone action/RLS
+suite remain regression gates.

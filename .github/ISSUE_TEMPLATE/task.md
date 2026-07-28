@@ -19,7 +19,7 @@ assignees: ""
 - Product context: `blueprint/memory-system-product-blueprint.md`:
 - ADRs: `docs/adr/README.md` or `docs/adr/<adr-file>.md`:
 - Architecture notes: `docs/architecture/README.md` or `docs/architecture/<note>.md`:
-- Roadmap/process docs: `docs/roadmap/l3-automation-flow.md`, `docs/roadmap/manual-automation-setup.md`, or `docs/roadmap/main-branch-ruleset.md`:
+- Roadmap/process docs: `docs/roadmap/beta-roadmap.md`:
 - Security/eval docs: `docs/security/README.md`, `docs/eval/README.md`, or a specific note:
 - Other internal docs:
 

@@ -2,7 +2,7 @@
 
 defmodule Cartulary.Eval.ReleaseSuite do
   @moduledoc """
-  Runs the versioned F11 engine/product evaluation matrix through the real
+  Runs the versioned f11-1 engine/product evaluation matrix through the real
   Cartulary memory surface.
   """
 

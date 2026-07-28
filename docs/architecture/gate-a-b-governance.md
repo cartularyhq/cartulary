@@ -1,11 +1,12 @@
 <!-- SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0 -->
 
-# F4 Real Gate A/B Governance
+# Gate A/B Governance
 
-F4 replaces the POC auto-activation shortcut with a durable governance
-operation layer. It implements `FR-GOV-1` through `FR-GOV-22`, including the
-ADR-0005 peer-inline path, while preserving `AD-GOV-1` through `AD-GOV-5`,
-`AD-PIPE-2`, `AD-PIPE-8`, `AINV-1`, `AINV-2`, and `AINV-5`.
+Gate A/B governance replaces the 0.1.0 baseline auto-activation shortcut with a
+durable governance operation layer. It implements `FR-GOV-1` through
+`FR-GOV-22`, including the ADR-0005 peer-inline path, while preserving
+`AD-GOV-1` through `AD-GOV-5`, `AD-PIPE-2`, `AD-PIPE-8`, `AINV-1`, `AINV-2`,
+and `AINV-5`.
 
 ## Boundary
 
@@ -16,8 +17,8 @@ and `Cartulary.Governance.Erasure` owns subject erasure. All durable mutations
 go through Ash actions under the authenticated Account tenant and PostgreSQL
 RLS.
 
-F4 adds eight persisted Ash resources, taking the durable resource count from
-28 to 36:
+Gate A/B governance adds eight persisted Ash resources, taking the durable
+resource count from 28 to 36:
 
 | Resource | Purpose |
 | --- | --- |
@@ -114,19 +115,21 @@ answer-correlation AshOban lanes now call real governance operations:
 - erasure recomputes or marks affected projections and entity derivations.
 
 The same workflows and database guarantees run in pg0-backed single-node and
-operator-run Postgres modes. F4 introduces no alternate queue, cache, or
-deployment implementation.
+operator-run Postgres modes. Gate A/B governance introduces no alternate queue,
+cache, or deployment implementation.
 
 ## `poc-0` transition
 
-F0 HTTP shapes, identity-derived tenancy, downward scope inheritance, raw
-message durability, pipeline-only knowledge creation, deterministic fallback,
-and eval fixture normalization remain regression floors. The lifecycle
-semantics intentionally advance to `f4-1`: ingest records
+Baseline contract HTTP shapes, identity-derived tenancy, downward scope
+inheritance, raw message durability, pipeline-only knowledge creation,
+deterministic fallback, and eval fixture normalization remain regression
+floors. The lifecycle semantics intentionally advance to `f4-1`: ingest records
 `proposed → provisional` by default instead of the removed
 `poc_auto_gate → active` shortcut, and health reports `f4-1`. Extractor and
-retrieval profile versions remain `poc-0` at the F4 checkpoint. F5 subsequently
-advances extraction and health to `f5-1`; F7 advances retrieval and context
+retrieval profile versions remain `poc-0` at this checkpoint; that string is a
+historical version tag and no longer names a roadmap phase. The model layer and
+structured extraction subsequently advance extraction and health to `f5-1`;
+retrieval, entity resolution, and context advance retrieval and context
 profiles to `f7-1`.
 
 ## Evidence
@@ -134,9 +137,9 @@ profiles to `f7-1`.
 - Resource migration:
   `priv/repo/migrations/20260727220024_f4_real_gate_a_b_governance.exs`
 - Generated resource snapshots: `priv/resource_snapshots/repo/`
-- F4 acceptance suite:
+- Gate A/B governance acceptance suite:
   `test/cartulary/f4_real_gate_a_b_governance_test.exs`
-- Updated F0 contract evidence:
+- Updated baseline contract evidence:
   `test/cartulary/poc_contract_test.exs` and
   `test/cartulary_web/controllers/memory_controller_test.exs`
 - Operation layer: `lib/cartulary/governance/`

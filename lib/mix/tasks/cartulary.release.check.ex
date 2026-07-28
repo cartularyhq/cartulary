@@ -2,7 +2,7 @@
 
 defmodule Mix.Tasks.Cartulary.Release.Check do
   @moduledoc """
-  Verifies semantic version, changelog, F11 evidence, optional tag identity,
+  Verifies semantic version, changelog, evaluation evidence, optional tag identity,
   and required release-eval guardrails.
   """
 
@@ -10,7 +10,7 @@ defmodule Mix.Tasks.Cartulary.Release.Check do
 
   alias Cartulary.ReleaseReadiness
 
-  @shortdoc "Fails unless the release satisfies F11 readiness"
+  @shortdoc "Fails unless the release satisfies release readiness"
 
   @impl true
   def run(args) do
@@ -32,6 +32,6 @@ defmodule Mix.Tasks.Cartulary.Release.Check do
         allow_missing_eval: Keyword.get(opts, :allow_missing_eval, false)
       )
 
-    Mix.shell().info("release #{result.version} satisfies F11 readiness")
+    Mix.shell().info("release #{result.version} satisfies release readiness")
   end
 end

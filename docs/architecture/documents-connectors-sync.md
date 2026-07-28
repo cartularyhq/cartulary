@@ -1,18 +1,19 @@
 <!-- SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0 -->
 
-# F6 Documents, Connectors, And Sync
+# Documents, Connectors, And Sync
 
 Status: implemented
 
-F6 makes documents a first-class free-core observation path. It implements
-`FR-TOP-10`, `FR-KN-5`, `FR-FORM-9` through `FR-FORM-12`,
-`FR-FORM-14`, `FR-FORM-17`, `AD-SEAM-1` through `AD-SEAM-4`,
+Documents, connectors, and sync makes documents a first-class free-core
+observation path. It implements `FR-TOP-10`, `FR-KN-5`, `FR-FORM-9` through
+`FR-FORM-12`, `FR-FORM-14`, `FR-FORM-17`, `AD-SEAM-1` through `AD-SEAM-4`,
 `AD-DATA-5`, `AD-PIPE-1` through `AD-PIPE-4`, `AD-PORT-1`, `AINV-5`,
 and the document-outage portion of `NFR-8`.
 
 ## Durable and derived boundaries
 
-F6 takes the configured boundary to ten Ash Domains and 38 Resources.
+Documents, connectors, and sync takes the configured boundary to ten Ash
+Domains and 38 Resources.
 `Cartulary.Observations.Document` identifies one logical source document and
 its scope. `DocumentVersion` is immutable source history carrying:
 
@@ -37,18 +38,20 @@ rejected. `DocumentChunk` is a rebuildable derived cache: version and byte
 range, chunk hash, text, vector, and pinned embedding identity. Chunks and
 vectors are excluded from logical export and regenerated from version blobs.
 
-The F6 migration preserves PostgreSQL RLS on both new Account-scoped tables,
-adds foreign keys and scheduling/lookup indexes, retains the existing
-document-version FTS column, and safely represents any pre-F6 inline document
-content with a `legacy-db://` reference. F7 converts chunk embeddings from
-float arrays to PostgreSQL `vector`, adds the chunk HNSW and generated-FTS
-indexes, and retrieves chunks through Semantic and Lexical strategies.
+The document migration preserves PostgreSQL RLS on both new Account-scoped
+tables, adds foreign keys and scheduling/lookup indexes, retains the existing
+document-version FTS column, and safely represents any pre-existing inline
+document content with a `legacy-db://` reference. Retrieval, entity
+resolution, and context converts chunk embeddings from float arrays to
+PostgreSQL `vector`, adds the chunk HNSW and generated-FTS indexes, and
+retrieves chunks through Semantic and Lexical strategies.
 
 ## Dual ingest
 
 `Cartulary.Documents.ingest_bytes/2` writes the content-addressed blob, creates
 or reuses the scoped logical document, appends a new immutable version only
-when the hash changed, and uses the existing F2 Ash change to commit:
+when the hash changed, and uses the existing transactional-write, audit, and
+job Ash change to commit:
 
 1. the raw `DocumentVersion`;
 2. a content-safe hash-chain audit event;
@@ -61,11 +64,11 @@ and the other supported binary formats use the native ExtractousEx NIF; plain
 UTF-8 text uses the direct no-loss path.
 
 TextChunker supplies format-aware chunks and byte offsets. The bitcrowd/rag
-embedding stage attaches vectors produced by the pinned F5 `embedder` role.
-Every chunk records provider, model, version, and dimensions. The same parsed
-text then enters the F5 structured extractor. Subject remains distinct from
-the document source, provenance links the resulting item to
-`document_version_id`, and every new item enters the unchanged F4 Gate A/B
+embedding stage attaches vectors produced by the pinned model-layer `embedder`
+role. Every chunk records provider, model, version, and dimensions. The same
+parsed text then enters the structured extractor. Subject remains distinct
+from the document source, provenance links the resulting item to
+`document_version_id`, and every new item enters the unchanged Gate A/B
 lifecycle. Agents and connectors therefore submit raw observations only.
 
 Processing records counts, parser name, byte size, and IDs in telemetry. It
@@ -93,18 +96,19 @@ provenance remain governed and retrievable.
 
 ## Erasure and portability
 
-`Cartulary.Documents.Portability` is the document component of the F10
-account-wide archive. Its `f6-document-1` bundle carries durable document and
+`Cartulary.Documents.Portability` is the document component of the account-wide
+portability archive. Its `f6-document-1` bundle carries durable document and
 version metadata plus checksum-verified blob bytes. It explicitly excludes
 chunks and embeddings; import passes every raw version through ordinary ingest
 and enqueue, so derived data is rebuilt under the target embedder identity.
-F10 still owns the complete transaction-consistent Account archive, JSONL
-layout, audit-chain verification, and operator-facing commands.
+Portability, packaging, and operations still owns the complete
+transaction-consistent Account archive, JSONL layout, audit-chain
+verification, and operator-facing commands.
 
 Document erasure removes derived chunks, document/version metadata, exclusive
 blob objects, and document provenance. Knowledge supported only by the erased
-document is removed through the F4 erasure helper; knowledge with surviving
-provenance remains. Content-addressed blobs shared by another version are not
+document is removed through the Gate A/B governance erasure helper; knowledge
+with surviving provenance remains. Content-addressed blobs shared by another version are not
 deleted. Audit retains only IDs, hashes, actions, and counts.
 
 ## Evidence and version posture
@@ -117,10 +121,12 @@ deleted. Audit retains only IDs, hashes, actions, and counts.
 - Resource migration:
   `priv/repo/migrations/20260728082728_f6_documents_connectors_sync.exs`
 - Generated snapshots: `priv/resource_snapshots/repo/`
-- F6 acceptance suite:
+- Documents acceptance suite:
   `test/cartulary/f6_documents_connectors_sync_test.exs`
 
-F0 HTTP response shapes, the F4 lifecycle contract, and F5 message extraction
-remain unchanged. F6 adds a new document path and does not rename the existing
-`f5-1` health/message pipeline identity. F7 subsequently advances retrieval
-profile identity to `f7-1`.
+Baseline contract HTTP response shapes, the Gate A/B lifecycle contract, and
+model-layer message extraction remain unchanged. The document path is additive
+and does not rename the existing `f5-1` health/message pipeline identity.
+Retrieval, entity resolution, and context subsequently advances retrieval
+profile identity to `f7-1`. Both strings are historical version tags and no
+longer name roadmap phases.

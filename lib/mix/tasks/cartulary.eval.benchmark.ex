@@ -3,7 +3,7 @@
 defmodule Mix.Tasks.Cartulary.Eval.Benchmark do
   @moduledoc """
   Runs LoCoMo, LongMemEval, BEAM, or Cartulary-shaped benchmark fixtures through
-  the local POC memory engine.
+  the local memory engine.
 
       mix cartulary.eval.benchmark --benchmark locomo --dataset data/locomo10.json
       mix cartulary.eval.benchmark --benchmark longmemeval --dataset data/longmemeval_s_cleaned.json

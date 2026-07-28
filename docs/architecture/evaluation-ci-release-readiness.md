@@ -1,24 +1,28 @@
 <!-- SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0 -->
 
-# F11 Evaluation, CI, And Release Readiness
+# Evaluation, CI, And Release Readiness
 
 Status: implemented on 2026-07-28.
 
-F11 turns the F0–F10 evidence into blocking automation and reproducible release
-reports without changing the 38-Resource durable boundary. It implements
-`AD-EVAL-1` through `AD-EVAL-5`, `NFR-1`, `NFR-11`, and the evaluation
-framework's `EV-*` contracts. Retrieval remains `f7-1`; evaluation evidence is
-versioned `f11-1`, and the application advances to semantic version `0.2.0`.
+Evaluation, CI, and release readiness turns the evidence from the frozen API
+baseline through portability, packaging, and operations into blocking
+automation and reproducible release reports without changing the 38-Resource
+durable boundary. It implements `AD-EVAL-1` through `AD-EVAL-5`, `NFR-1`,
+`NFR-11`, and the evaluation framework's `EV-*` contracts. Retrieval remains
+`f7-1`; evaluation evidence is versioned `f11-1`, and the application advances
+to semantic version `0.2.0`.
 
 ## Deterministic gate
 
 The external-Postgres CI lane runs Ash snapshot drift, formatting,
 warnings-as-errors compilation, the complete ExUnit/property suite, Credo,
 Sobelow, Hex retirement audit, and the deterministic release matrix. Dialyzer
-has a cached dedicated lane. Existing F1–F10 tests supply the data-layer,
+has a cached dedicated lane. Existing tests from the Ash domain backbone
+through portability, packaging, and operations supply the data-layer,
 strategy, Account isolation, consent/promotion, cassette, MCP/HTTP/readiness
-helper, and no-public-entity guardrails; the focused F11 test prevents the CI,
-version, surface inventory, and release contracts from drifting.
+helper, and no-public-entity guardrails; the focused evaluation and release
+test prevents the CI, version, surface inventory, and release contracts from
+drifting.
 
 The packaged-pg0 lane assembles the checksum-pinned release, boots it from an
 empty temporary data root, waits for `f10-1` readiness, and runs the same
@@ -26,11 +30,13 @@ complete source test suite against a separate database in that pg0 instance.
 The build job runs only after external Postgres, pg0, and Dialyzer pass, then
 builds both the Mix release and production container.
 
-F8 has not supplied AshJsonApi OpenAPI or complete generated TypeScript/Python
-clients. F11 does not invent those surfaces. The machine-readable surface
-inventory marks them `unavailable`, gates the shipped Phoenix/MCP/F9 helper
+The integration-surfaces work has not supplied AshJsonApi OpenAPI or complete
+generated TypeScript/Python clients; it is still to be implemented and tracked
+in `docs/roadmap/beta-roadmap.md`. Evaluation and release readiness does not
+invent those surfaces. The machine-readable surface inventory marks them
+`unavailable`, gates the shipped Phoenix/MCP and skill-readiness helper
 contracts, and prevents 0.2.0 documentation or packaging from presenting the
-F9 helpers as complete SDKs.
+skill-readiness helpers as complete SDKs.
 
 ## Evaluation boundary
 
@@ -54,7 +60,9 @@ latency, RAG-triad, token efficiency, and BEAM degradation remain
 frontier-tracked as required by `AD-EVAL-3`, `NFR-1`, and `NFR-11`.
 
 The 2026-07-27 minimal `poc-0` reports remain immutable Stage 0 evidence from
-before F7. They are not silently relabeled as current `f7-1` results.
+the pre-retrieval baseline; `poc-0` is a historical version tag rather than a
+current roadmap label. They are not silently relabeled as current `f7-1`
+results.
 
 ## Release controls
 
@@ -63,7 +71,7 @@ Cartulary follows Semantic Versioning with a Keep-a-Changelog-style
 
 - `mix.exs` contains valid SemVer and a matching dated changelog entry;
 - the tag, when supplied, is exactly `v<version>`;
-- F11 roadmap, README, AGENTS, and architecture evidence agree;
+- the roadmap, README, AGENTS, and architecture evidence agree;
 - a non-empty `f11-suite-1` report matches the application version; and
 - every deterministic release threshold still passes.
 

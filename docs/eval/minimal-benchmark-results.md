@@ -4,21 +4,22 @@ Date: 2026-07-27
 
 This document is the immutable Stage 0 record of the minimal LoCoMo,
 LongMemEval, and BEAM benchmark runs
-executed against the local POC benchmark runner. These are not upstream-scale
-scores. They prove that the POC can ingest the named benchmark families,
-exercise the real `Cartulary.Memory` write/read path, score answers and
-citations, and write durable JSON reports in the repository.
+executed against the 0.1.0 benchmark runner. These are not upstream-scale
+scores. They prove that the 0.1.0 release could ingest the named benchmark
+families, exercise the real `Cartulary.Memory` write/read path, score answers
+and citations, and write durable JSON reports in the repository.
 
 All runs used `--no-model`, so extraction and answering used the deterministic
-POC fallback path instead of an external model provider.
+fallback path instead of an external model provider.
 
 All quoted scores use retrieval profile `balanced`, profile version `poc-0`.
-The current POC runner does not yet expose benchmark-specific deadline disable
-or fixed-clock controls in the report, so the deadline setting is the normal POC
-retrieval path.
+The runner used for these runs does not expose benchmark-specific deadline
+disable or fixed-clock controls in the report, so the deadline setting is the
+normal retrieval path.
 
-F11 does not relabel these historical files. Current `f7-1` claims use the
-`f11-1` report schema and `docs/eval/release-suite.json`.
+The evaluation, CI, and release-readiness work does not relabel these
+historical files. Current `f7-1` claims use the `f11-1` report schema and
+`docs/eval/release-suite.json`.
 
 ## Commands Run
 
@@ -91,7 +92,7 @@ The LongMemEval fixture uses the cleaned format with `haystack_sessions`,
 - `single-session-user`: 1 question, accuracy 1.00, citation hit rate 1.00.
 - `abstention`: 1 question, accuracy 0.00, citation hit rate 0.00.
 
-The abstention failure is expected POC evidence. The current fallback answerer
+The abstention failure is expected baseline evidence. The fallback answerer
 returns a nearby active knowledge item for the unrelated airline question:
 `Jordan uses Helix when drafting release notes.` The benchmark scorer marks the
 case incorrect because abstention was expected and no evidence references were
@@ -119,7 +120,7 @@ BEAM scale curve:
 
 ## Interpretation
 
-This is the minimum credible benchmark proof for the local POC:
+This is the minimum credible benchmark proof for the 0.1.0 baseline:
 
 - The runner accepts and normalizes LoCoMo, LongMemEval, and BEAM source-shaped
   fixtures.
@@ -130,8 +131,9 @@ This is the minimum credible benchmark proof for the local POC:
 - The LongMemEval abstention miss documents a known retrieval/answering gap
   before release thresholds or upstream judge parity are added.
 
-F11 subsequently added held-out tuning discipline, strategy ablations, explicit
-deadline/report provenance, deterministic release thresholds, CI gates,
-ConvoMem support, and pg0/external-Postgres lanes. Remaining evidence work is
+The evaluation, CI, and release-readiness work subsequently added held-out
+tuning discipline, strategy ablations, explicit deadline/report provenance,
+deterministic release thresholds, CI gates, ConvoMem support, and
+pg0/external-Postgres lanes. Remaining evidence work is
 upstream-scale datasets and independent-family live-model judging; smoke-scale
 fixtures are not comparative product scores.

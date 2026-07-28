@@ -1,22 +1,24 @@
 <!-- SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0 -->
 
-# F9 Skill Readiness And Procedural Memory
+# Skill Readiness And Procedural Memory
 
 Status: implemented
 
-F9 completes Cartulary's authored procedural-memory layer: a versioned
-`SkillRequirementCard` says what governed knowledge must be present before an
-agent runs a skill, and `check_readiness(skill, peer, scope)` produces a
-reasoning-free gap report. It implements `FR-SK-1` through `FR-SK-7`,
+Skill readiness completes Cartulary's authored procedural-memory layer: a
+versioned `SkillRequirementCard` says what governed knowledge must be present
+before an agent runs a skill, and `check_readiness(skill, peer, scope)` produces
+a reasoning-free gap report. It implements `FR-SK-1` through `FR-SK-7`,
 `FR-API-9`, `FR-API-15`, `AINV-2`, `AINV-6`, `AD-DATA-4`, and the
 `check_readiness` NFR target.
 
 ## Authored card boundary
 
 `Cartulary.Skills.SkillRequirementCard` remains one of the 38 authoritative Ash
-Resources introduced through F1-F7. F9 adds a human-readable description and
+Resources introduced from the Ash domain backbone through retrieval, entity
+resolution, and context. Skill readiness adds a human-readable description and
 the pinned `requirement_schema_version`, currently `f9-1`; it does not add
-another durable type.
+another durable type. That `f9-1` prefix is a historical version tag and no
+longer names a roadmap phase.
 
 Cards are authored configuration, not reasoned knowledge:
 
@@ -102,9 +104,9 @@ stale knowledge ids, `blockers`, `warnings`, and:
   `either`.
 
 An absent active card is a blocker rather than silent permission. Elicited text
-must be submitted through raw `ingest`, processed through F5 extraction and F4
-governance, then checked again. Neither the server nor an SDK helper writes
-knowledge from an elicitation answer.
+must be submitted through raw `ingest`, processed through the model layer's
+structured extraction and Gate A/B governance, then checked again. Neither the
+server nor an SDK helper writes knowledge from an elicitation answer.
 
 ## Surfaces and governance
 
@@ -121,8 +123,9 @@ credentials have no card-authoring MCP tool.
 `sdk/typescript/src/skill-readiness.ts` and
 `sdk/python/cartulary/skill_readiness.py` consume the report, preserve warnings,
 build elicitation prompts, and throw when required gaps block. They are
-transport-neutral helper modules; F8 still owns generation and packaging of
-the complete TypeScript/Python clients.
+transport-neutral helper modules; the integration-surfaces work owns generation
+and packaging of the complete TypeScript/Python clients (still to be
+implemented; tracked in docs/roadmap/beta-roadmap.md).
 
 Readiness telemetry records only report identity, counts, and the final boolean.
 It does not record skill names, card descriptions/selectors, statements,

@@ -1,11 +1,12 @@
 <!-- SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0 -->
 
-# F7 Retrieval, Entity Resolution, And Context
+# Retrieval, Entity Resolution, And Context
 
 Status: implemented
 
-F7 replaces the POC inline retrieval helper with profile-selected,
-deadline-bounded candidate strategies and projection-backed context assembly.
+Retrieval, entity resolution, and context replace the earlier inline retrieval
+helper with profile-selected, deadline-bounded candidate strategies and
+projection-backed context assembly.
 It implements `FR-API-1` through `FR-API-5`, `FR-API-7`, `FR-API-10`,
 `FR-API-23` through `FR-API-25`, `FR-API-27` through `FR-API-29`,
 `FR-KN-18` through `FR-KN-22`, `AD-SEAM-3`, `AD-DATA-5`,
@@ -14,7 +15,7 @@ It implements `FR-API-1` through `FR-API-5`, `FR-API-7`, `FR-API-10`,
 ## Retrieval boundary
 
 `Cartulary.Retrieval.Strategy` defines `name/0`, `cost_class/0`, `stage/0`,
-`applicable?/1`, and `candidates/2`. F7 ships:
+`applicable?/1`, and `candidates/2`. Cartulary ships:
 
 | Stage | Strategies |
 | --- | --- |
@@ -36,7 +37,7 @@ strategy tasks and reranking. Timeouts are dropped, not retried, and every
 response reports contributed and dropped strategies plus pre-fusion
 cross-strategy disagreement.
 
-`Cartulary.Retrieval.Store` is the reviewed F7 read-only data-layer helper for
+`Cartulary.Retrieval.Store` is the reviewed read-only data-layer helper for
 the operations Ash does not express as ordinary resource reads: PG-FTS,
 pgvector ANN order, and hop-one expansion. Its static parameterized statements
 apply Account, authorized scope, lifecycle, and caller-provisional filters
@@ -65,7 +66,7 @@ ceilings through:
 - `CARTULARY_RETRIEVAL_THOROUGH_DEADLINE_MS`.
 
 Raw strategy lists remain restricted to internal/system and eval callers.
-Source filters are applied before fusion. `search` keeps the F0 compatibility
+Source filters are applied before fusion. `search` keeps the baseline-contract
 shape by returning governed knowledge and document chunks in one candidate
 collection distinguished by `candidate_type`; `ask` restricts its retrieval to
 knowledge.
@@ -74,7 +75,7 @@ knowledge.
 
 Knowledge and document chunk embeddings are real PostgreSQL `vector` values,
 not float-array stand-ins. Every vector retains provider, model, version, and
-dimensions. The F7 migration adds:
+dimensions. The retrieval migration adds:
 
 - HNSW cosine indexes for the pinned 384-dimensional knowledge, chunk, and
   entity collections;
@@ -87,17 +88,19 @@ expression. Other explicitly configured dimensions remain valid and use the
 small-corpus path until their own reviewed index migration is installed.
 `Cartulary.Retrieval.Vector` provides the deterministic Nx cosine baseline for
 tiny eval corpora and entity candidate comparison. A pinned-identity mismatch
-still follows F5's explicit re-embed plan; vectors are never silently reused.
+still follows the model layer's explicit re-embed plan; vectors are never
+silently reused.
 
 `projection_refresh` is the replay-safe rebuild job. It backfills knowledge
 vectors, resolves entities, and refreshes projections. Document import already
-re-enters ordinary F6 ingest, which rebuilds chunk vectors and causes governed
-knowledge to enqueue the same derived-cache jobs.
+re-enters ordinary document ingest, which rebuilds chunk vectors and causes
+governed knowledge to enqueue the same derived-cache jobs.
 
 ## Entity resolution
 
-`Entity` and `EntityMention` remain the F1-declared, pipeline-internal derived
-resources. The dream-time resolver processes active governed statements using:
+`Entity` and `EntityMention` remain pipeline-internal derived resources
+declared by the Ash domain backbone. The dream-time resolver processes active
+governed statements using:
 
 1. exact normalized alias matching;
 2. Nx cosine over pinned alias embeddings; and
@@ -134,18 +137,19 @@ It never invokes dialectic or dream reasoning on the live context path.
 ## Version and evidence
 
 The message/extractor and health identity remains `f5-1`. Search, ask, and
-context profile identity intentionally advances from `poc-0` to `f7-1`; the F0
-HTTP evidence was updated for that explicit transition.
+context profile identity intentionally advances from `poc-0` to `f7-1`; the
+baseline HTTP evidence was updated for that explicit transition. These `f*`
+prefixes are historical version tags and no longer name roadmap phases.
 
 Implementation and regression evidence:
 
 - retrieval and context code under `lib/cartulary/retrieval/` and
   `lib/cartulary/context/`;
-- F7 resource fields and actions in `lib/cartulary/knowledge.ex` and
+- retrieval resource fields and actions in `lib/cartulary/knowledge.ex` and
   `lib/cartulary/documents.ex`;
 - migration
   `priv/repo/migrations/20260728092147_f7_retrieval_entity_context.exs`;
 - generated resource snapshots under `priv/resource_snapshots/repo/`;
 - acceptance suite
   `test/cartulary/f7_retrieval_entity_context_test.exs`; and
-- updated F0/F6 surface and document-vector regressions.
+- updated baseline-contract surface and document-vector regressions.

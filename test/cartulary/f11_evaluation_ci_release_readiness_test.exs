@@ -96,7 +96,7 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
     refute sdk =~ "entitymention"
   end
 
-  test "surface inventory gates shipped contracts and fails closed around the F8 boundary" do
+  test "surface inventory gates shipped contracts and fails closed around the integration-surfaces boundary" do
     inventory =
       "docs/eval/surface-contract-inventory.json"
       |> File.read!()
@@ -109,7 +109,7 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
 
     for surface <- ~w(ash_json_api_openapi generated_typescript_sdk generated_python_sdk) do
       assert inventory["surfaces"][surface]["status"] == "unavailable"
-      assert inventory["surfaces"][surface]["prerequisite"] == "F8"
+      assert inventory["surfaces"][surface]["prerequisite"] == "integration-surfaces"
     end
   end
 

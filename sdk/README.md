@@ -3,9 +3,10 @@
 # Cartulary SDK readiness helpers
 
 The TypeScript and Python modules in this directory implement the
-provider-neutral F9 helper contract around the server's `f9-1` readiness
-report. They intentionally contain no generated transport client; F8 owns
-generation of the complete HTTP/MCP clients.
+provider-neutral skill-readiness helper contract around the server's `f9-1`
+readiness report. They intentionally contain no generated transport client; the
+integration-surfaces work owns generation of the complete HTTP/MCP clients
+(still to be implemented; tracked in `docs/roadmap/beta-roadmap.md`).
 
 Both helpers:
 

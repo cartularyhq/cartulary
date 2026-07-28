@@ -84,5 +84,4 @@ checks, CODEOWNER review where appropriate, and explicit human approval.
 
 - `AGENTS.md`
 - `docs/adr/0001-repo-automation-model.md`
-- `docs/roadmap/l3-automation-flow.md`
-- `docs/roadmap/manual-automation-setup.md`
+- `docs/roadmap/beta-roadmap.md`

@@ -2,8 +2,9 @@
 
 # Release Checklist
 
-This checklist is the F11 release gate for `AD-EVAL-1` through `AD-EVAL-5`,
-`FR-PLAT-2`, `FR-PLAT-4`, `FR-PLAT-5`, `NFR-1`, and `NFR-11`.
+This checklist is the evaluation, CI, and release-readiness gate for
+`AD-EVAL-1` through `AD-EVAL-5`, `FR-PLAT-2`, `FR-PLAT-4`, `FR-PLAT-5`,
+`NFR-1`, and `NFR-11`.
 
 ## Prepare
 

@@ -1,16 +1,17 @@
 <!-- SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0 -->
 
-# F10 Portability, Packaging, And Operations
+# Portability, Packaging, And Operations
 
 Status: implemented on 2026-07-28.
 
-F10 makes the community core installable, movable, observable, and recoverable
-without changing its 38-Resource durable boundary. It implements FR-PLAT-2,
-FR-PLAT-5, FR-PLAT-8 through FR-PLAT-11, FR-PLAT-14, AD-CFG-2, AD-PORT-1
-through AD-PORT-4, AD-OBS-1 through AD-OBS-7, NFR-7 through NFR-9, and
-ADR-0003. The ARCH prime directive remains intact: pg0 and external Postgres
-are infrastructure adapters around the same release, Repo, Ash actions,
-migrations, Oban queues, and product behavior.
+Portability, packaging, and operations make the community core installable,
+movable, observable, and recoverable without changing its 38-Resource durable
+boundary. This work implements FR-PLAT-2, FR-PLAT-5, FR-PLAT-8 through
+FR-PLAT-11, FR-PLAT-14, AD-CFG-2, AD-PORT-1 through AD-PORT-4, AD-OBS-1
+through AD-OBS-7, NFR-7 through NFR-9, and ADR-0003. The ARCH prime directive
+remains intact: pg0 and external Postgres are infrastructure adapters around
+the same release, Repo, Ash actions, migrations, Oban queues, and product
+behavior.
 
 ## Deployment boundary
 
@@ -63,8 +64,9 @@ provenance and immutable document history remain intact.
 
 ## Operational surfaces
 
-`GET /api/health` remains the frozen POC liveness contract. `GET /api/ready`
-adds the versioned `f10-1` operator contract and returns 200 only when the app,
+`GET /api/health` remains the frozen baseline liveness contract.
+`GET /api/ready` adds the versioned `f10-1` operator contract (a historical
+version tag, not a roadmap phase) and returns 200 only when the app,
 database, Oban supervisor, queue query, and four model-role configurations are
 healthy; failures return content-safe error classes with 503.
 

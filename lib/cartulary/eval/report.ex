@@ -2,7 +2,7 @@
 
 defmodule Cartulary.Eval.Report do
   @moduledoc """
-  Validates F11 evaluation reports and deterministic release thresholds.
+  Validates f11-1 evaluation reports and deterministic release thresholds.
 
   Public quality claims are valid only when the report identifies the exact
   Cartulary version, dataset digest and split, retrieval profile version,
@@ -53,7 +53,7 @@ defmodule Cartulary.Eval.Report do
         report
 
       {:error, errors} ->
-        raise ArgumentError, "invalid F11 eval report: #{Enum.join(errors, "; ")}"
+        raise ArgumentError, "invalid f11-1 eval report: #{Enum.join(errors, "; ")}"
     end
   end
 

@@ -1,18 +1,18 @@
 # Evaluation Documentation
 
-F11 upgrades the original POC harness into a versioned deterministic gate and
-release/nightly matrix. The authoritative framework is
-`specs/memory-system-evaluation-framework.md`; implementation and release
-posture are recorded in
-`docs/architecture/f11-evaluation-ci-release-readiness.md`.
+Evaluation, CI, and release readiness upgrades the original harness into a
+versioned deterministic gate and release/nightly matrix. The authoritative
+framework is `specs/memory-system-evaluation-framework.md`; implementation and
+release posture are recorded in
+`docs/architecture/evaluation-ci-release-readiness.md`.
 
 The local harness supports Cartulary product-shaped fixtures plus LoCoMo,
 LongMemEval, ConvoMem, and BEAM memory paths. It exercises the durable message
 write path, pipeline knowledge extraction, scoped retrieval, grounded
 answering, and citation validation against Postgres.
 
-The broader POC implementation log and refactor list is maintained in
-`docs/poc-local-proof.md`.
+The broader implementation log and refactor list is maintained in
+`docs/implementation-status.md`.
 
 For development traces, experiment labels, Langfuse forwarding, and the
 measurement checklist that should accompany eval reports, read
@@ -23,13 +23,16 @@ Minimal LoCoMo, LongMemEval, and BEAM benchmark results are checked in at
 `docs/eval/results/`.
 
 Those 2026-07-27 `poc-0` reports are the immutable Stage 0 baseline from before
-F7. Current public claims must use the `f11-1` report schema and exact `f7-1`
-profile evidence; never relabel the historical files.
+the retrieval, entity resolution, and context rework; `poc-0` is a historical
+profile version tag rather than a phase name. Current public claims must use
+the `f11-1` report schema and exact `f7-1` profile evidence; never relabel the
+historical files.
 
-F0 also freezes the four tiny input fixtures independently of volatile database
-UUIDs and latency values. `test/fixtures/eval/poc-contract-baseline.json`
-records each Cartulary, LoCoMo, LongMemEval, and BEAM fixture's SHA-256 plus its
-normalized case, message, and question IDs.
+The baseline contract also freezes the four tiny input fixtures independently
+of volatile database UUIDs and latency values.
+`test/fixtures/eval/poc-contract-baseline.json` records each Cartulary, LoCoMo,
+LongMemEval, and BEAM fixture's SHA-256 plus its normalized case, message, and
+question IDs.
 
 ```bash
 mix test test/cartulary/eval/fixture_contract_test.exs
@@ -115,7 +118,7 @@ fails before scoring.
 
 ## Full Benchmark Ingestion And Scoring
 
-The POC also includes a full benchmark runner for fixture ingestion and
+Cartulary also includes a full benchmark runner for fixture ingestion and
 deterministic scoring:
 
 ```bash
@@ -154,7 +157,7 @@ mix cartulary.eval.benchmark \
 
 `--no-model` forces the deterministic extractor and fallback answerer so local
 regression runs do not depend on a model provider. Without it, the runner uses
-the configured POC model path for extraction/answering, then scores the outputs
+the configured model path for extraction/answering, then scores the outputs
 deterministically.
 
 The JSON report includes:
@@ -168,15 +171,18 @@ The JSON report includes:
   version, deadline, dataset digest/split, date, and run-limit evidence, per
   ADR-0004 / `AD-EVAL-3` / `NFR-11`.
 
-The runner uses the real local POC write/read path (`Cartulary.Memory`) and
+The runner uses the real durable write/read path (`Cartulary.Memory`) and
 therefore records raw messages, pipeline-created knowledge, lifecycle events,
-retrieval, answers, and citations in Postgres. It is still a POC harness: it
-does not claim upstream judge parity or upstream-scale scores from the committed
-minimal fixtures. Live/pinned provider runs and larger public datasets use the
-same adapter/runner/report contract. The shipped F11 matrix provides held-out
-tuning discipline, named strategy ablations, deterministic release thresholds,
-explicit deadline reporting, and pg0/external-Postgres CI parity.
+retrieval, answers, and citations in Postgres. It is still a smoke-scale
+harness: it does not claim upstream judge parity or upstream-scale scores from
+the committed minimal fixtures. Live/pinned provider runs and larger public
+datasets use the same adapter/runner/report contract. The shipped release
+matrix provides held-out tuning discipline, named strategy ablations,
+deterministic release thresholds, explicit deadline reporting, and
+pg0/external-Postgres CI parity.
 
-The surface contract inventory records the intentional F8 boundary: current
-Phoenix, MCP, and F9 readiness helpers are gated; generated OpenAPI and complete
-SDKs are explicitly unavailable in 0.2.0.
+The surface contract inventory records the intentional integration-surfaces
+boundary (still to be implemented; tracked in
+`docs/roadmap/beta-roadmap.md`): current Phoenix, MCP, and skill-readiness
+helpers are gated; generated OpenAPI and complete SDKs are explicitly
+unavailable in 0.2.0.

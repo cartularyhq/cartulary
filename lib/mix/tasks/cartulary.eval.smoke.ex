@@ -2,7 +2,7 @@
 
 defmodule Mix.Tasks.Cartulary.Eval.Smoke do
   @moduledoc """
-  Runs a small local memory-eval smoke pass through Cartulary's POC write/read path.
+  Runs a small local memory-eval smoke pass through Cartulary's durable write/read path.
 
       mix cartulary.eval.smoke
       mix cartulary.eval.smoke --dataset path/to/smoke.json --profile balanced
@@ -23,7 +23,7 @@ defmodule Mix.Tasks.Cartulary.Eval.Smoke do
 
   alias Cartulary.Memory
 
-  @shortdoc "Runs Cartulary local memory POC smoke eval"
+  @shortdoc "Runs the Cartulary local memory smoke eval"
 
   @impl true
   def run(args) do

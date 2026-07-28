@@ -2,7 +2,7 @@
 
 defmodule Mix.Tasks.Cartulary.Eval.Release do
   @moduledoc """
-  Runs and validates the F11 release evaluation matrix.
+  Runs and validates the versioned release evaluation matrix.
 
       mix cartulary.eval.release --no-model --assert-thresholds --output report.json
   """
@@ -11,7 +11,7 @@ defmodule Mix.Tasks.Cartulary.Eval.Release do
 
   alias Cartulary.Eval.{ReleaseSuite, Runtime}
 
-  @shortdoc "Runs the F11 release/nightly evaluation matrix"
+  @shortdoc "Runs the release/nightly evaluation matrix"
 
   @impl true
   def run(args) do

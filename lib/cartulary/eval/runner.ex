@@ -2,7 +2,7 @@
 
 defmodule Cartulary.Eval.Runner do
   @moduledoc """
-  Runs normalized eval cases through Cartulary's POC memory surface.
+  Runs normalized eval cases through Cartulary's durable memory surface.
   """
 
   alias Cartulary.Clock

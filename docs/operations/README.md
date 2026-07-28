@@ -2,7 +2,7 @@
 
 # Community Operations
 
-This is the operator entry point for the F10 community release. The same Mix
+This is the operator entry point for the community release. The same Mix
 release supports embedded pg0 and operator-run Postgres; database location does
 not select different product behavior.
 
@@ -125,8 +125,10 @@ correlation, and the content-safety contract.
 - Gateway/API and authentication: README API examples and `/api/v1`.
 - MCP: `/mcp`; machine identities can ingest observations and read governed
   memory but cannot curate.
-- SDK helpers: `sdk/typescript` and `sdk/python`; F9 readiness helpers are
-  transport-neutral while F8 still owns complete generated clients.
+- SDK helpers: `sdk/typescript` and `sdk/python`; skill-readiness helpers are
+  transport-neutral, while the integration-surfaces work owns complete
+  generated clients (still to be implemented; tracked in
+  `docs/roadmap/beta-roadmap.md`).
 - Governance: `/governance/sign-in` for authenticated humans only.
 - Evaluation: `mix cartulary.eval.smoke --profile balanced --account eval-poc`.
 - Release evaluation and guardrails: `docs/eval/README.md`.

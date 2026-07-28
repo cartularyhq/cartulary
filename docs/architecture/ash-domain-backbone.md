@@ -1,18 +1,20 @@
 <!-- SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0 -->
 
-# F1 Ash Domain Backbone
+# Ash Domain Backbone
 
 Status: implemented
 
-F1 makes Ash Resources, Actions, tenancy, and policies the authoritative
-boundary for durable Cartulary data. It preserves the frozen `poc-0` public
-contract while replacing the POC service's direct writes with Ash actions.
+The Ash domain backbone makes Ash Resources, Actions, tenancy, and policies the
+authoritative boundary for durable Cartulary data. It preserves the frozen
+`poc-0` public contract — a historical version tag that no longer names a
+roadmap phase — while replacing the earlier service's direct writes with Ash
+actions.
 
 ## Domain ownership
 
 | Ash domain | Resources |
 | --- | --- |
-| `Cartulary.Accounts` | Account, Peer, ExternalIdentity, ApiKey (added by F3) |
+| `Cartulary.Accounts` | Account, Peer, ExternalIdentity, ApiKey (added by identity, tenancy, and RBAC) |
 | `Cartulary.Topology` | Scope, ScopeRelation, RoleGrant |
 | `Cartulary.Observations` | Session, SessionScope, SessionParticipant, Message, Document, DocumentVersion |
 | `Cartulary.Knowledge` | KnowledgeItem, Attribution, Provenance, KnowledgeRelation, LifecycleEvent, Projection, Entity, EntityMention |
@@ -22,9 +24,10 @@ contract while replacing the POC service's direct writes with Ash actions.
 | `Cartulary.Skills` | SkillRequirementCard |
 | `Cartulary.Operations` | UsageEvent |
 
-This decomposition implements the F1 resource inventory and follows the domain
-map in `docs/roadmap/free-core-roadmap.md`. It is subordinate to `FR-TOP-*`,
-`FR-KN-*`, `FR-FORM-*`, `FR-GOV-*`, `AD-DATA-*`, and `AD-SEC-*`.
+This decomposition implements the backbone resource inventory and follows the
+domain map in `docs/architecture/free-core-architecture.md`. It is subordinate
+to `FR-TOP-*`, `FR-KN-*`, `FR-FORM-*`, `FR-GOV-*`, `AD-DATA-*`, and
+`AD-SEC-*`.
 
 ## Action rules
 
@@ -41,13 +44,14 @@ map in `docs/roadmap/free-core-roadmap.md`. It is subordinate to `FR-TOP-*`,
   route, preserving `FR-KN-21`.
 
 `Cartulary.Memory` remains a compatibility facade for the HTTP and eval
-surfaces, but its durable reads and writes call Ash actions. F7 removed
-`Cartulary.Memory.Query`; database-native retrieval reads now live in the
-reviewed read-only `Cartulary.Retrieval.Store` data-layer helper.
+surfaces, but its durable reads and writes call Ash actions. Retrieval, entity
+resolution, and context removed `Cartulary.Memory.Query`; database-native
+retrieval reads now live in the reviewed read-only
+`Cartulary.Retrieval.Store` data-layer helper.
 
 ## Isolation
 
-The F1 Account wall has three in-process/database layers:
+The Account wall has three in-process/database layers:
 
 1. `Cartulary.DataLayer` installs one identity-derived Account as the Ash actor
    and tenant for an Account-scoped transaction.
@@ -55,10 +59,11 @@ The F1 Account wall has three in-process/database layers:
    scoped reads additionally use the actor's resolved scope ids.
 3. PostgreSQL RLS is enabled and forced on `accounts` and every table carrying
    `account_id`. Policies use transaction-local `cartulary.account_id` (and
-   `cartulary.account_key` only while bootstrapping the POC Account).
+   `cartulary.account_key` only while bootstrapping the initial Account).
 
-F3 has replaced the local HTTP Account header with password/JWT and API-key
-identities, single-Account free-mode enforcement, and inherited RBAC. The Ash
+Identity, tenancy, and RBAC replaced the local HTTP Account header with
+password/JWT and API-key identities, single-Account free-mode enforcement, and
+inherited RBAC. The Ash
 actor/tenant and RLS contract introduced here did not change; legacy
 account-key adapters remain internal to eval/migration compatibility paths.
 
@@ -72,22 +77,23 @@ pgcrypto/pgvector setup, PostgreSQL FTS, indexes, foreign keys, and RLS.
 Deterministic evidence is in:
 
 - `test/cartulary/f1_ash_domain_backbone_test.exs`;
-- the frozen F0 contract tests listed in `AGENTS.md`; and
+- the frozen baseline contract tests listed in `AGENTS.md`; and
 - `mix ash.codegen --check`, which detects resource/snapshot drift.
 
-F2 now transactionally couples state transitions, audit entries, durable
-pipeline-run records, and AshOban enqueue effects. Its implementation boundary
-and evidence are documented in
-`docs/architecture/f2-transactional-writes-audit-jobs.md`. F7 completes the
-retrieval SQL transition and is documented in
-`docs/architecture/f7-retrieval-entity-context.md`.
+Transactional writes, audit, and jobs now couple state transitions, audit
+entries, durable pipeline-run records, and AshOban enqueue effects in one
+transaction. That implementation boundary and its evidence are documented in
+`docs/architecture/transactional-writes-audit-jobs.md`. Retrieval, entity
+resolution, and context completes the retrieval SQL transition and is
+documented in `docs/architecture/retrieval-entity-context.md`.
 
-F3 adds the 28th Resource, `Cartulary.Accounts.ApiKey`, and the authenticated
-edge/RBAC resolver without changing F1's domain ownership. Its implementation
-and evidence are documented in
-`docs/architecture/f3-identity-tenancy-basic-rbac.md`.
+Identity, tenancy, and RBAC adds the 28th Resource,
+`Cartulary.Accounts.ApiKey`, and the authenticated edge/RBAC resolver without
+changing the domain ownership above. Its implementation and evidence are
+documented in `docs/architecture/identity-tenancy-rbac.md`.
 
-F9 completes the authored `SkillRequirementCard` placeholder without adding a
-new Resource. Versioned selectors, inherited procedural memory, readiness
-checks, and their public/helper contracts are documented in
-`docs/architecture/f9-skill-readiness-procedural-memory.md`.
+Skill readiness and procedural memory completes the authored
+`SkillRequirementCard` placeholder without adding a new Resource. Versioned
+selectors, inherited procedural memory, readiness checks, and their
+public/helper contracts are documented in
+`docs/architecture/skill-readiness-procedural-memory.md`.

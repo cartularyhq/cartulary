@@ -25,7 +25,7 @@ logs.
 - Every HTTP response includes `x-trace-id`; when an active OTel span exists it
   also includes `x-span-id`. If the caller supplies a W3C `traceparent`, the
   response keeps that trace id. Otherwise the request gets a new trace id.
-- POC spans are emitted for:
+- Manual workflow spans are emitted for:
   - `cartulary.memory.ingest_message`
   - `cartulary.memory.extract_message`
   - `cartulary.memory.query_knowledge`
@@ -38,11 +38,11 @@ logs.
   - `cartulary.model.rerank`
   - `cartulary.documents.process_version`
   - `cartulary.documents.sync_connector`
-- F5 model spans include safe GenAI-style attributes such as operation, role,
-  provider/model/version, duration, and input/output/embedding token usage.
-  The append-only `UsageEvent` Ash resource is the exact ledger; OTel remains a
-  sampled diagnostic mirror.
-- F6 document spans include safe identifiers and measures such as version id,
+- Model-layer spans include safe GenAI-style attributes such as operation,
+  role, provider/model/version, duration, and input/output/embedding token
+  usage. The append-only `UsageEvent` Ash resource is the exact ledger; OTel
+  remains a sampled diagnostic mirror.
+- Document spans include safe identifiers and measures such as version id,
   parser, byte/chunk/knowledge counts, connector id, item count, and duration.
   They never include blob bytes, extracted text, connector cursors, source
   metadata, or statements.
@@ -74,6 +74,10 @@ CARTULARY_OTEL_OBAN_SPANS_ENABLED=true
 CARTULARY_OTEL_OBAN_SPAN_RELATIONSHIP=child
 CARTULARY_OTEL_ECTO_SPANS_ENABLED=false
 ```
+
+`CARTULARY_RETRIEVAL_VARIANT=poc-baseline` repeats the current default value in
+`config/runtime.exs`. That label is historical and kept for comparability with
+recorded runs; its rename is tracked in `docs/roadmap/beta-roadmap.md`.
 
 The collector receives OTLP/HTTP from the host on port `14318` and forwards it
 to the standard container port `4318`. Override `CARTULARY_OTEL_HTTP_PORT`
@@ -224,9 +228,9 @@ OTEL_EXPORTER_OTLP_TRACES_HEADERS=Authorization=Basic <base64-public-key-colon-s
 
 ## Gaps
 
-F10 adds daily per-scope budget counters over the exact usage ledger, queue
-depth readiness/telemetry, and an allowlisted redacted production JSON
-formatter. Remaining release-evidence work is:
+Portability, packaging, and operations add daily per-scope budget counters over
+the exact usage ledger, queue depth readiness/telemetry, and an allowlisted
+redacted production JSON formatter. Remaining release-evidence work is:
 
 - projection/cache metrics;
 - release/nightly eval dashboards;
