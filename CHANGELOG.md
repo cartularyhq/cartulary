@@ -11,7 +11,8 @@ changelog entry and contract-version transition.
 
 ### Changed
 
-- Nothing yet.
+- Updated the official GitHub Actions used by CI, nightly evaluation, and
+  release workflows to maintained Node 24 action majors.
 
 ## [0.2.0] - 2026-07-28
 

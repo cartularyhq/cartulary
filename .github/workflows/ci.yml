@@ -40,12 +40,12 @@ jobs:
       CARTULARY_DATABASE_MODE: external
       CARTULARY_TEST_DATABASE_URL: ecto://postgres:postgres@127.0.0.1:5432/cartulary_f11_external
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "27"
           elixir-version: "1.18"
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: |
             deps
@@ -70,7 +70,7 @@ jobs:
       - run: >-
           mix cartulary.release.check
           --eval-report /tmp/cartulary-f11-eval.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: deterministic-eval-${{ github.run_id }}
           path: /tmp/cartulary-f11-eval.json
@@ -80,12 +80,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "27"
           elixir-version: "1.18"
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: |
             deps
@@ -100,12 +100,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "27"
           elixir-version: "1.18"
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: |
             deps
@@ -122,12 +122,12 @@ jobs:
     env:
       MIX_ENV: prod
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "27"
           elixir-version: "1.18"
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: |
             deps

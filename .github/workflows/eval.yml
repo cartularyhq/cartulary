@@ -45,7 +45,7 @@ jobs:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       CARTULARY_MODEL_DREAM: ${{ vars.CARTULARY_EVAL_JUDGE_MODEL }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "27"
@@ -68,7 +68,7 @@ jobs:
           fi
           mix cartulary.eval.release "${args[@]}"
       - run: mix cartulary.eval.verify /tmp/cartulary-f11-nightly.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: nightly-eval-${{ github.run_id }}
           path: /tmp/cartulary-f11-nightly.json

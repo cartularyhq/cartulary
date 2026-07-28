@@ -37,7 +37,7 @@ jobs:
       CARTULARY_DATABASE_MODE: external
       CARTULARY_TEST_DATABASE_URL: ecto://postgres:postgres@127.0.0.1:5432/cartulary_f11_release
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.tag || github.ref }}
       - uses: erlef/setup-beam@v1
@@ -69,7 +69,7 @@ jobs:
       - run: tar -C _build/prod/rel -czf /tmp/cartulary-linux-x86_64.tar.gz cartulary
       - run: shasum -a 256 /tmp/cartulary-linux-x86_64.tar.gz > /tmp/cartulary-linux-x86_64.tar.gz.sha256
       - run: docker build --tag cartulary:release .
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: cartulary-release-${{ github.run_id }}
           path: |
