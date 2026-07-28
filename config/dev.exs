@@ -1,16 +1,44 @@
 # SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
 
+# Development-environment configuration, for a source checkout run with
+# `mix phx.server` or `iex -S mix`.
+#
+# WHEN THIS FILE IS EVALUATED
+#   At build time, immediately after `config/config.exs` (which imports it at
+#   its bottom) and only when MIX_ENV=dev. `config/runtime.exs` runs afterwards,
+#   at boot, and overrides anything it reads from the environment or `.env`.
+#   A packaged release is built with MIX_ENV=prod and never evaluates this file.
+#
+# INPUTS   none; every value here is a literal. Deployment-tunable settings
+#          belong in `config/runtime.exs`.
+# OUTPUTS  the `:cartulary`, `:logger`, and `:phoenix` application environments.
+#
+# The credentials and secret below are local-only conveniences. They are
+# committed on purpose so a fresh checkout starts against a stock local Postgres
+# with no setup, and for exactly that reason they must never be reused by a
+# deployment: this secret is public.
+
 import Config
 
 # Configure your database
+#
+# Only used when running from source against a developer's own Postgres. A
+# release instead gets its connection from `config/runtime.exs`, either as a
+# supervised pg0 instance or an operator-run server; both are the same code path
+# with a different database location.
 config :cartulary, Cartulary.Repo,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",
   database: "cartulary_dev",
+  # SQL logging is off because embedding and retrieval queries carry vector
+  # literals and statement text; a chatty dev log is also a content leak.
   log: false,
   stacktrace: true,
+  # Connection errors are reported without the connection parameters, so a
+  # password never lands in terminal output or a pasted bug report.
   show_sensitive_data_on_connection_error: false,
+  # Concurrent DB connections held by this node.
   pool_size: 10
 
 # For development, we disable any cache and enable
@@ -23,9 +51,15 @@ config :cartulary, CartularyWeb.Endpoint,
   # Binding to loopback ipv4 address prevents access from other machines.
   # Change to `ip: {0, 0, 0, 0}` to allow access from other machines.
   http: [ip: {127, 0, 0, 1}],
+  # Origin checking is off so any local tool can hit the API. This is safe only
+  # because the socket is bound to loopback above; loosening one without the
+  # other exposes the dev server.
   check_origin: false,
   code_reloader: true,
+  # Renders full exception pages including stacktraces. Development only.
   debug_errors: true,
+  # Public, committed, development-only. Production reads its own secret from
+  # the environment and refuses to boot without one.
   secret_key_base: "jzajcSL0X1QJJlFFyNsJgp2dDfJSBbDTLb1eP51OoCJSbG0KHLRcGcQs//zpLLWn",
   watchers: []
 
@@ -53,6 +87,9 @@ config :cartulary, CartularyWeb.Endpoint,
 # different ports.
 
 # Enable dev routes for dashboard and mailbox
+#
+# Left over from the Phoenix generator: nothing in this application reads
+# `:dev_routes`, and the router mounts no development-only tooling.
 config :cartulary, dev_routes: true
 
 # Include request and trace metadata in development logs so terminal output can

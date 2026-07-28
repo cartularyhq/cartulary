@@ -2,13 +2,82 @@
 
 defmodule Cartulary.Eval.Scorer do
   @moduledoc """
-  Deterministic benchmark scoring for Cartulary memory eval runs.
+  Deterministic, reproducible scoring of one evaluation answer and of run aggregates.
 
-  These scores are not a replacement for the upstream LLM judges. They are the
-  reproducible in-repo baseline: exact/contains/token-F1 answer checks,
-  abstention checks, and citation/evidence recall.
+  Nothing here calls a model. Every number this module produces can be recomputed from the
+  same inputs on any machine, which is what makes it usable as a release gate: a threshold
+  can only block a release if the measurement behind it cannot drift. A live model judge
+  may run alongside these scores and add extra `model_`-prefixed fields, but it never
+  replaces them, and the deterministic values stay in the report.
+
+  ## Text normalization
+
+  Every comparison runs over the same normalization: downcase, replace each run of
+  non-alphanumeric characters with a space, collapse whitespace, trim. Tokens are the
+  space-separated pieces of that form. Casing, punctuation, and spacing therefore never
+  decide a match.
+
+  ## What counts as correct
+
+    * When the question expects a refusal, correct means the answer abstained.
+    * Otherwise correct means an exact normalized match, or the answer containing an
+      accepted gold string, or a token-F1 of at least 0.5 against the best gold variant.
+
+  Token-F1 is the harmonic mean of precision and recall over token multisets, so the 0.5
+  floor credits a free-form answer that carries the gold content while rejecting one that
+  merely shares a few common words. It is deliberately generous: this is a lexical stand-in
+  for a human judgement, and a stricter floor would fail correct-but-verbose answers.
+
+  An answer counts as abstained when the answer path set its abstention flag, or when the
+  normalized text contains one of a fixed list of refusal phrases.
+
+  ## Citations
+
+  A question's expected evidence references are the benchmark's own labels for the turns or
+  sessions that support the answer. The cited references passed in are the labels the run
+  actually cited, already translated out of durable database ids by the caller. Recall is
+  the share of expected labels that were cited; a hit is any overlap at all.
+
+  A question whose fixture carries no evidence labels scores no hit and zero recall, so it
+  can never earn citation credit. That is intended — an uncheckable citation is not
+  evidence — but it means a fixture with unlabelled questions drags the citation rates
+  down, and a committed citation floor has to be set with that in mind.
+
+  ## Lexical relevance triad and token efficiency
+
+  Groundedness, context relevance, and answer relevance are token-overlap approximations of
+  the three relevance checks a model judge would make: answer against retrieved context,
+  question against retrieved context, and question against answer. Each scored question
+  records the method identity `"deterministic-lexical-f11-1"` beside them. That string
+  versions this scoring method inside every report; if the formulas change, the identity
+  has to change with them, and a maintainer making that change owes a changelog entry,
+  regenerated stored evaluation evidence, and a note in the closest architecture document.
+  Without that, old and new reports silently stop being comparable.
+
+  These three are reported, never gated. They are a cheap reproducible signal, not a claim
+  of parity with a model judge.
+
+  Any answer classified as an abstention — whether or not the question expected one — is
+  scored as fully grounded and fully answer-relevant with zero context relevance: an answer
+  that asserts nothing cannot be unsupported, and it used no retrieved context. Whether the
+  refusal was the right response is captured by the correctness flag, not by the triad.
+
+  Token efficiency compares what the answer path actually consumed — retrieved context plus
+  the answer — against the size of stuffing the entire conversation into a prompt instead.
+  Lower is better. The ratio is 0.0 when the caller supplied no full-context size, which
+  means "not measured" rather than "perfectly efficient".
+
+  ## Aggregates
+
+  `summarize/1` rolls per-question results up overall, by category, by scale, and by scale
+  restricted to BEAM cases. Latency percentiles use the nearest-rank method over the sorted
+  samples rather than interpolation, so a reported percentile is always a value that was
+  actually observed.
   """
 
+  # Fixed refusal phrases. Matched as substrings of the normalized answer, so a model that
+  # says "I don't know which of them" still counts as an abstention. Keep this list closed
+  # and literal: a looser rule would read hedging inside a real answer as a refusal.
   @not_known_markers [
     "not known",
     "unknown",
@@ -19,12 +88,26 @@ defmodule Cartulary.Eval.Scorer do
   ]
 
   @doc """
-  Scores one answer with deterministic correctness, evidence, RAG-triad proxy,
-  and token-efficiency metrics.
+  Scores a single answer and returns every deterministic measure for it.
 
-  The lexical RAG triad is the deterministic PR/release baseline. Live release
-  reports may add a separately identified model judge, but must never replace
-  these reproducible measurements.
+  `question` is a normalized question with atom keys; `:expected`, `:abstention_expected`,
+  `:evidence_refs`, and `:question` are read, and each has a safe default, so a partially
+  populated question degrades to a lower score instead of raising.
+
+  `result` is the string-keyed answer map produced by the answer path. `"answer"`,
+  `"candidates"`, and `"abstained"` are read from it. `cited_refs` is the list of evidence
+  labels the run cited, already translated from durable ids into the benchmark's own
+  reference vocabulary — passing raw database ids here would silently score every citation
+  as a miss.
+
+  `opts` accepts `:full_context_tokens`, the token size of the whole conversation, used as
+  the denominator of the token-efficiency ratio. It defaults to 0, which reports the ratio
+  as 0.0.
+
+  Returns a string-keyed map holding the correctness flags (`"exact_match"`,
+  `"contains_expected"`, `"token_f1"`, `"abstained"`, `"correct"`), the citation measures,
+  the lexical relevance triad and its method identity, the token counts and efficiency
+  ratio, and the expected and cited reference lists that were compared. It does not raise.
   """
   def score_question(question, result, cited_refs, opts \\ []) do
     expected = Map.get(question, :expected, [])
@@ -70,6 +153,26 @@ defmodule Cartulary.Eval.Scorer do
     }
   end
 
+  @doc """
+  Rolls a flat list of scored questions up into the report's metric block.
+
+  `question_results` are the maps returned by `score_question/4` after the runner has
+  merged in the run-level fields it groups on: `"category"`, `"scale"`, `"benchmark"`, and
+  `"latency_ms"`.
+
+  Returns `"overall"`, `"by_category"`, `"by_scale"`, and `"beam_degradation_curve"` — the
+  last being the by-scale rollup restricted to BEAM cases, which is how accuracy loss with
+  growing corpus size is read. Questions with a missing or blank group key are collected
+  under `"uncategorized"` rather than dropped, so the group counts always sum to the total.
+
+  Within a group, `"abstention_accuracy"` is `nil` when no question there expected a
+  refusal. That distinguishes "there was nothing to abstain from" from "every abstention
+  was wrong", which a 0.0 would not. The three `"mean_model_*"` means are `nil` when no
+  question in the group carries a model-judge score, and are absent altogether from an
+  empty group. `"latency_ms"` is a map of mean, median, 95th percentile, and maximum; the
+  remaining aggregates are numbers. An empty input still produces zeroes rather than an
+  empty map.
+  """
   def summarize(question_results) do
     %{
       "overall" => aggregate(question_results),
@@ -85,12 +188,17 @@ defmodule Cartulary.Eval.Scorer do
     |> Map.new(fn {group, group_results} -> {group, aggregate(group_results)} end)
   end
 
+  # Only BEAM fixtures label a comparable corpus size, so the degradation curve is filtered
+  # to them; mixing other benchmarks' scale labels in would group unrelated runs together.
   defp beam_degradation_curve(results) do
     results
     |> Enum.filter(&(Map.get(&1, "benchmark") == "beam"))
     |> group_aggregate("scale")
   end
 
+  # Zeroed shape for an empty group, so a report always has the same numeric keys to read.
+  # The optional model-judge means are absent here rather than nil: with no results there
+  # is nothing to say about whether a model judge ran.
   defp aggregate([]) do
     %{
       "questions" => 0,
@@ -138,10 +246,17 @@ defmodule Cartulary.Eval.Scorer do
     }
   end
 
+  # Abstained answers get fixed values instead of a lexical comparison: a refusal asserts
+  # nothing, so it cannot be ungrounded, and it is a valid response to its question, but it
+  # used no retrieved context. Running the overlap formulas on a refusal would instead
+  # penalise the run for correctly declining to answer.
   defp rag_triad(_question, _answer, _candidates, true) do
     %{groundedness: 1.0, context_relevance: 0.0, answer_relevance: 1.0}
   end
 
+  # Token-overlap approximation of the three relevance checks a model judge would perform.
+  # Candidates expose their text under either key depending on whether the candidate is a
+  # knowledge statement or a document chunk.
   defp rag_triad(question, answer, candidates, false) do
     context =
       candidates
@@ -156,6 +271,9 @@ defmodule Cartulary.Eval.Scorer do
     }
   end
 
+  # What retrieval-backed answering cost, against what stuffing the whole conversation into
+  # a prompt would have cost. A ratio well below 1.0 is the point of the memory system; a
+  # ratio of 0.0 means the caller gave no full-context size, not perfect efficiency.
   defp token_efficiency(answer, candidates, full_context_tokens) do
     context_tokens =
       candidates
@@ -191,6 +309,8 @@ defmodule Cartulary.Eval.Scorer do
     |> Enum.sum()
   end
 
+  # A question with no labelled evidence cannot earn citation credit, on purpose: crediting
+  # it would let an unlabelled fixture inflate the citation rate a release threshold reads.
   defp citation_score([], _cited_refs), do: %{hit?: false, recall: 0.0}
 
   defp citation_score(evidence_refs, cited_refs) do
@@ -219,6 +339,8 @@ defmodule Cartulary.Eval.Scorer do
     end)
   end
 
+  # Fixtures list several acceptable phrasings of one gold answer, so the score is the best
+  # match across them, not an average: matching any accepted variant is a correct answer.
   defp best_token_f1(_answer, []), do: 0.0
 
   defp best_token_f1(answer, expected) do
@@ -229,6 +351,8 @@ defmodule Cartulary.Eval.Scorer do
     |> Enum.max(fn -> 0.0 end)
   end
 
+  # Token-multiset F1: overlap counts each token at most as often as both sides contain it,
+  # so repeating a gold word cannot inflate the score.
   defp token_f1(_answer_tokens, expected_tokens) when map_size(expected_tokens) == 0, do: 0.0
   defp token_f1(answer_tokens, _expected_tokens) when map_size(answer_tokens) == 0, do: 0.0
 
@@ -255,6 +379,9 @@ defmodule Cartulary.Eval.Scorer do
     |> Enum.frequencies()
   end
 
+  # The single normalization every comparison in this module goes through. Changing it
+  # changes every historical score, so it is versioned along with the scoring method
+  # identity rather than tuned in place.
   defp normalize_text(value) do
     value
     |> to_string()
@@ -275,6 +402,8 @@ defmodule Cartulary.Eval.Scorer do
     |> Kernel./(length(values))
   end
 
+  # Missing values are excluded from the average rather than counted as zero, so a metric
+  # that only some questions carry is not diluted by the ones that do not.
   defp mean(values, fun) do
     values
     |> Enum.map(fun)
@@ -285,6 +414,8 @@ defmodule Cartulary.Eval.Scorer do
     end
   end
 
+  # Returns nil when no result carries the key at all, which distinguishes "the model judge
+  # did not run" from "the model judge scored zero".
   defp optional_mean(values, key) do
     case Enum.filter(values, &is_number(Map.get(&1, key))) do
       [] -> nil
@@ -305,6 +436,9 @@ defmodule Cartulary.Eval.Scorer do
     }
   end
 
+  # Nearest-rank percentile: take the ceiling of q times the sample count and read that
+  # position, so the result is always a latency that was actually measured. Interpolating
+  # would invent values, which is misleading on the small runs this harness usually does.
   defp percentile(sorted, q) do
     index =
       sorted

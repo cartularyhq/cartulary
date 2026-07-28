@@ -18,6 +18,8 @@ ReqLLM-supported or OpenAI-compatible generation endpoint.
 
 ## Contents
 
+- [Core concepts](#core-concepts)
+- [How a request flows](#how-a-request-flows)
 - [Capabilities](#capabilities)
 - [Not yet implemented](#not-yet-implemented)
 - [Quick start](#quick-start)
@@ -27,8 +29,94 @@ ReqLLM-supported or OpenAI-compatible generation endpoint.
 - [Evaluation](#evaluation)
 - [Checks](#checks)
 - [Development observability](#development-observability)
+- [Repository layout](#repository-layout)
+- [Reading the code](#reading-the-code)
 - [Documentation map](#documentation-map)
 - [License](#license)
+
+## Core concepts
+
+Nine terms carry most of the design. Everything else in this README assumes
+them.
+
+**Account** — the isolation boundary. Every durable row belongs to exactly one
+Account. The Account is derived from the authenticated identity, never from a
+header, query parameter, or request body, and it is enforced three times over:
+at the Phoenix edge, in Ash policies, and in PostgreSQL row-level security. The
+community build serves a single Account; multi-Account operation is an
+enterprise concern.
+
+**Scope** — a path in a containment tree, such as `/marketing/social`. Anything
+attached to a scope is visible to everything beneath it. Inheritance is
+downward and nearest-wins: a value set on a child overrides the same value
+inherited from an ancestor.
+
+**Peer** — one participant: a human, or an agent holding an API key. Peers are
+the narrowest audience a piece of knowledge can have.
+
+**Knowledge** — the only durable atom of memory: one natural-language statement
+with its own confidence, sensitivity, lifecycle state, subject, and
+provenance. Its text is immutable once written. Profiles, scope cards, and
+session summaries are not separate stores — they are projections recomputed
+from knowledge, and can be thrown away and rebuilt.
+
+**Raw observation** — what agents actually submit: a message, or a document
+version. Agents never write knowledge. The extraction pipeline is the only
+writer of knowledge, which is what keeps a compromised or confused agent from
+editing memory directly.
+
+**Gate A and Gate B** — the two checks between an observation and durable,
+visible memory. Gate A decides whether a candidate statement is kept, rejected,
+or deferred for review. Gate B decides how widely it may be seen. Context flows
+downward freely; new knowledge only flows upward through Gate B.
+
+**Blast radius** — how far a statement can be seen: one peer, a scope, or the
+whole Account. The wider the radius, the higher the bar. Peer-level provisional
+visibility is the default; scope- and account-level proposals stay `held`, are
+absent from retrieval, and need human curator approval. Knowledge attributed to
+a person additionally needs that person's verified consent, which no curator
+can substitute for.
+
+**Lifecycle state** — every statement is created `proposed` and then moves to
+`provisional`, `active`, or `held`; later it may become `needs_revalidation`,
+`contested`, `superseded`, `expired`, `stale`, `rejected`, `redacted`, or
+`retracted`. Retrieval filters on this, so the state alone decides whether
+anyone ever sees a statement.
+
+**Projection, index, and cache** — derived, rebuildable data: context
+projections, entity rows, full-text and vector indexes, ETS counters. Raw
+messages, governed knowledge, and the audit log are the system of record.
+Anything derived may be deleted and recomputed; anything durable may not.
+
+Two independence rules cut across all of it. Belief-time (when we learned it),
+valid-time (when it was true), and salience are three different clocks.
+Confidence, sensitivity, and the subject of a statement are three different
+axes — in particular, who a statement is *about* is not who it came *from*.
+
+## How a request flows
+
+An ingest is the shortest path through the whole system:
+
+1. `POST /api/v1/ingest` hits a plug that resolves the API key or password JWT
+   into an actor, and derives the Account from it.
+2. `Cartulary.Memory` opens one transaction that writes the raw message, a
+   content-safe hash-chain audit entry, a durable idempotency record, and the
+   extraction job. Either all four commit or none do, so a crash can never
+   leave an audit gap or an orphaned job.
+3. The pipeline extracts candidate statements through
+   `Cartulary.Model.Gateway`, using a schema derived from the Ash resources so
+   malformed provider output is repaired or rejected rather than stored.
+4. `Cartulary.Governance.Engine` runs Gate A and Gate B over each candidate and
+   assigns a lifecycle state and a blast radius.
+5. Surviving knowledge is embedded and indexed. Projections are marked dirty
+   and recomputed in the background.
+6. `POST /api/v1/search` and `/api/v1/ask` read it back through
+   `Cartulary.Retrieval.Strategy`, which applies Account, scope authorization,
+   and lifecycle filters *before* candidates leave retrieval internals, then
+   fuses several independent strategies into one ranked list.
+
+A provider outage stops step 3, not step 2: the observation is durable and the
+job retries.
 
 ## Capabilities
 
@@ -378,11 +466,65 @@ Traces and logs record ids, counts, profile names, model names, strategy names,
 timings, token counts, and error classes. They never record raw messages,
 prompts, answers, API keys, restricted knowledge, or secrets.
 
+## Repository layout
+
+| Path | What lives there |
+| --- | --- |
+| `lib/cartulary/` | The domain. One directory per subsystem; each Ash domain module lists the resources it owns. |
+| `lib/cartulary/memory.ex` | The facade the HTTP layer calls: ingest, extract, search, ask, context. Start here. |
+| `lib/cartulary/pipeline/` | The only writer of knowledge: extraction workflows, idempotency keys, advisory locks, reconciliation. |
+| `lib/cartulary/governance/` | Gate A/B engine, curator actions, peer inline questions, erasure, lifecycle sweeper, hash-chain audit. |
+| `lib/cartulary/retrieval/` | Seed strategies, SQL helpers, reciprocal-rank fusion, profiles, entity resolution, index rebuild. |
+| `lib/cartulary/model/` | Provider-neutral gateway, the four model roles, structured generation, embeddings, provider adapters. |
+| `lib/cartulary/documents/` | Immutable document versions, blob storage, parsing, connectors, document export. |
+| `lib/cartulary/context/`, `skills/` | Reasoning-free projection assembly, and skill requirement cards with their gap report. |
+| `lib/cartulary/portability/` | Whole-Account logical archive export, import, and audit-graph verification. |
+| `lib/cartulary/eval/` | The evaluation harness: dataset adapters, scorers, run orchestration, report provenance. |
+| `lib/cartulary_web/` | Phoenix router, controllers, plugs, the curator LiveView, and telemetry. |
+| `lib/mix/tasks/` | Operator commands: eval runs, release checks, identity bootstrap, Account export/import. |
+| `config/` | `config.exs` and per-environment files run at compile time; `runtime.exs` runs at boot and chooses the deployment mode. |
+| `test/cartulary/` | Regression suites. The `f*` prefixes are frozen evidence identities, not phases; each module's moduledoc says what it pins. |
+| `test/fixtures/` | Recorded provider cassettes and evaluation datasets that keep tests offline and deterministic. |
+| `priv/repo/migrations/`, `priv/resource_snapshots/` | Generated by `mix ash.codegen` and then reviewed. Treated as historical once merged. |
+| `rel/`, `scripts/`, `Dockerfile`, `compose.yml` | Release packaging, the checksum-pinned pg0 asset, launchers, and the container path. |
+| `sdk/` | Transport-neutral skill-readiness helpers for Python and TypeScript. Not generated SDKs. |
+| `docs/`, `specs/` | Design notes, ADRs, operations runbooks, the roadmap, and the blueprint. |
+
+## Reading the code
+
+Source files are the primary documentation here. Every module carries a
+moduledoc that says what it is, what it owns, the invariants it guarantees, and
+the mistakes callers must avoid; every public function documents its purpose,
+return shape, and failure modes; comments explain *why*, not *what*. Nothing in
+the source delegates its explanation to a spec — you should never have to open
+`specs/` to understand a file. If you find a file that fails that test, it is a
+defect worth reporting.
+
+The fastest way in:
+
+1. `lib/cartulary_web/router.ex` — every surface, and what each pipeline
+   enforces.
+2. `lib/cartulary/memory.ex` — the operations behind those routes.
+3. `lib/cartulary/knowledge.ex` — the shape of the durable atom, and which
+   actions only the pipeline may call.
+4. `lib/cartulary/governance/engine.ex` — the rules that decide what is kept
+   and how widely it is visible.
+5. `lib/cartulary/retrieval/strategy.ex` — how it is read back, filtered, and
+   fused.
+
+The full convention, including what may not appear in a comment, is the
+"Coding conventions" section of `AGENTS.md`. It applies to human contributors
+and coding agents alike.
+
 ## Documentation map
+
+Source files stand on their own; these documents exist for the reasoning
+*behind* the code — decisions, trade-offs, evidence, and operational
+procedure — not as a prerequisite for reading it.
 
 | Document | What it is for |
 | --- | --- |
-| `AGENTS.md` | The operating contract for agents and contributors. Read it first. |
+| `AGENTS.md` | The operating contract for agents and contributors, including the coding conventions. Read it first. |
 | `docs/roadmap/beta-roadmap.md` | The only roadmap: what is left to build, with acceptance criteria. |
 | `docs/implementation-status.md` | What runs today, its verification evidence, and its real limitations. |
 | `docs/architecture/free-core-architecture.md` | Target decomposition, abstraction layers, durable-versus-derived rules, contract version identities. |

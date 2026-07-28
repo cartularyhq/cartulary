@@ -1,12 +1,77 @@
 # SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
 
 defmodule Cartulary.ReleaseReadiness do
-  @moduledoc "Fail-closed repository, version, changelog, and eval checks for releases."
+  @moduledoc """
+  Decides whether the working tree is actually releasable, and refuses by
+  default.
+
+  A release is a claim about a specific version: that this code, this
+  changelog entry, this tag, and this recorded evaluation evidence all describe
+  the same thing. This module reads the repository as data and verifies that
+  claim. Every check is fail-closed — anything it cannot confirm raises, and
+  there is no warning or partial-pass outcome, because a release check that
+  only warns is one nobody reads.
+
+  ## What it verifies
+
+    * The project file declares a literal `version:` string and it parses as
+      Semantic Versioning.
+    * The changelog still carries an Unreleased section, a dated entry for
+      exactly that version, and the anchor-evidence marker the changelog format
+      requires.
+    * Every document a releaser reads still describes the release-readiness
+      gate under a recognisable name, so a rename cannot quietly orphan it.
+    * A supplied tag is exactly `v` followed by the declared version.
+    * Supplied evaluation evidence is provenance-valid, was produced by this
+      same application version, and still clears the committed metric floors.
+
+  ## Why stale evaluation evidence is rejected outright
+
+  A report naming an older application version is the most dangerous input
+  here: it looks like evidence, it passes every threshold, and it measures code
+  that is not being shipped. Version equality is checked before thresholds for
+  that reason.
+
+  ## Guardrails versus ablations
+
+  Only runs the release matrix marks as guardrails are re-asserted against the
+  committed floors. Exploratory variants in the same suite are informational
+  and must not be able to block or rescue a release.
+
+  ## Files read as data
+
+  The version comes from `mix.exs` and the changelog from `CHANGELOG.md`. The
+  release matrix and the committed metric floors are read from
+  `docs/eval/release-suite.json` and `docs/eval/deterministic-thresholds.json`.
+  Those are inputs this module parses, not background reading.
+  """
 
   alias Cartulary.Eval.Report
 
+  # Semantic Versioning core with an optional pre-release suffix, deliberately
+  # without build metadata: a release tag must be unambiguous, and two versions
+  # differing only in build metadata compare as equal.
   @semver ~r/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$/
 
+  @doc """
+  Runs every release check and returns `%{version:, status: :ready}`, or raises.
+
+  Options:
+
+    * `:root` — repository root to read from. Defaults to the current working
+      directory; tests and tooling pass an explicit path.
+    * `:eval_report` — path to the evaluation suite document to verify. Required
+      unless the caller explicitly opts out.
+    * `:allow_missing_eval` — when true, skip the evaluation checks entirely.
+      Defaults to false. This exists for metadata-only lanes such as an early
+      pull-request check; a real release must supply the report, because
+      without it nothing verifies the quality floors.
+    * `:tag` — the tag about to be pushed. When absent, the tag check is
+      skipped; when present it must match the declared version exactly.
+
+  Raises `ArgumentError` with the specific reason on any failed check, and
+  whatever `File.read!/1` raises when a required file is missing.
+  """
   def check!(opts \\ []) do
     root = Keyword.get(opts, :root, File.cwd!())
     version = mix_version!(root)
@@ -29,6 +94,17 @@ defmodule Cartulary.ReleaseReadiness do
     %{version: version, status: :ready}
   end
 
+  @doc """
+  Reads the application version declared in the project file under `root`.
+
+  Deliberately a text match rather than loading the project: the check must
+  work on a tree it is not itself compiled from, and must see the literal a
+  human would read.
+
+  Returns the first `version: "..."` literal in the file. A project that
+  computes its version instead of declaring one raises `ArgumentError`, because
+  there would be nothing for a human or a tag to be checked against.
+  """
   def mix_version!(root) do
     mix = read_local!(Path.join(root, "mix.exs"))
 
@@ -44,6 +120,17 @@ defmodule Cartulary.ReleaseReadiness do
     end
   end
 
+  # Three separate requirements, all on the changelog:
+  #
+  #   * an Unreleased section, so the next change has somewhere to go and the
+  #     file has not been closed off at this release;
+  #   * a heading for exactly this version with an ISO date, anchored to line
+  #     start and end so a mention inside prose cannot satisfy it; and
+  #   * the anchor-evidence marker the changelog format requires, which is what
+  #     ties each entry back to the design decisions it implements.
+  #
+  # The version is escaped before interpolation because it comes from file text
+  # and its dots would otherwise match any character.
   defp assert_changelog!(root, version) do
     changelog = read_local!(Path.join(root, "CHANGELOG.md"))
 
@@ -55,10 +142,11 @@ defmodule Cartulary.ReleaseReadiness do
     end
   end
 
-  # The evaluation, CI, and release-readiness capability is implemented, so the
-  # roadmap no longer carries a phase section for it to be checked complete.
-  # The surviving guardrail is that every document a releaser reads must still
-  # describe the release gate under the same name.
+  # The documents a releaser actually reads before tagging. Each must still
+  # describe the release gate under a recognisable name, so that renaming or
+  # deleting the gate cannot leave the shipped documentation quietly describing
+  # a process that no longer exists. This is a documentation-coherence check,
+  # not a content review: it only asserts the phrase is still there.
   @release_docs [
     "README.md",
     "AGENTS.md",
@@ -67,6 +155,9 @@ defmodule Cartulary.ReleaseReadiness do
     "docs/architecture/evaluation-ci-release-readiness.md"
   ]
 
+  # Case-folded, and both the spaced and hyphenated spellings are accepted, so
+  # the check survives ordinary prose and heading style without needing every
+  # document to phrase it identically.
   defp assert_release_docs!(root) do
     for file <- @release_docs do
       body = root |> Path.join(file) |> read_local!() |> String.downcase()
@@ -78,14 +169,22 @@ defmodule Cartulary.ReleaseReadiness do
     end
   end
 
+  # No tag supplied means the caller is checking a working tree rather than a
+  # tag about to be pushed, so there is nothing to compare.
   defp assert_tag!(_version, nil), do: :ok
 
+  # Exact string equality, not a version parse: the tag that gets pushed is a
+  # literal, and a mistyped one must fail here rather than ship under a name
+  # that does not match the declared version.
   defp assert_tag!(version, tag) do
     unless tag == "v#{version}" do
       raise ArgumentError, "release tag #{inspect(tag)} must equal v#{version}"
     end
   end
 
+  # Order matters. Provenance is validated first, so an unusable report is
+  # rejected before its numbers are trusted; then version equality, so evidence
+  # measured against different code cannot be recycled; only then thresholds.
   defp assert_eval!(root, path, version) do
     suite = path |> read_local!() |> Jason.decode!() |> Report.validate_suite!()
 
@@ -108,17 +207,26 @@ defmodule Cartulary.ReleaseReadiness do
       |> read_local!()
       |> Jason.decode!()
 
+    # A run gates the release only when the matrix explicitly opts it in. The
+    # default is false, so a newly added run is an ablation until someone
+    # decides it should be able to block a release.
     guarded_ids =
       manifest["runs"]
       |> Enum.filter(&Map.get(&1, "release_guardrail", false))
       |> MapSet.new(& &1["id"])
 
+    # Non-guardrail reports are skipped entirely. A guardrail run whose floor is
+    # missing is not skipped — asserting thresholds raises for an unknown
+    # benchmark and profile combination, so nobody can dodge a floor by
+    # forgetting to commit one.
     suite["reports"]
     |> Enum.filter(&MapSet.member?(guarded_ids, &1["matrix_id"]))
     |> Enum.each(&Report.assert_thresholds!(&1, thresholds))
   end
 
-  # Paths are fixed repository files or operator-owned Mix task inputs.
+  # Every path read here is either a fixed repository file or a report path the
+  # operator passed on the command line; none is derived from network or
+  # request input, which is why the traversal warning is suppressed.
   # sobelow_skip ["Traversal.FileModule"]
   defp read_local!(path), do: File.read!(path)
 end

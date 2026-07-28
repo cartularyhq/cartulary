@@ -2,12 +2,50 @@
 
 defmodule Cartulary.Portability.Registry do
   @moduledoc """
-  Versioned F10 archive inventory.
+  The definitive list of what a logical Account archive contains, in the order
+  it must be restored.
 
-  Ordering is dependency-aware for import. Credentials and every rebuildable
-  cache are deliberately absent.
+  Three decisions live here, and each of them is a rule rather than a
+  convenience:
+
+  1. **What is portable.** Only durable, authored, or governed state. A resource
+     absent from this list is absent from every archive.
+  2. **What is deliberately excluded.** Credentials and secrets, because an
+     archive is a file that travels; and rebuildable caches, because shipping a
+     stale copy of something the target can recompute is worse than shipping
+     nothing.
+  3. **What order restoration takes.** The list is dependency-ordered, and the
+     import walks it top to bottom.
+
+  ## Ordering is load-bearing
+
+  Rows are written in list order, so a resource must appear after everything it
+  references: scopes before the things that live in them, documents before
+  document versions, knowledge before its provenance, attributions, relations,
+  and lifecycle history. Reordering this list to look tidier will produce
+  foreign-key failures partway through an import. New resources go where their
+  dependencies place them, not at the end.
+
+  Audit events come last so the chain is restored over a database that already
+  contains everything it refers to.
+
+  ## Exclusions
+
+  API keys are never exported: an archive is not a credential store, and a
+  restored Account is expected to be issued fresh credentials. Password hashes,
+  embeddings, extracted-text caches, and extraction bookkeeping are stripped
+  from otherwise-portable rows for the same two reasons — secrets must not
+  travel, and derived values must be recomputed from the restored originals so
+  they match the target's own model configuration rather than the source's.
+
+  Document chunks, entities, entity mentions, and projections are excluded
+  wholesale. They are rebuilt from the restored governed statements and document
+  blobs after import.
   """
 
+  # Restoration order. Each entry maps the archive's file name to the resource
+  # that owns those rows; the file name is part of the archive format, so
+  # renaming one breaks archives already written.
   @resources [
     {"accounts", Cartulary.Accounts.Account},
     {"scopes", Cartulary.Topology.Scope},
@@ -44,6 +82,10 @@ defmodule Cartulary.Portability.Registry do
     {"audit_events", Cartulary.Governance.AuditEvent}
   ]
 
+  # Rebuildable caches. Never exported; recomputed on the target after import.
+  # Listed explicitly rather than merely omitted so the manifest can state what
+  # was left out, and so a reader can tell "excluded on purpose" from "someone
+  # forgot to add it".
   @derived_resources [
     Cartulary.Documents.DocumentChunk,
     Cartulary.Knowledge.Entity,
@@ -51,8 +93,19 @@ defmodule Cartulary.Portability.Registry do
     Cartulary.Knowledge.Projection
   ]
 
+  # Credential-bearing resources. An archive must never be a way to move
+  # authentication material between installations.
   @credential_resources [Cartulary.Accounts.ApiKey]
 
+  # Attributes stripped from rows that are otherwise portable.
+  #
+  #   * a peer's password hash is a credential and does not travel;
+  #   * knowledge embeddings and their provider/model identity are recomputed by
+  #     the target's own embedder, so exporting them would risk restoring
+  #     vectors that do not match the target's embedding identity;
+  #   * a document version's extracted text, extraction metadata, chunk counts,
+  #     and completion stamp are extraction bookkeeping — the original blob is
+  #     exported instead, and the target re-derives all of it.
   @sensitive_attributes %{
     Cartulary.Accounts.Peer => [:hashed_password],
     Cartulary.Knowledge.KnowledgeItem => [
@@ -71,11 +124,41 @@ defmodule Cartulary.Portability.Registry do
     ]
   }
 
+  @doc """
+  The portable resources as `{archive_file_name, resource_module}` pairs, in
+  dependency order. Export writes them in this order and import restores them in
+  this order; callers must not sort or regroup the list.
+  """
   def resources, do: @resources
+
+  @doc """
+  Resources that are rebuilt on the target instead of being exported. Reported
+  in the archive manifest so the exclusion is visible to whoever inspects it.
+  """
   def derived_resources, do: @derived_resources
+
+  @doc """
+  Resources holding authentication material, which never appear in an archive.
+  """
   def credential_resources, do: @credential_resources
+
+  @doc """
+  Attributes to strip from a portable resource's rows.
+
+  Returns a list of attribute names, empty for resources that export in full.
+  Export consults this per row, so adding an entry here is all that is needed to
+  keep a newly added secret or derived column out of every future archive.
+  """
   def excluded_attributes(resource), do: Map.get(@sensitive_attributes, resource, [])
 
+  @doc """
+  Resolves an archive file name to the resource that owns those rows.
+
+  Import calls this on every manifest entry, which is what makes an archive
+  naming an unknown or non-portable resource fail early instead of being
+  partially applied. Raises `ArgumentError` for a name that is not in the
+  portable list.
+  """
   def resource!(name) do
     case List.keyfind(@resources, name, 0) do
       {^name, resource} -> resource

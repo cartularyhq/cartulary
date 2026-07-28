@@ -1,7 +1,43 @@
 # SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
 
 defmodule Cartulary.Model.Usage do
-  @moduledoc "The single durable usage-emission point for all F5 model calls."
+  @moduledoc """
+  The single durable emission point for model usage.
+
+  Every provider call — successful, failed, or a repair retry — appends exactly
+  one usage row here, and nothing else in the codebase writes a *model* row.
+  (`Cartulary.Operations.Metering` writes the separate HTTP-request rows into
+  the same table, tagged with the `"edge"` model role and a `"none"` provider.)
+  That makes the usage table the exact ledger of what the Account spent; tracing
+  spans mirror the same numbers for convenience but are sampled and lossy, so
+  they are not the ledger.
+
+  ## What a row records
+
+  Account, optional scope and peer attribution, the operation and role, the full
+  provider/model/version/prompt/pipeline provenance, input, output, and
+  embedding token counts, wall-clock duration, an `ok`/`error` status, a
+  timestamp, and a small metadata map.
+
+  ## Content safety is enforced here, not by convention
+
+  Metadata is filtered through a fixed allowlist of keys. A caller can pass any
+  map it likes and only the allowed keys survive. This is the last line of
+  defence that keeps prompts, generated answers, observation text, credentials,
+  and knowledge content out of a table that Account admins and operators read.
+  Widening the allowlist is a content-safety decision: every new key must be
+  provably free of content.
+
+  ## Mistakes to avoid
+
+  - Do not write model `UsageEvent` rows from anywhere else; the ledger stops
+    being exact the moment there is a second writer.
+  - Do not add a metadata key that could carry text supplied by a user or
+    returned by a model.
+  - Do not rely on this raising to signal a metering problem. A call without an
+    Account or actor context is silently skipped, because losing a metering row
+    must never fail the model call that the caller actually needed.
+  """
 
   alias Cartulary.Clock
   alias Cartulary.Model.Config
@@ -9,8 +45,29 @@ defmodule Cartulary.Model.Usage do
   alias Cartulary.Operations.Metering
   alias Cartulary.Operations.UsageEvent
 
+  # Content-safety allowlist for usage metadata. Every key here holds a count, a
+  # boolean, or a short classification string — never text from a prompt, a
+  # completion, an observation, or a credential. Anything not on this list is
+  # dropped before the row is written.
   @safe_metadata_keys ~w(error_class fallback repair_attempt result_count vector_count)
 
+  @doc """
+  Appends one usage row for a completed provider call and updates budget counters.
+
+  `context` must carry `:account_id` and `:actor`; `:scope_id` and `:peer_id`
+  are optional attribution. `attrs` carries `:operation`, `:status` (`:ok` or
+  `:error`), `:duration_ms`, a `:usage` token map, and a `:metadata` map that
+  will be reduced to the safe allowlist.
+
+  Returns `:ok`. The second clause makes a context without an Account or actor a
+  no-op, which is what lets offline tooling and tests exercise the model layer
+  without a tenant.
+
+  Writes through the internal pipeline actor, because recording usage is a
+  system obligation rather than something the calling human or agent is
+  separately authorized to do. Raises if the durable write itself fails: a call
+  that really was billed must not be quietly forgotten.
+  """
   def emit(%{account_id: account_id, actor: actor} = context, %Role{} = config, attrs)
       when is_binary(account_id) and not is_nil(actor) do
     usage = attrs |> Map.get(:usage, %{}) |> normalize_usage()
@@ -41,12 +98,19 @@ defmodule Cartulary.Model.Usage do
     })
     |> Ash.create!(actor: pipeline_actor(actor))
 
+    # In-memory budget counters are a rebuildable cache derived from these rows;
+    # they are updated after the durable write so the cache can never claim
+    # spend that was not recorded.
     Metering.record_model(account_id, Map.get(context, :scope_id), usage)
     :ok
   end
 
   def emit(_context, _config, _attrs), do: :ok
 
+  # Providers report token counts under atom or string keys, sometimes omit them
+  # entirely, and occasionally report nil. Everything is coerced to a
+  # non-negative integer so arithmetic downstream cannot blow up on a partial
+  # provider response.
   defp normalize_usage(usage) when is_map(usage) do
     %{
       input_tokens: non_negative(usage[:input_tokens] || usage["input_tokens"]),
@@ -60,6 +124,9 @@ defmodule Cartulary.Model.Usage do
   defp non_negative(value) when is_integer(value) and value >= 0, do: value
   defp non_negative(_value), do: 0
 
+  # Allowlist, not denylist. Unknown keys are dropped rather than inspected,
+  # so a provider adapter that starts returning richer metadata cannot leak
+  # content into the ledger by accident.
   defp safe_metadata(metadata) when is_map(metadata) do
     metadata
     |> Map.new(fn {key, value} -> {to_string(key), value} end)
@@ -68,6 +135,11 @@ defmodule Cartulary.Model.Usage do
 
   defp safe_metadata(_metadata), do: %{}
 
+  # Metering is an internal obligation of the engine, so the row is written as
+  # the system pipeline rather than as the caller. The caller's Account is
+  # preserved — only the authorization role is elevated — so this cannot be used
+  # to write into another Account. Two clauses because the actor may be a struct
+  # or a plain map depending on the entry point.
   defp pipeline_actor(%_{} = actor) do
     actor
     |> Map.put(:role, :system)

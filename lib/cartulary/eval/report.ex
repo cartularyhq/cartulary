@@ -2,14 +2,62 @@
 
 defmodule Cartulary.Eval.Report do
   @moduledoc """
-  Validates f11-1 evaluation reports and deterministic release thresholds.
+  Gatekeeper for evaluation reports: provenance validation and committed metric floors.
 
-  Public quality claims are valid only when the report identifies the exact
-  Cartulary version, dataset digest and split, retrieval profile version,
-  deadline setting, model-role versions, judge, and execution date.
+  An evaluation number is only evidence if a reader can reconstruct what produced it. This
+  module is the single place that decides whether a report has said enough about itself to
+  be published, quoted, or used to gate a release. A report that omits any part of its
+  provenance is rejected outright — there is no partially-valid report.
+
+  ## What a report must state about itself
+
+    * The schema identity, the exact application semantic version, and an ISO 8601
+      generation timestamp.
+    * The benchmark, the retrieval profile by name, and exactly one profile version. A
+      report whose questions ran under differing profile versions is rejected, because it
+      is not a single measurement.
+    * The deadline setting, as one of enabled, disabled, or fixed. Latency bounds change
+      what retrieval returns, so a number is meaningless without knowing which applied.
+    * The strategy override: either null for an ordinary named-profile run, or a non-empty
+      list of strategy names. An empty list is rejected so that "no override" and
+      "overridden with nothing" cannot be confused.
+    * Run limits for cases, messages per case, and questions per case, each null or a
+      positive integer, so a truncated run is never mistaken for a complete one.
+    * The dataset's non-empty id, its lowercase 64-character SHA-256, and its split.
+    * Provider, model, model version, prompt version, and pipeline version for all four
+      model roles.
+    * The judge: a method for a deterministic one, and additionally provider, model, and
+      model version when a live model judged the answers.
+    * Numeric overall metrics. Abstention accuracy is the one value allowed to be null,
+      meaning no question in the run expected a refusal.
+
+  ## Contract identities
+
+  A single report carries `"f11-1"`; the envelope wrapping a matrix run carries
+  `"f11-suite-1"`, and its manifest declares suite version `"f11-1"`. These strings version
+  the evaluation-evidence format itself. Changing what a report contains means changing the
+  identity, and a maintainer who does owes a changelog entry, regenerated stored evidence,
+  and a note in the closest architecture document. Silently altering the shape under an
+  unchanged identity makes old and new reports incomparable without anyone noticing.
+
+  ## Thresholds
+
+  Only deterministic correctness and citation floors gate a release. Quality, latency,
+  token cost, and degradation measures are reported and watched, not enforced, because
+  their measurement can legitimately drift. Turning one of them into a gate is a reviewed
+  decision with an explicit threshold, not an incidental change here.
+
+  A benchmark and profile combination with no committed threshold is treated as a failure,
+  not as a pass: a run nobody wrote a floor for must not slip through a release check.
   """
 
+  # The four Account-level model roles. All of them must be identified in a report, even
+  # the ones a given benchmark never invokes, because the configuration as a whole is what
+  # was under test.
   @roles ~w(embedder ingest_extractor dream_reasoner dialectic_agent)
+
+  # Overall metrics that must be present and numeric for a report to be usable. Anything
+  # missing here means the report cannot be compared against another one.
   @metric_keys ~w(
     accuracy
     abstention_accuracy
@@ -23,7 +71,18 @@ defmodule Cartulary.Eval.Report do
     mean_token_efficiency_ratio
   )
 
+  @doc """
+  Checks one report's provenance and returns every problem it has, not just the first.
+
+  Returns `:ok`, or `{:error, messages}` where `messages` lists the failures in the order
+  the fields are checked. Collecting all of them matters: a report is usually rebuilt by
+  fixing what produced it, and one round trip per missing field would be needless.
+
+  A non-map argument is itself an error, not a crash.
+  """
   def validate(report) when is_map(report) do
+    # Errors accumulate onto the head of the list as the checks run, so the final reverse
+    # restores field order for a human reading the failure message.
     []
     |> require_equal(report, "report_schema", "f11-1")
     |> require_semver(report, "cartulary_version")
@@ -47,6 +106,12 @@ defmodule Cartulary.Eval.Report do
 
   def validate(_report), do: {:error, ["report must be an object"]}
 
+  @doc """
+  Returns the report unchanged when it validates, and raises `ArgumentError` otherwise.
+
+  The raised message lists every failure. Use this on the path that produces a report, so
+  an unusable one never reaches a file or a release check.
+  """
   def validate!(report) do
     case validate(report) do
       :ok ->
@@ -57,25 +122,55 @@ defmodule Cartulary.Eval.Report do
     end
   end
 
+  @doc """
+  Validates a whole matrix envelope and every report inside it, or raises `ArgumentError`.
+
+  The envelope must declare the suite schema identity and hold a non-empty report list. An
+  empty suite is rejected deliberately: a release check that accepted one would treat "the
+  matrix never ran" as "the matrix found no problems".
+
+  Returns the suite unchanged when it and all of its reports validate.
+  """
   def validate_suite!(%{"report_schema" => "f11-suite-1", "reports" => reports} = suite)
       when is_list(reports) and reports != [] do
     Enum.each(reports, &validate!/1)
     suite
   end
 
+  # The "F11" in this message is a frozen legacy tag with no current meaning; it survives only
+  # because the wording of a raised message is observable behaviour and this is a documentation
+  # pass. Read it as "evaluation suite".
   def validate_suite!(_suite) do
     raise ArgumentError, "invalid F11 eval suite: expected non-empty f11-suite-1 reports"
   end
 
+  @doc """
+  Asserts a report's overall metrics against the committed floors, or raises.
+
+  `thresholds` is the decoded floors document: minimum values under a `"benchmarks"` key,
+  then by benchmark, then by profile, then by metric name. Only the report's overall
+  metrics are checked; per-category and per-scale rollups are reported, never gated,
+  because small groups are noisy.
+
+  Returns the report unchanged when every floor holds. Raises `ArgumentError` when no floor
+  is configured for this benchmark and profile, and when any checked metric is missing,
+  non-numeric, or below its minimum; the message names every metric that failed. Raises
+  `KeyError` when the report states no benchmark or profile, and `FunctionClauseError` when
+  `thresholds` is not a map — validate a report before asserting floors on it.
+  """
   def assert_thresholds!(report, thresholds) when is_map(thresholds) do
     benchmark = Map.fetch!(report, "benchmark")
     profile = Map.fetch!(report, "profile")
     metrics = get_in(report, ["metrics", "overall"]) || %{}
 
+    # An unconfigured combination is a failure, not a pass. Otherwise adding a benchmark to
+    # the matrix without adding its floor would silently create an ungated release lane.
     expected =
       get_in(thresholds, ["benchmarks", benchmark, profile]) ||
         raise ArgumentError, "no deterministic threshold for #{benchmark}/#{profile}"
 
+    # A missing or non-numeric metric fails the same way a low one does: the guardrail must
+    # not be satisfiable by omitting the measurement it checks.
     failures =
       for {metric, minimum} <- expected,
           actual = Map.get(metrics, metric),
@@ -94,6 +189,9 @@ defmodule Cartulary.Eval.Report do
       else: ["#{key} must equal #{expected}" | errors]
   end
 
+  # Semantic version syntax with an optional pre-release suffix and no build metadata. The
+  # application version is how a report is tied to the code that produced it, so a
+  # free-form string such as "dev" or "latest" is not acceptable evidence.
   defp require_semver(errors, report, key) do
     case Map.get(report, key) do
       value when is_binary(value) ->
@@ -129,6 +227,9 @@ defmodule Cartulary.Eval.Report do
     end
   end
 
+  # Exactly one profile version, as a string. The runner leaves a list here when its
+  # questions ran under different retrieval profile versions, and that list fails this
+  # check on purpose: a mixed-version run must not be quoted as one measurement.
   defp require_profile_version(errors, report) do
     case Map.get(report, "profile_version") do
       value when is_binary(value) and value != "" -> errors
@@ -142,6 +243,9 @@ defmodule Cartulary.Eval.Report do
       else: ["#{key} must be one of #{Enum.join(allowed, ", ")}" | errors]
   end
 
+  # Null means an ordinary named-profile run; a non-empty list of names means the run was
+  # measured with an internal strategy override and is not a product-shaped result. An
+  # empty list or any other value is rejected so the two cases stay distinguishable.
   defp require_strategies(errors, %{"strategies" => nil}), do: errors
 
   defp require_strategies(errors, %{"strategies" => strategies})
@@ -155,6 +259,9 @@ defmodule Cartulary.Eval.Report do
     ["strategies must be null for a named profile or a non-empty internal override" | errors]
   end
 
+  # All three limit keys must be present, each either null or a positive integer. Presence
+  # is required even when nothing was truncated, so that "ran in full" is stated rather
+  # than inferred from a missing field.
   defp require_limits(errors, report) do
     case Map.get(report, "limits") do
       %{
@@ -171,6 +278,9 @@ defmodule Cartulary.Eval.Report do
     end
   end
 
+  # The digest is what lets someone else re-run the exact same input. Lowercase 64-hex is
+  # enforced rather than merely "a string", because a truncated or uppercase digest would
+  # compare unequal against a correctly recorded one and quietly break reproduction.
   defp require_dataset(errors, report) do
     case Map.get(report, "dataset") do
       %{"id" => id, "sha256" => sha256, "split" => split}
@@ -184,6 +294,9 @@ defmodule Cartulary.Eval.Report do
     end
   end
 
+  # Every role needs its full identity: which provider, which model, which model version,
+  # which prompt version, and which pipeline version. Two of those five changing is enough
+  # to move a score, so a partial identity cannot support a comparison between reports.
   defp require_model_roles(errors, report) do
     roles = Map.get(report, "model_roles", %{})
 
@@ -209,6 +322,9 @@ defmodule Cartulary.Eval.Report do
     end)
   end
 
+  # A deterministic judge only has to name its method, because the method fully determines
+  # the numbers. A model judge additionally has to name the provider, model, and model
+  # version that graded the answers, since the same prompt scores differently across them.
   defp require_judge(errors, report) do
     case Map.get(report, "judge") do
       %{"kind" => "deterministic", "method" => method}
@@ -230,6 +346,9 @@ defmodule Cartulary.Eval.Report do
     end
   end
 
+  # Abstention accuracy is the only metric allowed to be null, and only because a run whose
+  # questions all expect an answer genuinely has nothing to measure there. Everything else
+  # must be a number; a missing metric is a broken report, not a zero.
   defp require_metrics(errors, report) do
     overall = get_in(report, ["metrics", "overall"]) || %{}
 

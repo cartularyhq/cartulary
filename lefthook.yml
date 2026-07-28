@@ -1,3 +1,37 @@
+# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+#
+# Git hook configuration for the lefthook hook runner.
+#
+# Purpose
+#   Define commands lefthook should run on local git events (pre-commit, pre-push, and so
+#   on) for developers who have lefthook installed.
+#
+# Current state: NO HOOKS ARE CONFIGURED.
+#   Every line in this file is commented out, so lefthook reads an empty configuration and
+#   runs nothing. This is deliberate, not an oversight. The checks that actually gate this
+#   repository are:
+#     * `mix precommit` — run by hand before committing. It compiles with warnings as
+#       errors, verifies the dependency lock, formats, lints, security-scans, and tests.
+#     * the continuous-integration workflows — the authoritative gate, because they run on
+#       clean machines with a real PostgreSQL and cannot be skipped with `--no-verify`.
+#   A local hook can only ever be a convenience. Nothing here is a substitute for either.
+#
+# Inputs
+#   None. If hooks are added later, lefthook substitutes `{staged_files}` and `{all_files}`
+#   into the commands it runs.
+#
+# Outputs
+#   None today. With hooks enabled, a non-zero exit from any job aborts the git operation.
+#
+# Assumptions
+#   lefthook is optional. It is not a project dependency and is not installed by the setup
+#   command, so a contributor without it sees no difference. Enabling hooks here must not
+#   become a prerequisite for contributing.
+#
+# The block below is the upstream example configuration, kept verbatim as a syntax
+# reference for whoever enables the first hook. It describes tools this project does not
+# use (JavaScript, Ruby, Go); treat it as syntax, not as a suggested set of checks.
+#
 # EXAMPLE USAGE:
 #
 #   Refer for explanation to following link:

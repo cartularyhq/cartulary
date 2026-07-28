@@ -2,24 +2,84 @@
 
 defmodule Cartulary.Model.Embedding do
   @moduledoc """
-  Pinned embedder facade with explicit compatibility and re-embed planning.
+  The embedding entry point, and the guard that keeps vector spaces from mixing.
 
-  Vector consumers must provide the stored identity before reuse. A mismatch is
-  an error carrying a versioned migration plan, never an automatic fallback.
+  ## Embedding identity
+
+  A vector is only meaningful together with the four things that produced it:
+  the provider, the model, the model version, and the number of dimensions.
+  Coordinates from two different embedders are not comparable, even when the
+  widths happen to match — cosine similarity between them is noise, and a
+  retrieval built on mixed vectors returns confidently wrong results.
+
+  So every result from this module carries its identity, and callers persist
+  that identity alongside the vectors. A caller that will compare against
+  previously stored vectors may pass their recorded identity back in as
+  `:stored_identity`; if it no longer matches the configured embedder the call
+  fails with an explicit re-embed plan rather than embedding the query in a
+  different space than the corpus. The system never silently substitutes,
+  truncates, or pads a vector to make two identities line up.
+
+  The model version deliberately covers the model artifact, the tokenizer, and
+  the pooling strategy, so changing any of them requires a version bump and
+  therefore triggers the re-embed path.
+
+  ## Dimension check
+
+  Returned vectors are checked against the configured width. A provider that
+  returns a different width is an error, not something to adapt to: the stored
+  vector columns and their indexes are built for one width.
+
+  ## Mistakes to avoid
+
+  - Do not omit `:stored_identity` when embedding a query that will be compared
+    against previously stored vectors; omitting it disables the guard.
+  - Do not "handle" `{:error, {:reembed_required, plan}}` by dropping the stored
+    identity and retrying. The plan says the whole corpus must be re-embedded.
   """
 
   alias Cartulary.Model.Config
   alias Cartulary.Model.Gateway
 
   defmodule Result do
-    @moduledoc false
+    @moduledoc """
+    Vectors together with the identity of the embedder that produced them.
+
+    `:vectors` is a list of float lists, one per input text and in input order.
+    `:provider`, `:model`, `:version`, and `:dimensions` are the four-part
+    embedding identity; store all four with the vectors, because a vector whose
+    identity is unknown can never be safely reused.
+    """
     defstruct [:vectors, :provider, :model, :version, :dimensions]
   end
 
+  @doc """
+  Embeds `texts` with the Account's pinned embedder.
+
+  Pass the identity recorded next to any existing vectors as
+  `opts[:stored_identity]` — a map with `:provider`, `:model`, `:version`, and
+  `:dimensions`, string or atom keys — so an embedder change is caught before a
+  query is compared against a corpus it does not belong to.
+
+  Returns `{:ok, %Result{}}` on success. Failure modes a caller must handle:
+
+  - `{:error, {:reembed_required, plan}}` — the configured embedder no longer
+    matches the stored identity. The plan describes the migration and states
+    that existing vectors cannot be reused.
+  - `{:error, {:embedding_dimension_mismatch, expected}}` — the provider
+    returned vectors of the wrong width.
+  - `{:error, :embedding_dimensions_not_configured}` — the embedder role has no
+    dimension pinned, so nothing can validate the result.
+  - Any provider error, passed through unchanged.
+  """
   def embed(texts, context, opts \\ []) when is_list(texts) do
     config = Config.resolve(:embedder, context)
     current = Config.embedding_identity(config)
 
+    # Order matters: compatibility is checked before any tokens are spent. The
+    # pin on `config` asserts the gateway embedded with the very configuration
+    # whose identity was just validated and is about to be returned — a
+    # different one would mean the returned identity describes the wrong space.
     with :ok <- ensure_compatible(Keyword.get(opts, :stored_identity), current),
          {:ok, vectors, ^config} <- Gateway.embed_with_config(config, texts, context, opts),
          :ok <- ensure_dimensions(vectors, current.dimensions) do
@@ -34,12 +94,29 @@ defmodule Cartulary.Model.Embedding do
     end
   end
 
+  @doc """
+  True when stored vectors may be reused with the current embedder.
+
+  Comparison is on all four identity parts at once; matching three of them is
+  not compatibility. A `nil` stored identity means "nothing stored yet", which
+  is trivially compatible.
+
+  Accepts string or atom keys on either side, because a stored identity usually
+  comes back from the database with string keys.
+  """
   def compatible?(nil, _current), do: true
 
   def compatible?(stored, current) when is_map(stored) and is_map(current) do
     identity(stored) == identity(current)
   end
 
+  @doc """
+  `:ok` when reuse is safe, otherwise `{:error, {:reembed_required, plan}}`.
+
+  The assertion form of `compatible?/2`, used to fail an embedding call before
+  any tokens are spent producing a vector that could not legally be compared
+  with the stored ones.
+  """
   def ensure_compatible(nil, _current), do: :ok
 
   def ensure_compatible(stored, current) do
@@ -50,6 +127,19 @@ defmodule Cartulary.Model.Embedding do
     end
   end
 
+  @doc """
+  Describes the migration required to move from one embedding identity to another.
+
+  Returns a map naming the old and new identities and the required operation.
+  `reuse_existing_vectors: false` is not advice — it is the rule: vectors from
+  the old identity have to be regenerated, because there is no transformation
+  that makes one embedder's coordinates valid in another's space.
+
+  `pipeline_version` is the contract identity value `"f5-1"`, which versions the
+  shape of this plan along with the rest of the extractor and pipeline contract;
+  changing that string obliges a maintainer to add a changelog entry and refresh
+  the contract evidence.
+  """
   def reembed_plan(stored, current) do
     %{
       pipeline_version: "f5-1",
@@ -60,6 +150,9 @@ defmodule Cartulary.Model.Embedding do
     }
   end
 
+  # Every returned vector must be exactly the configured width: the stored
+  # vector columns and their indexes are built for one width, so a short or long
+  # vector is a provider bug to surface, never something to pad or truncate.
   defp ensure_dimensions(vectors, dimensions) when is_integer(dimensions) do
     if Enum.all?(vectors, &(is_list(&1) and length(&1) == dimensions)) do
       :ok
@@ -68,8 +161,12 @@ defmodule Cartulary.Model.Embedding do
     end
   end
 
+  # An embedder with no pinned width cannot be validated, so it is refused
+  # rather than trusted.
   defp ensure_dimensions(_vectors, nil), do: {:error, :embedding_dimensions_not_configured}
 
+  # Normalizes either key shape into one comparable map. A stored identity read
+  # back from the database has string keys; a freshly resolved one has atoms.
   defp identity(value) do
     %{
       provider: value[:provider] || value["provider"],

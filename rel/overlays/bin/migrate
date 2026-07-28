@@ -1,6 +1,52 @@
 #!/bin/sh
 # SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+#
+# Apply pending database migrations without starting a server.
+#
+# Purpose
+#   The migration step for deployments that do not let the node migrate itself
+#   during boot: an operator-run PostgreSQL where schema changes are a separate,
+#   audited step, a container orchestrator running an init job, or a rollout
+#   where migrations must complete before any instance begins serving. Boot-time
+#   migration remains the default for the embedded-database launcher; this is
+#   the same migration set, run on its own.
+#
+# Arguments
+#   None.
+#
+# Environment
+#   The same database configuration the node uses. In embedded mode that is
+#   CARTULARY_DATABASE_MODE=pg0 plus the pg0 binary and data directory settings;
+#   in external mode it is DATABASE_URL. Unlike the server launcher, this script
+#   supplies no defaults of its own, so run it with the identical environment
+#   the node will run with or it may migrate a different database.
+#
+# Outputs
+#   An upgraded schema. Nothing is written to stdout on success beyond the
+#   migrator's own output.
+#
+# Behaviour worth knowing
+#   Configuration is validated first, so a misconfigured environment fails
+#   before any schema change. In embedded-database mode the migration entry
+#   point starts the pinned PostgreSQL engine itself, runs the migrations, and
+#   stops it again — the engine must be running before the Repo connects, and
+#   this command is often used when no node is running to provide one. It is
+#   safe to run when the schema is already current: migrations already applied
+#   are skipped.
+#
+# Failure behaviour
+#   Exits non-zero if configuration validation or any migration fails. Each
+#   migration runs in its own transaction, so a failure leaves the schema at the
+#   last completed migration rather than half-applied.
 set -eu
 
+# `$0` is <release>/bin/migrate, so its parent directory is the release root.
+# Resolving it at run time keeps the release relocatable; CDPATH is cleared so a
+# value in the caller's environment cannot redirect the `cd`.
 release_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+# `eval` runs the function in a short-lived node that loads the application's
+# configuration without starting its supervision tree, so no web endpoint, no
+# background job queues, and no scheduled work run while the schema changes.
+# `exec` hands over the process id so the caller — often a container init job —
+# observes the migration's real exit status and can signal it directly.
 exec "$release_root/bin/cartulary" eval "Cartulary.Release.migrate()"

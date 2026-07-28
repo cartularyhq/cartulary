@@ -2,14 +2,46 @@
 
 defmodule Cartulary.Eval.ModelJudge do
   @moduledoc """
-  Optional independent-family release judge over the provider-neutral gateway.
+  Optional live-model grader for evaluation answers, held to an independence rule.
 
-  The dream-reasoner role judges answers produced by the dialectic role. A live
-  run fails if those roles resolve to the same provider/model family.
+  The deterministic lexical scores are the reproducible baseline and always run. This
+  module adds a second opinion from an actual model: it grades an answer for groundedness
+  in its retrieved context, for whether that context was relevant to the question, and for
+  whether the answer addresses the question.
+
+  ## Independence is enforced, not advised
+
+  The reasoning role grades answers that the answering role produced. If those two roles
+  resolve to the same provider and model, this refuses to run at all — the check runs again
+  on every graded question, not once per run. A model grading its own output measures its
+  self-consistency, not the system's quality, and a number produced that way would look
+  like evidence while being worthless. Independence is judged on provider and model
+  together, so one provider serving two genuinely different models is allowed.
+
+  ## Fail loud, never degrade
+
+  A provider error, a missing score, or a score that is not an integer on the 1-to-5 scale
+  raises. There is no default value and no fallback path, because a fabricated judge
+  number does not merely lower a report — it corrupts it. Callers that want a run to
+  survive a flaky provider should use the deterministic judge instead.
+
+  ## Output and content safety
+
+  It contributes only `model_`-prefixed keys, so merging its output over the deterministic
+  scores cannot displace a reproducible measurement, and its identity is recorded in every
+  report it touches.
+
+  Judging sends the question, the retrieved context, and the answer to the configured
+  provider. Only point it at fixtures whose content is safe to transmit.
   """
 
   alias Cartulary.Model.{Config, Gateway}
 
+  # The schema handed to the provider. It is a request, not a guarantee: the gateway call
+  # below returns whatever the provider produced without validating it, so
+  # `normalized_score/2` is what actually rejects anything that is not an integer 1 to 5. A
+  # small integer scale is used instead of a free float because models are far more
+  # consistent rating on a fixed ordinal scale.
   @schema %{
     type: "object",
     properties: %{
@@ -21,6 +53,19 @@ defmodule Cartulary.Eval.ModelJudge do
     additionalProperties: false
   }
 
+  @doc """
+  Resolves the judge's configuration and returns the identity recorded in a report.
+
+  Returns a string-keyed map of the judge's provider, model, model version, prompt version,
+  and pipeline version, plus its kind and method identity. The method string versions this
+  model-judging procedure inside every report; changing the prompt, the scale, or the
+  normalization means changing that string too, and a maintainer who does owes a changelog
+  entry, regenerated stored evidence, and a note in the closest architecture document.
+
+  Raises `ArgumentError` when the grading role and the answering role resolve to the same
+  provider and model, since a self-graded answer is not independent evidence. Call it
+  before a run to fail early rather than after producing unusable numbers.
+  """
   def identity do
     judge = Config.resolve(:dream_reasoner, %{})
     answer = Config.resolve(:dialectic_agent, %{})
@@ -36,7 +81,25 @@ defmodule Cartulary.Eval.ModelJudge do
     |> Map.merge(%{"kind" => "model", "method" => "rag-triad-model-f11-1"})
   end
 
+  @doc """
+  Grades one answer with a live model and returns its scores for merging into a report.
+
+  `question` is the question text, `answer` the produced answer, and `candidates` the
+  retrieval candidates that were available to produce it; their text is joined into the
+  context the grader sees.
+
+  Returns a string-keyed map with `"model_groundedness"`, `"model_context_relevance"`, and
+  `"model_answer_relevance"` as floats in the closed interval 0.0 to 1.0, plus
+  `"model_judge"` holding the judge identity. The keys are prefixed so this map can be
+  merged over the deterministic scores without displacing any of them.
+
+  Raises `ArgumentError` when the independence check fails, when the provider call fails,
+  or when a returned score is missing or outside the allowed range. It never returns a
+  default in place of a real grade.
+  """
   def score(question, answer, candidates) do
+    # Re-resolved per call so the independence check is enforced on every graded question,
+    # not only once at the start of a run.
     identity = identity()
 
     context =
@@ -56,6 +119,8 @@ defmodule Cartulary.Eval.ModelJudge do
       }
     ]
 
+    # One attempt, no retry: a judge that needed several tries to produce a parseable grade
+    # is not producing a stable measurement, and silently retrying would hide that.
     case Gateway.structured_once(:dream_reasoner, messages, @schema, %{}, task: :eval_judge) do
       {:ok, value, _config} ->
         %{
@@ -70,6 +135,11 @@ defmodule Cartulary.Eval.ModelJudge do
     end
   end
 
+  # Maps the 1-to-5 rating onto 0.0-to-1.0 so it sits on the same scale as the lexical
+  # baseline and the two can be read side by side: 1 becomes 0.0 and 5 becomes 1.0. The key
+  # is looked up as both an atom and a string because providers differ in how they key
+  # decoded JSON. Anything outside the scale raises rather than being clamped, since a
+  # clamped value would silently turn a malformed response into a plausible-looking score.
   defp normalized_score(value, key) do
     score = Map.get(value, key) || Map.get(value, Atom.to_string(key))
 
@@ -80,5 +150,7 @@ defmodule Cartulary.Eval.ModelJudge do
     end
   end
 
+  # Independence is judged on provider and model together. Two different models from one
+  # provider count as independent; the same model under both roles does not.
   defp family(config), do: {config.provider, config.model}
 end

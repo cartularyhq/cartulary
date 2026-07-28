@@ -1,12 +1,35 @@
 # SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
 
 defmodule Cartulary.F6DocumentsConnectorsSyncTest.Provider do
-  @moduledoc false
+  @moduledoc """
+  Deterministic stand-in model provider for the document ingest suite.
+
+  The document tests care about *which statements survive* across document revisions, not
+  about model quality, so this adapter turns an observation into knowledge candidates by a
+  rule a human can predict: split the text on sentence boundaries and newlines, drop
+  fragments shorter than 8 characters (they carry no assertable content), and emit one
+  candidate per remaining sentence. That makes supersession assertions exact — a test can
+  say "the Friday sentence disappeared from revision two, so its statement must become
+  superseded" without depending on a model's phrasing.
+
+  Embeddings are equally mechanical: a 3-element vector derived from text length. They
+  exist only so the chunk pipeline has a real vector to store and index; they are not
+  meaningful for similarity.
+
+  `chat/3` and `rerank/4` deliberately return an error. The document path must never reach
+  them, and an error here turns an accidental new call site into a visible failure rather
+  than a silently passing test.
+
+  Installed by replacing the `:model_provider` application environment key for the
+  duration of the suite, which is why the suite runs `async: false`.
+  """
 
   @behaviour Cartulary.Model.Provider
 
   alias Cartulary.Model.Provider.Result
 
+  # One candidate per sentence of at least 8 characters. Confidence, sensitivity, and
+  # target level are fixed so the resulting items land in a predictable governance state.
   @impl true
   def structured(_config, _messages, _schema, opts) do
     items =
@@ -59,10 +82,26 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest.Provider do
 end
 
 defmodule Cartulary.F6DocumentsConnectorsSyncTest.Connector do
-  @moduledoc false
+  @moduledoc """
+  Scriptable fake remote source used to drive incremental connector sync.
+
+  A connector adapter implements one callback, `pull(config, cursor)`, returning a page of
+  raw items plus the cursor to persist afterwards. This fake keeps that page in an `Agent`
+  so a test can stage exactly what "the remote" returns next: an unchanged item, a changed
+  item, or a deletion marker. Each `put/1` replaces the whole page, so successive calls
+  model successive states of the remote system rather than accumulating.
+
+  The agent is registered under this module's name, so only one script exists per node and
+  the suite must run `async: false`. `start!/0` tolerates an already-running agent because
+  the suite's `setup` runs before every test.
+
+  This fake ignores the incoming cursor on purpose. Cursor *advancement* is the engine's
+  responsibility and is asserted from the persisted connector row, not simulated here.
+  """
 
   @behaviour Cartulary.Documents.Connector
 
+  @doc "Starts the page-holding agent, returning `:ok` whether or not it already existed."
   def start! do
     case Agent.start(fn -> %{items: [], cursor: %{"page" => 0}, has_more?: false} end,
            name: __MODULE__
@@ -72,11 +111,18 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest.Connector do
     end
   end
 
+  @doc "Stops the agent if present. Must run in `on_exit` so no script leaks between tests."
   def stop do
     if pid = Process.whereis(__MODULE__), do: Agent.stop(pid)
     :ok
   end
 
+  @doc """
+  Replaces the entire page the next `pull/2` will return.
+
+  Expects a map with `:items`, `:cursor`, and `:has_more?`. Replacement rather than merge
+  is deliberate: each call represents the remote's complete current state.
+  """
   def put(page), do: Agent.update(__MODULE__, fn _state -> page end)
 
   @impl true
@@ -84,6 +130,63 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest.Connector do
 end
 
 defmodule Cartulary.F6DocumentsConnectorsSyncTest do
+  @moduledoc """
+  Pins document ingest, connector sync, supersession, tombstoning, and document portability.
+
+  A document is a raw observation, exactly like a chat message. Connectors and file uploads
+  may submit bytes; they may never write knowledge. Everything a document "says" still has
+  to go through structured extraction and the approval lifecycle before it can be retrieved.
+  This file is the regression floor for that path and for the durable-versus-rebuildable
+  split that makes documents portable.
+
+  ## What it pins
+
+  * **Blobs are content-addressed and out of the row.** A version stores a blob reference
+    and a hash, never inline bytes. Whether that blob lives on local disk or in object
+    storage is deployment configuration and must not change hashes, versioning, or gates.
+  * **Dual ingest.** One upload produces both retrievable document chunks (a rebuildable
+    cache: text, vector, pinned embedding identity) and governed knowledge items whose
+    provenance points at the document version rather than at a message.
+  * **Native parsing.** Markdown goes through the Markdown parser; other formats go through
+    the extraction NIF. The recorded parser name is asserted so a silent fallback to a
+    lossy path is caught.
+  * **Incremental sync is hash-driven.** An unchanged content hash is a no-op; a changed one
+    appends a new immutable version. History is never overwritten.
+  * **Supersession is provenance-aware.** A statement the new revision no longer makes
+    becomes `superseded`. A statement the new revision still makes survives. Critically, a
+    statement that *also* has independent provenance — someone said it in a chat message —
+    survives both supersession and the document's later deletion. Retracting it would
+    delete a fact the document never exclusively owned.
+  * **Deletion tombstones, it does not erase.** A remote delete marks the document and its
+    chunks tombstoned and leaves the version history in place.
+  * **Cursors advance only after the page is durably handled**, so an interrupted sync
+    re-reads rather than skips.
+  * **Export carries verified source bytes and excludes derived data.** Chunks and vectors
+    are omitted from the bundle and rebuilt by re-running ordinary ingest on import, under
+    whatever embedder the target account has configured.
+  * **Erasure removes the document row and the blob it exclusively owned.**
+  * **Connector configuration stores secret references only.** A literal credential in the
+    config map or in the secret-reference field is rejected outright.
+
+  ## Why it must not drift
+
+  These rules are what stop a document sync from becoming a destructive overwrite. The
+  dangerous refactors are the ones that look like cleanups: retracting knowledge when its
+  document disappears (destroys corroborated facts), updating a version row in place
+  (destroys history), advancing a cursor before the page commits (skips documents forever),
+  or including chunks in an export (locks the archive to one embedding model).
+
+  ## If this file fails
+
+  Read which of the bullets above stopped holding, and restore the behaviour. The one
+  assertion that is safe to update is a parser *name*, if the parser was deliberately
+  replaced. `f6-document-1` in the export manifest is a schema identity value: changing it
+  is a deliberate archive-format transition, not a cosmetic edit.
+
+  Runs `async: false`: it replaces node-global blob, chunking, connector-adapter, and
+  model-role application environment, and drives a singleton fake connector agent.
+  """
+
   use Cartulary.DataCase, async: false
 
   alias Cartulary.Actor
@@ -111,13 +214,22 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest do
     documents =
       original_documents
       |> Keyword.put(:blob_adapter, Cartulary.Documents.BlobStore.Local)
+      # Blobs go to a unique temp directory per run and are removed in on_exit, so a leftover
+      # content-addressed object cannot make a later run's "already stored" path fire.
       |> Keyword.put(:blob_root, blob_root)
+      # 48-character chunks with 8 characters of overlap: small enough that a two-sentence
+      # fixture produces several chunks, so chunk-count and ordering assertions are real.
       |> Keyword.put(:chunk_size, 48)
       |> Keyword.put(:chunk_overlap, 8)
+      # Registers the fake remote under the adapter kind "fixture", which is the `kind` the
+      # tests give when they register a connector.
       |> Keyword.put(:connector_adapters, %{
         "fixture" => Cartulary.F6DocumentsConnectorsSyncTest.Connector
       })
 
+    # Point the embedder and extractor roles at the deterministic stand-in provider. The
+    # embedding identity (provider/model/version/dimensions) is pinned here because chunks
+    # record it, and later assertions check the stored dimensions match the configured 3.
     roles =
       original_roles
       |> Keyword.update!(:embedder, fn config ->
@@ -145,6 +257,8 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest do
     Application.put_env(:cartulary, :model_roles, roles)
     Cartulary.F6DocumentsConnectorsSyncTest.Connector.start!()
 
+    # All of the above is node-global state plus a temp directory. Restoring every key and
+    # removing the blob root is required for the next test to start from a clean world.
     on_exit(fn ->
       Cartulary.F6DocumentsConnectorsSyncTest.Connector.stop()
       Application.put_env(:cartulary, :documents, original_documents)
@@ -175,28 +289,43 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest do
                  "# Release handbook\n\nFriday is the normal release day. Escalations use email."
              })
 
+    # Bytes live in the blob store, never inline on the row: the database holds a reference
+    # keyed by account and content hash. Two accounts uploading the same file therefore get
+    # separate objects, which is what makes per-account erasure able to delete one of them.
     assert version.content == nil
     assert version.blob_ref =~ "local://#{account.id}/"
     assert {:ok, _bytes} = BlobStore.get(version.blob_ref)
 
+    # Ingest only stores and enqueues. Parsing, chunking, and embedding happen in the job
+    # step run here explicitly, so an upload stays fast and survives a processing failure.
     assert {:ok, processed} =
              Documents.process_version_for_account(version.id, account.id)
 
     assert processed.processing_status == "complete"
     assert processed.chunk_count >= 2
+    # Every chunk must be embedded. A partially embedded document would be partially
+    # invisible to semantic retrieval with nothing to indicate why.
     assert processed.embedded_chunk_count == processed.chunk_count
 
     %{chunks: chunks, provenances: provenances, knowledge: knowledge} =
       document_derivations(account.id, actor, document.id)
 
+    # Dimensions are recorded both on the chunk row and inside the stored vector value, and
+    # must agree with the configured embedder. A disagreement means vectors from two model
+    # generations are sharing an index, which corrupts nearest-neighbour results silently.
     assert Enum.all?(
              chunks,
              &(&1.embedding_dimensions == 3 and &1.embedding.dimensions == 3)
            )
 
     assert Enum.all?(chunks, &(&1.status == "active"))
+    # Knowledge derived from a document is attributed to the document *version*, not to a
+    # message. That is what lets a later revision supersede exactly the right statements,
+    # and what keeps `source_message_ids` empty on this path.
     assert Enum.all?(provenances, &(&1.source_type == "document"))
     assert Enum.all?(provenances, &(&1.document_version_id == version.id))
+    # Document-derived items enter the ordinary lifecycle. A connector cannot mint `active`
+    # knowledge; anything outside these states means the governance step was bypassed.
     assert Enum.all?(knowledge, &(&1.state in ~w(provisional held active)))
     assert Enum.all?(knowledge, &(&1.source_message_ids == []))
 
@@ -206,11 +335,17 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest do
         actor
       )
 
+    # Search returns knowledge and document chunks in one candidate list, distinguished by
+    # `candidate_type`, so a caller can cite the passage a statement came from.
     assert Enum.any?(
              retrieval["candidates"],
              &(&1["candidate_type"] == "document_chunk" and &1["document_id"] == document.id)
            )
 
+    # Parser routing is asserted by the recorded parser name. Markdown must keep its
+    # structure through the Markdown parser rather than being flattened by the generic
+    # extractor, and binary/office/HTML formats must use the native extraction NIF instead
+    # of a lossy text guess.
     assert {:ok, %{metadata: %{"parser" => "mdex"}, format: :markdown}} =
              Parser.extract("# Native markdown", "text/markdown")
 
@@ -231,11 +366,16 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest do
         scope_id: scope.id,
         name: "fixture-sync",
         kind: "fixture",
+        # Polling interval in seconds; irrelevant here because syncs are invoked directly.
         schedule_seconds: 60,
         config: %{"folder" => "handbooks"},
+        # A reference to a credential, not the credential. Raw secrets are rejected.
         secret_ref: "env:F6_CONNECTOR_TOKEN"
       })
 
+    # Revision one. Three sentences become three knowledge statements under the stand-in
+    # extractor: one that the next revision will drop, one it will keep, and one that will
+    # also be asserted independently through a chat message below.
     put_connector_page(
       [
         connector_item(
@@ -252,6 +392,9 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest do
     {document, [version_one]} = connector_document(account.id, actor, connector.id)
     assert {:ok, _processed} = Documents.process_version_for_account(version_one.id, account.id)
 
+    # A second, independent source for the "Cross-source" sentence. This is the control for
+    # the whole test: knowledge with provenance outside this document must survive both the
+    # document's supersession and its later deletion.
     assert {:ok, _message} =
              Memory.ingest_message(%{
                "account_key" => account.key,
@@ -262,6 +405,8 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest do
                "sync_extract" => true
              })
 
+    # Revision two of the *same* external id: Friday becomes Monday, the "stable" sentence
+    # is repeated verbatim, and the "Cross-source" sentence is gone from the document.
     put_connector_page(
       [
         connector_item("policy", "Monday is the release day. The escalation policy is stable.")
@@ -275,6 +420,8 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest do
     {updated_document, [_processed_version_one, version_two]} =
       connector_document(account.id, actor, connector.id)
 
+    # One logical document, two immutable versions. Revision one is still readable; a sync
+    # appends history rather than mutating the row in place.
     assert updated_document.id == document.id
     assert version_two.version == 2
     assert {:ok, _processed} = Documents.process_version_for_account(version_two.id, account.id)
@@ -285,20 +432,31 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest do
     stable = Enum.find(knowledge, &String.contains?(&1.statement, "stable"))
     shared = Enum.find(knowledge, &String.contains?(&1.statement, "Cross-source"))
 
+    # The four outcomes that define supersession:
+    # dropped by the new revision -> superseded (statement and history retained, not deleted);
+    # newly asserted -> enters the ordinary lifecycle;
+    # repeated verbatim -> untouched, with the new version merged into its provenance;
+    # sourced elsewhere too -> untouched, because this document never owned it exclusively.
     assert friday.state == "superseded"
     assert monday.state in ~w(provisional held active)
     refute stable.state == "superseded"
     refute shared.state == "superseded"
 
+    # Two document provenances for the repeated sentence (one per version) proves the merge
+    # happened instead of a duplicate knowledge item being created. The cross-source item has
+    # exactly one document provenance; its other provenance is the chat message.
     assert provenance_count(account.id, actor, stable.id) == 2
     assert provenance_count(account.id, actor, shared.id) == 1
 
+    # Re-syncing the identical page must be a no-op, matched on content hash. Without this,
+    # every poll would append a version and re-run extraction, growing history without bound.
     assert {:ok, %{counts: %{unchanged: 1}}} =
              Documents.sync_connector_for_account(connector.id, account.id)
 
     {_document, versions_after_noop} = connector_document(account.id, actor, connector.id)
     assert length(versions_after_noop) == 2
 
+    # Remote deletion. It tombstones; it does not delete rows or history.
     put_connector_page([%{external_id: "policy", deleted?: true}], 3)
 
     assert {:ok, %{counts: %{tombstoned: 1}}} =
@@ -314,13 +472,21 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest do
       |> Ash.Query.set_tenant(account.id)
       |> Ash.read_one!(actor: actor)
 
+    # The persisted cursor reflects the last durably handled page, and only that page. An
+    # engine that saved the cursor before committing the page would skip documents after a
+    # crash, and they would never be re-offered by the remote.
     assert synced.cursor == %{"page" => 3}
     assert %DateTime{} = synced.last_synced_at
 
+    # Chunks are a derived cache of a document that no longer exists remotely, so they stop
+    # being retrievable. They are marked, not dropped, so the state is auditable.
     assert Enum.all?(document_derivations(account.id, actor, document.id).chunks, fn chunk ->
              chunk.status == "tombstoned"
            end)
 
+    # The whole point of the control statement: a deleted document must not retract a fact
+    # that a peer independently stated. Only knowledge exclusively sourced from the document
+    # is retracted.
     shared_after_tombstone =
       document_derivations(account.id, actor, document.id).knowledge
       |> Enum.find(&String.contains?(&1.statement, "Cross-source"))
@@ -343,12 +509,19 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest do
     assert {:ok, _processed} = Documents.process_version_for_account(version.id, account.id)
     assert document_derivations(account.id, actor, document.id).chunks != []
 
+    # `f6-document-1` is the document bundle's schema identity value. A reader checks it
+    # before trusting the layout, so changing it is a deliberate archive-format transition.
     assert {:ok, bundle} = Documents.export_document(actor, document.id)
     assert bundle["manifest"]["schema"] == "f6-document-1"
+    # Chunks and vectors are excluded by design and the manifest says so out loud. Shipping
+    # them would freeze the archive to the exporting account's embedding model.
     assert bundle["manifest"]["derived_chunks"] == "excluded_rebuild_on_import"
+    # The original source bytes travel with the bundle, so an import can re-derive anything.
     assert [%{"bytes" => bytes}] = bundle["blobs"]
     assert bytes == "Portable source bytes produce governed document knowledge."
 
+    # Erasure removes the blob this document exclusively owned, along with the document row.
+    # A blob shared with another version would be kept; here nothing else references it.
     blob_ref = version.blob_ref
     assert :ok = Documents.erase_document(actor, document.id)
     assert {:error, :enoent} = BlobStore.get(blob_ref)
@@ -364,6 +537,8 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest do
 
     imported_versions = versions(account.id, actor, imported.id)
     assert length(imported_versions) == 1
+    # Import restores durable state only. Derived chunks arrive empty and are rebuilt by
+    # re-running ordinary processing, under the *target* account's embedder identity.
     assert document_derivations(account.id, actor, imported.id).chunks == []
 
     assert {:ok, _processed} =
@@ -375,6 +550,8 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest do
   test "connector configs reject raw secrets and retain only references" do
     %{account: account, actor: actor, scope: scope} = context!("f6-secrets")
 
+    # A credential-looking key anywhere in the content-safe config map is rejected. Connector
+    # config is exported, logged, and shown in operator UIs, so it must never hold a secret.
     assert_raise Ash.Error.Invalid, fn ->
       Documents.register_connector(actor, %{
         scope_id: scope.id,
@@ -384,6 +561,8 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest do
       })
     end
 
+    # The secret-reference field must contain a reference (such as an environment-variable
+    # name), not the value itself. A bare string that is not a reference is rejected.
     assert_raise Ash.Error.Invalid, fn ->
       Documents.register_connector(actor, %{
         scope_id: scope.id,
@@ -393,12 +572,17 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest do
       })
     end
 
+    # Neither rejected attempt may leave a partial row behind.
     assert [] =
              ConnectorConfig
              |> Ash.Query.set_tenant(account.id)
              |> Ash.read!(actor: actor)
   end
 
+  # Bootstraps one isolated world per test: account, scope, peer, and a system/pipeline actor
+  # with access to every scope. Each test uses its own account key so no assertion can be
+  # satisfied by another test's rows, and so account isolation failures show up as empty
+  # results rather than as cross-talk.
   defp context!(account_key) do
     assert {:ok, _message} =
              Memory.ingest_message(%{
@@ -438,6 +622,10 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest do
     end)
   end
 
+  # Walks a document to everything derived from it: chunks directly, then knowledge reached
+  # through the provenance rows of all its versions. Going via provenance (rather than a
+  # text match) is what makes the supersession assertions meaningful — it returns exactly
+  # the items this document is a source for, including ones with other sources too.
   defp document_derivations(account_id, actor, document_id) do
     chunks =
       DocumentChunk
@@ -483,6 +671,9 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest do
     |> Ash.read!(actor: actor)
   end
 
+  # Counts only document-sourced provenance for one item, deliberately excluding message
+  # provenance, so a test can distinguish "merged across two document versions" from
+  # "corroborated by a chat message".
   defp provenance_count(account_id, actor, knowledge_id) do
     Provenance
     |> Ash.Query.filter(knowledge_item_id == ^knowledge_id and source_type == "document")
@@ -491,6 +682,8 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest do
     |> length()
   end
 
+  # Stages the remote's next page. `has_more?` is false so one sync call drains it, keeping
+  # the cursor assertions about durability rather than about pagination.
   defp put_connector_page(items, page) do
     Cartulary.F6DocumentsConnectorsSyncTest.Connector.put(%{
       items: items,
@@ -499,6 +692,10 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest do
     })
   end
 
+  # One raw remote item. The stable `external_id` is what makes successive pages revisions of
+  # the same logical document. The metadata revision marker mirrors what a real remote system
+  # would expose; change detection still relies on the engine's own hash of the bytes, never
+  # on a remote-supplied marker.
   defp connector_item(external_id, bytes) do
     %{
       external_id: external_id,

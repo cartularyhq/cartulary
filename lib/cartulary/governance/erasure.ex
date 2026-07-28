@@ -2,11 +2,56 @@
 
 defmodule Cartulary.Governance.Erasure do
   @moduledoc """
-  Account-scoped proportionate and strict peer erasure.
+  Erases everything one peer contributed to an Account, in one transaction.
 
-  Content-bearing records are removed through Ash destroy/update actions.
-  Hash/id-only audit evidence survives, while projections and entity resolution
-  are marked or recomputed from the surviving system of record.
+  A person can demand that a memory system forget them. This module is where
+  that demand is executed: it deletes the knowledge about them, the questions
+  that were put to them, their raw messages, their sessions, their credentials,
+  their role grants, and finally the peer record itself, rebuilding the derived
+  caches along the way so nothing about them survives in a projection or an
+  entity index.
+
+  ## Two modes
+
+  * `"proportionate"` deletes knowledge whose *subject* is the peer, and for
+    knowledge that merely *cites* the peer's messages it removes the peer's
+    provenance rows and narrows the remaining source list. Something another
+    person also said stays, minus this peer's contribution. Knowledge whose
+    only sources were the erased messages is retracted rather than kept alive
+    with no evidence behind it.
+  * `"strict"` additionally deletes every piece of knowledge that was derived
+    from the peer's messages at all, even when the subject is somebody else.
+    This is the heavier reading of "delete everything of mine".
+
+  ## What deliberately survives
+
+  The hash-chained audit log is never rewritten. It records ids, categories,
+  actions, hashes, and counts — never content — so it can prove that an erasure
+  happened, at what scale, and for whom, without holding anything the erasure
+  was supposed to remove. Do not "clean up" by deleting audit rows: that breaks
+  the chain for every later event and destroys the only proof the request was
+  honoured. For the same reason the completion event's metadata carries counts
+  and the mode, and nothing else.
+
+  ## Ordering and safety constraints
+
+  Deletion is a hard delete through Ash `erase` destroy actions; there is no
+  soft-delete flag and no undo. Order is load-bearing:
+
+  1. child rows (mentions, attributions, provenances, deliveries, session
+     participants and scopes) go before the rows they reference;
+  2. the per-scope caches are rebuilt *after* the knowledge rows are destroyed,
+     so they rebuild from surviving knowledge rather than from rows about to
+     vanish; and
+  3. the peer row is destroyed last, because everything else points at it.
+
+  The whole run — request row, deletions, cache refresh, completion, audit
+  event — is one transaction. Any failure rolls all of it back and the request
+  stays uncompleted rather than half-applied.
+
+  Erasure runs with a system pipeline actor scoped to every scope in the
+  Account. That is required: a requester generally cannot read all the scopes
+  their data reached, and a partial erasure would be worse than none.
   """
 
   alias Cartulary.Accounts.ApiKey
@@ -32,6 +77,24 @@ defmodule Cartulary.Governance.Erasure do
 
   require Ash.Query
 
+  @doc """
+  Records an erasure request and carries it out immediately.
+
+  `peer_id` is the peer being erased and `mode` is `"proportionate"` or
+  `"strict"`. Only two callers are allowed: the peer erasing themself, or an
+  account administrator who authenticated with a password session. A machine
+  credential can never erase somebody else, no matter what role it holds —
+  that is why the check tests the identity kind and not only the role.
+
+  Returns the completed request record, which carries the mode and the affected
+  counts. Raises `Ash.Error.Forbidden` when the caller is not allowed,
+  `ArgumentError` for an unknown mode, `Ash.Error.Query.NotFound` when the peer
+  does not exist in this Account, and propagates any failure from the deletion
+  itself — in which case the transaction rolls back and nothing was erased.
+
+  The request row is created and executed inside the same transaction, so a
+  `pending` request cannot be left behind by a crash mid-deletion.
+  """
   def request(actor, peer_id, mode) when mode in ["proportionate", "strict"] do
     allowed? =
       actor.peer_id == peer_id ||
@@ -61,6 +124,25 @@ defmodule Cartulary.Governance.Erasure do
 
   def request(_actor, _peer_id, _mode), do: raise(ArgumentError, "invalid erasure mode")
 
+  @doc """
+  Performs the deletion described by a persisted erasure request.
+
+  `request` must already exist and carry the Account, the target peer, and the
+  mode; `actor` must be a system pipeline actor with access to every scope,
+  because the sweep has to reach data the requester cannot read. Returns the
+  request updated to `completed` with its affected counts.
+
+  Raises on any failure, including `Ash.Error.Query.NotFound` when the peer is
+  gone. Callers must run it inside a transaction — `request/3` already does —
+  so that a partial erasure can never commit.
+
+  Every deletion goes through a named Ash destroy action as the pipeline actor
+  and is permanent; the two derived-cache updates (marking projections dirty and
+  narrowing an entity's derivation list) skip authorization outright, because
+  they are cache maintenance rather than governed content changes. Do not call
+  this to "clean up test data": it removes credentials and identities as well as
+  content.
+  """
   def execute!(request, actor) do
     account_id = request.account_id
 
@@ -80,11 +162,16 @@ defmodule Cartulary.Governance.Erasure do
 
     message_ids = MapSet.new(messages, & &1.id)
 
+    # Source attribution lives in an array column, so membership is tested in
+    # Elixir and the Account's knowledge is read in full. That is the cost of
+    # being certain nothing sourced from this peer is missed.
     all_knowledge =
       KnowledgeItem
       |> Ash.Query.set_tenant(account_id)
       |> Ash.read!(actor: actor)
 
+    # "About the peer" and "derived from the peer" are different sets, and the
+    # mode decides whether the second one is deleted or merely scrubbed.
     subject_knowledge = Enum.filter(all_knowledge, &(&1.subject_peer_id == request.peer_id))
 
     sourced_knowledge =
@@ -103,12 +190,19 @@ defmodule Cartulary.Governance.Erasure do
     delete_ids = MapSet.new(delete_knowledge, & &1.id)
     affected_scope_ids = delete_knowledge |> Enum.map(& &1.scope_id) |> Enum.uniq()
 
+    # Order matters. Projections and entities are adjusted while the deleted
+    # ids are still known, the peer's questions and the knowledge rows are
+    # destroyed next, and the per-scope caches are rebuilt only afterwards, so
+    # they rebuild from surviving knowledge instead of from rows about to go.
     recompute_projections!(account_id, actor, request.peer_id, delete_ids)
     recompute_entities!(account_id, actor, delete_ids)
     erase_peer_queries!(account_id, actor, request.peer_id)
     erase_knowledge_rows!(account_id, actor, delete_knowledge)
     refresh_derived_scopes!(account_id, affected_scope_ids)
 
+    # Proportionate mode only: knowledge that stays keeps its other sources and
+    # loses this peer's. In strict mode every sourced item was already deleted
+    # above, so this list comes out empty.
     retained_sourced =
       sourced_knowledge
       |> Enum.reject(&MapSet.member?(delete_ids, &1.id))
@@ -126,6 +220,9 @@ defmodule Cartulary.Governance.Erasure do
 
     completed = complete!(request, actor, counts)
 
+    # The only trace left behind: who requested it, which peer id, and how many
+    # rows of each kind went. Counts and the mode are safe to keep forever;
+    # nothing that was erased may be copied into this metadata.
     Audit.append!(actor, account_id, %{
       actor_peer_id: request.requested_by_peer_id,
       category: "deletion",
@@ -135,10 +232,19 @@ defmodule Cartulary.Governance.Erasure do
       metadata: counts
     })
 
+    # Last, because every row removed above referenced it.
     destroy!(peer, :erase, actor)
     completed
   end
 
+  # Removes this peer's contribution from a knowledge item that other people
+  # also support: the provenance rows citing the erased messages go, and the
+  # item's source list keeps only the ids that survive. Provenance is removed
+  # before the messages themselves, so no row is left citing a deleted message.
+  #
+  # When nothing survives, the item is retracted rather than left standing with
+  # an empty evidence list. It is not deleted, because in this mode the
+  # statement may be about somebody else who did not ask to be forgotten.
   defp scrub_source!(knowledge, actor, message_ids) do
     surviving_ids =
       Enum.reject(knowledge.source_message_ids, &MapSet.member?(message_ids, &1))
@@ -173,6 +279,14 @@ defmodule Cartulary.Governance.Erasure do
     end
   end
 
+  # Internal helper, shared with document erasure, kept out of the generated
+  # docs on purpose: it takes rows that the caller has already decided must go
+  # and deletes them permanently, performing no eligibility check of its own.
+  #
+  # Entity mentions, attributions, and provenances are destroyed before the
+  # knowledge rows they point at, so no child row is ever orphaned. The caller
+  # is responsible for running inside a transaction and for refreshing derived
+  # caches afterwards.
   @doc false
   def erase_knowledge_rows!(account_id, actor, knowledge_rows) do
     ids = Enum.map(knowledge_rows, & &1.id)
@@ -198,6 +312,10 @@ defmodule Cartulary.Governance.Erasure do
     Enum.each(knowledge_rows, &destroy!(&1, :erase, actor))
   end
 
+  # Inline questions and their delivery rows are content-bearing: the question
+  # froze the statement text that was quoted back to the peer, and the delivery
+  # records what was shown and answered. Both are erasable and go here,
+  # deliveries first because they reference the question.
   defp erase_peer_queries!(account_id, actor, peer_id) do
     queries =
       PeerQuery
@@ -216,6 +334,10 @@ defmodule Cartulary.Governance.Erasure do
     Enum.each(queries, &destroy!(&1, :erase, actor))
   end
 
+  # Projections are rebuildable summaries, so they are only flagged dirty here
+  # and recomputed later from surviving knowledge. Anything either about this
+  # peer or built from a deleted item is flagged. `authorize?: false` is used
+  # because this is a cache maintenance write, not a governed content change.
   defp recompute_projections!(account_id, actor, peer_id, deleted_ids) do
     Projection
     |> Ash.Query.set_tenant(account_id)
@@ -232,6 +354,10 @@ defmodule Cartulary.Governance.Erasure do
     end)
   end
 
+  # Entities are derived caches too. An entity keeps existing while at least one
+  # surviving statement still derives it; when its last supporting statement is
+  # deleted the entity goes with it, otherwise its derivation list is narrowed.
+  # Untouched entities are skipped so the pass writes only what changed.
   defp recompute_entities!(account_id, actor, deleted_ids) do
     Entity
     |> Ash.Query.set_tenant(account_id)
@@ -255,6 +381,10 @@ defmodule Cartulary.Governance.Erasure do
     end)
   end
 
+  # Full rebuild of the caches for every scope that lost knowledge. This runs
+  # after the deletions so it reads only surviving rows; running it earlier
+  # would faithfully rebuild the data being erased. Both rebuilds must succeed
+  # or the match fails and aborts the transaction.
   defp refresh_derived_scopes!(account_id, scope_ids) do
     Enum.each(scope_ids, fn scope_id ->
       {:ok, _entities} =
@@ -264,6 +394,10 @@ defmodule Cartulary.Governance.Erasure do
     end)
   end
 
+  # Erasure covers the peer's presence, not just their words: sessions and
+  # their membership rows, then the credentials and external identities that
+  # could be used to log in again, then the role grants that would otherwise
+  # dangle. Participant and scope rows are removed before their sessions.
   defp erase_sessions_and_identity!(account_id, actor, peer_id) do
     sessions =
       Session
@@ -306,6 +440,8 @@ defmodule Cartulary.Governance.Erasure do
     |> Enum.each(&destroy!(&1, :erase, actor))
   end
 
+  # The request row is the durable, queryable receipt: mode, timestamps, and
+  # per-kind counts. It holds no erased content, so it can outlive the data.
   defp complete!(request, actor, counts) do
     request
     |> Ash.Changeset.for_update(:complete, %{
@@ -317,6 +453,9 @@ defmodule Cartulary.Governance.Erasure do
     |> Ash.update!(actor: actor)
   end
 
+  # Every deletion goes through a named Ash destroy action under the row's own
+  # Account tenant, never a raw delete, so policies and row-level security
+  # still apply and a cross-Account row can never be reached.
   defp destroy!(record, action, actor) do
     record
     |> Ash.Changeset.for_destroy(action)
@@ -324,6 +463,9 @@ defmodule Cartulary.Governance.Erasure do
     |> Ash.destroy!(actor: actor)
   end
 
+  # Erasure must reach scopes the requester cannot read, so the executing actor
+  # is widened to every scope. This elevation exists only for the duration of
+  # the erasure; the requester's own actor is unchanged.
   defp pipeline_actor(%Cartulary.Actor{} = actor),
     do: %{actor | role: :system, scope_ids: :all, pipeline?: true}
 

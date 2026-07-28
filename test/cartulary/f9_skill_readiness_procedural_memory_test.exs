@@ -1,6 +1,61 @@
 # SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
 
 defmodule Cartulary.F9SkillReadinessProceduralMemoryTest do
+  @moduledoc """
+  Pins skill requirement cards and the readiness gap report that gates helper execution.
+
+  A skill requirement card is authored procedural memory: a human writes down what must
+  already be known before an agent runs a given skill. Asking `check_readiness` then
+  produces a gap report — a purely mechanical comparison between those requirements and the
+  governed knowledge the caller is allowed to see. No model runs. No text search happens.
+
+  Two distinctions carry the whole design, and this file exists to keep them from eroding:
+
+  * **A card is configuration, not knowledge.** Cards are human-authored and plainly
+    versioned. They do not pass the approval lifecycle that extracted knowledge passes, and
+    one card can never satisfy another card's requirement. Treating cards as knowledge
+    would let an author declare a skill ready by writing a document.
+  * **Readiness reports; it never writes.** When something is missing, readiness may suggest
+    a question to ask a peer. The answer must come back through ordinary ingest, be
+    extracted, and be approved before it can satisfy anything. Neither the server nor a
+    client helper may shortcut that.
+
+  ## What it pins
+
+  * Requirement definitions are validated before a version is published; an unknown
+    selector key is rejected rather than silently ignored, because a typo that is quietly
+    dropped would turn a required check into no check at all.
+  * Publishing appends an immutable version and deactivates the previous one at the same
+    scope and skill; every publish writes an audit record.
+  * Requirements inherit down the scope tree and merge by key: a nearer scope replaces an
+    ancestor's key, a new key extends the inherited set, and an explicit disable removes an
+    inherited key. Whole cards are never copied into descendants.
+  * A missing `required` item blocks execution; a missing `preferred` item only warns.
+  * Knowledge that is expired, past its revalidation date, or explicitly flagged for
+    revalidation counts as a gap **immediately** — not once a background sweeper notices.
+    Otherwise there would be a window in which stale knowledge silently satisfies a check.
+  * The same `f9-1` contract shows up on every surface: the HTTP route returns the
+    report, `check_readiness` is offered as a tool to machine callers, the governance
+    page names the schema, and both client helpers refuse to run on a blocker.
+
+  ## The `f9-1` string
+
+  `f9-1` is the version identity of the requirement selector language and the gap-report
+  schema. It is data: it is stored on every card and returned in every report so a client
+  knows how to read the payload. Changing it is a deliberate contract transition requiring
+  a changelog entry and updated evidence — restore the behaviour rather than editing the
+  expected value.
+
+  ## If this file fails
+
+  The dangerous direction is always "make readiness pass". Loosening validation, treating a
+  stale item as fresh, downgrading a blocker to a warning, or writing an elicited answer
+  straight into knowledge all make this file green and make the product wrong.
+
+  Runs `async: false`: it bootstraps real credentials, drives HTTP and LiveView requests,
+  and reads the file system for the client helper sources.
+  """
+
   use CartularyWeb.ConnCase, async: false
 
   alias Cartulary.Actor
@@ -20,6 +75,9 @@ defmodule Cartulary.F9SkillReadinessProceduralMemoryTest do
     seeded =
       seed_active!("inherit", "/f9/inherit", "Avery prefers concise release summaries.")
 
+    # An unrecognised selector key is a hard error, not something to ignore. A silently
+    # dropped selector would leave a requirement that matches everything, so a card meant to
+    # gate a skill would wave it through.
     assert {:error, message} =
              Skills.publish(seeded.actor, %{
                scope_path: "/",
@@ -36,6 +94,7 @@ defmodule Cartulary.F9SkillReadinessProceduralMemoryTest do
 
     assert message =~ "unknown keys"
 
+    # Root card: two requirements that every descendant scope inherits.
     assert {:ok, root_card} =
              Skills.publish(seeded.actor, %{
                scope_path: "/",
@@ -48,8 +107,13 @@ defmodule Cartulary.F9SkillReadinessProceduralMemoryTest do
              })
 
     assert root_card.version == 1
+    # Every card records the selector-language version it was authored against, so an old
+    # card can still be interpreted after the language changes.
     assert root_card.requirement_schema_version == Selector.schema_version()
 
+    # Child card exercising all three merge behaviours against the inherited set:
+    # "voice" is redefined (nearer scope wins), "background" is explicitly disabled
+    # (inherited key removed), and "deadline" is new (inherited set extended).
     assert {:ok, child_card} =
              Skills.publish(seeded.actor, %{
                scope_path: "/f9/inherit",
@@ -62,6 +126,7 @@ defmodule Cartulary.F9SkillReadinessProceduralMemoryTest do
                ]
              })
 
+    # Versions are per scope and skill, so the child starts at 1 despite the root existing.
     assert child_card.version == 1
 
     report =
@@ -71,14 +136,21 @@ defmodule Cartulary.F9SkillReadinessProceduralMemoryTest do
       })
 
     assert report["ready"]
+    # "background" is gone: a disabled key removes the inherited requirement rather than
+    # leaving a permanently unsatisfiable one behind.
     assert Enum.map(report["requirements"], & &1["key"]) == ["voice", "deadline"]
 
     voice = Enum.find(report["requirements"], &(&1["key"] == "voice"))
     assert voice["status"] == "satisfied"
+    # The child's definition won, and the report names the scope that supplied it, so an
+    # author can tell which card is actually in force at this point in the tree.
     assert voice["source_policy"] == "either"
     assert voice["source_scope_path"] == "/f9/inherit"
+    # Reports cite the exact knowledge that satisfied a requirement; "ready" is never an
+    # unexplained boolean.
     assert voice["matched_knowledge_ids"] == [seeded.knowledge.id]
 
+    # A missing preferred requirement warns and leaves the skill runnable.
     assert [%{"key" => "deadline", "level" => "preferred", "status" => "missing"}] =
              report["warnings"]
 
@@ -103,9 +175,14 @@ defmodule Cartulary.F9SkillReadinessProceduralMemoryTest do
         |> Ash.Query.set_tenant(account.id)
         |> Ash.read!(actor: actor)
 
+      # Republishing appends version 2 and deactivates version 1; it never edits version 1
+      # in place. The superseded card stays readable so a past decision can be explained.
       assert Enum.map(cards, &{&1.version, &1.active}) == [{1, false}, {2, true}]
     end)
 
+    # Four audit events: three successful publishes plus the one deactivation the republish
+    # performed. The rejected publish wrote nothing at all — a failed validation must not
+    # leave a partial card or a stray audit entry behind.
     assert scalar!(
              """
              SELECT count(*) FROM audit_events
@@ -134,10 +211,16 @@ defmodule Cartulary.F9SkillReadinessProceduralMemoryTest do
         scope_path: "/f9/gaps"
       })
 
+    # The required item is satisfied by the seeded knowledge; only the preferred one is
+    # missing, so the skill still runs. Preferred gaps degrade quality, not correctness.
     assert warning_only["ready"]
     refute warning_only["blocked"]
     assert warning_only["blockers"] == []
 
+    # The elicitation descriptor is a *suggestion with a mandatory route*: ask the peer, then
+    # submit the answer through ordinary ingest, then check readiness again. It deliberately
+    # offers no way to write the answer into knowledge, because an elicited answer must be
+    # extracted and approved like any other observation before it can satisfy a requirement.
     assert [
              %{
                "key" => "context",
@@ -150,6 +233,7 @@ defmodule Cartulary.F9SkillReadinessProceduralMemoryTest do
              }
            ] = warning_only["warnings"]
 
+    # Republish with an additional *required* requirement that nothing satisfies.
     assert {:ok, _card} =
              Skills.publish(seeded.actor, %{
                scope_path: "/f9/gaps",
@@ -170,6 +254,8 @@ defmodule Cartulary.F9SkillReadinessProceduralMemoryTest do
     refute blocked["ready"]
     assert blocked["blocked"]
 
+    # A required gap is a server-side blocker. Client helpers surface it; they must never
+    # override it, because the point is to stop an agent acting on knowledge it lacks.
     assert [
              %{
                "key" => "approval-window",
@@ -179,10 +265,15 @@ defmodule Cartulary.F9SkillReadinessProceduralMemoryTest do
              }
            ] = blocked["blockers"]
 
+    # Blocking and non-blocking gaps stay in separate lists. Collapsing them would make the
+    # preferred gap look fatal, or the required one look optional.
     assert Enum.map(blocked["warnings"], & &1["key"]) == ["context"]
   end
 
   test "expired, due, and needs_revalidation knowledge never satisfies readiness" do
+    # Nominally `active`, but its revalidation date passed one second ago. A background
+    # sweeper will eventually reclassify it; readiness must not wait for that. Otherwise the
+    # gap between "due" and "swept" is a window where stale knowledge silently passes checks.
     seeded =
       seed_active!(
         "stale",
@@ -206,9 +297,13 @@ defmodule Cartulary.F9SkillReadinessProceduralMemoryTest do
         scope_path: "/f9/stale"
       })
 
+    # Reported as `stale` rather than `missing`, and the offending ids are named: the caller
+    # needs to know something exists but can no longer be trusted, so it can be revalidated
+    # instead of re-collected from scratch.
     assert [%{"key" => "voice", "status" => "stale"}] = due["blockers"]
     assert hd(due["blockers"])["stale_knowledge_ids"] == [seeded.knowledge.id]
 
+    # Second route to the same verdict: explicitly flagged for revalidation, with no date set.
     transition!(seeded, "needs_revalidation", revalidate_after: nil)
 
     revalidation =
@@ -219,6 +314,7 @@ defmodule Cartulary.F9SkillReadinessProceduralMemoryTest do
 
     assert [%{"status" => "stale"}] = revalidation["blockers"]
 
+    # Third route: outright expired. All three must produce the same blocking verdict.
     transition!(seeded, "expired", expires_at: DateTime.add(Clock.utc_now(), -1, :second))
 
     expired =
@@ -245,6 +341,8 @@ defmodule Cartulary.F9SkillReadinessProceduralMemoryTest do
                ]
              })
 
+    # Surface one: HTTP. The account is derived from the bearer credential, never from a
+    # request parameter, so a caller cannot ask about another account's readiness.
     response =
       conn
       |> put_req_header("authorization", "Bearer #{seeded.token}")
@@ -261,6 +359,9 @@ defmodule Cartulary.F9SkillReadinessProceduralMemoryTest do
              }
            } = json_response(response, 200)
 
+    # Surface two: the tool interface offered to machine callers. Readiness is a read, so it
+    # is exposed there; card *authoring* deliberately is not, because publishing a card is a
+    # human decision about what an agent is allowed to assume.
     tool_names =
       Cartulary.Governance
       |> AshAi.Info.tools()
@@ -268,6 +369,8 @@ defmodule Cartulary.F9SkillReadinessProceduralMemoryTest do
 
     assert :check_readiness in tool_names
 
+    # Surface three: the human governance page, reached with a session rather than an API
+    # credential, listing the same cards and reporting the same schema identity.
     page =
       build_conn()
       |> init_test_session(governance_token: seeded.token)
@@ -278,6 +381,9 @@ defmodule Cartulary.F9SkillReadinessProceduralMemoryTest do
     assert page =~ "write-copy"
     assert page =~ "f9-1"
 
+    # Surface four: the client helpers. They must raise on a blocking gap rather than return
+    # a soft warning a caller can ignore, so the server's blocker survives the trip to the
+    # client. These are transport-neutral helper modules, not generated SDK clients.
     assert File.read!("sdk/typescript/src/skill-readiness.ts") =~
              "SkillReadinessBlockedError"
 
@@ -285,6 +391,15 @@ defmodule Cartulary.F9SkillReadinessProceduralMemoryTest do
              "SkillReadinessBlockedError"
   end
 
+  # Builds one isolated world per test: a real human identity with real credentials, one
+  # ingested observation, and that observation's knowledge forced to `active` so a
+  # requirement can match it.
+  #
+  # A real bootstrap rather than a synthetic actor matters here, because these tests exercise
+  # HTTP and the governance page, which authenticate for themselves. `attrs` is merged into
+  # the lifecycle transition, which is how the staleness test sets an already-past
+  # revalidation date. The actor is re-authenticated at the end so it carries the role and
+  # scope grants that exist *after* seeding, not the narrower ones from before.
   defp seed_active!(suffix, scope_path, content, attrs \\ []) do
     bootstrap =
       Identity.bootstrap_human(%{
@@ -342,6 +457,9 @@ defmodule Cartulary.F9SkillReadinessProceduralMemoryTest do
     |> Map.merge(%{scope: scope, knowledge: knowledge})
   end
 
+  # Moves the seeded item to another lifecycle state through the governance engine rather
+  # than by updating the row, so the transition writes the lifecycle and audit records a real
+  # transition would and readiness sees a realistically shaped item.
   defp transition!(seeded, state, attrs) do
     DataLayer.with_actor(seeded.actor, fn _account, actor ->
       knowledge =
@@ -360,6 +478,13 @@ defmodule Cartulary.F9SkillReadinessProceduralMemoryTest do
     end)
   end
 
+  # One requirement in the authored card shape. The selector matches on knowledge *metadata*
+  # only — kind and subject here — never on statement text and never through a model, which
+  # is what makes a readiness check deterministic and explainable.
+  #
+  # `source_policy` says where an answer may come from: `from-memory` accepts any governed
+  # source, `ask-peer` requires the knowledge to trace back to the target peer having said
+  # it, and `either` accepts both.
   defp requirement(key, kind, level, source_policy, opts \\ []) do
     %{
       key: key,
@@ -372,9 +497,14 @@ defmodule Cartulary.F9SkillReadinessProceduralMemoryTest do
     }
   end
 
+  # The internal actor, used only for setup writes that no external caller may perform, such
+  # as forcing a lifecycle transition. Never used for the readiness calls under test — those
+  # run as the ordinary authenticated actor so authorization is genuinely exercised.
   defp pipeline_actor(%Actor{} = actor),
     do: %{actor | role: :system, pipeline?: true, scope_ids: :all}
 
+  # Raw SQL so the audit-event count is read straight from the table, unmediated by any
+  # policy that might hide a row and make a missing audit entry look like a passing test.
   defp scalar!(sql, params) do
     %{rows: [[value]]} = Ecto.Adapters.SQL.query!(Cartulary.Repo, sql, params)
     value

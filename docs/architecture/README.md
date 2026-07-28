@@ -1,65 +1,53 @@
 # Architecture notes
 
-This directory is for implementation-facing architecture notes derived from the
-blueprint specs.
+Implementation-facing notes about how Cartulary is built and why.
 
-Authoritative inputs remain:
+**These notes are not required reading for understanding the code.** Every
+source file in this repository is written to stand on its own: modules document
+what they own and what they guarantee, and comments state rules in place rather
+than pointing here. What these notes add is the *reasoning* — the alternatives
+considered, the trade-offs taken, the evidence behind a decision, and the
+transition history of a contract identity. Read the code to learn what the
+system does; read these notes to learn why it does it that way.
 
-- `specs/memory-system-functional-requirements.md` for product behavior and
-  stable `FR-*` anchors.
-- `specs/memory-system-architecture-and-nfr.md` for architecture decisions,
-  non-functional targets, and `AD-*` / `AINV-*` / `NFR-*` anchors.
-- `specs/memory-system-product-blueprint.md` for product positioning,
-  sequencing, and go-to-market context.
+## Where authority lives
 
-Keep notes here short, traceable to blueprint anchors, and subordinate to the
-spec documents until a later task promotes them into formal implementation
-specifications.
+The blueprint specs remain authoritative for product behaviour and stable
+anchors. These notes are subordinate to them.
 
-The current implementation log is `docs/implementation-status.md`. Treat it as
-evidence of what runs today and as a debt list, not as a replacement for the
-architecture specs or ADRs.
+| Source | Authoritative for |
+| --- | --- |
+| `specs/memory-system-functional-requirements.md` | Product behaviour, `FR-*` anchors. |
+| `specs/memory-system-architecture-and-nfr.md` | Architecture decisions, non-functional targets, `AD-*` / `AINV-*` / `NFR-*` anchors. |
+| `specs/memory-system-product-blueprint.md` | Product positioning, sequencing, go-to-market context. |
+| `specs/memory-system-evaluation-framework.md` | Evaluation methodology and `EV-*` anchors. |
+| `docs/adr/` | Decisions with alternatives weighed and a chosen outcome. |
 
-The architecture-first description of the complete free self-host core is
-`docs/architecture/free-core-architecture.md`. It records the target
-abstraction layers, module decomposition, and durable-versus-derived rules
-while remaining subordinate to the blueprint anchors above. Outstanding
-delivery work lives in `docs/roadmap/beta-roadmap.md`.
+Keep notes here short and traceable to anchors. Anchors belong in these
+documents and in pull request descriptions — never in source comments.
 
-The current development observability runbook is
-`docs/observability/README.md`. Use it for local OpenTelemetry collection,
-Langfuse forwarding, trace/log safety defaults, and experiment measurement
-discipline.
+## The notes
 
-The implemented Ash domain backbone resource/action/policy boundary and its
-remaining transition tickets are recorded in
-`docs/architecture/ash-domain-backbone.md`.
+| Note | Covers |
+| --- | --- |
+| `free-core-architecture.md` | Target abstraction layers, module decomposition, durable-versus-derived rules, the public operation set, and the contract version identities. |
+| `ash-domain-backbone.md` | The Ash resource, action, and policy boundary, and its remaining transition tickets. |
+| `transactional-writes-audit-jobs.md` | One-transaction ingest, the hash-chain audit log, idempotency, and the Oban job lanes. |
+| `identity-tenancy-rbac.md` | Password and API-key identities, identity-derived Account selection, and deny-wins role inheritance. |
+| `gate-a-b-governance.md` | The gate matrix, validation and consent lifecycle, human and MCP adapters, erasure semantics, and the `f4-1` contract transition. |
+| `model-layer-structured-extraction.md` | Provider roles, structured validate-and-repair, the local Ortex/ONNX embedder, model provenance, the usage ledger, and the `f5-1` extraction transition. |
+| `documents-connectors-sync.md` | The document and blob boundary, native extraction, chunking, dual ingest, incremental connector sync, immutable supersession, tombstones, erasure, and the portability seam. |
+| `retrieval-entity-context.md` | Seed strategies, fusion, profiles, entity-resolution privacy, projections, and the reasoning-free context boundary. |
+| `skill-readiness-procedural-memory.md` | Skill requirement cards, the selector language, and the gap report. |
+| `portability-packaging-operations.md` | Packaging, logical Account archives, runtime validation, readiness, metering, and operations. |
+| `evaluation-ci-release-readiness.md` | Deterministic evaluation gates, report provenance, database-mode CI parity, semantic versioning, changelog, and release controls. |
 
-The implemented Gate A/B governance matrix, validation/consent lifecycle, human
-and MCP adapters, erasure semantics, and `f4-1` contract transition are
-recorded in `docs/architecture/gate-a-b-governance.md`.
+## Related
 
-The implemented model-layer provider roles, structured validation/repair, local
-Ortex/ONNX embedder, model provenance, exact usage ledger, and `f5-1`
-extraction transition are recorded in
-`docs/architecture/model-layer-structured-extraction.md`.
-
-The implemented document/blob boundary, native extraction, RAG chunking,
-dual-ingest pipeline, incremental connector sync, immutable supersession,
-tombstones, erasure, and document portability seam are recorded in
-`docs/architecture/documents-connectors-sync.md`.
-
-The implemented retrieval strategies, entity resolution privacy, projections,
-and reasoning-free context boundary are recorded in
-`docs/architecture/retrieval-entity-context.md`.
-
-The implemented procedural-memory and skill-readiness boundary is recorded
-in `docs/architecture/skill-readiness-procedural-memory.md`.
-
-The implemented packaging, portability, runtime validation, readiness,
-metering, and operations boundary is recorded in
-`docs/architecture/portability-packaging-operations.md`.
-
-The implemented deterministic evaluation gates, evaluation provenance,
-database-mode CI parity, semantic versioning, changelog, and release controls
-are recorded in `docs/architecture/evaluation-ci-release-readiness.md`.
+- `docs/implementation-status.md` — what actually runs today, with verification
+  evidence and real limitations. Treat it as evidence and a debt list, not as a
+  substitute for a spec or an ADR.
+- `docs/roadmap/beta-roadmap.md` — the only roadmap: outstanding work with
+  acceptance criteria.
+- `docs/observability/README.md` — local OpenTelemetry collection, Langfuse
+  forwarding, trace and log safety defaults, and measurement discipline.

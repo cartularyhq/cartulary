@@ -2,19 +2,76 @@
 
 defmodule Cartulary.Model.StructuredGenerator do
   @moduledoc """
-  Non-streaming structured generation with bounded validate-and-repair.
+  Structured generation with a bounded validate-and-repair loop.
 
-  Provider-native constrained decoding is used when available; this second
-  Ash-backed validation loop is the portable baseline for weaker local models.
+  Generation is non-streaming: the whole object must exist before it can be
+  validated, and only validated objects are allowed to leave this module.
+
+  ## Why a second validation exists
+
+  Capable providers constrain their own decoding to the supplied JSON schema.
+  Weaker and locally hosted models do not, or do it imperfectly. Rather than
+  restricting Cartulary to providers with reliable constrained decoding, every
+  response is validated again against the schema module's own `cast/2`, which is
+  also where the domain rules live that a JSON schema cannot express.
+
+  ## The repair loop
+
+  On a validation failure the original messages are re-sent with the validation
+  errors and the previous object appended, asking for a corrected object. This
+  repeats at most twice, and the cap is enforced in code as well as in
+  configuration, so raising the configured value alone cannot widen it. Each
+  attempt is a real provider call and is separately metered — the repair attempt
+  number rides along on the call so the ledger shows what a repaired generation
+  actually cost.
+
+  Exhausting the budget returns an error. Malformed output is never partially
+  accepted, coerced, or turned into knowledge: the caller's durable job retries
+  instead.
+
+  ## Content safety
+
+  The repair prompt necessarily contains the model's own previous object, which
+  may hold Account content. It goes only to the provider. Nothing from it enters
+  telemetry, audit records, or the usage ledger, and validation error strings
+  are written to describe shape problems rather than to quote content.
   """
 
   alias Cartulary.Model.Config
   alias Cartulary.Model.Gateway
 
+  # Hard ceiling on repair attempts, in extra provider calls after the first.
+  # Two is enough to fix realistic formatting slips; beyond that the model is
+  # not going to converge and the cost is better spent on a job retry. Also the
+  # default when nothing is configured.
   @max_repairs 2
 
+  @doc """
+  Generates and validates one structured object.
+
+  `role` is a model role or alias, `messages` the prompt in provider message
+  form, and `schema` a module implementing `Cartulary.Model.Schema` — passed as
+  a module, not as a built schema map, because both its JSON schema and its
+  `cast/2` are needed. `context` is the caller context, and is also handed to
+  `cast/2`, so validation can enforce caller-specific rules such as which peers
+  may be named as a subject.
+
+  `opts[:max_repairs]` may lower the repair budget but never raise it above the
+  built-in ceiling. Remaining options are passed to the provider.
+
+  Returns `{:ok, value, provenance_map}` where `value` is whatever the schema's
+  `cast/2` produced and the provenance map identifies the provider, model, and
+  versions that produced it.
+
+  Failure modes: `{:error, {:structured_validation_failed, errors}}` when the
+  budget is exhausted, or the provider's own `{:error, reason}` — the latter
+  short-circuits immediately, since retrying a transport or credential failure
+  with a repair prompt would only burn budget.
+  """
   def generate(role, messages, schema, context, opts \\ [])
       when is_atom(schema) and is_list(messages) and is_map(context) do
+    # Clamped on both sides: a negative request becomes no repairs, and neither
+    # the caller nor deployment configuration can exceed the built-in ceiling.
     max_repairs =
       opts
       |> Keyword.get(:max_repairs, configured_max_repairs())
@@ -24,7 +81,14 @@ defmodule Cartulary.Model.StructuredGenerator do
     generate_attempt(role, messages, schema, context, opts, 0, max_repairs)
   end
 
+  # One attempt, then either success, a recursive repair, or a final error.
+  #
+  # The `with` deliberately has no else clause: a provider error falls straight
+  # through to the caller unchanged, because re-prompting past a transport,
+  # authentication, or rate-limit failure cannot help.
   defp generate_attempt(role, messages, schema, context, opts, attempt, max_repairs) do
+    # Rides along to the usage ledger so a repaired generation is visibly more
+    # than one call rather than looking like a single cheap one.
     call_opts = Keyword.put(opts, :repair_attempt, attempt)
 
     with {:ok, object, config} <-
@@ -50,6 +114,10 @@ defmodule Cartulary.Model.StructuredGenerator do
     end
   end
 
+  # Appends the repair turn to the original conversation rather than replacing
+  # it, so the model still sees the task it was given. The instruction not to
+  # invent facts matters: a model asked to make output "valid" will otherwise
+  # happily fill a required field with something plausible.
   defp repair_messages(messages, object, errors) do
     messages ++
       [

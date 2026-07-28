@@ -1,7 +1,63 @@
 # SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
 
 defmodule Cartulary.Governance.PeerQueue do
-  @moduledoc "Peer-routed Gate A, consent, and revalidation delivery."
+  @moduledoc """
+  Asks a person about memory that concerns them, inline, and turns their answer
+  into a governed lifecycle change.
+
+  Some questions can only be settled by their subject: is this still true, did
+  you really mean this, may this be shared upward. Rather than build a separate
+  inbox nobody reads, this module piggybacks one question onto a tool response
+  the person's assistant was already fetching, and accepts the answer back
+  through a single tool call.
+
+  ## Delivery is best effort and must never degrade a read
+
+  `attach/4` runs after the read has already produced its result, in a task with
+  a hard millisecond deadline. Every filtered-out condition and every deadline
+  overrun returns `nil`, so a missed question is a non-event while a slow read
+  would be a real regression. Anything added here must keep that shape.
+
+  Attachment is filtered before it happens. A question is only offered when the
+  peer is not paused, is under both their per-session and rolling 24-hour
+  limits, has no unanswered delivery for that question already outstanding, has
+  not been asked it again within its cooldown, and the statement shares a word
+  with whatever the caller was reading about. Peers may tighten those limits
+  themselves; they can never be widened from this module.
+
+  ## An answer through a tool is a claim, not proof
+
+  The agent calling `resolve/5` is not the person. It could confirm anything on
+  their behalf. So an answer only changes knowledge when the session transcript
+  shows the frozen statement was actually put in front of the human and a human
+  turn followed. Everything else is an "unverified channel": the timer is
+  pushed out, the question goes back in the queue, and nothing is activated,
+  retracted, or consented to. Do not add a shortcut around that check — it is
+  the only thing standing between a chatty agent and self-approved memory.
+
+  Statement text is frozen into the question when it is created, so what the
+  person is asked cannot drift after the fact, and the comparison is made
+  against exactly what was shown.
+
+  ## Content safety
+
+  Correction text supplied with an answer is recorded only as the boolean fact
+  that a correction was offered; it cannot mint knowledge here and must come
+  back through ordinary ingest and governance. The text the assistant claims it
+  displayed is stored only as a hash plus a conflict flag. Audit metadata
+  carries ids, verification class, and flags — never statement, answer, or
+  correction text.
+
+  ## Authorization
+
+  A peer can only ever reach their own question: the lookup in `resolve/5`
+  filters on the caller's own peer id before anything else happens. The question
+  and its delivery row are then written as the peer themself, while the
+  knowledge item, the validation row, and the session transcript are read and
+  written through an elevated pipeline actor — the person answering has no
+  access to any of those. That elevation is scoped to work on the question they
+  already proved is theirs.
+  """
 
   alias Cartulary.Clock
   alias Cartulary.DataLayer
@@ -19,9 +75,33 @@ defmodule Cartulary.Governance.PeerQueue do
 
   require Ash.Query
 
+  # Days a peer has to answer before the question decays and the lifecycle
+  # sweeps take over. Long enough to survive a holiday, short enough that stale
+  # memory does not sit unquestioned for a whole quarter.
   @default_deadline_days 14
+
+  # Days until a freshly confirmed item is questioned again. A confirmation
+  # buys about a quarter of a year of trust, never permanent trust.
   @revalidation_days 90
 
+  @doc """
+  Creates the frozen inline question for one knowledge item.
+
+  `knowledge` supplies the subject peer, scope, statement, and statement hash;
+  `validation` is the queue row the question belongs to; `kind` is
+  `"confirm"`, `"revalidate"`, or `"consent_upward"`, which selects the wording
+  the peer sees and the effect a confirmation has. `actor` must be a pipeline
+  actor — creating questions is not a peer-facing operation.
+
+  The statement text is copied into the question so the peer is later asked
+  exactly what was current at this moment, even if the knowledge changes. The
+  row is upserted on knowledge-plus-kind, so re-enqueueing the same question
+  re-opens and re-schedules the existing one instead of asking twice.
+
+  Returns the question record and raises on failure, including when the
+  knowledge has no subject peer — there is nobody to ask, and the caller is
+  expected to have checked.
+  """
   def enqueue!(knowledge, validation, kind, actor) do
     PeerQuery
     |> Ash.Changeset.new()
@@ -43,7 +123,34 @@ defmodule Cartulary.Governance.PeerQueue do
     |> Ash.create!(actor: actor)
   end
 
+  @doc """
+  Offers at most one pending question to the calling peer, or returns `nil`.
+
+  `session_external_id` identifies the caller's session as the client knows it,
+  `tool_name` is the read that triggered the attempt (recorded as delivery
+  evidence), and `topic` is the caller's query text used to keep the question
+  topically close to what they were doing. A `nil` or empty topic makes every
+  eligible question relevant.
+
+  Returns a map with `"id"`, `"kind"`, `"statement"`, `"asked_because"`, and an
+  `"instruction"` telling the assistant to quote the statement exactly and only
+  report back if the human actually answers. Returns `nil` when anything gets in
+  the way: unknown session, paused peer, rate limit reached, no relevant
+  question, a delivery already outstanding, or the attach deadline expiring.
+
+  It is invoked on the response path of ordinary read tools, so none of those
+  conditions raises — they all come back as `nil`. The task deadline in
+  milliseconds comes from application config so tests can raise it and stop
+  scheduler jitter from making assertions flaky.
+
+  Calling it has side effects when it succeeds: a delivery row is written and
+  the question is marked delivered, which is what later transcript
+  verification and the rate limits are measured against.
+  """
   def attach(actor, session_external_id, tool_name, topic \\ nil) do
+    # The lookup runs in a task so it can be abandoned at the deadline:
+    # `Task.yield` returns `nil` once the budget is spent. The `rescue`/`catch`
+    # clauses below turn a failure raised in this process into `nil` too.
     task =
       Task.async(fn ->
         DataLayer.with_actor(actor, fn account, current_actor ->
@@ -58,6 +165,8 @@ defmodule Cartulary.Governance.PeerQueue do
       {:exit, _reason} ->
         nil
 
+      # Over the deadline: kill the work rather than let a slow queue lookup
+      # keep holding up a read that has already produced its answer.
       nil ->
         Task.shutdown(task, :brutal_kill)
         nil
@@ -68,6 +177,44 @@ defmodule Cartulary.Governance.PeerQueue do
     :exit, _reason -> nil
   end
 
+  @doc """
+  Records a peer's answer to their own inline question and applies its effect.
+
+  `id` must be a question addressed to the calling peer; the lookup filters on
+  the caller's peer id, so another peer's question is simply
+  `{:error, :not_found}`. `verdict` is one of:
+
+  * `"confirm"` — the statement is still true. On a verified channel this
+    activates the knowledge, nudges confidence up, and resets the revalidation
+    clock; for a consent question it grants the subject's consent to share
+    upward into the requested scope.
+  * `"reject"` — the statement is wrong. On a verified channel the knowledge is
+    retracted.
+  * `"unsure"` — closes the question and changes nothing.
+  * `"skip"` — not now. The question returns to the queue; once the attempt
+    limit is reached it expires and the item escalates to a curator instead of
+    being asked again forever.
+
+  Any other verdict returns `{:error, :invalid_verdict}` without touching
+  anything.
+
+  `shown_text` is what the assistant claims it displayed. It is never stored:
+  only its hash is kept, plus a flag when it differs from the frozen statement.
+  `correction_text` is likewise not stored and cannot create knowledge — only
+  the fact that a correction was offered is recorded. A correction has to come
+  back as an ordinary observation and pass governance like anything else.
+
+  Confirm and reject take effect only when the session transcript proves the
+  human was actually shown the statement and replied. Without that proof the
+  answer merely defers the question and pushes the revalidation timer out.
+
+  Returns `{:ok, %{id:, verdict:, verification:, effect:}}`, where
+  `verification` is `"verified"` or `"unverified_channel"` and `effect` names
+  what actually happened. Raises if the question has no outstanding delivery to
+  answer, or if any governed write fails; the whole resolution runs in one
+  transaction, so a raise leaves the question unanswered rather than half
+  applied.
+  """
   def resolve(actor, id, verdict, shown_text \\ nil, correction_text \\ nil)
 
   def resolve(actor, id, verdict, shown_text, correction_text)
@@ -88,6 +235,19 @@ defmodule Cartulary.Governance.PeerQueue do
   def resolve(_actor, _id, _verdict, _shown_text, _correction_text),
     do: {:error, :invalid_verdict}
 
+  @doc """
+  Lets a peer make themselves harder to interrupt.
+
+  `attrs` may carry `:max_per_session`, `:max_per_day`, and `:paused_until`.
+  The update is one-directional by design: new maxima are clamped to the
+  current values, so this call can only lower them, and a pause is accepted
+  only when it reaches further into the future than the existing one. A peer
+  therefore cannot be talked into raising their own interruption budget, and
+  nothing on this path can widen it on their behalf.
+
+  Creates the peer's preference row with the configured defaults if they have
+  none yet. Returns the updated preference and raises on failure.
+  """
   def restrict_preferences(actor, attrs) do
     DataLayer.with_actor(actor, fn account, current_actor ->
       preference = preference!(account.id, current_actor)
@@ -99,6 +259,10 @@ defmodule Cartulary.Governance.PeerQueue do
     end)
   end
 
+  # Every gate below is a reason not to interrupt someone. The `with` is
+  # tagged so each failure is distinguishable while debugging, but they all
+  # collapse to the same outcome: no question is attached and the read is
+  # returned untouched.
   defp do_attach(account_id, actor, session_external_id, tool_name, topic) do
     with {:session, %Session{} = session} <-
            {:session, session_for_peer(account_id, actor, session_external_id)},
@@ -110,6 +274,9 @@ defmodule Cartulary.Governance.PeerQueue do
          {:delivery, false} <- {:delivery, live_delivery?(account_id, actor, query.id)} do
       delivered_at = Clock.utc_now()
 
+      # The delivery row is the anchor for everything that follows: transcript
+      # verification only considers messages at or after this timestamp, and
+      # the rate limits count these rows.
       _delivery =
         PeerQueryDelivery
         |> Ash.Changeset.new()
@@ -146,6 +313,10 @@ defmodule Cartulary.Governance.PeerQueue do
     end
   end
 
+  # Verification is decided first and drives everything after it. `conflict`
+  # flags that the assistant displayed something other than the frozen
+  # statement — the answer is still recorded, but a curator can see that the
+  # question the human heard was not the question that was asked.
   defp resolve_query(query, actor, verdict, shown_text, correction_text) do
     delivery = latest_delivery!(query, actor)
     verified = transcript_verified?(query, delivery, actor)
@@ -166,6 +337,9 @@ defmodule Cartulary.Governance.PeerQueue do
       |> Ash.Changeset.set_tenant(query.account_id)
       |> Ash.update!(actor: actor)
 
+    # The catch-all is the load-bearing clause: an unverified confirm or reject
+    # falls through to a deferral. Only a transcript-backed answer may change
+    # what the system believes.
     outcome =
       case verdict do
         "skip" -> skip!(query, actor)
@@ -175,6 +349,9 @@ defmodule Cartulary.Governance.PeerQueue do
         _unverified -> defer_unverified!(query, actor)
       end
 
+    # Ids, the verification class, and a boolean for whether a correction was
+    # offered. The statement is represented by its hash and the correction text
+    # never appears at all.
     Audit.append!(actor, query.account_id, %{
       scope_id: query.scope_id,
       actor_peer_id: actor.peer_id,
@@ -191,6 +368,9 @@ defmodule Cartulary.Governance.PeerQueue do
       }
     })
 
+    # Follow-up analysis of the answer happens in the background. The key is
+    # derived from the question and session, so a retried or replayed
+    # resolution reuses the same run instead of queueing duplicate work.
     {:ok, _run} =
       Pipeline.enqueue(
         "answer_correlation",
@@ -218,6 +398,11 @@ defmodule Cartulary.Governance.PeerQueue do
      }}
   end
 
+  # Consent is not the same act as confirmation: the peer is not saying the
+  # statement is true, they are permitting it to travel to a wider scope. It is
+  # recorded against that specific target scope and marked verified, since this
+  # clause is only reached on a transcript-backed answer. If consent cannot be
+  # recorded the answer degrades to a deferral rather than silently sharing.
   defp confirm!(%{kind: "consent_upward"} = query, actor) do
     validation = validation!(query, actor)
 
@@ -238,6 +423,12 @@ defmodule Cartulary.Governance.PeerQueue do
     end
   end
 
+  # A verified confirmation is the strongest evidence available: the subject
+  # themself said so. Confidence rises by 0.1 on the 0.0-1.0 scale, capped at
+  # 1.0, and the item is trusted again for the standard revalidation period.
+  # The decision row and its audit event are what make this reviewable later —
+  # the knowledge alone would not show who confirmed it or through which
+  # channel.
   defp confirm!(query, actor) do
     knowledge = knowledge!(query, actor)
 
@@ -275,6 +466,9 @@ defmodule Cartulary.Governance.PeerQueue do
     "knowledge_confirmed"
   end
 
+  # Retracted, not deleted. The subject's denial is itself a governed decision
+  # with an audit trail, and the row has to survive for that trail to mean
+  # anything; actually removing content is a separate erasure operation.
   defp reject!(query, actor) do
     knowledge = knowledge!(query, actor)
 
@@ -307,6 +501,10 @@ defmodule Cartulary.Governance.PeerQueue do
     "knowledge_retracted"
   end
 
+  # The channel could not be trusted, so nothing about the knowledge changes
+  # except its timer: 7 days of quiet before it is raised again, and the
+  # question goes back to pending with its attempt counted. This is the only
+  # effect an unverified confirm or reject can ever have.
   defp defer_unverified!(query, actor) do
     knowledge = knowledge!(query, actor)
 
@@ -334,6 +532,10 @@ defmodule Cartulary.Governance.PeerQueue do
     "#{verdict}_closed"
   end
 
+  # "Not now" is respected, but only so many times. Once the attempt limit is
+  # reached the question stops being asked and the item moves to a curator, so
+  # a peer who never wants to answer is not nagged and the item is not left
+  # unresolved forever.
   defp skip!(query, actor) do
     attempts = query.attempts + 1
 
@@ -381,6 +583,9 @@ defmodule Cartulary.Governance.PeerQueue do
     |> Ash.update!(actor: actor)
   end
 
+  # Closes the shared curator/peer queue row that the question belonged to, so
+  # a peer's answer also removes the item from the human review queue. Runs as
+  # a pipeline actor because the queue row is not peer-writable.
   defp resolve_validation!(query, actor, state, decision) do
     validation!(query, pipeline_actor(actor))
     |> Ash.Changeset.for_update(:decide, %{
@@ -392,6 +597,9 @@ defmodule Cartulary.Governance.PeerQueue do
     |> Ash.update!(actor: pipeline_actor(actor))
   end
 
+  # A client-supplied session id is only ever resolved together with the
+  # caller's own peer id, so one peer cannot name another peer's session and
+  # have a question delivered into it.
   defp session_for_peer(account_id, actor, external_id) do
     Session
     |> Ash.Query.filter(external_id == ^external_id and peer_id == ^actor.peer_id)
@@ -399,6 +607,9 @@ defmodule Cartulary.Governance.PeerQueue do
     |> Ash.read_one!(actor: pipeline_actor(actor))
   end
 
+  # Peers start with the configured defaults (3 questions per session, 10 per
+  # rolling day) the first time they are considered for a question. The row is
+  # created eagerly so that a later restriction has something to clamp against.
   defp preference!(account_id, actor) do
     existing =
       PeerAskPreference
@@ -418,6 +629,10 @@ defmodule Cartulary.Governance.PeerQueue do
       |> Ash.create!(actor: actor)
   end
 
+  # Two independent budgets: questions already delivered in this session, and
+  # questions delivered in the last 24 hours. The daily window rolls from the
+  # current moment rather than resetting at midnight, so a burst cannot be
+  # doubled by asking again just after a date boundary.
   defp inside_rate_limits?(account_id, actor, session_id, preference) do
     deliveries =
       PeerQueryDelivery
@@ -435,6 +650,9 @@ defmodule Cartulary.Governance.PeerQueue do
   defp paused?(%{paused_until: nil}), do: false
   defp paused?(preference), do: DateTime.compare(preference.paused_until, Clock.utc_now()) == :gt
 
+  # Most urgent first: earliest deadline, then oldest. The cooldown and
+  # relevance filters are applied while walking that order, so the chosen
+  # question is the most pressing one that is also worth mentioning right now.
   defp next_query(account_id, actor, topic) do
     PeerQuery
     |> Ash.Query.filter(peer_id == ^actor.peer_id and state in ["pending", "delivered"])
@@ -444,6 +662,9 @@ defmodule Cartulary.Governance.PeerQueue do
     |> Enum.find(&(cooldown_elapsed?(&1) && relevant?(&1.statement_text, topic)))
   end
 
+  # One question is only ever in flight once. Re-delivering it while an earlier
+  # delivery is still unanswered would make it ambiguous which delivery a later
+  # answer refers to, and transcript verification is anchored to a delivery.
   defp live_delivery?(account_id, actor, query_id) do
     PeerQueryDelivery
     |> Ash.Query.filter(peer_query_id == ^query_id and is_nil(answered_at))
@@ -452,6 +673,9 @@ defmodule Cartulary.Governance.PeerQueue do
     |> Enum.any?()
   end
 
+  # An answer must belong to a delivery: raising here rejects a resolve call
+  # for a question that was never actually put to the peer, which is exactly
+  # the case an agent inventing answers would produce.
   defp latest_delivery!(query, actor) do
     PeerQueryDelivery
     |> Ash.Query.filter(peer_query_id == ^query.id and is_nil(answered_at))
@@ -465,6 +689,22 @@ defmodule Cartulary.Governance.PeerQueue do
     end
   end
 
+  # The proof that a human, not the agent, answered the question.
+  #
+  # Reads the session transcript from the delivery moment onward and looks for
+  # an assistant turn that actually contains the frozen statement, followed
+  # within a small number of turns by a user turn. Both halves matter: the
+  # first shows the person was told what was being asked, the second shows they
+  # said something afterwards. Matching is done on normalised text so casing,
+  # unicode form, whitespace, and surrounding quotes cannot defeat it, and
+  # containment rather than equality is used because assistants wrap the
+  # statement in their own phrasing.
+  #
+  # This is intentionally cheap and approximate; it cannot prove the user's
+  # reply was about the question. It exists to make silent self-confirmation by
+  # an agent impossible, not to adjudicate meaning. The transcript is read with
+  # an elevated actor because the answering peer has no direct read access to
+  # stored messages.
   defp transcript_verified?(query, delivery, actor) do
     messages =
       Message
@@ -509,6 +749,9 @@ defmodule Cartulary.Governance.PeerQueue do
     |> Ash.read_one!(actor: actor)
   end
 
+  # A crude but deliberate topicality test: one shared word is enough. The
+  # point is to avoid an obviously unrelated interruption, not to rank
+  # questions — being too strict here would leave the queue undelivered.
   defp relevant?(_statement, topic) when topic in [nil, ""], do: true
 
   defp relevant?(statement, topic) do
@@ -517,6 +760,8 @@ defmodule Cartulary.Governance.PeerQueue do
     MapSet.size(MapSet.intersection(statement_tokens, topic_tokens)) > 0
   end
 
+  # Words of one or two characters are dropped: articles and pronouns overlap
+  # between almost any two sentences and would make everything look relevant.
   defp tokens(text) do
     text
     |> to_string()
@@ -526,6 +771,11 @@ defmodule Cartulary.Governance.PeerQueue do
     |> MapSet.new()
   end
 
+  # Shared normalisation for both the transcript check and the shown-text
+  # conflict check, so the two always agree on what "the same statement" means.
+  # NFKC folds compatibility characters, casing and runs of whitespace are
+  # flattened, and the assorted straight and curly quote characters are trimmed
+  # from the ends because assistants habitually add them when quoting.
   defp normalize(text) do
     text
     |> String.normalize(:nfkc)
@@ -534,18 +784,33 @@ defmodule Cartulary.Governance.PeerQueue do
     |> String.trim(~s("“”'‘’ ))
   end
 
+  # The one-line reason shown alongside the question. There is no fallback
+  # clause: an unknown kind raises rather than producing a question the peer
+  # cannot make sense of.
   defp asked_because("confirm"), do: "This proposed memory needs your confirmation."
   defp asked_because("revalidate"), do: "This memory is due for revalidation."
   defp asked_because("consent_upward"), do: "Sharing this personal memory requires your consent."
 
+  # Milliseconds allowed for the whole attach attempt. 15 ms is a budget, not a
+  # measurement: it is small enough to be invisible next to a read that already
+  # did database and model work, and it makes an overloaded queue silently
+  # yield instead of adding latency. Tests raise it so scheduler jitter cannot
+  # turn a deterministic assertion into a flake.
   defp attach_deadline_ms do
     governance_config(:attach_deadline_ms, 15)
   end
 
+  # Times a peer may skip one question before it goes to a curator instead.
   defp max_attempts, do: governance_config(:max_attempts, 2)
 
+  # How many transcript turns after the statement was shown may still contain
+  # the human's reply. Six covers an assistant that keeps talking for a few
+  # turns without stretching so far that an unrelated later reply counts.
   defp answer_window_turns, do: governance_config(:answer_window_turns, 6)
 
+  # Per-question cooldown: 48 hours by default between delivery attempts, so a
+  # peer who let one go by yesterday does not meet it again today. A question
+  # that has never been delivered is always eligible.
   defp cooldown_elapsed?(%{last_delivered_at: nil}), do: true
 
   defp cooldown_elapsed?(query) do
@@ -559,12 +824,19 @@ defmodule Cartulary.Governance.PeerQueue do
     DateTime.compare(query.last_delivered_at, cutoff) != :gt
   end
 
+  # All interruption tuning lives under one application config key so an
+  # operator can adjust it in one place; the defaults passed in at each call
+  # site keep the module working with no configuration at all.
   defp governance_config(key, default) do
     :cartulary
     |> Application.get_env(:governance, [])
     |> Keyword.get(key, default)
   end
 
+  # The answering peer normally cannot read the knowledge item, its validation
+  # row, or the stored transcript, yet resolving their own question requires
+  # all three. The elevated copy is used only after the caller's identity has
+  # already been matched against the question's peer id.
   defp pipeline_actor(%Cartulary.Actor{} = actor),
     do: %{actor | role: :system, scope_ids: :all, pipeline?: true}
 

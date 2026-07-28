@@ -1,8 +1,33 @@
 # SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+#
+# Nightly answer-quality evaluation.
+#
+# Purpose
+#   Run the full evaluation matrix on a schedule and keep the resulting reports, so quality
+#   can be tracked over time rather than only at the moment of a release. This is a trend
+#   instrument, not a merge gate: it does not run on pull requests and no branch protection
+#   depends on it. The blocking quality floors live in the continuous-integration workflow.
+#
+# Triggers
+#   Nightly on a schedule, or manually by a maintainer who chooses the model mode.
+#
+# Inputs
+#   model_mode (manual runs only) — "deterministic" (default) or "live".
+#   OPENROUTER_API_KEY (repository secret) and CARTULARY_EVAL_JUDGE_MODEL (repository
+#   variable) — required only for live mode. Scheduled runs never need them.
+#
+# Outputs
+#   One evaluation report artifact per run, retained for 30 days for comparison.
+#
+# Assumptions
+#   This workflow runs only from the repository's own branches, so the credential is never
+#   exposed to an untrusted pull request. Deterministic mode reaches no network at all.
 name: Nightly evaluation
 
 on:
   schedule:
+    # 02:17 UTC. An off-the-hour minute on purpose: scheduled jobs across the platform pile
+    # up on the hour and get delayed, and nothing here needs a precise time.
     - cron: "17 2 * * *"
   workflow_dispatch:
     inputs:
@@ -18,13 +43,21 @@ permissions:
 
 concurrency:
   group: nightly-eval-${{ github.ref }}
+  # Deliberately does NOT cancel a run in progress. Unlike a pull-request check, each
+  # nightly report is a data point in a trend; discarding a half-finished one loses that
+  # night's measurement rather than superseding it.
   cancel-in-progress: false
 
 jobs:
   release-eval:
     runs-on: ubuntu-24.04
+    # Longer than the CI lanes: live mode makes real model calls, which are slow and
+    # rate-limited.
     timeout-minutes: 60
     services:
+      # The evaluation exercises the real ingest, retrieval, and answer path, so it needs a
+      # real database with vector and full-text search — the same image CI and the
+      # container deployment use.
       postgres:
         image: pgvector/pgvector:pg18-bookworm
         env:
@@ -41,8 +74,17 @@ jobs:
     env:
       MIX_ENV: test
       CARTULARY_DATABASE_MODE: external
+      # Distinct database name so a nightly run cannot disturb, or be disturbed by, any
+      # other lane sharing a runner. The embedded historical tag is only part of the name.
       CARTULARY_TEST_DATABASE_URL: ecto://postgres:postgres@127.0.0.1:5432/cartulary_f11_nightly
+      # Empty on a scheduled run and on any run where the secret is not configured; the
+      # step below checks for that before attempting live mode.
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      # Points the reasoning model role at the model the evaluation uses as its judge. It
+      # must be a different provider and model family from the one that produced the
+      # answers — a model grading its own output is not a measurement — and the evaluation
+      # task rejects the run if it is not. A repository variable rather than a secret,
+      # because a model name is not confidential and the report has to name it anyway.
       CARTULARY_MODEL_DREAM: ${{ vars.CARTULARY_EVAL_JUDGE_MODEL }}
     steps:
       - uses: actions/checkout@v6
@@ -51,8 +93,23 @@ jobs:
           otp-version: "27"
           elixir-version: "1.18"
       - run: mix deps.get
+      # The evaluation runs as an ordinary application task, not through the test runner,
+      # so the schema has to be created and migrated explicitly here.
       - run: mix ecto.create
       - run: mix ecto.migrate
+      # Two modes from one definition, so the matrix, the scoring, and the report shape are
+      # identical either way and the numbers stay comparable.
+      #
+      # deterministic: local extractor and answerer, no network, reproducible run to run.
+      #   This is what a scheduled run does, and what makes the nightly series meaningful
+      #   as a trend.
+      # live: real models plus a model judge. Only a maintainer can select it, and it is
+      #   refused outright when the credential or the judge model is missing rather than
+      #   quietly degrading to the local fallback — a score produced that way would look
+      #   like a live result and mean nothing.
+      #
+      # `--assert-thresholds` applies in both modes, so a nightly run still reports a hard
+      # failure if the committed correctness or citation floors are breached.
       - name: Run release matrix
         shell: bash
         run: |
@@ -67,7 +124,12 @@ jobs:
             args+=(--judge model)
           fi
           mix cartulary.eval.release "${args[@]}"
+      # Rejects a report that does not carry the full provenance needed to reproduce or
+      # compare it: application version, dataset identity and hash, retrieval profile,
+      # deadline, all four model roles, and the judge.
       - run: mix cartulary.eval.verify /tmp/cartulary-f11-nightly.json
+      # 30 days of history, enough to see a drift that took a few weeks to appear. Reports
+      # worth keeping longer are committed to the repository as recorded evidence instead.
       - uses: actions/upload-artifact@v7
         with:
           name: nightly-eval-${{ github.run_id }}

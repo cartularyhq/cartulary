@@ -2,15 +2,70 @@
 
 defmodule Cartulary.Eval.Adapter do
   @moduledoc """
-  Normalizes public memory benchmark fixtures into Cartulary's eval case shape.
+  Rewrites public memory-benchmark fixtures into one internal evaluation case shape.
 
-  The normalized representation is intentionally independent from the benchmark
-  source files so every runner uses the same ingestion, answering, and scoring
-  path.
+  Every supported source layout — LoCoMo, LongMemEval, ConvoMem, BEAM, and Cartulary's
+  own smoke shape — is translated into the same structure, so that ingestion, answering,
+  and scoring never branch on which benchmark produced the data. This module is the only
+  place that knows upstream field names; everything downstream sees the normalized shape.
+
+  ## Normalized shape
+
+  `normalize/2` and `load!/2` return a map holding:
+
+    * `:benchmark` — the normalized benchmark name.
+    * `:source_format` — the concrete upstream layout that was parsed.
+    * `:cases` — a list of independent conversation cases.
+
+  Each case carries `:id`, `:scope_path`, `:category`, `:scale`, `:metadata`, `:messages`,
+  and `:questions`. Each message carries `:id`, `:session_id`, `:scope_path`, `:peer_key`,
+  `:role`, `:content`, `:occurred_at`, and `:metadata`. Each question carries `:id`,
+  `:scope_path`, `:question`, `:expected` (always a list of strings), `:category`,
+  `:evidence_refs`, `:evidence_granularity`, `:abstention_expected`, and `:metadata`.
+
+  ## Identifiers are part of the scoring contract
+
+  A message's `:id` is the benchmark's own turn reference — LoCoMo's dialogue id such as
+  `D1:3`, LongMemEval's session id plus turn index, and so on — never a database id.
+  Citation scoring translates the durable ids an answer cites back into these references
+  and compares them with a question's `:evidence_refs`, so the two vocabularies must
+  match. Where a fixture supplies no id, a synthetic one is built — from the record's
+  content hash in the Cartulary layout, and from the session and turn position in the
+  others. Neither uses a clock or a random value, so replaying the same fixture produces
+  the same ids.
+
+  `:evidence_granularity` selects how a citation is matched: `"turn"` compares against
+  individual message references, `"session"` compares against the session a message
+  belonged to, which is the granularity LongMemEval labels its answers with.
+
+  ## What this module deliberately does not decide
+
+  The `:scope_path` values produced here are advisory. The runner builds its own path from
+  the benchmark, the run id, and the case id, and writes every message under that instead;
+  a message's normalized `:scope_path` is not read at all. Do not assume it is the path an
+  evaluation actually wrote to.
+
+  Nothing here calls a model, touches the database, or scores an answer.
   """
 
+  # The canonical names accepted by `--benchmark` and used to tag a normalized dataset.
   @benchmark_names ~w(locomo longmemeval convomem beam cartulary)
 
+  @doc """
+  Reads a benchmark fixture from disk and returns the normalized dataset plus its digest.
+
+  `path` may hold a single JSON document (object or array) or newline-delimited JSON; the
+  layout is detected from the first non-whitespace character. `opts` accepts `:benchmark`
+  to pin the source format; without it the format is inferred from the data.
+
+  On top of the normalized dataset the result carries `:dataset_id` (the file's base name)
+  and `:dataset_sha256` (lowercase hex). The digest is taken over the raw file bytes
+  before parsing, so it names the exact input a report was produced from — a published
+  number is only checkable when that digest travels with it.
+
+  Raises `File.Error` when the path cannot be read, and `Jason.DecodeError` when the
+  contents are neither valid JSON nor valid JSON Lines.
+  """
   def load!(path, opts \\ []) do
     body = read_fixture!(path)
 
@@ -28,6 +83,25 @@ defmodule Cartulary.Eval.Adapter do
     })
   end
 
+  @doc """
+  Rewrites already-decoded fixture data into the normalized dataset shape.
+
+  `data` is the decoded fixture: a map for single-sample layouts, or a list for the
+  multi-sample and JSON-Lines layouts. `opts[:benchmark]` pins the source format. It
+  accepts an atom or a string, is matched after downcasing and stripping every character
+  that is not a letter, and additionally treats `"longmemevalv2"` as LongMemEval and
+  `"local"` as the Cartulary shape.
+
+  When `:benchmark` is absent — or names something unrecognized — the layout is inferred
+  from marker fields in the data itself, and anything matching no other layout is parsed
+  as BEAM. An unknown name therefore falls back to detection instead of raising, so pass a
+  supported name whenever the parse needs to be pinned.
+
+  Returns the normalized dataset without `:dataset_id` and `:dataset_sha256`; those exist
+  only on datasets that came from a file through `load!/2`. Raises `KeyError` when a
+  record omits something its layout requires, such as a question's text or a LoCoMo
+  sample's conversation.
+  """
   def normalize(data, opts \\ []) do
     benchmark =
       opts
@@ -51,6 +125,9 @@ defmodule Cartulary.Eval.Adapter do
   # sobelow_skip ["Traversal.FileModule"]
   defp read_fixture!(path), do: File.read!(path)
 
+  # Upstream benchmark releases ship both single-document JSON and one-record-per-line
+  # JSON Lines, sometimes with the same file extension, so the layout is sniffed from the
+  # first non-whitespace character rather than from the name.
   defp decode_fixture!(body) do
     trimmed = String.trim(body)
 
@@ -63,6 +140,7 @@ defmodule Cartulary.Eval.Adapter do
     end
   end
 
+  # Returns a canonical benchmark name, or nil so the caller can fall back to detection.
   defp normalize_benchmark(nil), do: nil
 
   defp normalize_benchmark(value) when is_atom(value),
@@ -79,7 +157,12 @@ defmodule Cartulary.Eval.Adapter do
     end
   end
 
+  # Layout inference. Clause order is the rule, not an accident: a self-declared
+  # "benchmark" field wins, then structural marker fields, and BEAM is the catch-all
+  # because its generated artifacts have no field that is reliably present. Adding a
+  # clause below the catch-all would be dead code.
   defp detect_benchmark(%{"benchmark" => benchmark} = data) do
+    # An unrecognized self-declared name is dropped and detection retried structurally.
     normalize_benchmark(benchmark) || detect_benchmark(Map.delete(data, "benchmark"))
   end
 
@@ -101,6 +184,8 @@ defmodule Cartulary.Eval.Adapter do
   defp detect_benchmark(%{"conversations" => _, "question" => _}), do: "convomem"
   defp detect_benchmark(_data), do: "beam"
 
+  # Cartulary's own smoke shape: one flat message list and one question list, treated as a
+  # single case. A JSON-Lines file of the same shape becomes one case per line.
   defp normalize_cartulary(%{"messages" => messages, "questions" => questions} = data) do
     benchmark = Map.get(data, "benchmark", "cartulary")
     case_id = Map.get(data, "id", benchmark)
@@ -136,6 +221,9 @@ defmodule Cartulary.Eval.Adapter do
   end
 
   defp normalize_cartulary_message(message, case_id) do
+    # A fixture without ids still needs a stable citation reference, so the fallback id is
+    # content-derived. Using the list position instead would silently renumber every later
+    # turn when one message is inserted, invalidating recorded evidence references.
     id =
       message
       |> first_present(["id", "message_id", "benchmark_ref"])
@@ -171,6 +259,9 @@ defmodule Cartulary.Eval.Adapter do
     }
   end
 
+  # LoCoMo ships one or many long multi-session conversations between two named speakers.
+  # Every sample becomes one case, tagged with the "long-conversation" scale so aggregate
+  # reporting can separate it from the short-context benchmarks.
   defp normalize_locomo(data) when is_map(data), do: normalize_locomo([data])
 
   defp normalize_locomo(samples) when is_list(samples) do
@@ -200,6 +291,9 @@ defmodule Cartulary.Eval.Adapter do
     }
   end
 
+  # A LoCoMo conversation is a map whose session turns hide behind "session_<n>" keys,
+  # alongside sibling "session_<n>_date_time" keys and speaker metadata. Everything that
+  # is not a numbered session list is skipped rather than treated as dialogue.
   defp locomo_messages(conversation, case_id) do
     conversation
     |> Enum.flat_map(fn
@@ -238,6 +332,9 @@ defmodule Cartulary.Eval.Adapter do
       _other ->
         []
     end)
+    # Map iteration order is undefined, so "session_10" can arrive before "session_2" and
+    # turns would be ingested out of order. Memory is order- and time-sensitive, so sort
+    # numerically on the dialogue id's (session, turn) pair before returning.
     |> Enum.sort_by(fn message ->
       message.metadata["dia_id"]
       |> String.replace_leading("D", "")
@@ -246,6 +343,8 @@ defmodule Cartulary.Eval.Adapter do
     end)
   end
 
+  # LoCoMo turns may carry an image with a caption. The caption is appended to the text so
+  # the evidence a question depends on is actually present in the ingested content.
   defp locomo_content(turn) do
     text = turn |> Map.get("text", "") |> to_string()
 
@@ -255,6 +354,9 @@ defmodule Cartulary.Eval.Adapter do
     end
   end
 
+  # LoCoMo is speaker-to-speaker rather than user-to-assistant. The first named speaker is
+  # mapped to "user" and everyone else to "assistant" purely so the ingest path sees a
+  # shape it understands; the real identity is preserved in the peer key and metadata.
   defp locomo_role(speaker, %{"speaker_a" => speaker}), do: "user"
   defp locomo_role(_speaker, _conversation), do: "assistant"
 
@@ -276,6 +378,9 @@ defmodule Cartulary.Eval.Adapter do
     end)
   end
 
+  # LongMemEval instances are question-centric: each one bundles a single question with a
+  # haystack of sessions it must be answered from, so a case here holds exactly one
+  # question. Evidence is labelled by session, not by turn.
   defp normalize_longmemeval(data) when is_map(data), do: normalize_longmemeval([data])
 
   defp normalize_longmemeval(instances) when is_list(instances) do
@@ -319,6 +424,9 @@ defmodule Cartulary.Eval.Adapter do
     }
   end
 
+  # Sessions, their ids, and their dates arrive as three parallel lists that are joined by
+  # position. A short or missing id/date list is tolerated: the position simply falls back
+  # to a synthetic session id and an unknown timestamp.
   defp longmemeval_messages(instance, question_id) do
     session_ids = Map.get(instance, "haystack_session_ids", [])
     dates = Map.get(instance, "haystack_dates", [])
@@ -364,11 +472,18 @@ defmodule Cartulary.Eval.Adapter do
     end
   end
 
+  # LongMemEval marks its unanswerable variants by suffixing the question id with "_abs".
+  # Detecting them here is what makes a refusal score as correct instead of as a miss.
   defp longmemeval_abstention_id?(%{"question_id" => id}) when is_binary(id),
     do: String.ends_with?(id, "_abs")
 
   defp longmemeval_abstention_id?(_instance), do: false
 
+  # LongMemEval publishes a small and a medium haystack of the same questions; the medium
+  # one holds roughly 500 sessions per instance against roughly 50 for the small one. The
+  # 400-session cut sits in that gap, so a full instance is labelled by which release it
+  # came from and degradation with corpus size stays visible in the by-scale aggregate. A
+  # truncated local fixture falls under the cut and is reported as small.
   defp longmemeval_scale(instance) do
     count = instance |> Map.get("haystack_sessions", []) |> length()
 
@@ -379,6 +494,9 @@ defmodule Cartulary.Eval.Adapter do
     end
   end
 
+  # ConvoMem rows are also question-centric: one question over a list of prior
+  # conversations. The scale label is the conversation count as a string, so the by-scale
+  # aggregate shows how accuracy moves with how much history had to be searched.
   defp normalize_convomem(data) when is_map(data) do
     rows =
       cond do
@@ -459,6 +577,8 @@ defmodule Cartulary.Eval.Adapter do
           turns when is_list(turns) ->
             convomem_turns(turns, case_id, session_id)
 
+          # Some exports flatten a one-turn conversation into the conversation object
+          # itself; treat that object as its own single turn rather than dropping it.
           _turns ->
             convomem_turns([conversation], case_id, session_id)
         end
@@ -497,6 +617,10 @@ defmodule Cartulary.Eval.Adapter do
     end)
   end
 
+  # BEAM-style fixtures are generated artifacts with no single stable schema, so every
+  # field is looked up through a list of plausible names and the whole layout is the
+  # detection catch-all. Its cases pair one long chat with a set of probing questions, and
+  # the chat's declared size becomes the scale label that the degradation curve groups by.
   defp normalize_beam(data) when is_map(data) do
     cond do
       is_list(data["chats"]) -> normalize_beam(data["chats"])
@@ -542,6 +666,8 @@ defmodule Cartulary.Eval.Adapter do
     |> listify()
     |> Enum.with_index(1)
     |> Enum.map(fn {turn, index} ->
+      # Generated chats often omit roles entirely. Assume strict alternation starting with
+      # the user, which matches how these transcripts are produced.
       role =
         turn
         |> first_present(["role", "speaker"])
@@ -569,6 +695,8 @@ defmodule Cartulary.Eval.Adapter do
         metadata: %{"turn_index" => index}
       }
     end)
+    # An empty turn would still consume an ingest round trip and a raw-message row while
+    # contributing nothing retrievable, so drop it before it reaches the write path.
     |> Enum.reject(&(&1.content == ""))
   end
 
@@ -599,6 +727,8 @@ defmodule Cartulary.Eval.Adapter do
     end)
   end
 
+  # Evidence may be given as bare turn ids or as objects wrapping one; both are flattened
+  # to plain strings so citation scoring compares like with like.
   defp beam_evidence_refs(question) do
     question
     |> first_present([
@@ -627,6 +757,8 @@ defmodule Cartulary.Eval.Adapter do
     |> maybe_string()
   end
 
+  # Gold answers are always normalized to a list of strings, even when a fixture gives a
+  # single value, because scoring credits an answer that matches any accepted variant.
   defp expected_values(map) do
     map
     |> first_present([
@@ -641,6 +773,10 @@ defmodule Cartulary.Eval.Adapter do
     |> Enum.map(&to_string/1)
   end
 
+  # A question is unanswerable when the fixture says so outright, when its category names
+  # abstention, or when its gold answer is one of the fixed refusal strings the upstream
+  # datasets use. The string list is a closed set on purpose: a fuzzy match would turn a
+  # genuine answer such as "unknown soldier" into an expected refusal.
   defp abstention_expected?(map) do
     expected = expected_values(map) |> Enum.map(&String.downcase/1)
 
@@ -660,6 +796,9 @@ defmodule Cartulary.Eval.Adapter do
       )
   end
 
+  # Returns the first key whose value is neither nil nor "". Fixtures routinely carry an
+  # empty string where a field is absent, so blank must count as missing for the fallback
+  # chains above to reach the next candidate name.
   defp first_present(nil, _keys), do: nil
 
   defp first_present(map, keys) when is_map(map) do
@@ -683,6 +822,9 @@ defmodule Cartulary.Eval.Adapter do
   defp maybe_string(nil), do: nil
   defp maybe_string(value), do: to_string(value)
 
+  # Collapses arbitrary speaker labels onto "assistant", "system", "tool", or "user".
+  # Anything unrecognized becomes "user" rather than failing, because benchmark speaker
+  # names are free text and dropping the turn would silently remove evidence.
   defp normalize_role(role) when is_binary(role) do
     case String.downcase(role) do
       "assistant" -> "assistant"
@@ -694,6 +836,8 @@ defmodule Cartulary.Eval.Adapter do
 
   defp normalize_role(_role), do: "user"
 
+  # Case ids become scope path segments, so they are reduced to lowercase alphanumerics
+  # and dashes. An id that reduces to nothing still needs a segment, hence "case".
   defp slug(value) do
     value
     |> to_string()
@@ -706,6 +850,9 @@ defmodule Cartulary.Eval.Adapter do
     end
   end
 
+  # Content-derived suffix for records that arrive without an id. Truncated to 12 hex
+  # characters (48 bits) purely for readability in reports; this is a collision-tolerant
+  # label inside one fixture, not a security or global-uniqueness claim.
   defp stable_hash(value) do
     :sha256
     |> :crypto.hash(:erlang.term_to_binary(value))
@@ -713,6 +860,8 @@ defmodule Cartulary.Eval.Adapter do
     |> binary_part(0, 12)
   end
 
+  # Lenient integer parse used for sort keys only; a malformed segment sorts as the
+  # default rather than crashing a whole fixture load.
   defp parse_int(value, default) when is_binary(value) do
     case Integer.parse(value) do
       {integer, _rest} -> integer

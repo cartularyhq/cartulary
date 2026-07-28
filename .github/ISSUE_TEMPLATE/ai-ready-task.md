@@ -14,9 +14,9 @@ assignees: ""
 
 <!-- Link the internal docs that provide the task context reviewers and implementers should read. Include the closest specific document(s), not every possible doc. Delete rows that do not apply. -->
 
-- Blueprint requirements: `blueprint/memory-system-functional-requirements.md` (`FR-*` anchors):
-- Blueprint architecture/NFRs: `blueprint/memory-system-architecture-and-nfr.md` (`AD-*`, `AINV-*`, `NFR-*` anchors):
-- Product context: `blueprint/memory-system-product-blueprint.md`:
+- Blueprint requirements: `specs/memory-system-functional-requirements.md` (`FR-*` anchors):
+- Blueprint architecture/NFRs: `specs/memory-system-architecture-and-nfr.md` (`AD-*`, `AINV-*`, `NFR-*` anchors):
+- Product context: `specs/memory-system-product-blueprint.md`:
 - ADRs: `docs/adr/README.md` or `docs/adr/<adr-file>.md`:
 - Architecture notes: `docs/architecture/README.md` or `docs/architecture/<note>.md`:
 - Roadmap/process docs: `docs/roadmap/beta-roadmap.md`:

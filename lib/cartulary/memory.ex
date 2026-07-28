@@ -2,11 +2,60 @@
 
 defmodule Cartulary.Memory do
   @moduledoc """
-  Compatibility facade over authoritative Ash actions.
+  The entry point every caller uses to read and write Cartulary memory.
 
-  F1 owns durable data through Ash tenancy/actions and F2 owns transactional
-  audit and AshOban execution. F7 routes search and context through the
-  profile-based retrieval and projection boundaries.
+  Everything outside the domain — the HTTP controllers, the agent tool layer,
+  the evaluation harness, and the background extraction job — goes through this
+  module instead of touching Ash resources directly. It turns loosely typed,
+  string-keyed input into Account-scoped Ash work, and shapes results back into
+  plain string-keyed maps that serialize straight to JSON.
+
+  ## What it offers
+
+  - `ingest_message/2` — accept one raw observation, persist it, and by default
+    run extraction inline so the caller immediately sees the new knowledge.
+  - `extract_message/2` and `extract_message_for_account/2` — run the
+    extraction pipeline over an already-persisted raw message.
+  - `query_knowledge/2` — unranked listing of governed knowledge in a scope.
+  - `search/2` — multi-strategy retrieval over knowledge and documents.
+  - `ask/2` — retrieval plus a grounded, citation-checked answer.
+  - `get_context/2` — reasoning-free assembly of cached context projections.
+  - `check_readiness/2` — pre-flight check of a skill's procedural memory.
+
+  ## Invariants this module upholds
+
+  **The Account is derived, never requested.** Every entry point opens an
+  Account-scoped transaction from the caller's authenticated actor. The
+  alternative `"account_key"` and `"account_id"` shapes exist only for internal
+  callers that already know which Account they run in (background jobs and the
+  evaluation harness). A request cannot reach them: the controllers always pass
+  an actor, and the actor clause matches only a real `Cartulary.Actor` struct,
+  which decoded JSON can never produce.
+
+  **Callers submit observations; only the pipeline writes knowledge.** No
+  function here stores a statement supplied by a caller. Knowledge rows are
+  created by the extraction path, under an internal pipeline actor, and always
+  enter the `proposed` state so the governance gate decides whether they ever
+  become visible.
+
+  **Ash records leave only through the resource's public attribute list.** The
+  message and knowledge maps returned here are built from that list, so internal
+  columns such as the Account id and content hashes never leave. Marking a new
+  resource attribute public therefore also publishes it on the API, in the same
+  commit. Retrieval and context payloads are shaped by their own modules and are
+  not covered by this rule.
+
+  **Tracing stays content-safe.** The spans opened here record ids, counts,
+  lengths, profile names, and booleans. Message text, question text, answers,
+  and statements must never be added as span attributes.
+
+  ## Mistakes to avoid
+
+  Do not add a durable write that bypasses an Ash action. Do not let raw
+  retrieval strategy overrides reach a caller that is not internal. Do not
+  reuse an authenticated actor across scope creation without re-resolving its
+  role grants: the actor's authorized scope list is a snapshot taken when the
+  credential was verified, and a scope created during the request is not in it.
   """
 
   alias Cartulary.Accounts.Peer
@@ -34,14 +83,54 @@ defmodule Cartulary.Memory do
 
   require Ash.Query
 
+  # Default page size, in rows, for knowledge listing and retrieval when the
+  # caller names no limit. In retrieval it also caps how many candidates each
+  # strategy may contribute, so raising it widens the fused candidate pool too.
   @default_limit 12
 
+  @doc """
+  Persists one raw observation and, by default, returns the knowledge extracted from it.
+
+  `attrs` may use atom or string keys; they are normalized to strings.
+  `"scope_path"`, `"session_id"`, and `"content"` are required and a missing
+  one raises `KeyError`. `"peer_key"` is required as well, unless
+  `identity_actor` already identifies the Peer. Optional keys:
+
+  - `"peer_name"` — display name used when the Peer row is first created.
+  - `"role"` — speaker role, defaults to `"user"`.
+  - `"occurred_at"` — `DateTime` or ISO 8601 string. Anything unparseable
+    becomes the current time rather than failing the request.
+  - `"sync_extract"` — pass `false` to return as soon as the observation is
+    durable and leave extraction entirely to the queued job.
+  - `"account_key"` or `"account_id"` — internal Account selection, consulted
+    only when `identity_actor` is `nil`.
+
+  Missing scopes, sessions, session-scope links, and session participants are
+  created on the way in, so a caller never has to provision them first. An
+  authenticated caller always speaks as its own existing Peer; only the internal
+  `"peer_key"` path creates a Peer that does not exist yet.
+
+  Returns `{:ok, message}`, where `message` holds the message's public
+  attributes with string keys plus a `"knowledge"` list when extraction ran
+  inline.
+
+  Failure modes: the durable writes use raising Ash calls, so an authorization
+  or validation failure raises instead of returning an error tuple. If inline
+  extraction fails — an unreachable model provider being the common case — this
+  raises `MatchError`. The observation itself is already committed together
+  with its queued extraction job at that point, so nothing is lost and the job
+  retries the work.
+  """
   def ingest_message(attrs, identity_actor \\ nil) do
     Observability.with_span(:memory, "cartulary.memory.ingest_message", fn ->
       attrs = attrs |> normalize_attrs() |> put_identity_actor(identity_actor)
       sync_extract? = Map.get(attrs, "sync_extract", true)
+      # Creating the message always enqueues a durable extraction job in the same
+      # transaction, so this trace attribute is a constant recording that fact.
+      # "sync_extract" only decides whether the caller also waits for an inline run.
       enqueue_extract? = true
 
+      # Content-safe tracing: the message's role and length, never its text.
       Observability.set_attributes(:memory, %{
         "cartulary.ingest.sync_extract" => sync_extract?,
         "cartulary.ingest.enqueue_extract" => enqueue_extract?,
@@ -52,6 +141,11 @@ defmodule Cartulary.Memory do
 
       message =
         with_account(attrs, fn account, actor ->
+          # Order matters. The scope chain is created first, then the actor is
+          # re-resolved from its Peer's role grants, because an authenticated
+          # actor's authorized scope list was computed when the credential was
+          # verified and would not contain a scope this request just created —
+          # every write below would then be refused by the scope policy.
           scope = ensure_scope!(account.id, actor, Map.fetch!(attrs, "scope_path"))
 
           {peer, actor} = request_peer_and_actor!(account, actor, attrs)
@@ -89,12 +183,18 @@ defmodule Cartulary.Memory do
 
       Observability.set_attribute(:memory, "cartulary.message.id", message["id"])
 
+      # The observation is durable from here on. Inline extraction runs in its own
+      # transaction and is replay-safe: the queued job hashes the same statement,
+      # takes the same advisory lock, and merges instead of writing a duplicate.
       if sync_extract? do
         {:ok, knowledge} =
           case identity_actor(attrs) do
             %Actor{account_id: account_id} ->
               extract_message_for_account(message["id"], account_id)
 
+            # Internal callers that supplied only an Account id and asked for
+            # inline extraction hit this `Map.fetch!` and raise: pass
+            # "account_key", or let the queued job do the extraction.
             nil ->
               extract_message(message["id"], Map.fetch!(attrs, "account_key"))
           end
@@ -112,6 +212,24 @@ defmodule Cartulary.Memory do
     end)
   end
 
+  @doc """
+  Runs the extraction pipeline over one already-persisted raw message.
+
+  `account_key` may be omitted, in which case the owning Account is looked up
+  from the message id; that lookup raises when no such message exists. The work
+  runs under an internal system actor carrying the pipeline flag, which is what
+  permits it to write knowledge and to stamp the message as extracted. No
+  external caller can obtain such an actor.
+
+  Returns `{:ok, knowledge}` with one map per created or merged knowledge item,
+  or `{:error, error}` when the model provider fails. That failure is returned
+  rather than raised so the durable job retries instead of dropping the
+  observation.
+
+  Safe to run repeatedly: an identical statement about the same subject in the
+  same scope merges into the existing knowledge item, and the merge appends
+  neither a second creation lifecycle event nor a second gate decision.
+  """
   def extract_message(message_id, account_key \\ nil) do
     Observability.with_span(:memory, "cartulary.memory.extract_message", fn ->
       Observability.set_attribute(:memory, "cartulary.message.id", message_id)
@@ -128,6 +246,14 @@ defmodule Cartulary.Memory do
     end)
   end
 
+  @doc """
+  Same as `extract_message/2`, for a caller that already knows the Account id.
+
+  This is the path the queued extraction job takes: the durable job row already
+  carries the Account id, so resolving it from the message would be wasted
+  work. Return values, tracing, and failure behaviour are identical to
+  `extract_message/2`.
+  """
   def extract_message_for_account(message_id, account_id) do
     Observability.with_span(:memory, "cartulary.memory.extract_message", fn ->
       Observability.set_attribute(:memory, "cartulary.message.id", message_id)
@@ -143,6 +269,22 @@ defmodule Cartulary.Memory do
     end)
   end
 
+  # Extracts knowledge from the parsed text of one document version.
+  #
+  # Deliberately kept out of the public surface: the document service calls it
+  # after it has already opened an Account-scoped transaction and holds an actor
+  # allowed to write knowledge, and it supplies the facts this function cannot
+  # derive on its own. `attrs` must carry "id" (the document version id, which
+  # becomes the provenance target), "scope_id", "peer_id", "peer_key",
+  # "scope_path", and "content".
+  #
+  # Marking the observation document-sourced keeps message provenance out of the
+  # result: the knowledge item's source message list stays empty and its
+  # provenance row points at the document version instead. Extracted document
+  # knowledge still enters as a proposal and still passes the governance gate.
+  #
+  # Returns {:ok, knowledge} or the extractor's {:error, error}, so a provider
+  # failure leaves the stored document version intact and the job retryable.
   @doc false
   def extract_document_text(account_id, actor, attrs)
       when is_binary(account_id) and is_map(actor) and is_map(attrs) do
@@ -167,6 +309,28 @@ defmodule Cartulary.Memory do
     end
   end
 
+  @doc """
+  Lists governed knowledge for a scope path and its ancestors.
+
+  This is a plain listing, not retrieval: no strategies, no fusion, no query
+  text. `filters` accepts:
+
+  - `"scope_path"` — defaults to `"/poc"`. The named scope and every ancestor
+    on its path are read; scopes the caller may not see simply do not appear.
+  - `"state"` — lifecycle state, defaults to `"active"`.
+  - `"limit"` — row cap, defaults to 12.
+
+  With the default state and an authenticated Peer, the result is everything
+  `active` plus that Peer's own `provisional` items — provisional knowledge is
+  usable only by the peer it is about and must not leak to anyone else. An
+  internal actor that carries no Peer sees all provisional items. Any other
+  requested state matches exactly, with no provisional widening.
+
+  Rows come back highest confidence first, ties broken by most recently
+  inserted. Each row is the knowledge item's public attributes with string
+  keys, plus `"scope_path"`. Raises when no Account can be derived from the
+  caller.
+  """
   def query_knowledge(filters, identity_actor \\ nil) do
     Observability.with_span(:memory, "cartulary.memory.query_knowledge", fn ->
       filters = filters |> normalize_attrs() |> put_identity_actor(identity_actor)
@@ -203,6 +367,38 @@ defmodule Cartulary.Memory do
     end)
   end
 
+  @doc """
+  Runs multi-strategy retrieval and returns the fused, ranked candidates.
+
+  Recognized keys in `filters`:
+
+  - `"query"` — the search text, defaults to an empty string.
+  - `"scope_path"` — defaults to `"/poc"`; the scope and its ancestors are
+    searched, so knowledge written higher in the tree is reachable from below.
+  - `"profile"` — named retrieval profile, defaults to `"balanced"`.
+  - `"limit"` — candidate cap, defaults to 12. It bounds each strategy's
+    contribution as well as the fused list.
+  - `"deadline"` — the string `"disabled"` removes the profile's latency bound.
+    Intended for evaluation runs; a request path should leave it on.
+  - `"include_cross_links"` — `true`, `"true"`, or `"1"` also searches scopes
+    joined to the requested ones by a scope relation. Both endpoints still have
+    to pass the caller's authorization, so a relation never grants access.
+  - `"as_of"`, `"min_score"`, `"source_filters"` — optional belief-time,
+    score-floor, and source restrictions.
+  - `"strategies"` — a raw strategy override. Only an internal system identity
+    may pass it; retrieval raises `ArgumentError` for anyone else, because
+    strategy names are an internal seam rather than a public contract.
+
+  Returns a string-keyed map holding `"query"`, `"profile"`,
+  `"profile_version"`, `"deadline"`, `"latency_ms"`,
+  `"contributed_strategies"`, `"dropped_strategies"`, `"disagreement"`, and
+  `"candidates"`. A strategy that ran out of deadline lands in
+  `"dropped_strategies"` instead of failing the call, so a partial result is
+  normal: read that list before treating a thin result as an absence of
+  knowledge.
+
+  Raises when no Account can be derived from the caller.
+  """
   def search(filters, identity_actor \\ nil) do
     Observability.with_span(:memory, "cartulary.memory.search", fn ->
       filters = filters |> normalize_attrs() |> put_identity_actor(identity_actor)
@@ -227,6 +423,8 @@ defmodule Cartulary.Memory do
             actor: actor,
             scope_ids: Enum.map(scopes, & &1.id),
             text: query,
+            # Internal knob: `ask/2` narrows retrieval to knowledge so an answer
+            # cannot cite a document chunk as if it were a governed statement.
             target: retrieval_target(Map.get(filters, "_retrieval_target", "all")),
             as_of: parse_datetime(Map.get(filters, "as_of")),
             min_score: parse_float(Map.get(filters, "min_score")),
@@ -234,6 +432,9 @@ defmodule Cartulary.Memory do
             max_candidates: limit
           }
 
+          # Only server-side identities count as internal. This is what stops a
+          # request from hand-picking retrieval strategies: for anyone else,
+          # passing "strategies" makes profile resolution raise.
           internal? = actor.identity_kind == :system
 
           opts =
@@ -265,6 +466,29 @@ defmodule Cartulary.Memory do
     end)
   end
 
+  @doc """
+  Answers a question from governed memory and cites the knowledge it used.
+
+  `attrs` takes the same keys as `search/2`, plus `"question"`, which is
+  required and raises `KeyError` when absent. The retrieval profile defaults to
+  `"thorough"` rather than the search default, because an answer is worth more
+  latency than a results list, and retrieval is narrowed to knowledge so that
+  only governed statements can be cited.
+
+  The answer is grounded twice over: the model sees nothing but the retrieved
+  statements, and every citation it returns is dropped unless it matches an id
+  that was actually retrieved for this question. An answer whose citations all
+  fail that check is replaced by an abstention, so a caller may rely on every
+  id in `"citations"` being real and retrieved.
+
+  When the deployment has no real model configured, and when a configured
+  provider errors, the reply falls back to concatenating the top retrieved
+  statements and citing exactly those, rather than inventing prose or silently
+  switching providers.
+
+  Returns the `search/2` map with `"answer"`, `"citations"`, and `"abstained"`
+  merged in. Raises under the same conditions as `search/2`.
+  """
   def ask(attrs, identity_actor \\ nil) do
     Observability.with_span(:memory, "cartulary.memory.ask", fn ->
       attrs = attrs |> normalize_attrs() |> put_identity_actor(identity_actor)
@@ -276,6 +500,9 @@ defmodule Cartulary.Memory do
         "cartulary.retrieval.profile" => profile
       })
 
+      # The actor already travels inside `attrs`, so the single-argument call
+      # still runs under the caller's identity rather than falling back to an
+      # internal Account adapter.
       retrieval =
         attrs
         |> Map.put("query", question)
@@ -297,6 +524,25 @@ defmodule Cartulary.Memory do
     end)
   end
 
+  @doc """
+  Assembles the cached context projections for a scope, without calling a model.
+
+  This is the read an agent performs at the start of a turn: session summary,
+  scope cards, peer profiles, and a bounded slice of knowledge, trimmed to a
+  character budget. It performs no reasoning. A normal assembly must never
+  invoke a model, because it sits on the latency-sensitive path of every turn;
+  a projection miss may fall back to a live retrieval run, and that fallback is
+  reported in the result rather than hidden.
+
+  `attrs` accepts `"scope_path"` (defaults to `"/poc"`), `"session_id"`, and
+  `"budget_chars"`. Returns a string-keyed map including `"session_summary"`,
+  `"scope_cards"`, `"peer_profile"`, `"knowledge"`, `"projection_cache_hit"`,
+  and `"fast_fallback"` — the last two describing how the answer was produced:
+  whether any stored projection was reused, and whether a miss fell back to
+  live retrieval.
+
+  Raises when no Account can be derived from the caller.
+  """
   def get_context(attrs, identity_actor \\ nil) do
     Observability.with_span(:memory, "cartulary.memory.get_context", fn ->
       attrs = attrs |> normalize_attrs() |> put_identity_actor(identity_actor)
@@ -317,6 +563,20 @@ defmodule Cartulary.Memory do
     end)
   end
 
+  @doc """
+  Reports whether the calling Peer's memory satisfies a skill's requirements.
+
+  Unlike the other entry points this one accepts no internal Account adapter:
+  it needs a real authenticated identity, because readiness is computed for one
+  specific Peer and may be satisfied by that Peer's own provisional knowledge.
+  Raises `ArgumentError` when `identity_actor` is `nil` and `attrs` carries no
+  actor either.
+
+  Returns the gap report: the effective requirements, the gaps that must block
+  a helper from running, and the gaps that are only warnings. A gap answered by
+  the user has to come back in through ordinary ingestion and governance; there
+  is no path here that turns an answer directly into knowledge.
+  """
   def check_readiness(attrs, identity_actor \\ nil) do
     attrs = attrs |> normalize_attrs() |> put_identity_actor(identity_actor)
 
@@ -326,6 +586,10 @@ defmodule Cartulary.Memory do
     end
   end
 
+  # Auto-provisioning for the internal ingest path only: a caller that gives no
+  # display name gets its key as the name. Peers born here are recorded as human,
+  # because an agent Peer is created deliberately when its machine credential is
+  # issued, not as a side effect of someone ingesting a message.
   defp ensure_peer!(account_id, actor, key, nil),
     do: ensure_peer!(account_id, actor, key, key)
 
@@ -339,6 +603,13 @@ defmodule Cartulary.Memory do
     )
   end
 
+  # An authenticated caller always speaks as its own Peer; a `"peer_key"` in the
+  # request body is ignored on this path, so nobody can post observations under
+  # someone else's name. The role grants are re-resolved instead of reused from
+  # authentication because the scope being written to may have been created a few
+  # lines earlier in this very request. The Peer row is loaded with an
+  # Account-level system actor, since the caller's own scope grants are precisely
+  # what is being recomputed and cannot be relied on yet.
   defp request_peer_and_actor!(account, %Actor{peer_id: peer_id} = actor, _attrs)
        when is_binary(peer_id) do
     system = Actor.for_account(account, role: :system)
@@ -355,6 +626,9 @@ defmodule Cartulary.Memory do
     {peer, refreshed_actor}
   end
 
+  # Internal callers (background work, the evaluation harness) carry no Peer, so
+  # they name one by key and it is created on first use. They keep the
+  # Account-level actor they already hold.
   defp request_peer_and_actor!(account, actor, attrs) do
     peer =
       ensure_peer!(
@@ -367,6 +641,10 @@ defmodule Cartulary.Memory do
     {peer, actor}
   end
 
+  # Creates every missing scope along the path and returns the deepest one.
+  # The reduce carries the parent forward because a scope row needs its parent's
+  # id, so the segments must be created outermost-first. `:ensure` is idempotent,
+  # so a repeated ingest re-uses the existing rows rather than failing.
   defp ensure_scope!(account_id, actor, path) do
     path
     |> normalize_path()
@@ -434,6 +712,10 @@ defmodule Cartulary.Memory do
     )
   end
 
+  # Builds the extractor's input: the raw message plus the surrounding facts it
+  # needs to attribute a statement — who spoke (peer key), where it was said
+  # (scope path), and every Peer key in the Account, so the model can only name a
+  # peer that actually exists.
   defp fetch_message!(account, actor, message_id) do
     message =
       Message
@@ -457,6 +739,8 @@ defmodule Cartulary.Memory do
   defp extract_in_account(account, actor, message_id) do
     message = fetch_message!(account, actor, message_id)
 
+    # `source_peer_id` is who spoke. Who each extracted statement is *about* is
+    # resolved separately per item, because a peer may speak about someone else.
     context = %{
       account_id: account.id,
       scope_id: message["scope_id"],
@@ -466,6 +750,9 @@ defmodule Cartulary.Memory do
       actor: actor
     }
 
+    # A provider failure short-circuits here without stamping the message, so the
+    # reconciler will find it again. Stamping happens only after every knowledge
+    # row is written, so a crash mid-way re-runs the work instead of losing it.
     with {:ok, items} <- Extractor.extract(message, context) do
       Observability.set_attribute(:memory, "cartulary.extract.item_count", length(items))
       knowledge = Enum.map(items, &insert_knowledge!(account.id, actor, message, &1))
@@ -474,15 +761,24 @@ defmodule Cartulary.Memory do
     end
   end
 
+  # The single place where extracted knowledge becomes durable. Two outcomes are
+  # possible: a brand-new proposal, or corroboration of an item that already says
+  # the same thing about the same subject in the same scope.
   defp insert_knowledge!(account_id, actor, message, item) do
     subject = resolve_subject!(account_id, actor, message, item)
     statement_hash = Idempotency.content_hash(item.statement)
 
+    # Transaction-scoped advisory lock over Account, scope, subject, and statement
+    # hash. Without it, two concurrent extractions of the same sentence would both
+    # miss the duplicate check below and write two competing knowledge rows.
     Lock.acquire!(
       account_id,
       "knowledge:#{message["scope_id"]}:#{subject.lock_key}:#{statement_hash}"
     )
 
+    # Only live states count as a duplicate. A rejected or expired item must not
+    # silently absorb a fresh observation — that sentence deserves a new proposal
+    # and a new gate decision.
     existing =
       KnowledgeItem
       |> Ash.Query.filter(
@@ -496,6 +792,11 @@ defmodule Cartulary.Memory do
 
     {knowledge, created?} =
       if existing do
+        # Corroboration path. The statement itself is immutable and the merge
+        # action refuses to touch it, so only provenance breadth, the best
+        # confidence seen so far, and the corroboration count move. A
+        # document-sourced observation records its origin through a provenance
+        # row instead, so it never enters the message id list.
         source_message_ids =
           if source_type(message) == "message" do
             Enum.uniq(existing.source_message_ids ++ [message["id"]])
@@ -515,6 +816,11 @@ defmodule Cartulary.Memory do
 
         {knowledge, false}
       else
+        # New knowledge always starts unverified and merely proposed. Nothing here
+        # may create an active statement; only the gate evaluation below can move
+        # it, and it may equally leave it held for a human curator. The extracting
+        # provider, model, version, prompt, and pipeline identities are stored on
+        # the row so any statement can be traced back to what produced it.
         knowledge =
           create!(
             KnowledgeItem,
@@ -553,7 +859,13 @@ defmodule Cartulary.Memory do
 
     ensure_provenance!(account_id, actor, knowledge, message, item)
 
+    # Creation-only. A replayed extraction that merged into an existing item must
+    # not append a second creation event or second audit entries, or the history
+    # would claim the same item was created twice.
     if created? do
+      # `reason` is a stored marker meaning "the pipeline proposed this". It is
+      # read back by audits and regression tests, so changing the string rewrites
+      # how already-recorded history reads.
       create!(
         LifecycleEvent,
         :record,
@@ -568,6 +880,9 @@ defmodule Cartulary.Memory do
         actor
       )
 
+      # Audit carries the statement's hash, never the statement. Metadata is
+      # limited to ids and enumerated values for the same reason: the audit chain
+      # must stay readable by an operator who may not read the content itself.
       Audit.append!(actor, account_id, %{
         scope_id: knowledge.scope_id,
         category: "lifecycle",
@@ -590,10 +905,14 @@ defmodule Cartulary.Memory do
       })
     end
 
+    # The gate runs once, at creation. Corroborating an existing item must never
+    # re-open a decision a curator has already made about it.
     knowledge = if created?, do: Engine.evaluate_proposal(knowledge, actor), else: knowledge
     record_to_map(knowledge)
   end
 
+  # Stamping the completion time closes the message for the reconciler, which
+  # re-enqueues extraction for any raw message that never finished.
   defp mark_message_extracted!(account_id, actor, message_id) do
     message = read_one_by_id!(Message, message_id, account_id, actor)
 
@@ -605,6 +924,10 @@ defmodule Cartulary.Memory do
     |> Ash.update!(actor: actor)
   end
 
+  # Provenance is append-only, one row per knowledge item and source. Replaying an
+  # extraction finds the existing row instead of appending a duplicate, which
+  # matters because erasure and supersession count independent sources to decide
+  # whether a statement still has any surviving reason to exist.
   defp ensure_provenance!(account_id, actor, knowledge, message, item) do
     source_type = source_type(message)
 
@@ -641,14 +964,20 @@ defmodule Cartulary.Memory do
       )
   end
 
+  # A provenance row points at exactly one kind of origin, so the duplicate check
+  # has to compare the column matching that kind.
   defp provenance_source_filter(query, "message", id),
     do: Ash.Query.filter(query, message_id == ^id)
 
   defp provenance_source_filter(query, "document", id),
     do: Ash.Query.filter(query, document_version_id == ^id)
 
+  # Observations default to messages; only the document path tags itself.
   defp source_type(message), do: Map.get(message, "source_type", "message")
 
+  # One attribution per knowledge item, subject, and level. Idempotent for the
+  # same reason as provenance: a replay must not multiply the rows that say who a
+  # statement is about.
   defp ensure_attribution!(account_id, actor, knowledge, _message, _item, subject) do
     existing =
       Attribution
@@ -678,6 +1007,9 @@ defmodule Cartulary.Memory do
       )
   end
 
+  # Records how many items an extraction produced and passes the result through
+  # untouched, so a provider failure still reaches the caller as an error tuple
+  # that the durable job can retry on.
   defp record_extraction_result({:ok, knowledge}) do
     Observability.set_attribute(:memory, "cartulary.knowledge.created_count", length(knowledge))
     {:ok, knowledge}
@@ -685,6 +1017,9 @@ defmodule Cartulary.Memory do
 
   defp record_extraction_result({:error, error}), do: {:error, error}
 
+  # The extractor may only name a peer that already exists, so it is handed the
+  # Account's full key list. Sorted so the prompt is byte-stable between runs,
+  # which keeps recorded evaluation runs reproducible.
   defp known_peer_keys(account_id, actor) do
     Peer
     |> Ash.Query.sort(key: :asc)
@@ -693,6 +1028,14 @@ defmodule Cartulary.Memory do
     |> Enum.map(& &1.key)
   end
 
+  # Who a statement is about, resolved independently of who said it. The returned
+  # map also carries the `lock_key` fragment used to serialize concurrent writes
+  # about the same subject.
+  #
+  # `level` records how direct the claim is. It is "self" only when the subject is
+  # the speaker and the extractor did not flag the claim as second-hand;
+  # everything else is "hearsay". Downstream gating discounts hearsay, so
+  # collapsing the two would let a second-hand claim be treated as first-hand.
   defp resolve_subject!(account_id, actor, message, %{subject_type: "peer"} = item) do
     peer =
       Peer
@@ -701,6 +1044,9 @@ defmodule Cartulary.Memory do
       |> Ash.Query.set_tenant(account_id)
       |> Ash.read_one!(actor: actor)
 
+    # A subject the model invented fails the whole extraction rather than being
+    # quietly re-attributed to the speaker: knowledge filed under the wrong person
+    # is worse than no knowledge at all.
     if is_nil(peer), do: raise(ArgumentError, "structured extraction referenced an unknown peer")
 
     level =
@@ -711,6 +1057,8 @@ defmodule Cartulary.Memory do
     %{type: "peer", peer_id: peer.id, scope_id: nil, level: level, lock_key: "peer:#{peer.id}"}
   end
 
+  # A scope subject may only be the scope the observation happened in, so an
+  # extraction cannot write knowledge into a scope the speaker was not part of.
   defp resolve_subject!(_account_id, _actor, message, %{subject_type: "scope"} = item) do
     if item.subject_ref != message["scope_path"] do
       raise ArgumentError, "structured extraction referenced an unknown scope"
@@ -725,6 +1073,9 @@ defmodule Cartulary.Memory do
     }
   end
 
+  # Exactly one subject column is ever set. Both halves of each filter matter: a
+  # statement about a peer and a statement about a scope can share a text and a
+  # hash, and matching on only one column would merge two different claims.
   defp knowledge_subject_filter(query, %{type: "peer", peer_id: peer_id}) do
     Ash.Query.filter(query, subject_peer_id == ^peer_id and is_nil(subject_scope_id))
   end
@@ -733,6 +1084,7 @@ defmodule Cartulary.Memory do
     Ash.Query.filter(query, is_nil(subject_peer_id) and subject_scope_id == ^scope_id)
   end
 
+  # Same one-column-set rule as the knowledge filter, applied to attribution rows.
   defp attribution_subject_filter(query, %{type: "peer", peer_id: peer_id}) do
     Ash.Query.filter(query, target_peer_id == ^peer_id and is_nil(target_scope_id))
   end
@@ -741,6 +1093,13 @@ defmodule Cartulary.Memory do
     Ash.Query.filter(query, is_nil(target_peer_id) and target_scope_id == ^scope_id)
   end
 
+  # Context flows downward: a request for one scope path reads that scope and
+  # every ancestor along the path, so knowledge written high in the tree is
+  # visible in everything beneath it, while a sibling scope stays invisible.
+  #
+  # The read runs under the caller's own actor, so ancestors the caller has no
+  # role in are dropped by policy rather than filtered here. Results come back
+  # longest path first, which is the order a nearest-scope-wins reader expects.
   defp visible_scopes(account_id, actor, path, include_cross_links? \\ false) do
     ancestor_paths = path |> normalize_path() |> ancestor_paths()
 
@@ -751,6 +1110,10 @@ defmodule Cartulary.Memory do
       |> Ash.Query.set_tenant(account_id)
       |> Ash.read!(actor: actor)
 
+    # Cross-links are opt-in and never widen authorization: the relation rows and
+    # the linked scopes are both read under the caller's actor, so an endpoint the
+    # caller cannot reach simply does not come back. A link is a hint about where
+    # else to look, not a grant.
     if include_cross_links? do
       scope_ids = Enum.map(scopes, & &1.id)
 
@@ -783,6 +1146,11 @@ defmodule Cartulary.Memory do
     |> Ash.read_one!(actor: actor)
   end
 
+  # Every durable write in this module goes through here so two things are always
+  # set before the action runs: the tenant, which pins the Account for Ash
+  # multitenancy, and the Cartulary actor in the changeset context, which the
+  # after-action changes (audit chaining and job enqueue) fall back to when the
+  # action's own context does not carry an actor.
   defp create!(resource, action, attrs, account_id, actor) do
     resource
     |> Ash.Changeset.new()
@@ -792,6 +1160,12 @@ defmodule Cartulary.Memory do
     |> Ash.create!(actor: actor)
   end
 
+  # Account selection, most trusted source first. Only a real `Cartulary.Actor`
+  # struct matches the first clause, and decoded JSON can never produce a struct,
+  # so a request body cannot smuggle an identity in under this key. The key and id
+  # clauses are internal adapters for background work and evaluation runs. The
+  # final clause refuses instead of defaulting to some Account, because guessing
+  # here would breach the isolation wall between Accounts.
   defp with_account(%{"_cartulary_actor" => %Actor{} = actor}, fun),
     do: DataLayer.with_actor(actor, fun)
 
@@ -806,11 +1180,19 @@ defmodule Cartulary.Memory do
           "an authenticated identity actor or internal account adapter is required"
   end
 
+  # Overwrites any inbound value under this key, so an authenticated call always
+  # runs as the actor the request edge resolved and never as anything the payload
+  # happened to contain.
   defp put_identity_actor(attrs, %Actor{} = actor),
     do: Map.put(attrs, "_cartulary_actor", actor)
 
   defp put_identity_actor(attrs, _actor), do: attrs
 
+  # Visibility rule for the default listing. Provisional knowledge is usable only
+  # by the peer it is about, so an authenticated caller sees active items plus its
+  # own provisional ones. An internal actor with no peer (jobs, evaluation runs)
+  # sees every provisional item. Any explicitly requested state matches exactly,
+  # with no provisional widening.
   defp knowledge_read_query(scope_ids, "active", %{peer_id: peer_id})
        when is_binary(peer_id) do
     KnowledgeItem
@@ -833,6 +1215,10 @@ defmodule Cartulary.Memory do
   defp identity_actor(%{"_cartulary_actor" => %Actor{} = actor}), do: actor
   defp identity_actor(_attrs), do: nil
 
+  # The serialization boundary of this module: only attributes the resource marks
+  # public ever leave. Internal columns such as the Account id and content hashes
+  # are absent by construction, which also means that marking a new resource
+  # attribute public publishes it on the API in the same commit.
   defp record_to_map(record) do
     record.__struct__
     |> Ash.Resource.Info.public_attributes()
@@ -841,10 +1227,14 @@ defmodule Cartulary.Memory do
     |> Map.new(fn {key, value} -> {Atom.to_string(key), value} end)
   end
 
+  # Nothing retrieved means nothing to ground an answer in, so abstain without
+  # spending a model call.
   defp answer_question(_attrs, question, []), do: {fallback_answer(question, []), false}
 
   defp answer_question(attrs, question, candidates) do
     with_account(attrs, fn account, actor ->
+      # The answering model role is resolved against a scope, so the top-ranked
+      # candidate's scope stands in for "where this question is being asked".
       context = %{
         account_id: account.id,
         scope_id: candidates |> List.first() |> Map.get("scope_id"),
@@ -856,6 +1246,9 @@ defmodule Cartulary.Memory do
 
       provider = Cartulary.Model.Gateway.provider_module(config, context)
 
+      # A deployment whose answering role is still the built-in deterministic
+      # provider, with no real provider injected, answers from the retrieved
+      # statements instead of pretending to reason.
       if Cartulary.Model.Config.local_fallback?(config) and
            is_nil(provider_override(provider)) do
         {fallback_answer(question, candidates), false}
@@ -865,6 +1258,13 @@ defmodule Cartulary.Memory do
     end)
   end
 
+  # Builds the grounded question prompt and validates what comes back.
+  #
+  # Every statement is prefixed with its knowledge id so the model can cite by id,
+  # and nothing beyond the retrieved statements enters the prompt — the model is
+  # never given free rein over the Account's memory. The call goes through the
+  # model gateway rather than a provider directly, which is what keeps usage
+  # accounting, provenance, and provider choice in one place.
   defp model_answer(question, candidates, model_context) do
     memory_context =
       candidates
@@ -895,9 +1295,14 @@ defmodule Cartulary.Memory do
 
     case result do
       {:ok, decoded, _provenance} ->
+        # Second grounding check. The model was shown only these statements, but
+        # nothing stops it from returning an id it invented, so every citation is
+        # intersected with what was actually retrieved.
         cited_ids = candidates |> MapSet.new(& &1["id"])
         citations = Enum.filter(decoded.citations, &MapSet.member?(cited_ids, &1))
 
+        # An answer with no surviving citation is unsupported prose, so it is
+        # replaced by an abstention rather than returned uncited.
         if decoded.abstained or citations == [] do
           fallback_answer(question, [])
         else
@@ -908,18 +1313,30 @@ defmodule Cartulary.Memory do
           }
         end
 
+      # A provider error degrades to the retrieved statements. It does not retry
+      # with a different provider, and it does not raise: the caller still gets a
+      # cited, if blunt, answer.
       {:error, _error} ->
         fallback_answer(question, candidates)
     end
   end
 
+  # The deterministic provider is the built-in default, not a deliberate choice,
+  # so it does not count as an override. Only a real provider module injected
+  # through configuration or call context does.
   defp provider_override(Cartulary.Model.Providers.Deterministic), do: nil
   defp provider_override(provider), do: provider
 
+  # Model-free answers. With no candidates the only honest reply is an
+  # abstention; with candidates, the highest-ranked statements are concatenated
+  # and each one is cited, so even the fallback answer stays traceable to the
+  # knowledge it came from.
   defp fallback_answer(_question, []),
     do: %{"answer" => "not known", "citations" => [], "abstained" => true}
 
   defp fallback_answer(_question, candidates) do
+    # Four statements: enough to cover a typical question while keeping the reply
+    # short enough to read.
     top = Enum.take(candidates, 4)
 
     %{
@@ -929,20 +1346,34 @@ defmodule Cartulary.Memory do
     }
   end
 
+  # Anything unrecognized widens to every target rather than failing, because the
+  # value may arrive from request params on the general search path.
   defp retrieval_target("knowledge"), do: :knowledge
   defp retrieval_target("documents"), do: :documents
   defp retrieval_target(:knowledge), do: :knowledge
   defp retrieval_target(:documents), do: :documents
   defp retrieval_target(_target), do: :all
 
+  # Only the top level. The candidate maps underneath already carry string keys
+  # from retrieval, and walking them again would rebuild every row for nothing.
   defp stringify_top_level(map) do
     Map.new(map, fn {key, value} -> {to_string(key), value} end)
   end
 
+  # Callers arrive in both shapes: request params are string-keyed, internal
+  # callers and tests use atoms. Everything downstream reads string keys only.
   defp normalize_attrs(attrs) when is_map(attrs) do
     Map.new(attrs, fn {key, value} -> {to_string(key), value} end)
   end
 
+  # "/poc" is the scope path used when a request names none, when it names the
+  # bare root, or when it sends something that is not a string. It is a historical
+  # default that existing deployments, recorded evaluation fixtures, and the
+  # frozen request contract all depend on: changing it moves where unlabelled
+  # observations land, so it is a deliberate behaviour change, not tidying.
+  #
+  # A path missing its leading slash gets one, so "team/x" and "/team/x" name the
+  # same scope instead of creating two.
   defp normalize_path(path) when is_binary(path) do
     path
     |> String.trim()
@@ -956,6 +1387,9 @@ defmodule Cartulary.Memory do
 
   defp normalize_path(_path), do: "/poc"
 
+  # Pairs each path segment with its full path, outermost first: "/a/b" becomes
+  # [{"a", "/a"}, {"b", "/a/b"}]. Scope creation needs the pairs to build parents
+  # before children; ancestor lookup needs the paths.
   defp scope_segments(path) do
     path
     |> String.split("/", trim: true)
@@ -966,12 +1400,17 @@ defmodule Cartulary.Memory do
     |> elem(1)
   end
 
+  # Every path from the outermost scope down to the requested one — exactly the
+  # set a downward-inheriting read has to include.
   defp ancestor_paths(path) do
     path
     |> scope_segments()
     |> Enum.map(fn {_segment, segment_path} -> segment_path end)
   end
 
+  # A missing or unusable event time becomes "now" instead of rejecting the
+  # observation: clients often have no reliable clock, and the row's own insertion
+  # timestamp still records when the system learned of it.
   defp coerce_datetime!(nil), do: Clock.utc_now()
   defp coerce_datetime!(%DateTime{} = datetime), do: datetime
 
@@ -984,6 +1423,9 @@ defmodule Cartulary.Memory do
 
   defp coerce_datetime!(_value), do: Clock.utc_now()
 
+  # Query-string values arrive as strings. A value that is not cleanly numeric
+  # falls back to the default (or to no filter) rather than failing the request;
+  # these are all tuning knobs, not statements about what the caller may see.
   defp parse_int(value, _default) when is_integer(value), do: value
 
   defp parse_int(value, default) when is_binary(value) do
@@ -995,6 +1437,8 @@ defmodule Cartulary.Memory do
 
   defp parse_int(_value, default), do: default
 
+  # An absent or unparseable score floor means "no floor", not zero: zero would be
+  # a real threshold and would silently change which candidates survive.
   defp parse_float(nil), do: nil
   defp parse_float(value) when is_float(value), do: value
   defp parse_float(value) when is_integer(value), do: value * 1.0
@@ -1008,6 +1452,8 @@ defmodule Cartulary.Memory do
 
   defp parse_float(_value), do: nil
 
+  # An absent or unparseable belief-time cutoff means "no cutoff", so a malformed
+  # value widens the result rather than quietly pinning it to some arbitrary date.
   defp parse_datetime(nil), do: nil
   defp parse_datetime(%DateTime{} = datetime), do: datetime
 

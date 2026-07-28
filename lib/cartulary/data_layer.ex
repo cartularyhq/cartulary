@@ -2,13 +2,50 @@
 
 defmodule Cartulary.DataLayer do
   @moduledoc """
-  Infrastructure boundary for Account-scoped Ash transactions and PostgreSQL RLS.
+  Opens the Account-scoped database transaction that every durable write runs inside.
 
-  The Account comes from an authenticated actor (or a named internal
-  compatibility adapter), is installed as both the Ash actor/tenant and
-  transaction-local PostgreSQL settings, and cannot be overridden by action
-  input. F2 uses this same transaction for domain writes, hash-chain audit,
-  durable pipeline identities, and AshOban enqueue effects.
+  Cross-Account isolation is absolute, and this module is where that wall is
+  built. Each helper here does the same three things in the same order: start a
+  database transaction, install the Account into transaction-local PostgreSQL
+  settings, and hand the caller a `Cartulary.Actor` bound to that Account. Only
+  then does the caller's function run.
+
+  ## Two independent locks on the same door
+
+  The Ash actor and tenant filter every query in application code. Underneath,
+  PostgreSQL row-level security is enabled *and forced* on the Accounts table
+  and on every table carrying an `account_id`, and those database policies
+  compare each row against the settings installed here. A query that somehow
+  escaped the Ash filters would still come back empty. Neither layer is
+  redundant: the database one is the backstop for exactly the mistakes the
+  application layer is capable of making.
+
+  The settings are written with the transaction-local flag, so they vanish when
+  the transaction ends. That matters with a connection pool — a leaked
+  session-level setting would silently hand the next checkout of that
+  connection somebody else's Account.
+
+  ## The Account is derived, never requested
+
+  Every entry point takes its Account from an authenticated actor, from an
+  internal caller that already resolved one, or from a configured single-Account
+  install. None of them accept an Account from request input. Adding such a path
+  would make the isolation wall a request parameter.
+
+  ## One transaction per operation
+
+  The function passed in runs inside the transaction, so a domain write, its
+  audit entry, its durable idempotency record, and its queued follow-up job
+  either all commit or all roll back. The job queue runs on the same PostgreSQL
+  database precisely so that enqueue can join this transaction; work is never
+  scheduled for an observation that was not stored. Do not enqueue jobs, write
+  audit rows, or call an external provider from inside the callback in a way
+  that cannot be undone by a rollback.
+
+  Every helper raises on failure rather than returning an error tuple, because a
+  half-applied Account-scoped operation is not something a caller can sensibly
+  recover from. The raised message embeds the inspected error, so treat it as
+  operator diagnostics rather than as something safe to echo back to a caller.
   """
 
   alias Cartulary.Accounts.Account
@@ -17,7 +54,25 @@ defmodule Cartulary.DataLayer do
 
   require Ash.Query
 
-  # Static bootstrap lookup retained inside the infrastructure boundary.
+  @doc """
+  Looks up which Account owns a raw message, by message id.
+
+  This exists to break a chicken-and-egg problem: opening an Account-scoped
+  transaction requires knowing the Account, and an internal caller handed only a
+  message id does not yet know it. So this one read deliberately runs *outside*
+  such a transaction, before the Account settings exist.
+
+  It is raw SQL rather than an Ash query for the same reason — there is no actor
+  to authorize it with yet. That is why it lives in this infrastructure module,
+  why the statement is a fixed string with the id passed as a bound parameter
+  rather than interpolated, and why it reads one column and writes nothing. No
+  externally authenticated request reaches it: an HTTP caller's Account already
+  comes from its credential.
+
+  Returns the Account key. Raises `Ecto.NoResultsError` when no such message
+  exists, which is the correct outcome — a caller that cannot identify the
+  Account must not proceed.
+  """
   # sobelow_skip ["SQL.Query"]
   def message_account_key!(message_id) do
     sql = """
@@ -33,6 +88,31 @@ defmodule Cartulary.DataLayer do
     end
   end
 
+  @doc """
+  Runs `fun` in a transaction scoped to the Account with this operator-visible key,
+  creating that Account if it does not exist yet.
+
+  This is the internal path — background extraction, the evaluation harness,
+  migration compatibility — where the caller identifies an Account by its key
+  rather than by an authenticated credential. It is not reachable from an HTTP
+  request, and it must stay that way: letting a caller name its own Account key
+  would put Account selection back into request input.
+
+  `actor_overrides` is merged into the actor handed to `fun`, and is how the
+  pipeline asks for `role: :system` and `pipeline?: true`. Those flags unlock
+  writing knowledge and erasing rows, so pass them only from internal code.
+
+  `fun` receives the Account record and the actor, and its return value becomes
+  this function's return value. The Account row is upserted before the callback
+  runs, under a bootstrap actor that can only match the very key already pinned
+  for this transaction. No display name is accepted here: one is derived from
+  the key by replacing dashes and underscores with spaces.
+
+  Never returns an error tuple. A rolled-back transaction is re-raised here as a
+  `RuntimeError` naming the inspected cause, and an exception raised inside
+  `fun` propagates unchanged; either way everything the callback wrote is rolled
+  back with it.
+  """
   def with_account_key(account_key, actor_overrides \\ [], fun)
       when is_binary(account_key) and is_function(fun, 2) do
     case Repo.transaction(fn ->
@@ -55,6 +135,21 @@ defmodule Cartulary.DataLayer do
     end
   end
 
+  @doc """
+  Runs `fun` in a transaction scoped to this install's single community Account,
+  provisioning that Account if it is not there yet.
+
+  The community build hosts exactly one Account, whose key and name come from
+  configuration rather than from a caller. This is the first-run path: it claims
+  the community edition slot, which a partial unique index in the database
+  allows only once, so a second attempt to provision a different Account fails
+  at the database rather than quietly creating a second tenant.
+
+  `fun` receives the Account and a `:system`-role actor and its result is
+  returned. Raises when provisioning or the callback fails. Use the
+  existing-Account variant for anything that must not create an Account as a
+  side effect.
+  """
   def with_free_account(fun) when is_function(fun, 2) do
     identity_config = Application.fetch_env!(:cartulary, :identity)
     account_key = Keyword.fetch!(identity_config, :account_key)
@@ -80,6 +175,21 @@ defmodule Cartulary.DataLayer do
     end
   end
 
+  @doc """
+  Runs `fun` against the community Account, requiring that it already exists.
+
+  The non-provisioning counterpart: operator tooling, archive export, and
+  administrative commands need the configured Account but must never bring one
+  into existence as a side effect of being run against the wrong database. The
+  lookup matches both the configured key and the community edition slot, so an
+  Account that happens to share the key but was never provisioned as the
+  community one does not answer here. The callback may still write; what is
+  ruled out is creating the Account.
+
+  `fun` receives the Account and a `:system`-role actor. Raises
+  `Ecto.NoResultsError` when the Account is absent, which is the signal that the
+  install has not been provisioned yet.
+  """
   def with_existing_free_account(fun) when is_function(fun, 2) do
     identity_config = Application.fetch_env!(:cartulary, :identity)
     account_key = Keyword.fetch!(identity_config, :account_key)
@@ -104,6 +214,23 @@ defmodule Cartulary.DataLayer do
     end
   end
 
+  @doc """
+  Runs `fun` in a transaction scoped to an Account already known by id.
+
+  The path taken by queued work and by internal callers that resolved the
+  Account earlier: a job row carries the Account id, so re-deriving it from the
+  message would be wasted work. Only the id setting is installed, not the key —
+  the key setting exists solely for bootstrapping an Account that has no id yet.
+
+  `actor_overrides` is merged into the actor handed to `fun`; queued pipeline
+  work passes `role: :system, pipeline?: true` here. The Account row is loaded
+  with an internal actor built for that id, so the callback receives a real
+  Account record rather than just the id it was given.
+
+  Raises when the transaction fails. An id that matches no Account also raises,
+  but not gracefully: this helper expects ids that came from the system itself,
+  never from caller input.
+  """
   def with_account_id(account_id, actor_overrides \\ [], fun)
       when is_binary(account_id) and is_function(fun, 2) do
     case Repo.transaction(fn ->
@@ -130,6 +257,21 @@ defmodule Cartulary.DataLayer do
     end
   end
 
+  @doc """
+  Runs `fun` in a transaction scoped to an already-authenticated caller's Account.
+
+  This is the request path. The actor arrives fully resolved from
+  authentication — its Account, peer, credential kind, and per-scope roles were
+  all decided before this call — and it is passed through to `fun` untouched.
+  Nothing here widens it, which is the point: an HTTP request must act with
+  exactly the authority its credential resolved to.
+
+  The Account row is read with that same caller actor, so an actor pointing at
+  an Account its policies do not permit gets nothing back rather than a
+  privileged read.
+
+  Raises when the transaction fails.
+  """
   def with_actor(%Actor{account_id: account_id} = actor, fun)
       when is_binary(account_id) and is_function(fun, 2) do
     case Repo.transaction(fn ->
@@ -147,6 +289,19 @@ defmodule Cartulary.DataLayer do
     end
   end
 
+  # Restores a verified archive into a fresh Account, in one transaction.
+  #
+  # Kept out of the public documentation because nothing outside the archive
+  # importer may call it: the actor it builds carries the `:system` role, sees
+  # every scope, and has the pipeline flag set, which together unlock the
+  # private restore actions that write ids, timestamps, and lifecycle history
+  # verbatim. Both Account settings are installed because a restore touches the
+  # Accounts row itself as well as its tenanted tables.
+  #
+  # The whole restore is one transaction on purpose: a partially imported
+  # Account would carry an audit chain that no longer verifies. Validation of
+  # the archive — checksums, counts, blob hashes, the audit chain — happens
+  # before this is called, not inside it.
   @doc false
   def with_portability_import(account_id, account_key, fun)
       when is_binary(account_id) and is_binary(account_key) and is_function(fun, 1) do
@@ -172,6 +327,13 @@ defmodule Cartulary.DataLayer do
     end
   end
 
+  # The two settings the database's row-level security policies read. The third
+  # argument to `set_config` is what makes them transaction-local: they are
+  # discarded at commit or rollback, so a pooled connection can never carry one
+  # Account's setting into the next caller's work.
+  #
+  # The key setting only matters while bootstrapping — the Accounts row can be
+  # matched by key before its id is known. Every other table is matched by id.
   defp set_account_key!(account_key) do
     Ecto.Adapters.SQL.query!(
       Repo,
@@ -188,5 +350,7 @@ defmodule Cartulary.DataLayer do
     )
   end
 
+  # Display name for an Account created by key alone: the key with separators
+  # turned into spaces. A cosmetic default, editable afterwards.
   defp account_name(account_key), do: String.replace(account_key, ~r/[-_]+/, " ")
 end

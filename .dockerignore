@@ -1,9 +1,22 @@
 # SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+#
+# Build context exclusions for the production image. Everything listed here is
+# either a secret, host-specific, rebuilt inside the image anyway, or not
+# needed at runtime. A small context also keeps layer caching useful.
+
+# Never ship VCS history or local credentials into an image layer.
 .git
 .env
+
+# Rebuilt inside the image; host artefacts would be the wrong OS/architecture.
 _build
 deps
+
+# Dialyzer PLTs: large, machine-specific, and only used by static analysis.
 priv/plts
+
+# Documentation, tests, and the SDK helper sources are not part of the running
+# release. The container serves the API; it does not run the test suite.
 docs
 test
 sdk

@@ -1,4 +1,17 @@
 # SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+#
+# OpenTelemetry Collector configuration for the local development stack in
+# dev/observability/docker-compose.yml. Not used by any release or container
+# build.
+#
+# Input:  OTLP on gRPC (4317) and HTTP (4318). The development compose file
+#         publishes only the HTTP port to the host, so that is the one the
+#         application sends to.
+# Output: traces to Jaeger, metrics to a Prometheus scrape endpoint, and a
+#         low-verbosity copy of both to the collector's stdout for debugging.
+#
+# The collector performs no redaction. It is safe here only because Cartulary
+# emits content-safe spans in the first place.
 
 receivers:
   otlp:
@@ -9,20 +22,30 @@ receivers:
         endpoint: 0.0.0.0:4318
 
 processors:
+  # Sheds load rather than letting the collector be OOM-killed mid-run, which
+  # would silently drop spans. 512 MiB is generous for a laptop; the 128 MiB
+  # spike allowance absorbs bursts from a batch eval run.
   memory_limiter:
     check_interval: 5s
     limit_mib: 512
     spike_limit_mib: 128
+  # One second is short enough that a trace shows up in Jaeger while you are
+  # still looking at the request that produced it.
   batch:
     timeout: 1s
     send_batch_size: 1024
 
 exporters:
+  # basic verbosity prints one summary line per batch. Raising it dumps whole
+  # spans to the container log, so leave it alone unless you are debugging the
+  # collector itself.
   debug:
     verbosity: basic
   otlp/jaeger:
     endpoint: jaeger:4317
     tls:
+      # Plaintext is acceptable only because both ends live on the private
+      # Compose network on a developer machine.
       insecure: true
   prometheus:
     endpoint: 0.0.0.0:8889

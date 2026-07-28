@@ -2,11 +2,56 @@
 
 defmodule Cartulary.Model do
   @moduledoc """
-  Provider-neutral model capabilities and the Ash domain for versioned role
-  configuration.
+  The public face of the model layer: provider-neutral capabilities plus the Ash
+  domain that stores versioned per-Account role configuration.
 
-  All model calls enter through this module so provider selection, provenance,
-  usage metering, and test injection have one boundary.
+  ## Why this module exists
+
+  Every call to a language, embedding, or rerank model in Cartulary goes through
+  this layer — either this module or `Cartulary.Model.Gateway`, which it
+  delegates to. Pipeline, retrieval, governance, and web code must never reach
+  for a provider SDK, an HTTP client, or a model API key directly. Funnelling
+  everything through one boundary is what makes four things possible at once:
+
+  - **Provenance.** Every produced artifact can record the exact provider,
+    model, model version, prompt version, and pipeline version that made it.
+  - **Metering.** Exactly one place appends a durable usage record per call.
+  - **Substitution.** A deployment can point a role at a self-hosted or any
+    OpenAI-compatible endpoint without touching call sites.
+  - **Determinism in tests.** Injecting one provider module replaces extraction,
+    reasoning, dialectic answers, embeddings, and reranking together.
+
+  ## The four roles
+
+  There are exactly four Account-level model roles, and adding a fifth is a
+  deliberate design change, not a local convenience:
+
+  - `:embedder` — pinned vector generation. Defaults to a local ONNX model.
+  - `:ingest_extractor` — fast structured extraction of observations.
+  - `:dream_reasoner` — slow background reasoning, and reranking.
+  - `:dialectic_agent` — grounded structured answers to questions.
+
+  Per-scope role overrides are deliberately not implemented: a role resolves at
+  the Account level only.
+
+  ## The context map
+
+  Every capability takes a `context` map. It carries `:account_id`, `:actor`,
+  and optionally `:scope_id`, `:peer_id`, and `:model_provider`. `:account_id`
+  and `:actor` are what let configuration lookup and usage recording stay inside
+  the calling Account's tenant; without them the layer falls back to runtime
+  defaults and skips durable metering, which is correct for offline tooling but
+  never for a request served on behalf of a caller.
+
+  ## Mistakes to avoid
+
+  - Do not call a `Cartulary.Model.Provider` callback yourself.
+    `Cartulary.Model.Gateway` is the only permitted caller of a provider module.
+  - Do not treat a provider error as an occasion to substitute made-up output.
+    Errors propagate so the durable job retries; the raw observation and the
+    queued work stay intact.
+  - Do not persist a raw API key in role options. Only a reference such as the
+    name of an environment variable holding the key may be stored.
   """
 
   use Ash.Domain
@@ -15,27 +60,100 @@ defmodule Cartulary.Model do
     resource Cartulary.Model.ModelRoleConfig
   end
 
+  @doc """
+  Resolves the pinned configuration for one model role.
+
+  Accepts a role atom or one of the short aliases, and the caller context map.
+  Returns a `Cartulary.Model.Config.Role` struct describing provider, model,
+  versions, and options. Raises `ArgumentError` for an unknown role name.
+  """
   defdelegate role_config(role, context), to: Cartulary.Model.Config, as: :resolve
 
+  @doc """
+  Runs one structured generation with bounded validate-and-repair.
+
+  `schema` is a module implementing `Cartulary.Model.Schema`; its JSON schema is
+  sent to the provider and its `cast/2` validates what comes back. Returns
+  `{:ok, casted_value, provenance_map}` where the provenance map carries
+  provider, model, model version, prompt version, and pipeline version for
+  stamping onto whatever the caller persists.
+
+  Returns `{:error, {:structured_validation_failed, errors}}` when the model
+  cannot produce schema-valid output within the repair budget, or
+  `{:error, reason}` for a provider failure. Malformed output is never coerced
+  into knowledge.
+  """
   defdelegate generate_structured(role, messages, schema, context, opts \\ []),
     to: Cartulary.Model.StructuredGenerator,
     as: :generate
 
+  @doc """
+  Runs one free-text chat completion for a role.
+
+  Returns `{:ok, text, provenance_map}` or `{:error, reason}`. Prefer
+  `generate_structured/5` for anything whose output is parsed: unconstrained
+  text has no validation gate behind it.
+  """
   defdelegate chat(role, messages, context, opts \\ []), to: Cartulary.Model.Gateway
+
+  @doc """
+  Embeds a list of texts with the Account's pinned `:embedder` role.
+
+  Returns `{:ok, %Cartulary.Model.Embedding.Result{}}` carrying the vectors
+  together with the provider, model, version, and dimension identity that
+  produced them; a caller storing vectors must store that identity alongside
+  them. Pass `:stored_identity` in `opts` when re-using existing vectors so a
+  changed embedder is reported as `{:error, {:reembed_required, plan}}` instead
+  of silently mixing incompatible vector spaces.
+  """
   defdelegate embed(texts, context, opts \\ []), to: Cartulary.Model.Embedding
+
+  @doc """
+  Reranks candidate documents against a query using the `:dream_reasoner` role.
+
+  Returns `{:ok, ranked, provenance_map}` where `ranked` is the provider's
+  result list, or `{:error, reason}`. Reranking is an optional quality step:
+  callers are expected to keep their pre-rerank ordering when this errors rather
+  than failing the whole retrieval.
+  """
   defdelegate rerank(query, documents, context, opts \\ []), to: Cartulary.Model.Gateway
 end
 
 defmodule Cartulary.Model.ValidateSecretReferences do
-  @moduledoc false
+  @moduledoc """
+  Ash validation that keeps raw credentials out of persisted model role options.
+
+  Role configuration is durable, included in an Account archive, and readable by
+  any actor in the Account, so it may hold only a *reference* to a credential —
+  for example the name of an environment variable that holds an API key — never
+  the credential itself. This validation rejects a change whose `options` map
+  contains, at any nesting depth, a key that looks like a place someone would
+  paste a live secret.
+
+  Matching is on the key name only, normalized to lowercase with dashes and
+  underscores removed, so `api_key`, `API-KEY`, and `apiKey` are all caught. A
+  reference key such as `api_key_ref` does not normalize to a forbidden name and
+  is therefore allowed, which is exactly the intent: keep the pointer, drop the
+  secret. Values are never inspected, so nothing secret is read or logged here.
+  """
 
   use Ash.Resource.Validation
 
+  # Normalized (lowercased, dash/underscore-stripped) key names that indicate a
+  # live credential rather than a reference to one.
   @raw_secret_keys ~w(apikey authorization password secret token accesstoken authtoken bearer)
 
+  @doc """
+  Validation setup callback. Options are unused and returned unchanged.
+  """
   @impl true
   def init(opts), do: {:ok, opts}
 
+  @doc """
+  Returns `:ok` when the changeset's `options` map holds no raw-credential key,
+  and an error on `:options` otherwise. A missing `options` map is treated as
+  empty and passes.
+  """
   @impl true
   def validate(changeset, _opts, _context) do
     options = Ash.Changeset.get_attribute(changeset, :options) || %{}
@@ -47,6 +165,8 @@ defmodule Cartulary.Model.ValidateSecretReferences do
     end
   end
 
+  # Descends through nested maps and lists: a secret pasted one level down, for
+  # example under a per-provider sub-map, must be caught just the same.
   defp raw_secret_key?(map) when is_map(map) do
     Enum.any?(map, fn {key, value} ->
       normalized =
@@ -64,10 +184,54 @@ defmodule Cartulary.Model.ValidateSecretReferences do
 end
 
 defmodule Cartulary.Model.ModelRoleConfig do
-  @moduledoc false
+  @moduledoc """
+  One durable, versioned model-role configuration row for an Account.
+
+  A row says: "for this Account, the role named `role` is served by `provider`
+  with `model` at `model_version`, using these options." When an active row
+  exists it wins over the compiled-in runtime defaults; when none exists the
+  runtime defaults apply. Only one of the four supported role names is
+  accepted — `embedder`, `ingest_extractor`, `dream_reasoner`,
+  `dialectic_agent` — and the same list is enforced on both create and update.
+
+  ## Versioning rather than mutation
+
+  Rows carry an integer `version` and an `active` flag, and resolution reads the
+  highest-versioned active row. Publishing a new configuration by inserting a
+  higher version keeps the older row available as an explanation of how
+  previously stored artifacts were produced. Nothing in the system rewrites
+  history to match a new configuration.
+
+  ## Fields that are contract identities
+
+  `model_version`, `prompt_version`, and `pipeline_version` are provenance, not
+  decoration. They are copied onto knowledge, provenance records, usage events,
+  and evaluation reports, and quality comparisons across runs are only
+  meaningful when they are accurate. `pipeline_version` defaults to the string
+  `"f5-1"`, which versions the extractor-and-pipeline identity that the health
+  endpoint reports; changing that string is a deliberate contract transition
+  that obliges a maintainer to add a changelog entry and refresh the contract
+  regression evidence.
+
+  For the `embedder` role, provider, model, `model_version`, and
+  `embedding_dimensions` together form the identity stamped on every stored
+  vector. Any change to the ONNX artifact, tokenizer, pooling strategy, or
+  width must bump `model_version`, because a stored vector is only reusable
+  when all four parts match.
+
+  ## Mistakes to avoid
+
+  - Never store a live API key in `options`. Store a reference such as the name
+    of the environment variable holding it; a validation enforces this.
+  - Do not edit a row in place to "just try another model" in a deployment that
+    already has stored vectors or extracted knowledge. Insert a new version so
+    provenance stays truthful.
+  """
 
   use Cartulary.Resource, domain: Cartulary.Model, table: "model_role_configs"
 
+  # Account isolation: every read and write is filtered to the tenant Account.
+  # No request parameter can select a different Account's model configuration.
   multitenancy do
     strategy :attribute
     attribute :account_id
@@ -76,6 +240,8 @@ defmodule Cartulary.Model.ModelRoleConfig do
   actions do
     defaults [:read]
 
+    # Publishes a configuration. `role` is accepted only here, never on update,
+    # so a row cannot be repurposed from one role to another after the fact.
     create :create do
       accept [
         :scope_id,
@@ -91,11 +257,19 @@ defmodule Cartulary.Model.ModelRoleConfig do
         :active
       ]
 
+      # Exactly four roles exist. A typo must fail loudly rather than create a
+      # row that nothing will ever resolve.
       validate attribute_in(:role, ~w(embedder ingest_extractor dream_reasoner dialectic_agent))
+      # Options may hold credential references only, never credentials.
       validate Cartulary.Model.ValidateSecretReferences
     end
 
+    # Adjusts an existing configuration in place. `role`, `account_id`, and
+    # `scope_id` are intentionally not accepted: a row keeps the identity it was
+    # created with.
     update :update do
+      # Non-atomic because the secret-reference validation must inspect the
+      # merged `options` map in Elixir rather than as a database expression.
       require_atomic? false
 
       accept [
@@ -116,10 +290,15 @@ defmodule Cartulary.Model.ModelRoleConfig do
   end
 
   policies do
+    # Applies to every action including reads: an actor may only ever touch rows
+    # belonging to its own Account.
     policy always() do
       authorize_if expr(account_id == ^actor(:account_id))
     end
 
+    # Choosing which provider and model an Account uses is an administrative
+    # decision. Ordinary members and readers may not change it; the internal
+    # `:system` actor may, which is what lets an archive import restore a row.
     policy action_type([:create, :update, :destroy]) do
       authorize_if {Cartulary.Policy.RoleIn, roles: [:account_admin, :system]}
     end
@@ -128,17 +307,32 @@ defmodule Cartulary.Model.ModelRoleConfig do
   attributes do
     uuid_primary_key :id
     attribute :account_id, :uuid, allow_nil?: false
+    # Reserved for future per-scope overrides. Resolution today reads only rows
+    # where this is nil, so a non-nil value is stored but never selected.
     attribute :scope_id, :uuid
 
     attribute :role, :string, allow_nil?: false, public?: true
 
     attribute :provider, :string, allow_nil?: false, public?: true
     attribute :model, :string, allow_nil?: false, public?: true
+    # Provenance strings. "unversioned" is the honest default for hosted
+    # aggregators that expose no stable build id; "none" means the role uses no
+    # prompt template at all, which is the normal case for an embedder.
     attribute :model_version, :string, allow_nil?: false, default: "unversioned", public?: true
     attribute :prompt_version, :string, allow_nil?: false, default: "none", public?: true
+    # Contract identity value: "f5-1" versions the extractor and pipeline
+    # identity reported by the health endpoint. Changing it requires a changelog
+    # entry and refreshed contract evidence.
     attribute :pipeline_version, :string, allow_nil?: false, default: "f5-1", public?: true
+    # Vector width, in floats per vector. Meaningful for the embedder role only,
+    # and must equal both the model's real output width and the width of the
+    # installed vector indexes.
     attribute :embedding_dimensions, :integer, constraints: [min: 1], public?: true
+    # Provider-specific settings such as a base URL, request limits, local
+    # artifact paths, and credential *references*. Never raw credentials.
     attribute :options, :map, allow_nil?: false, default: %{}
+    # Monotonic publication counter. Resolution takes the highest active
+    # version, so superseded rows stay readable as provenance.
     attribute :version, :integer, allow_nil?: false, default: 1, public?: true
     attribute :active, :boolean, allow_nil?: false, default: true, public?: true
     create_timestamp :inserted_at
@@ -146,6 +340,10 @@ defmodule Cartulary.Model.ModelRoleConfig do
   end
 
   identities do
+    # Unique on Account, scope, role, and version — the Account column comes
+    # from the attribute multitenancy above. Nulls count as distinct in the
+    # generated index, so it does not constrain the unscoped rows that
+    # resolution actually reads.
     identity :scope_role_version, [:scope_id, :role, :version]
   end
 end

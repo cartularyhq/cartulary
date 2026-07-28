@@ -1,9 +1,17 @@
 # Cartulary CODEOWNERS
 #
-# Issue #10 requires the core team to own the whole repository and highlights
+# Purpose: the core team owns every path in this repository, and the
 # security-, tenancy-, audit-, ledger-, pipeline-, release-, migration-, and
-# automation-sensitive paths for human review once GitHub CODEOWNER approval is
-# enabled.
+# automation-sensitive paths are called out again so they keep a named human
+# reviewer if ownership is ever narrowed.
+#
+# This file only takes effect once "Require review from Code Owners" is enabled
+# on the branch protection rule for main. The presence of the file is not
+# evidence that the rule is on.
+#
+# Some patterns below match directories that do not exist yet. That is
+# intentional: they claim the path in advance, so a future
+# lib/cartulary/policies/ cannot land without the named reviewers.
 
 # Core ownership for every path. Keep this before narrower rules; GitHub uses
 # the last matching pattern, so each sensitive override repeats the core owner.
@@ -17,8 +25,8 @@
 AGENTS.md @cartularyhq/core @aleksei-s-popov
 CONTRIBUTING.md @cartularyhq/core @aleksei-s-popov
 
-# Architecture, ADRs, blueprints, roadmap, security, and eval governance docs.
-blueprint/ @cartularyhq/core @aleksei-s-popov
+# Architecture, ADRs, blueprint specs, roadmap, security, and eval docs.
+specs/ @cartularyhq/core @aleksei-s-popov
 docs/adr/ @cartularyhq/core @aleksei-s-popov
 docs/architecture/ @cartularyhq/core @aleksei-s-popov
 docs/roadmap/ @cartularyhq/core @aleksei-s-popov

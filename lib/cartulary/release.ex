@@ -1,10 +1,57 @@
 # SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
 
 defmodule Cartulary.Release do
-  @moduledoc "Release migration entry points shared by pg0 and external Postgres."
+  @moduledoc """
+  Operator entry points invoked against a built release, outside the running
+  application.
+
+  A packaged release has no Mix and no build tooling, so migrations and archive
+  handling are plain functions an operator (or a launcher script) evaluates in a
+  short-lived node. Every function here starts only what it needs and shuts it
+  down again; none of them assumes the supervision tree is up.
+
+  ## The same release runs against two kinds of database
+
+  The node either supervises its own embedded PostgreSQL or connects to one the
+  operator runs. That choice is infrastructure, not behaviour: the migrations,
+  schema, and product semantics are identical either way. The only difference
+  visible in this module is that the embedded-database mode must have its
+  database process started before anything opens a connection, and stopped
+  afterwards — nothing here may branch on database mode to change what it
+  actually does.
+
+  ## Migration ordering
+
+  Configuration is validated before a database is started, and the database is
+  started before migrations run. Validating late would mean discovering a bad
+  data directory or an unusable binary after work had already begun; migrating
+  before the database is up simply fails.
+
+  ## Output
+
+  The archive functions print a JSON line to standard output because their
+  caller is a shell script or an operator at a terminal, not Elixir code. That
+  output is a summary of counts and checksums, never archive contents.
+  """
 
   @app :cartulary
 
+  @doc """
+  Runs all pending migrations for every configured repository, then stops
+  anything it started.
+
+  Loads the application without starting its supervision tree, validates the
+  node's deployment configuration, and — in embedded-database mode — starts the
+  database first. Each repository is started for the duration of its own
+  migration run and stopped again afterwards.
+
+  The embedded database is stopped in an `after` block, so a failing migration
+  still leaves no orphaned database process holding the data directory.
+
+  Raises on invalid configuration, on a database that will not start, and on any
+  failing migration. Returns whatever the loop returns; callers use it for its
+  effect and its exit status.
+  """
   def migrate do
     load_app()
     Cartulary.RuntimeConfig.validate!()
@@ -20,11 +67,34 @@ defmodule Cartulary.Release do
     end
   end
 
+  @doc """
+  Migrates one repository back down to the given migration version.
+
+  `repo` is the repository module and `version` is the numeric migration
+  version to roll back to, including that migration itself.
+
+  Unlike migrating up, this does not start an embedded database: rolling back is
+  a deliberate recovery step an operator performs against a database that is
+  already running and that they have already inspected.
+
+  Raises if the repository cannot be started or a down-migration fails.
+  """
   def rollback(repo, version) do
     load_app()
     {:ok, _pid, _apps} = Ecto.Migrator.with_repo(repo, &Ecto.Migrator.run(&1, :down, to: version))
   end
 
+  @doc """
+  Exports the node's Account to a portable archive at `output_path` and prints a
+  JSON summary.
+
+  Resolves the single community Account and runs the export under an internal
+  actor inside one Account-scoped transaction, so the archive is a consistent
+  snapshot rather than a series of independent reads.
+
+  The printed summary describes the archive — identity, counts, checksums — and
+  never its contents. Raises if no such Account exists or the export fails.
+  """
   def export!(output_path) do
     result =
       Cartulary.DataLayer.with_existing_free_account(fn _account, actor ->
@@ -35,16 +105,43 @@ defmodule Cartulary.Release do
     IO.puts("portability export: #{Jason.encode!(result)}")
   end
 
+  @doc """
+  Inspects an archive without importing it and prints a JSON summary.
+
+  Verifies the archive's structure, declared counts, checksums, and audit chain
+  and writes nothing. Use it to confirm a backup is restorable before trusting
+  it, and to check a received archive before pointing an import at it.
+
+  Raises if the archive is unreadable or fails verification. The pattern match
+  on the result is intentional: a partially verified archive is not a result
+  worth printing.
+  """
   def validate_archive!(input_path) do
     {:ok, result} = Cartulary.Portability.validate(input_path)
     IO.puts("portability archive: #{Jason.encode!(result)}")
   end
 
+  @doc """
+  Imports an archive into this node and prints a JSON summary.
+
+  The archive is fully verified before any durable write begins, and the
+  restoration itself happens in one Account-scoped transaction, so a rejected
+  archive leaves no partial Account behind. Derived data — vectors, chunks,
+  projections — is not in the archive and is rebuilt afterwards by ordinary
+  background work.
+
+  Requires a fresh target: importing into a node that already holds the Account
+  raises rather than merging.
+  """
   def import!(input_path) do
     {:ok, result} = Cartulary.Portability.import(input_path)
     IO.puts("portability import: #{Jason.encode!(result)}")
   end
 
+  # Loads the application's configuration and modules without starting its
+  # supervision tree. These entry points run in a bare node, and starting the
+  # tree would open connections before the database is necessarily up.
+  # Already-loaded is a normal outcome, not an error.
   defp load_app do
     case Application.load(@app) do
       :ok -> :ok
@@ -52,6 +149,9 @@ defmodule Cartulary.Release do
     end
   end
 
+  # Returns nil in external-database mode, which the stop clauses below treat as
+  # "nothing to stop". The operator's database is never started or stopped by
+  # this node.
   defp start_pg0 do
     if Cartulary.RuntimeConfig.pg0?() do
       {:ok, pid} = Cartulary.Pg0.start_link()
@@ -60,14 +160,41 @@ defmodule Cartulary.Release do
   end
 
   defp stop_pg0(nil), do: :ok
+
+  # 35_000 ms (35 seconds) exceeds the shutdown timeout the database process
+  # itself uses, so this waits for an orderly stop instead of racing it and
+  # leaving a running server with no supervisor.
   defp stop_pg0(pid), do: GenServer.stop(pid, :normal, 35_000)
 end
 
 defmodule Cartulary.Release.Migrator do
-  @moduledoc false
+  @moduledoc """
+  Supervised startup step that brings the schema up to date before the node
+  serves traffic.
+
+  Its position in the supervision tree is the entire point: it starts after the
+  repository and before the web endpoint, so migrations have a database to run
+  against and no request can be served against a stale schema. Moving it later
+  would let traffic hit a half-migrated database; moving it earlier would leave
+  it with no connection.
+
+  All the work happens in `init/1` and the process then sits idle. That is
+  deliberate — `init/1` blocks its supervisor, which is exactly the ordering
+  guarantee wanted here.
+
+  Whether it migrates at all is configuration: on by default for the
+  self-supervised database, off by default for an operator-run one, and
+  overridable either way. When it is off this process starts and does nothing.
+  """
 
   use GenServer
 
+  @doc """
+  Starts the migration step under the supervision tree.
+
+  Registered under the module name. Options are accepted and ignored; the
+  behaviour is driven entirely by the node's configuration.
+  """
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
@@ -75,6 +202,8 @@ defmodule Cartulary.Release.Migrator do
   @impl true
   def init(_opts) do
     if Cartulary.RuntimeConfig.auto_migrate?() do
+      # Read from the release's own priv directory rather than a source path, so
+      # this works identically in a packaged release and in development.
       migrations_path = Application.app_dir(:cartulary, "priv/repo/migrations")
       Ecto.Migrator.run(Cartulary.Repo, migrations_path, :up, all: true)
     end

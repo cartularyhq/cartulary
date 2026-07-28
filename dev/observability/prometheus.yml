@@ -1,11 +1,23 @@
 # SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+#
+# Prometheus configuration for the local development stack in
+# dev/observability/docker-compose.yml. Development only.
+#
+# It scrapes the OpenTelemetry Collector, not the application. Use it to answer
+# "is the collector receiving and forwarding what I expect?" — export
+# throughput, refused spans, queue depth. Application-level metrics reach it
+# indirectly, through the collector's Prometheus exporter.
 
 global:
+  # Aggressive on purpose: at 5s a change you make in the app shows up on a
+  # dashboard within a page refresh. Far too frequent for production.
   scrape_interval: 5s
 
 scrape_configs:
   - job_name: otel-collector
     static_configs:
       - targets:
+          # 8888 is the collector's own internal telemetry (health, drops).
+          # 8889 is the pipeline's Prometheus exporter (forwarded app metrics).
           - otel-collector:8888
           - otel-collector:8889

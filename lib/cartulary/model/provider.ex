@@ -2,25 +2,84 @@
 
 defmodule Cartulary.Model.Provider do
   @moduledoc """
-  Determinism seam for every remote or local model capability.
+  The behaviour every model backend implements — the single seam between
+  Cartulary and anything that runs a model.
 
-  Tests replace this behaviour once and thereby control extraction, reasoning,
-  dialectic answers, embeddings, and reranking.
+  Four capabilities, one behaviour. Because extraction, reasoning, dialectic
+  answers, embeddings, and reranking all arrive through these four callbacks, a
+  test that swaps in one module controls all of them at once, and a deployment
+  that changes provider changes nothing else.
+
+  ## Implementing one
+
+  - Return `{:ok, %Result{}}` or `{:error, reason}`. Raising is tolerated — the
+    gateway converts an exception into an error — but returning is clearer.
+  - A capability a backend genuinely cannot serve returns a descriptive error
+    atom rather than pretending. An embedding-only backend should fail a chat
+    call loudly, not return empty text.
+  - Fill `usage` with whatever token counts the backend reports, so the ledger
+    is accurate. Leave it empty rather than guessing.
+  - Keep `metadata` free of content. It is filtered against an allowlist before
+    it is stored, so anything unexpected is dropped anyway, but content must not
+    be put there in the first place.
+
+  ## Calling one
+
+  Don't. Only `Cartulary.Model.Gateway` invokes these callbacks. Calling a
+  provider directly skips role resolution, tracing, and the usage ledger, and
+  the ledger stops being exact the moment that happens.
   """
 
   alias Cartulary.Model.Config.Role
 
   defmodule Result do
-    @moduledoc false
+    @moduledoc """
+    What a provider hands back: the value, what it cost, and safe metadata.
+
+    `:value` is capability-specific — a decoded object for structured
+    generation, a string for chat, a list of vectors for embedding, a ranked
+    list for reranking.
+
+    `:usage` holds token counts (`:input_tokens`, `:output_tokens`,
+    `:embedding_tokens`) as reported by the backend. Missing keys are treated as
+    zero; do not invent numbers to fill it.
+
+    `:metadata` is small, content-free annotation such as the model name the
+    backend actually served, a result count, or a flag that the offline
+    stand-in produced this. It is reduced to a fixed allowlist before being
+    stored, so it must never be used to smuggle prompt or completion text.
+    """
     @type t :: %__MODULE__{value: term(), usage: map(), metadata: map()}
     defstruct [:value, usage: %{}, metadata: %{}]
   end
 
+  @doc """
+  Generates one object against a JSON schema. The third argument is an
+  already-built schema map. Constrain decoding with it when the backend can;
+  either way the result is validated again by the caller, so returning
+  approximately-correct output is a bug worth failing on rather than smoothing
+  over.
+  """
   @callback structured(Role.t(), [map()], map(), keyword()) ::
               {:ok, Result.t()} | {:error, term()}
+
+  @doc """
+  Generates free text from a message list. `:value` is the completion string.
+  """
   @callback chat(Role.t(), [map()], keyword()) :: {:ok, Result.t()} | {:error, term()}
+
+  @doc """
+  Embeds a list of texts. `:value` must be a list of float lists, one per input
+  and in input order, each exactly the width pinned on the role — the caller
+  rejects any other width rather than adapting to it.
+  """
   @callback embed(Role.t(), [String.t()], keyword()) ::
               {:ok, Result.t()} | {:error, term()}
+
+  @doc """
+  Reorders documents by relevance to a query. `:value` is the backend's own
+  ranked-result shape.
+  """
   @callback rerank(Role.t(), String.t(), [String.t()], keyword()) ::
               {:ok, Result.t()} | {:error, term()}
 end

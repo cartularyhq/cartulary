@@ -2,9 +2,48 @@
 
 defmodule Cartulary.Model.Gateway do
   @moduledoc """
-  Provider-neutral gateway for every metered model capability.
+  The one place that invokes a model provider.
 
-  This is the only module that calls `Cartulary.Model.Provider` callbacks.
+  Every structured generation, chat completion, embedding, and rerank in
+  Cartulary passes through here. No other module may call a
+  `Cartulary.Model.Provider` callback, and no other module may talk to a
+  provider SDK at all. Concentrating it here is what guarantees that four things
+  happen on *every* call, including failed calls and retried repair attempts:
+
+  1. The role is resolved to a pinned provider, model, and version set.
+  2. A tracing span records safe timings, counts, and identities.
+  3. Exactly one durable usage record is appended, whenever the context carries
+     an Account and an actor to attribute it to.
+  4. A provider crash becomes an ordinary error tuple rather than an exception
+     that would abort the caller's transaction or job.
+
+  ## Provider selection
+
+  The provider module is chosen, in order, from the context's
+  `:model_provider` key (how tests inject a stub), the application-wide
+  `:model_provider` override, and finally the provider name on the resolved
+  role. There is no cascade between real providers: if the configured provider
+  fails, the call fails. A deployment that wants failover puts an
+  OpenAI-compatible proxy in front of the role, so failover policy lives with
+  the operator rather than hidden inside the engine. In particular, a failed
+  live provider call is never retried against the offline deterministic
+  provider — fabricated output must not be presented as a model answer.
+
+  ## Content safety
+
+  Nothing in this module writes prompts, messages, generated text, embedded
+  text, or credentials into a span or a usage record. Only ids, role and
+  provider names, model names and versions, token counts, durations, and error
+  classes leave here. Keep it that way: telemetry and the usage ledger are read
+  by people who are not authorized to read Account content.
+
+  ## Failure behaviour
+
+  Provider errors are returned, not raised, so the caller's durable job can
+  retry. A provider failure leaves the raw observation and queued work intact
+  and the extraction simply incomplete. Role resolution and the usage write
+  still raise on their own failures — those are configuration and database
+  problems, not model problems.
   """
 
   alias Cartulary.Model.Config
@@ -12,6 +51,19 @@ defmodule Cartulary.Model.Gateway do
   alias Cartulary.Model.Usage
   alias Cartulary.Observability
 
+  @doc """
+  Performs exactly one structured-generation call — no validation, no repair.
+
+  `schema` here is an already-built JSON schema map, not a schema module. The
+  return is `{:ok, raw_object, role_config}` where `raw_object` is whatever the
+  provider produced, still unvalidated; the caller is responsible for casting
+  it. The resolved role is returned so a repair loop can reuse the same
+  configuration and stamp provenance from it.
+
+  Returns `{:error, reason}` on provider failure. Use
+  `Cartulary.Model.StructuredGenerator` rather than this function unless you are
+  implementing that loop: raw provider output must never be trusted as-is.
+  """
   def structured_once(role, messages, schema, context, opts \\ []) do
     config = Config.resolve(role, context)
 
@@ -23,6 +75,13 @@ defmodule Cartulary.Model.Gateway do
     end
   end
 
+  @doc """
+  Runs one free-text completion for a role.
+
+  Returns `{:ok, text, provenance_map}` or `{:error, reason}`. The provenance
+  map is the content-safe provider/model/version stamp the caller should persist
+  alongside anything derived from the text.
+  """
   def chat(role, messages, context, opts \\ []) do
     config = Config.resolve(role, context)
 
@@ -37,11 +96,29 @@ defmodule Cartulary.Model.Gateway do
     end
   end
 
+  @doc """
+  Embeds texts with the Account's `:embedder` role.
+
+  Returns `{:ok, vectors, role_config}` — the role is handed back so the caller
+  can record the four-part embedding identity next to the vectors — or
+  `{:error, reason}`.
+
+  This is the low-level entry point and performs no compatibility check. Prefer
+  `Cartulary.Model.Embedding.embed/3`, which refuses to mix vector spaces.
+  """
   def embed(texts, context, opts \\ []) when is_list(texts) do
     config = Config.resolve(:embedder, context)
     embed_with_config(config, texts, context, opts)
   end
 
+  @doc """
+  Embeds texts against an already-resolved role, skipping role resolution.
+
+  Exists so a caller that has already resolved the embedder — and has already
+  compared its identity against stored vectors — embeds with exactly that same
+  configuration, with no chance of a second resolution returning something
+  different in between.
+  """
   def embed_with_config(config, texts, context, opts) when is_list(texts) do
     case invoke(:embed, config, context, opts, fn provider ->
            provider.embed(config, texts, opts)
@@ -51,6 +128,14 @@ defmodule Cartulary.Model.Gateway do
     end
   end
 
+  @doc """
+  Reranks `documents` against `query` using the `:dream_reasoner` role.
+
+  Reranking shares the slow reasoning role rather than having a role of its own,
+  so its cost lands in the same budget. Returns `{:ok, results, provenance_map}`
+  or `{:error, reason}`; the result shape is the provider's, so callers must
+  tolerate a provider that cannot rerank at all and keep their existing order.
+  """
   def rerank(query, documents, context, opts \\ [])
       when is_binary(query) and is_list(documents) do
     config = Config.resolve(:dream_reasoner, context)
@@ -63,12 +148,32 @@ defmodule Cartulary.Model.Gateway do
     end
   end
 
+  @doc """
+  Returns the provider module that would serve a call for this role.
+
+  Selection order is per-call context override, then application-wide override,
+  then the provider named by the role. Exposed publicly so a caller can ask
+  whether a real provider has been injected before deciding to trust model
+  output — a deployment left on the offline deterministic provider should answer
+  from retrieved statements instead of presenting invented reasoning.
+  """
   def provider_module(config, context) do
     Map.get(context, :model_provider) ||
       Application.get_env(:cartulary, :model_provider) ||
       default_provider(config)
   end
 
+  # The shared body of every capability: span, time, call, meter, return.
+  #
+  # Metering happens on both the success and error branches, and `opts` carries
+  # the repair-attempt number, so a structured generation that needed two
+  # repairs appends three usage records. Tokens spent on a failed or repaired
+  # call were still spent; hiding them would make the ledger wrong.
+  #
+  # Only content-safe values are recorded here: role, provider, model, version,
+  # operation name, duration, token counts, and an error class. No message,
+  # prompt, completion, or credential may be added to either the span or the
+  # usage record.
   defp invoke(operation, config, context, opts, call) do
     Observability.with_span(:model, "cartulary.model.#{operation}", fn ->
       provider = provider_module(config, context)
@@ -133,6 +238,10 @@ defmodule Cartulary.Model.Gateway do
     })
   end
 
+  # Two provider names are handled in-engine: the offline deterministic
+  # stand-in, and the local ONNX embedder. Everything else — hosted APIs,
+  # OpenAI-compatible endpoints, self-hosted servers — is reached through the
+  # one HTTP-model adapter, which is why there is no per-vendor module here.
   defp default_provider(%{provider: "deterministic"}),
     do: Cartulary.Model.Providers.Deterministic
 
@@ -140,12 +249,19 @@ defmodule Cartulary.Model.Gateway do
 
   defp default_provider(_config), do: Cartulary.Model.Providers.ReqLLM
 
+  # A provider that raises must not take down the caller's transaction or job.
+  # Converting the exception into an error tuple keeps the failure on the same
+  # path as a returned error: metered, traced, and retryable.
   defp safe_call(call, provider) do
     call.(provider)
   rescue
     error -> {:error, error}
   end
 
+  # A short, content-free label for what went wrong. Exception structs are
+  # reduced to their module name deliberately: an exception *message* can quote
+  # the prompt or the response body, and neither may reach telemetry or the
+  # usage ledger.
   defp error_class(%module{}), do: inspect(module)
   defp error_class(error) when is_atom(error), do: Atom.to_string(error)
   defp error_class(_error), do: "model_error"

@@ -2,22 +2,80 @@
 
 defmodule Cartulary.Governance.Audit do
   @moduledoc """
-  Append-only, content-safe, per-Account audit chain.
+  Writer for the append-only, hash-chained, per-Account audit log.
 
-  Event payloads reference durable records and content hashes. Raw messages,
-  statements, prompts, answers, keys, and secrets are not accepted here.
+  Every governed mutation — a gate decision, a lifecycle transition, an
+  erasure, a policy change, an accepted raw observation — appends one row here.
+  Rows are never updated or deleted, and each row stores the hash of the row
+  before it, so recomputing the chain from its first event forward detects any
+  later insertion, edit, reordering, or deletion.
+
+  ## Content safety is the rule this module exists to enforce
+
+  An audit log is read by operators, exported, and retained far longer than the
+  data it describes. It therefore holds *references*, never content. Do not
+  pass raw message text, statement text, prompts, model answers, document
+  bytes, connector cursors, API keys, Account keys, peer keys, or any other
+  secret into `attrs` — not as a field, and above all not inside `metadata`,
+  which is stored verbatim. Record an id, a count, a class name, or a digest
+  from `content_hash/1` instead. A digest proves which value was involved
+  without disclosing it; that trade is the entire design of this log.
+
+  ## Transaction and tenancy
+
+  `append/3` writes through the audit event's `record` action under the given
+  Account tenant, inside whatever transaction the caller is already running.
+  If the surrounding operation rolls back, its audit event rolls back with it,
+  so the chain never records work that did not happen and never gains a gap
+  where work did happen. Chains are per-Account: one Account's events form one
+  chain and are invisible to every other Account.
+
+  Appends run with the caller's actor copied to a system pipeline actor,
+  because domain code executing as an ordinary member must still be able to
+  leave a trail. That elevation covers the audit insert only; the caller's own
+  actor is unchanged and gains no other permission.
   """
 
   alias Cartulary.Clock
   alias Cartulary.Governance.AuditEvent
 
+  # Reserved vocabulary for the `category` field. Keeping it small is what makes
+  # the log queryable: an operator can filter by category without knowing every
+  # action name a subsystem might emit.
   @categories ~w(
     lifecycle gate attribution deletion configuration governance observation
   )
 
+  @doc """
+  Returns the reserved audit categories.
+
+  `append/3` does not reject an unknown category — the stored attribute is a
+  plain string — so callers are expected to choose from this list. Adding a
+  category should therefore be a deliberate vocabulary change here, not a typo
+  that silently creates a new bucket at a call site.
+  """
   @spec categories() :: [String.t()]
   def categories, do: @categories
 
+  @doc """
+  Appends one event to an Account's audit chain.
+
+  `actor` may be a `Cartulary.Actor` struct or a plain map; a copy with
+  `role: :system` and `pipeline?: true` is used for the insert so the append
+  succeeds regardless of the caller's own role. `account_id` names the tenant
+  whose chain is extended. `attrs` carries the `record` action fields:
+  `:category`, `:action`, `:resource_type`, `:resource_id`, and the optional
+  `:scope_id`, `:actor_peer_id`, `:content_hash`, `:metadata`, and
+  `:occurred_at`, which defaults to the current time.
+
+  Returns `{:ok, event}` or `{:error, reason}` from Ash. Raises
+  `FunctionClauseError` when `account_id` is not a binary or `attrs` is not a
+  map, because an untenanted audit event is a programming error rather than a
+  recoverable condition.
+
+  Everything in `attrs` becomes durable, so all of it must be content-safe:
+  ids, counts, class names, and digests only.
+  """
   @spec append(map(), Ecto.UUID.t(), map()) :: {:ok, AuditEvent.t()} | {:error, term()}
   def append(actor, account_id, attrs) when is_map(attrs) and is_binary(account_id) do
     actor = pipeline_actor(actor)
@@ -35,6 +93,14 @@ defmodule Cartulary.Governance.Audit do
     |> Ash.create(actor: actor)
   end
 
+  @doc """
+  Same as `append/3`, but returns the event and raises `RuntimeError` on failure.
+
+  Use this wherever losing the audit event would leave a governed mutation
+  unrecorded. Raising aborts the enclosing transaction and takes the mutation
+  down with it, which is the intended outcome: no governed change may commit
+  without its evidence.
+  """
   @spec append!(map(), Ecto.UUID.t(), map()) :: AuditEvent.t()
   def append!(actor, account_id, attrs) do
     case append(actor, account_id, attrs) do
@@ -43,6 +109,17 @@ defmodule Cartulary.Governance.Audit do
     end
   end
 
+  @doc """
+  Hashes any term to lowercase hex SHA-256, so proof of a value can be stored
+  without the value.
+
+  The term is serialised with `:erlang.term_to_binary/2` in `:deterministic`
+  mode, which pins map key order and similar incidental layout so that equal
+  terms always produce the same digest. The encoding is Erlang's own, which
+  makes the result a stable fingerprint *inside* this system rather than a
+  checksum another language can reproduce: compare digests here, never expect
+  an external tool to re-derive one.
+  """
   @spec content_hash(term()) :: String.t()
   def content_hash(value) do
     value
@@ -51,6 +128,11 @@ defmodule Cartulary.Governance.Audit do
     |> Base.encode16(case: :lower)
   end
 
+  # The audit resource's `record` policy wants a governance role or the pipeline
+  # flag, but any caller must be able to leave a trail, so the actor is copied
+  # with both set. Both clauses build a copy; the caller keeps its real role
+  # everywhere else, and the copied `account_id` still binds the write to one
+  # Account.
   defp pipeline_actor(%Cartulary.Actor{} = actor),
     do: %{actor | role: :system, pipeline?: true}
 
@@ -62,7 +144,27 @@ defmodule Cartulary.Governance.Audit do
 end
 
 defmodule Cartulary.Governance.Changes.HashAuditEvent do
-  @moduledoc false
+  @moduledoc """
+  Ash change that links a new audit event into its Account's hash chain.
+
+  It runs in `before_action`, so reading the current chain tip and computing
+  the new hash happen inside the same transaction as the insert. For the rest
+  of that transaction it holds an Account-scoped advisory lock. That lock
+  serialises concurrent appends for one Account while leaving every other
+  Account free; without it two concurrent appends could read the same tip and
+  each claim it as their predecessor, forking the chain and making
+  verification ambiguous forever after.
+
+  The stored event hash covers the Account id, category, action, resource type
+  and id, content hash, metadata, the ISO-8601 event time, and the previous
+  event's hash. Metadata is hashed and stored exactly as given, which is the
+  concrete reason callers must keep raw content and secrets out of it.
+
+  The predecessor is chosen by insertion order (`inserted_at`, then `id`), not
+  by `occurred_at`. `occurred_at` describes when the audited thing happened and
+  may be supplied by the caller, so it is hashed but does not decide where a row
+  sits in the chain.
+  """
 
   use Ash.Resource.Change
 
@@ -74,11 +176,17 @@ defmodule Cartulary.Governance.Changes.HashAuditEvent do
   @impl true
   def change(changeset, _opts, context) do
     Ash.Changeset.before_action(changeset, fn changeset ->
+      # An append raised from another resource's after_action does not always
+      # carry an actor in the change context, so fall back to the one stashed
+      # on the changeset by the audit writer, then to the private actor Ash
+      # threads through the changeset.
       actor =
         context.actor || changeset.context[:audit_actor] ||
           get_in(changeset.context, [:private, :actor])
 
       account_id = changeset.tenant || context.tenant || actor.account_id
+
+      # Holds until this transaction ends: one writer per Account chain tip.
       Lock.acquire!(account_id, "audit-chain")
 
       previous =
@@ -89,8 +197,13 @@ defmodule Cartulary.Governance.Changes.HashAuditEvent do
         |> Ash.read_one!(actor: actor)
 
       occurred_at = Ash.Changeset.get_attribute(changeset, :occurred_at) || Clock.utc_now()
+
+      # nil for the Account's very first event. `Cartulary.Portability.AuditVerifier`
+      # uses that nil to identify the one row a chain may start from.
       previous_hash = previous && previous.event_hash
 
+      # Only ids, hashes, timings, and the content-safe metadata map are hashed
+      # and persisted. The audited content itself never appears in either.
       payload = %{
         account_id: account_id,
         category: Ash.Changeset.get_attribute(changeset, :category),
@@ -112,7 +225,23 @@ defmodule Cartulary.Governance.Changes.HashAuditEvent do
 end
 
 defmodule Cartulary.Governance.Changes.AuditResource do
-  @moduledoc false
+  @moduledoc """
+  Ash change that appends one audit event after a resource action succeeds.
+
+  Attach it to a create or update with the `category`, `action`, and
+  `resource_type` options, plus an optional `content_fields` list and a static
+  `metadata` map. It runs in `after_action`, so it sees the persisted row and
+  can record its real id, and it still runs inside the action's transaction:
+  if the append fails the change returns that error and the whole action —
+  audit event included — rolls back.
+
+  `content_fields` names the attributes whose *values* identify this version of
+  the row. Those values are hashed together into a single digest and only the
+  digest is stored, so a later reader can prove which version was written
+  without the log ever holding the values. Do not extend the options to copy
+  field values into `metadata`: metadata is persisted verbatim and must stay
+  free of content and secrets.
+  """
 
   use Ash.Resource.Change
 

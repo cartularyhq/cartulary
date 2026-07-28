@@ -1,4 +1,21 @@
 # SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+#
+# Opt-in variant of otel-collector.yml that additionally forwards traces to a
+# Langfuse project. Development only.
+#
+# dev/observability/docker-compose.langfuse.yml mounts this file in place of
+# otel-collector.yml and passes the two variables below through to the
+# collector. It supplies placeholder defaults for both, so exporting real values
+# before `docker compose up` is what makes the export go anywhere:
+#
+#   LANGFUSE_OTLP_ENDPOINT        Langfuse OTLP HTTP ingest URL
+#   LANGFUSE_OTLP_AUTHORIZATION   "Basic <base64 public:secret>"
+#
+# This exporter sends span data to a third party. That is only safe because
+# Cartulary spans are content-safe by construction — ids, counts, profile and
+# model names, timings, token counts, error classes; never raw messages,
+# prompts, answers, keys, or secrets. Do not add an attribute to a span on the
+# assumption that it "stays local": with this config, it does not.
 
 receivers:
   otlp:
@@ -9,6 +26,8 @@ receivers:
         endpoint: 0.0.0.0:4318
 
 processors:
+  # Shed load rather than be OOM-killed mid-run, which would silently drop
+  # spans. The 128 MiB spike allowance absorbs bursts from a batch eval run.
   memory_limiter:
     check_interval: 5s
     limit_mib: 512
@@ -23,6 +42,8 @@ exporters:
   otlp/jaeger:
     endpoint: jaeger:4317
     tls:
+      # Plaintext is acceptable only on the private Compose network. The
+      # Langfuse exporter below is HTTPS by virtue of its endpoint URL.
       insecure: true
   otlphttp/langfuse:
     endpoint: ${env:LANGFUSE_OTLP_ENDPOINT}

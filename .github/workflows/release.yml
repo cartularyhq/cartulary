@@ -1,4 +1,33 @@
 # SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+#
+# Release readiness: the gate for a tagged version, and the producer of its artifacts.
+#
+# Purpose
+#   Repeat every blocking check against the exact tagged commit, confirm that the tag, the
+#   declared version, the changelog, the shipped documentation, and the evaluation evidence
+#   all describe the same release, then build the Linux release archive with its checksum
+#   and rebuild the container image.
+#
+# Why the checks are repeated rather than trusted from the merge gate
+#   The merge gate ran on a pull request's merge preview, not on the tagged commit. A tag
+#   can point anywhere. Everything that must be true of the released bytes is therefore
+#   re-established here from the tag itself.
+#
+# Triggers
+#   Pushing a tag shaped `v<major>.<minor>.<patch>`, or a manual run naming an existing tag
+#   to validate.
+#
+# Inputs
+#   tag (manual runs only) — an existing tag to check out and validate. No secrets.
+#
+# Outputs
+#   One artifact bundle retained for 90 days: the Linux release tarball, its SHA-256, and
+#   the evaluation report for this version.
+#
+# What this workflow deliberately does NOT do
+#   It does not create a GitHub Release and it does not push a container image. Permissions
+#   here are read-only. Publishing is a separate, explicit human action, so an accidental
+#   or malicious tag push cannot ship anything to users.
 name: Release readiness
 
 on:
@@ -15,6 +44,9 @@ permissions:
   contents: read
 
 jobs:
+  # One job rather than the parallel lanes used for merges. A release is infrequent and
+  # sequential clarity is worth more here than elapsed time: the first failure stops the
+  # release outright.
   release:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -35,8 +67,13 @@ jobs:
     env:
       MIX_ENV: test
       CARTULARY_DATABASE_MODE: external
+      # Own database name so this workflow cannot collide with a concurrent lane. The
+      # embedded historical tag is only part of the name and means nothing here.
       CARTULARY_TEST_DATABASE_URL: ecto://postgres:postgres@127.0.0.1:5432/cartulary_f11_release
     steps:
+      # Explicit ref: a manual run validates the tag it was given, a tag push validates
+      # itself. Without this a manual run would check out the default branch and certify a
+      # commit that is not the one being released.
       - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.tag || github.ref }}
@@ -44,7 +81,12 @@ jobs:
         with:
           otp-version: "27"
           elixir-version: "1.18"
+      # No dependency cache anywhere in this workflow. A release is built from a clean
+      # fetch so nothing carried over from an earlier run can end up in a shipped artifact.
       - run: mix deps.get
+      # The same blocking checks the merge gate runs, in the same order, now against the
+      # tagged commit. Type analysis is inline here rather than in a parallel job, since
+      # there is no cached lookup table to justify separating it.
       - run: mix ash.codegen --check
       - run: mix format --check-formatted
       - run: mix compile --warnings-as-errors
@@ -53,22 +95,43 @@ jobs:
       - run: mix dialyzer
       - run: mix sobelow --config
       - run: mix hex.audit
+      # Deterministic evaluation, no models and no network, asserting the committed
+      # correctness and citation floors. The report it writes is both an input to the next
+      # step and a shipped artifact, so the published numbers are the ones actually gated.
       - run: >-
           mix cartulary.eval.release
           --no-model
           --assert-thresholds
           --run-id release-${{ github.run_id }}-${{ github.run_attempt }}
           --output /tmp/cartulary-f11-release.json
+      # The release-specific check, and the one thing the merge gate cannot do: with the
+      # tag supplied, it requires the tag to be exactly `v` followed by the version
+      # declared in the project file, a dated changelog entry for that same version, the
+      # release documentation to still describe this gate, and every report in the
+      # evaluation evidence to name that same version. Stale evidence from a previous
+      # version is rejected rather than accepted as good enough.
       - name: Validate tag, changelog, and eval guardrails
         shell: bash
         run: |
           tag="${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}"
           mix cartulary.release.check --tag "$tag" --eval-report /tmp/cartulary-f11-release.json
+      # Dual purpose, and the ordering matters. This packages the release with the pinned,
+      # checksum-verified embedded PostgreSQL, boots it from an empty data root, waits for
+      # readiness, and reruns the whole suite against that self-started database — the
+      # parity evidence. It also leaves the built release on disk, which is exactly what
+      # the archive step below picks up. Shipping the artifact this lane just booted, and
+      # not a separately built one, is what makes the verification meaningful.
       - name: Verify packaged pg0 lane and build platform release
         run: ./scripts/ci-pg0-lane
       - run: tar -C _build/prod/rel -czf /tmp/cartulary-linux-x86_64.tar.gz cartulary
+      # The digest is published with the archive so a downloader can verify the bytes they
+      # received are the bytes this run produced.
       - run: shasum -a 256 /tmp/cartulary-linux-x86_64.tar.gz > /tmp/cartulary-linux-x86_64.tar.gz.sha256
+      # Built to prove it builds from the tagged commit. It is tagged locally and not
+      # pushed; see the note at the top about publishing being a separate human action.
       - run: docker build --tag cartulary:release .
+      # Longer retention than the nightly reports: these are the release's own evidence and
+      # need to outlive the next few weeks of development.
       - uses: actions/upload-artifact@v7
         with:
           name: cartulary-release-${{ github.run_id }}

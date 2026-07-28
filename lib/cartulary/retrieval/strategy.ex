@@ -1,7 +1,25 @@
 # SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
 
 defmodule Cartulary.Retrieval.Candidate do
-  @moduledoc "A strategy-local ranked candidate before reciprocal-rank fusion."
+  @moduledoc """
+  One ranked hit produced by a single retrieval strategy.
+
+  A candidate is always *strategy-local*. `score` is whatever that strategy's
+  own scoring produces — a cosine similarity, a full-text rank, a time
+  relevance step, a salience product — and those numbers are on unrelated
+  scales. Never compare, average, or threshold `score` across two strategies;
+  only `rank`, the candidate's 1-based position within its own strategy's list,
+  is meaningful between strategies, and that is what fusion consumes.
+
+  `record` is the database row already stripped of the raw score, and it is
+  what eventually reaches the caller, so it must never be filled with anything
+  the caller is not authorized to see. `evidence` is internal bookkeeping:
+  a strategy stores its raw score there, and fusion replaces it with the set of
+  strategies that voted for the candidate.
+
+  After fusion the struct is reused with `strategy: :fusion`, `score` holding
+  the fused reciprocal-rank total, and `rank` renumbered over the merged list.
+  """
 
   @enforce_keys [:id, :score, :rank, :strategy, :record]
   defstruct [:id, :score, :rank, :strategy, :record, evidence: %{}]
@@ -17,7 +35,44 @@ defmodule Cartulary.Retrieval.Candidate do
 end
 
 defmodule Cartulary.Retrieval.Query do
-  @moduledoc "Internal, already-authorized retrieval input."
+  @moduledoc """
+  The internal retrieval request: an already-authorized description of what to
+  search for and where.
+
+  This struct is not user input. By the time it is built, the caller has
+  authenticated, the Account has been derived from that identity, and the list
+  of scopes the actor may read has been resolved. Retrieval treats
+  `account_id`, `actor`, and `scope_ids` as the authority boundary and filters
+  every database statement by them, so populating `scope_ids` from an unchecked
+  request parameter would hand the caller other people's memory.
+
+  Fields:
+
+  * `account_id` — the tenant. Every statement filters on it.
+  * `actor` — the resolved caller. Its `peer_id` decides which `provisional`
+    statements are visible: only those whose subject is that peer. A nil
+    `peer_id` does not narrow them at all, so pass one on any peer-facing path.
+  * `text` — the query string. Empty text makes the text-driven strategies
+    report themselves inapplicable rather than returning everything.
+  * `target` — `:knowledge`, `:documents`, or `:all`. Answer generation uses
+    `:knowledge` so an answer cannot cite a document chunk as if it were a
+    governed statement.
+  * `as_of` — the point in time the time-relevance strategy judges against;
+    defaults to now when nil.
+  * `min_score` — drops candidates below this strategy-local score. Because
+    scores are not comparable across strategies, one value means different
+    things to each of them; it is a coarse noise filter, not a relevance gate.
+  * `source_filters` — provenance restrictions (provider, model, pipeline
+    version, minimum corroboration, originating message, source document)
+    applied before fusion, so filtered-out rows cannot influence ranking.
+  * `query_embedding` — reserved for a caller-precomputed query vector. No
+    shipped strategy reads it; the semantic strategy embeds `text` itself.
+  * `scope_ids` — the authorized scopes, nearest first. Profile inheritance
+    relies on that ordering to pick the nearest stored override.
+  * `seed_ids` — filled in by the engine between phases. Expansion strategies
+    read it; it is empty during the seed phase.
+  * `max_candidates` — cap per strategy list and on the fused result.
+  """
 
   defstruct [
     :account_id,
@@ -37,13 +92,38 @@ defmodule Cartulary.Retrieval.Query do
 end
 
 defmodule Cartulary.Retrieval.Budget do
-  @moduledoc "Injected retrieval deadline and candidate cap."
+  @moduledoc """
+  The wall-clock deadline and candidate cap handed to every strategy.
+
+  The budget is measured once, at the start of the whole request, and shared by
+  all phases. It is a *total* ceiling covering seed strategies, expansion, and
+  any model-backed reranking — not a per-strategy timeout — so work late in the
+  request naturally gets whatever the earlier work left over. A strategy that
+  runs past it is abandoned and reported as dropped; it is never retried,
+  because a retry would spend the same budget the caller is already out of.
+
+  `deadline?: false` disables the clock entirely (`remaining_ms/1` answers
+  `:infinity`). That mode exists for evaluation runs and for dream-time
+  projection rebuilds, where completeness matters and no caller is waiting. Do
+  not use it on a request path: it removes the only bound on tail latency.
+
+  `started_at` is a monotonic millisecond reading, so the budget is immune to
+  system clock adjustments.
+  """
 
   @enforce_keys [:started_at, :max_candidates]
   defstruct [:deadline_ms, :started_at, :max_candidates, deadline?: true]
 
   @type t :: %__MODULE__{}
 
+  @doc """
+  Returns the milliseconds left in the budget, clamped at zero, or `:infinity`
+  when the deadline is disabled.
+
+  Zero means "already out of time": callers use it to skip work rather than to
+  start it with a zero timeout. Every call re-reads the monotonic clock, so two
+  calls in the same request can return different values.
+  """
   def remaining_ms(%__MODULE__{deadline?: false}), do: :infinity
 
   def remaining_ms(%__MODULE__{deadline_ms: deadline, started_at: started_at}) do
@@ -53,10 +133,42 @@ end
 
 defmodule Cartulary.Retrieval.Strategy do
   @moduledoc """
-  Candidate-generation contract from `AD-SEAM-3`.
+  The behaviour every candidate-generation strategy implements, plus the
+  validator the engine runs over whatever a strategy returns.
 
-  Strategies receive only an Account/scope-filtered internal query and return
-  their own ranked score space. Scores are never compared across strategies.
+  A strategy is a swappable way of proposing relevant records. Adding one is a
+  behaviour change: it alters what callers see, so it needs review, an entry in
+  the strategy registry, and a place in the profiles that should use it.
+
+  ## What an implementation must honour
+
+  * **Filter inside the query.** A strategy is handed an already-authorized
+    `Query` and must restrict its own database work to that Account, those
+    scope ids, active lifecycle state, and provisional statements belonging to
+    the calling peer. Nothing downstream re-checks authorization.
+  * **Return your own scale.** `score` is strategy-local and is never compared
+    with another strategy's. Only rank order within your own list matters.
+  * **Respect the budget.** `candidates/2` receives the shared deadline and
+    candidate cap; honour the cap when querying rather than returning a huge
+    list and letting the validator truncate it.
+  * **Expose no internal caches.** Records derived from the entity index must
+    come back as ordinary statement rows, without entity ids, canonical names,
+    aliases, or surface forms.
+  * **Degrade, do not raise.** A missing embedding provider or an empty corpus
+    should yield an empty list. The request then continues with whatever the
+    other strategies found, and your strategy is still reported as having run.
+
+  ## Callbacks
+
+  * `name/0` — the stable atom used in profiles, weights, and the contributed
+    and dropped lists reported to callers.
+  * `cost_class/0` — `:cheap`, `:moderate`, or `:expensive`. Declarative today;
+    it documents the relative price of running the strategy.
+  * `stage/0` — `:seed` runs first against the query text; `:expand` runs
+    afterwards and may only widen from the seed ids the first phase produced.
+  * `applicable?/1` — cheap precondition check. Returning false means the
+    strategy is skipped for this query rather than run and discarded.
+  * `candidates/2` — the actual work, returning `Candidate` structs.
   """
 
   alias Cartulary.Retrieval.{Budget, Candidate, Query}
@@ -67,6 +179,24 @@ defmodule Cartulary.Retrieval.Strategy do
   @callback applicable?(Query.t()) :: boolean()
   @callback candidates(Query.t(), Budget.t()) :: [Candidate.t()]
 
+  @doc """
+  Truncates, renumbers, and sanity-checks the candidates a strategy returned.
+
+  This runs on every strategy result, including in production, because fusion
+  depends on ranks being dense, 1-based, and assigned by the engine rather than
+  self-reported: a strategy that numbered its own ranks could otherwise give
+  itself extra fusion weight. It also stamps the owning strategy name onto each
+  candidate and coerces integer scores to floats.
+
+  `max_candidates` is the smaller of the query's cap and the budget's cap;
+  anything beyond it is dropped.
+
+  Raises `ArgumentError` when the module reports an unknown cost class or
+  stage, or when a returned element is not a `Candidate` with a binary id, a
+  numeric score, and a map record. Raising is deliberate: malformed candidates
+  indicate a broken strategy, and silently skipping them would degrade recall
+  invisibly.
+  """
   def validate!(module, candidates, max_candidates) do
     name = module.name()
 

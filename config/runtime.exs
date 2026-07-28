@@ -1,11 +1,59 @@
 # SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
 
+# Boot-time configuration. This is the only configuration file a deployment can
+# influence, and the place where deployment mode is chosen.
+#
+# WHEN THIS FILE IS EVALUATED
+#   On every start of the system, in every environment, after all code is
+#   compiled and before the supervision tree boots. In a packaged release it is
+#   shipped as a script and re-read each time the release starts, so changing an
+#   environment variable and restarting is enough — no rebuild. The consequence
+#   of that ordering: nothing here can affect compilation. A setting a library
+#   reads at compile time must live in `config/config.exs` instead, or it will
+#   silently have no effect.
+#
+# INPUTS
+#   A `.env` file in the working directory, if present, plus the real process
+#   environment. The process environment is listed second below and therefore
+#   wins over the file. Nearly every variable is optional and each lookup states
+#   its own default; the handful that must not be guessed raise instead — a
+#   production boot with no auth signing secret, an unparseable port, pool size
+#   or boolean, an unknown retrieval strategy, budget metric, or cost metric.
+#
+# OUTPUTS
+#   The `:cartulary`, `:opentelemetry`, `:opentelemetry_exporter`, and `:ex_aws`
+#   application environments: database location, credentials, model roles,
+#   retrieval deadlines, budget limits, blob storage, and tracing.
+#
+# DEPLOYMENT MODE IS A LOCATION, NOT A BEHAVIOUR
+#   `CARTULARY_DATABASE_MODE=pg0` makes the release supervise its own pinned
+#   PostgreSQL process; `external` points it at a server the operator runs.
+#   That is the whole difference. Same release, same migrations, same schema,
+#   same product guarantees, same tenancy and governance rules. No code path
+#   branches on the mode beyond deciding where to connect and whether to start
+#   and stop the database process. If a change makes the two modes behave
+#   differently, the change is wrong, not the configuration.
+#
+# SECRETS
+#   Credentials are read here and handed to the runtime; they are never written
+#   into durable configuration. Model roles persist an `api_key_ref` — the name
+#   of the variable to read — rather than the key itself, so a database dump or
+#   an exported Account archive contains no provider credential.
+
 import Config
 import Dotenvy
 
+# Later sources override earlier ones, so a real environment variable always
+# beats the same key in a checked-out `.env`.
 env = source!([".env", System.get_env()])
 env_get = fn key, default -> Map.get(env, key, default) end
 
+# The parsing helpers below come in two flavours. The lenient ones fall back to
+# the stated default when a value cannot be parsed, and suit knobs where a typo
+# is survivable. The bang versions raise, and are used where a silently wrong
+# value would be dangerous — a port, a pool size, an auto-migrate switch.
+
+# Absent or unparseable means false.
 env_true? = fn key ->
   String.downcase(env_get.(key, "false")) in ~w(true 1 yes on)
 end
@@ -15,6 +63,10 @@ env_bool = fn key, default ->
   String.downcase(env_get.(key, value)) in ~w(true 1 yes on)
 end
 
+# Parses "Name=value,Other=value" into header tuples; an entry without an `=` is
+# skipped rather than raising. These headers normally carry the collector's
+# ingestion credential, so neither this value nor a parse failure of it may be
+# echoed into a log line or an error message.
 env_headers = fn key ->
   key
   |> env_get.("")
@@ -27,6 +79,8 @@ env_headers = fn key ->
   end)
 end
 
+# Only the two OTLP wire protocols the exporter supports. Anything unrecognised
+# degrades to HTTP/protobuf, which works against every collector.
 env_protocol = fn key, default ->
   case env_get.(key, default) do
     "grpc" -> :grpc
@@ -49,6 +103,8 @@ env_integer = fn key, default ->
   end
 end
 
+# Strict integer. Used where a partially parsed value ("8080abc" -> 8080) would
+# start the node on the wrong port or with the wrong pool size.
 env_integer! = fn key, default ->
   value = env_get.(key, default)
 
@@ -58,6 +114,8 @@ env_integer! = fn key, default ->
   end
 end
 
+# Strict boolean. Refusing to guess matters for switches like auto-migrate,
+# where treating an unrecognised value as false would quietly skip migrations.
 env_bool! = fn key, default ->
   value = env_get.(key, if(default, do: "true", else: "false"))
 
@@ -68,6 +126,11 @@ env_bool! = fn key, default ->
   end
 end
 
+# Trace sampling policy, using the standard OpenTelemetry sampler names.
+# "parentbased_*" honours an incoming caller's sampling decision, which is what
+# keeps a distributed trace whole; the ratio samplers take their fraction
+# (0.0-1.0) from OTEL_TRACES_SAMPLER_ARG. The default samples everything, which
+# is right for a self-hosted node and wrong for a high-volume one.
 env_sampler = fn ->
   sampler = env_get.("OTEL_TRACES_SAMPLER", "parentbased_always_on")
 
@@ -93,6 +156,11 @@ env_sampler = fn ->
   end
 end
 
+# How a background job's span relates to the request that enqueued it.
+# `:child` nests the job under the originating request trace, which is usually
+# what an operator wants to see. `:link` keeps the job in its own trace with a
+# reference back — better when jobs run long after the request has finished, so
+# one trace does not stay open for hours. `:none` severs the connection.
 env_oban_span_relationship = fn ->
   case env_get.("CARTULARY_OTEL_OBAN_SPAN_RELATIONSHIP", "child") do
     "link" -> :link
@@ -101,6 +169,9 @@ env_oban_span_relationship = fn ->
   end
 end
 
+# Exporter target. The generic endpoint applies to all signals; the traces-
+# specific endpoint is added only when set, so an unset variable cannot put a
+# nil in front of the generic one.
 env_otlp_config = fn ->
   config = [
     otlp_protocol: env_protocol.("OTEL_EXPORTER_OTLP_PROTOCOL", "http_protobuf"),
@@ -116,31 +187,29 @@ env_otlp_config = fn ->
   end
 end
 
-# config/runtime.exs is executed for all environments, including
-# during releases. It is executed after compilation and before the
-# system starts, so it is typically used to load production configuration
-# and secrets from environment variables or elsewhere. Do not define
-# any compile-time configuration in here, as it won't be applied.
-# The block below contains prod specific runtime configuration.
-
-# ## Using releases
-#
-# If you use `mix release`, you need to explicitly enable the server
-# by passing the PHX_SERVER=true when you start it:
+# A `mix release` build does not start the web server unless told to, so that
+# `bin/cartulary eval` and `bin/migrate` can run the same release without
+# binding a port. `bin/server`, the launcher shipped in the release overlay,
+# exports it.
 #
 #     PHX_SERVER=true bin/cartulary start
-#
-# Alternatively, you can use `mix phx.gen.release` to generate a `bin/server`
-# script that automatically sets the env var above.
 if System.get_env("PHX_SERVER") do
   config :cartulary, CartularyWeb.Endpoint, server: true
 end
 
+# HTTP listener port. Strict parse: a typo must fail loudly rather than land the
+# node on port 0 or a neighbouring service's port.
 config :cartulary, CartularyWeb.Endpoint, http: [port: env_integer!.("PORT", "4000")]
 
+# Set by the release boot scripts to the unpacked release directory; falls back
+# to the working directory when running from source. Used to locate the pg0
+# binary shipped inside the release.
 release_root = System.get_env("RELEASE_ROOT") || File.cwd!()
 database_mode = env_get.("CARTULARY_DATABASE_MODE", "external")
 
+# Tests read a separate variable on purpose. A developer shell almost always has
+# DATABASE_URL pointing at the development database, and honouring it here would
+# let `mix test` truncate real local data.
 database_url =
   if config_env() == :test do
     System.get_env("CARTULARY_TEST_DATABASE_URL")
@@ -148,6 +217,9 @@ database_url =
     env_get.("DATABASE_URL", nil)
   end
 
+# Connection details for the supervised instance. These are also the credentials
+# pg0 initialises the cluster with on first start, so changing the username or
+# password after the data directory exists will not re-create the role.
 pg0_port = env_integer!.("CARTULARY_PG0_PORT", "5432")
 pg0_database = env_get.("CARTULARY_PG0_DATABASE", "cartulary")
 pg0_username = env_get.("CARTULARY_PG0_USERNAME", "postgres")
@@ -157,10 +229,17 @@ if database_mode not in ~w(pg0 external) do
   raise "CARTULARY_DATABASE_MODE must be pg0 or external"
 end
 
+# Refuse an ambiguous instruction instead of picking one. Supplying both says
+# "run your own database" and "use this other one"; guessing either way risks
+# writing to, or migrating, the wrong server.
 if database_mode == "pg0" and database_url not in [nil, ""] do
   raise "DATABASE_URL conflicts with CARTULARY_DATABASE_MODE=pg0"
 end
 
+# In pg0 mode the URL is synthesised rather than supplied. Each component is
+# percent-encoded because a password containing `@`, `/`, or `:` would otherwise
+# split the URL at the wrong place and produce a confusing connection failure.
+# The host is fixed to loopback: the supervised instance is never exposed.
 effective_database_url =
   if database_mode == "pg0" do
     "ecto://#{URI.encode_www_form(pg0_username)}:#{URI.encode_www_form(pg0_password)}@" <>
@@ -169,23 +248,45 @@ effective_database_url =
     database_url
   end
 
+# Applied only when a URL exists. Leaving the Repo untouched otherwise is what
+# lets a source checkout fall back to the username/hostname settings in
+# `config/dev.exs` or `config/test.exs`.
 if effective_database_url not in [nil, ""] do
   config :cartulary, Cartulary.Repo,
     url: effective_database_url,
+    # Database connections held open by this node. Sizing it above the server's
+    # max_connections divided by the node count causes connection errors under
+    # load rather than at boot.
     pool_size: env_integer!.("POOL_SIZE", "10"),
     socket_options: if(env_true?.("ECTO_IPV6"), do: [:inet6], else: [])
 end
 
+# Only a production node in external mode is required to have been given a URL.
+# Elsewhere a missing URL is legitimate: pg0 mode builds its own, and source
+# checkouts have per-environment Repo credentials.
 config :cartulary, :require_database_url, config_env() == :prod and database_mode == "external"
 
 config :cartulary, :database,
   mode: database_mode,
   database_url: effective_database_url,
+  # Migrations run as a supervised startup step before the endpoint accepts
+  # traffic. Defaulted on for pg0 because that install is meant to be turnkey,
+  # and off for external Postgres where change control usually requires
+  # migrating as a separate, reviewable step with `bin/migrate`.
   auto_migrate: env_bool!.("CARTULARY_AUTO_MIGRATE", database_mode == "pg0"),
   pg0: [
+    # The pg0 executable shipped inside the release. It is downloaded and
+    # checksum-verified at packaging time, not at runtime, so the running node
+    # never fetches a database binary from the network. Startup validation
+    # rejects a relative path or a file that is not readable and executable.
     binary: env_get.("CARTULARY_PG0_BINARY", Path.join(release_root, "bin/pg0")),
     name: env_get.("CARTULARY_PG0_NAME", "cartulary"),
+    # Must match the PostgreSQL version of the pinned asset. A mismatch means
+    # the data directory cannot be opened by the binary that ships with it.
     postgres_version: env_get.("CARTULARY_PG0_POSTGRES_VERSION", "18.1.0"),
+    # The durable cluster. This directory is the system of record in pg0 mode:
+    # it must be backed up, must survive upgrades, and must never point at a
+    # temp path in a real install.
     data_dir:
       env_get.(
         "CARTULARY_PG0_DATA_DIR",
@@ -197,6 +298,12 @@ config :cartulary, :database,
     database: pg0_database
   ]
 
+# Secret used to sign authentication tokens. It is deliberately independent of
+# the Phoenix `SECRET_KEY_BASE`: rotating one must not invalidate the other, and
+# a leak of one must not compromise the other. Production refuses to boot
+# without at least 64 bytes rather than falling back to something guessable;
+# development and test borrow the endpoint's committed key so a checkout runs
+# with no setup.
 auth_signing_secret =
   case env_get.("CARTULARY_AUTH_SIGNING_SECRET", nil) do
     secret when is_binary(secret) and byte_size(secret) >= 64 ->
@@ -215,15 +322,28 @@ auth_signing_secret =
       end
   end
 
+# The single community Account this node bootstraps. These name the Account; they
+# do not select it for a request. Which Account a request operates on is derived
+# from the caller's verified credential, so no deployment variable can be used to
+# reach another Account's data.
 config :cartulary, :identity,
   account_key: env_get.("CARTULARY_FREE_ACCOUNT_KEY", "local"),
   account_name: env_get.("CARTULARY_FREE_ACCOUNT_NAME", "Local Cartulary"),
   signing_secret: auth_signing_secret
 
+# Tests never contact a provider, even when the developer's shell exports a real
+# key. Clearing it here is what makes the suite deterministic and free.
 model_api_key = if(config_env() == :test, do: nil, else: env_get.("OPENROUTER_API_KEY", nil))
 requested_provider = env_get.("CARTULARY_MODEL_PROVIDER", "openrouter")
 local_fallback? = env_bool.("CARTULARY_MODEL_LOCAL_FALLBACK", config_env() != :prod)
 
+# The deterministic provider is a local, offline stand-in that returns
+# schema-valid but non-intelligent output. It is selected only up front, and only
+# when all three conditions hold: the hosted provider was requested, no key was
+# supplied, and the fallback is permitted. Production defaults the fallback off,
+# and nothing here can switch to it after a live provider call fails — a failed
+# call must surface as an error and leave the job retryable, never be answered
+# with fabricated content.
 generation_provider =
   if requested_provider == "openrouter" and model_api_key in [nil, ""] and local_fallback? do
     "deterministic"
@@ -231,6 +351,9 @@ generation_provider =
     requested_provider
   end
 
+# When the deterministic provider is active the configured model names are
+# meaningless, so the recorded identity says so plainly rather than claiming
+# output came from a model that was never called. Provenance must not lie.
 generation_model = fn role_key, default ->
   if generation_provider == "deterministic" do
     "local-structured-fallback"
@@ -239,35 +362,69 @@ generation_model = fn role_key, default ->
   end
 end
 
+# Version string recorded with everything the generation roles produce. Hosted
+# aggregators do not expose a stable model build id, hence "unversioned" as the
+# honest default; set it explicitly when a deployment pins one, because quality
+# comparisons between runs are only meaningful with the exact versions recorded.
 generation_version =
   if generation_provider == "deterministic",
     do: "1",
     else: env_get.("CARTULARY_MODEL_VERSION", "unversioned")
 
+# Note what is stored: the *name of the variable* holding the credential, not
+# the credential. Role configuration is durable and exportable, so a raw key
+# must never enter it.
 generation_options = %{
   "api_key_ref" => "env:OPENROUTER_API_KEY",
   "base_url" => env_get.("CARTULARY_OPENAI_COMPAT_BASE_URL", "https://openrouter.ai/api/v1")
 }
 
+# The four model roles. Any OpenAI-compatible endpoint, including a self-hosted
+# one, can serve the generation roles by pointing the base URL at it — no role is
+# tied to a specific vendor.
+#
+# `pipeline_version` is a contract identity value: "f5-1" versions the extractor
+# and pipeline identity reported by the health endpoint. Changing that string is
+# a deliberate contract transition that obliges a maintainer to add a changelog
+# entry and update the contract regression evidence, which is why it is a literal
+# here rather than an environment lookup.
 config :cartulary, :model_roles,
   embedder: %{
+    # Ortex runs an ONNX model from files on this machine: no network call and
+    # no download, so embedding works offline once the artifact paths below are
+    # set. Without them the embedder errors rather than fetching anything.
     provider: env_get.("CARTULARY_EMBEDDING_PROVIDER", "ortex"),
     model: env_get.("CARTULARY_EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5"),
+    # Bump this whenever the artifacts, pooling, or dimensions change. Provider,
+    # model, version, and dimensions together form the identity stamped on every
+    # stored vector; a mismatch forces an explicit re-embed and a vector is never
+    # silently reused across identities.
     model_version: env_get.("CARTULARY_EMBEDDING_VERSION", "onnx-1"),
     prompt_version: "none",
     pipeline_version: "f5-1",
+    # Must equal the model's real output width. 384 is the width the shipped
+    # vector indexes are built for; other widths work but fall back to the
+    # unindexed path until a matching index migration is installed.
     embedding_dimensions: env_integer.("CARTULARY_EMBEDDING_DIMENSIONS", "384"),
     options: %{
       "api_key_ref" => "env:CARTULARY_EMBEDDING_API_KEY",
       "base_url" => env_get.("CARTULARY_EMBEDDING_BASE_URL", nil),
+      # Filesystem paths to operator-supplied ONNX artifacts, each of which must
+      # already exist. Nothing downloads them; the embedder fails rather than
+      # fetching a model from the network.
       "model_path" => env_get.("CARTULARY_ORTEX_MODEL_PATH", nil),
       "tokenizer_path" => env_get.("CARTULARY_ORTEX_TOKENIZER_PATH", nil),
+      # How token vectors are reduced to one sentence vector. Must match how the
+      # model was trained, and changing it changes the embedding identity.
       "pooling" => env_get.("CARTULARY_ORTEX_POOLING", "cls"),
+      # Comma-separated ONNX Runtime execution providers, in preference order.
       "execution_providers" =>
         env_get.("CARTULARY_ORTEX_EXECUTION_PROVIDERS", "cpu")
         |> String.split(",", trim: true)
     }
   },
+  # Turns raw observations into structured candidate knowledge. Its output still
+  # passes validation and governance before anything becomes usable memory.
   ingest_extractor: %{
     provider: generation_provider,
     model: generation_model.("CARTULARY_MODEL_INGEST", "openai/gpt-oss-120b"),
@@ -276,6 +433,8 @@ config :cartulary, :model_roles,
     pipeline_version: "f5-1",
     options: generation_options
   },
+  # Background reasoning over already-governed knowledge. It also serves two
+  # foreground uses: reranking the fused retrieval head and entity resolution.
   dream_reasoner: %{
     provider: generation_provider,
     model: generation_model.("CARTULARY_MODEL_DREAM", "openai/gpt-oss-120b"),
@@ -284,6 +443,7 @@ config :cartulary, :model_roles,
     pipeline_version: "f5-1",
     options: generation_options
   },
+  # Answer composition for the question-answering surface.
   dialectic_agent: %{
     provider: generation_provider,
     model: generation_model.("CARTULARY_MODEL_ASK", "openai/gpt-oss-120b"),
@@ -293,6 +453,10 @@ config :cartulary, :model_roles,
     options: generation_options
   }
 
+# Deployment overrides for retrieval. Only two things are tunable from the
+# environment: which strategies may run at all, and the three profile deadlines.
+# Strategy membership and fusion weights per profile are not environment-tunable,
+# because changing them changes result quality and needs review.
 retrieval_strategy_names = %{
   "semantic" => :semantic,
   "lexical" => :lexical,
@@ -304,6 +468,8 @@ retrieval_strategy_names = %{
 
 retrieval_profiles = Application.fetch_env!(:cartulary, :retrieval_profiles)
 
+# An unknown name raises rather than being ignored. Silently dropping a
+# misspelled strategy would quietly degrade recall with no visible symptom.
 enabled_retrieval_strategies =
   "CARTULARY_RETRIEVAL_ENABLED_STRATEGIES"
   |> env_get.(
@@ -318,6 +484,13 @@ enabled_retrieval_strategies =
   end)
   |> Enum.uniq()
 
+# Each deadline is a hard wall-clock ceiling in milliseconds covering strategy
+# execution plus any reranking. Strategies that miss it are dropped from the
+# result and reported as dropped; they are never retried. Raising a deadline
+# buys recall at the cost of tail latency, and the fast deadline in particular
+# is on the live context path, where it bounds how long a cache miss can stall
+# a caller. Each `update!` only replaces `deadline_ms`, leaving the profile's
+# strategies, weights, rerank flag, and contract version untouched.
 retrieval_profiles =
   retrieval_profiles
   |> Keyword.put(:enabled_strategies, enabled_retrieval_strategies)
@@ -354,11 +527,22 @@ retrieval_profiles =
 
 config :cartulary, :retrieval_profiles, retrieval_profiles
 
+# Legacy single-credential configuration, predating per-role settings. The
+# ReqLLM provider still consults it, and an `api_key` set here would win over a
+# role's own reference — so it stays nil by design. The reference only names
+# where the credential lives; the provider reads the variable at call time, so
+# no key is copied into application configuration.
 config :cartulary, :models,
   base_url: generation_options["base_url"],
   api_key: nil,
   api_key_ref: "env:OPENROUTER_API_KEY"
 
+# Token admission limits per calendar day, supplied as a JSON object such as
+# {"input_tokens":1000000,"output_tokens":250000}. Only these three metrics
+# exist; an unknown key or a negative value raises at boot rather than producing
+# a limit nobody enforces, and an absent metric means unlimited. Reaching a limit
+# refuses only the background dream-time lane: ingest and governed reads keep
+# working, so a budget can never make the system unable to answer.
 budget_key_map = %{
   "input_tokens" => :input_tokens,
   "output_tokens" => :output_tokens,
@@ -381,6 +565,13 @@ budget_limits =
     {metric, value}
   end)
 
+# Operator-declared prices in USD per million tokens, keyed by model role and
+# then by metric, for example
+# {"ingest_extractor":{"input":0.5,"output":1.5},"embedder":{"embedding":0.02}}.
+# There is no built-in vendor price list and no hidden billing state: an omitted
+# role or metric simply contributes zero to the reported estimate. Exact token
+# counts are recorded separately as durable usage events; this map only turns
+# them into money.
 cost_key_map = %{"input" => :input, "output" => :output, "embedding" => :embedding}
 
 model_costs =
@@ -399,6 +590,8 @@ model_costs =
         unless is_number(rate) and rate >= 0,
           do: raise("model cost rate #{role}.#{metric} must be non-negative")
 
+        # Multiplying by 1.0 coerces a JSON integer to a float so downstream
+        # arithmetic stays float-only and never hits integer division.
         {cost_metric, rate * 1.0}
       end)
 
@@ -408,6 +601,11 @@ model_costs =
 config :cartulary, :budget_limits, budget_limits
 config :cartulary, :model_cost_per_million, model_costs
 
+# Where original document bytes are stored. This is an infrastructure seam:
+# swapping the adapter changes where blobs live and nothing else. Supersession,
+# tombstones, checksum-verified export, and erasure behave identically either
+# way. An unknown value raises rather than defaulting to local storage, which
+# would put data somewhere the operator did not intend.
 blob_adapter =
   case env_get.("CARTULARY_BLOB_ADAPTER", "local") do
     "local" -> Cartulary.Documents.BlobStore.Local
@@ -415,6 +613,10 @@ blob_adapter =
     invalid -> raise "unsupported CARTULARY_BLOB_ADAPTER: #{inspect(invalid)}"
   end
 
+# Production defaults to a durable system path; other environments get a
+# per-environment temp directory so a `mix test` run cannot clobber development
+# blobs. A temp default in production would lose original documents on reboot,
+# which is why it is not used there.
 default_blob_root =
   if config_env() == :prod,
     do: "/var/lib/cartulary/blobs",
@@ -422,11 +624,22 @@ default_blob_root =
 
 config :cartulary, :documents,
   blob_adapter: blob_adapter,
+  # Must be absolute; startup validation rejects a relative path. Blobs stored
+  # here are content-addressed and are part of the backup set, not a cache.
   blob_root: env_get.("CARTULARY_BLOB_ROOT", default_blob_root),
+  # Required when the adapter is s3; startup validation refuses to boot without
+  # it rather than failing later on the first upload.
   s3_bucket: env_get.("CARTULARY_S3_BUCKET", nil),
   s3_prefix: env_get.("CARTULARY_S3_PREFIX", "cartulary"),
+  # Chunk geometry in characters; the overlap keeps a sentence that straddles a
+  # boundary retrievable from either chunk. Chunks and their embeddings are
+  # rebuildable caches, so changing these values does not re-chunk documents
+  # already ingested — they keep their old boundaries until ingested again.
   chunk_size: env_integer.("CARTULARY_DOCUMENT_CHUNK_SIZE", "1200"),
   chunk_overlap: env_integer.("CARTULARY_DOCUMENT_CHUNK_OVERLAP", "160"),
+  # Upper bound in characters of extracted text per document version. Guards one
+  # pathological file from exhausting node memory; text past the limit is not
+  # extracted, so raising it raises peak memory during parsing.
   max_extract_length: env_integer.("CARTULARY_DOCUMENT_MAX_EXTRACT_LENGTH", "500000"),
   connector_adapters: %{}
 
@@ -434,6 +647,9 @@ config :ex_aws,
   http_client: ExAws.Request.Req,
   region: env_get.("AWS_REGION", "us-east-1")
 
+# Only set when an S3-compatible endpoint is in use (MinIO, Ceph, a regional
+# gateway). Left unset, ExAws talks to AWS S3 with its own defaults. Credentials
+# are not configured here: ExAws reads them from the standard AWS environment.
 case env_get.("CARTULARY_S3_HOST", nil) do
   host when is_binary(host) and host != "" ->
     config :ex_aws, :s3,
@@ -445,9 +661,17 @@ case env_get.("CARTULARY_S3_HOST", nil) do
     :ok
 end
 
+# Off by default, and it should stay off outside a debugging session: a SQL
+# statement span can carry literal column values, which would put user content
+# into traces.
 otel_db_statement =
   if env_true?.("CARTULARY_OTEL_DB_STATEMENT_ENABLED"), do: :enabled, else: :disabled
 
+# Span category switches. Spans record ids, counts, profile and strategy names,
+# model names, timings, token counts, and error classes — never message text,
+# prompts, answers, restricted knowledge, or credentials. The defaults enable the
+# categories that describe a workflow end to end and leave Ecto off, because
+# per-query spans bury the meaningful ones in noise.
 config :cartulary, :observability,
   db_statement: otel_db_statement,
   http_spans: env_bool.("CARTULARY_OTEL_HTTP_SPANS_ENABLED", true),
@@ -459,6 +683,15 @@ config :cartulary, :observability,
   model_spans: env_bool.("CARTULARY_OTEL_MODEL_SPANS_ENABLED", true),
   document_spans: env_bool.("CARTULARY_OTEL_DOCUMENT_SPANS_ENABLED", true)
 
+# Resource attributes stamped on every span. The three experiment attributes
+# exist so traces from different evaluation runs can be told apart and compared
+# after the fact: name groups runs, run id identifies one, and the retrieval
+# variant records which retrieval configuration produced them. Their defaults are
+# plain labels, not behaviour switches — setting them changes nothing about how
+# the node answers, only how its spans are tagged. The default variant label
+# "poc-baseline" names the frozen behaviour baseline that later runs are compared
+# against; change it when a run uses a different retrieval configuration, or the
+# comparison silently mixes two variants together.
 config :opentelemetry,
   resource: %{
     :service => %{
@@ -474,6 +707,9 @@ config :opentelemetry,
   },
   sampler: env_sampler.()
 
+# Export is opt-in. Without this flag the node produces no outbound telemetry at
+# all, which is the right default for a self-hosted install that may never have a
+# collector. Batching is used when enabled so exporting never blocks a request.
 if env_true?.("CARTULARY_OTEL_ENABLED") do
   config :opentelemetry,
     span_processor: :batch,
@@ -485,10 +721,19 @@ else
 end
 
 if config_env() == :prod do
+  # Phoenix's own signing/encryption key for cookies and sessions. It falls back
+  # to the authentication signing secret only so a minimal deployment can boot
+  # with one secret; a real deployment should set both to independent random
+  # values, so that rotating or leaking one does not affect the other.
   secret_key_base = env_get.("SECRET_KEY_BASE", auth_signing_secret)
 
+  # Used to build absolute URLs. The placeholder default is intentionally wrong
+  # so a forgotten setting shows up in generated links rather than silently
+  # producing links to the container's internal name.
   host = env_get.("PHX_HOST", "example.com")
 
+  # Optional DNS-based clustering for multi-node deployments. Unset means the
+  # node runs alone; clustering is not required for either database mode.
   config :cartulary, :dns_cluster_query, env_get.("DNS_CLUSTER_QUERY", nil)
 
   config :cartulary, CartularyWeb.Endpoint,
@@ -504,8 +749,10 @@ if config_env() == :prod do
 
   # ## SSL Support
   #
-  # To get SSL working, you will need to add the `https` key
-  # to your endpoint configuration:
+  # TLS is normally terminated by a proxy in front of this node, and the
+  # production build already redirects plain HTTP based on the forwarded
+  # protocol header. To terminate TLS in the release itself instead, add an
+  # `https` key to the endpoint configuration:
   #
   #     config :cartulary, CartularyWeb.Endpoint,
   #       https: [
@@ -516,21 +763,9 @@ if config_env() == :prod do
   #         certfile: System.get_env("SOME_APP_SSL_CERT_PATH")
   #       ]
   #
-  # The `cipher_suite` is set to `:strong` to support only the
-  # latest and more secure SSL ciphers. This means old browsers
-  # and clients may not be supported. You can set it to
-  # `:compatible` for wider support.
+  # `cipher_suite: :strong` allows only current ciphers and will refuse old
+  # clients; `:compatible` widens support at the cost of weaker ciphers.
   #
-  # `:keyfile` and `:certfile` expect an absolute path to the key
-  # and cert in disk or a relative path inside priv, for example
-  # "priv/ssl/server.key". For all supported SSL configuration
-  # options, see https://plug.hexdocs.pm/Plug.SSL.html#configure/1
-  #
-  # We also recommend setting `force_ssl` in your config/prod.exs,
-  # ensuring no data is ever sent via http, always redirecting to https:
-  #
-  #     config :cartulary, CartularyWeb.Endpoint,
-  #       force_ssl: [hsts: true]
-  #
-  # Check `Plug.SSL` for all available options in `force_ssl`.
+  # `:keyfile` and `:certfile` take an absolute path, or a path relative to
+  # `priv`, for example "priv/ssl/server.key".
 end

@@ -1,7 +1,28 @@
 # SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
 
 defmodule Cartulary.Retrieval.Indexer do
-  @moduledoc "Replay-safe F7 embedding backfill for governed knowledge."
+  @moduledoc """
+  Recomputes the embedding vectors that semantic retrieval searches, for every
+  statement in a scope.
+
+  Vectors are a derived cache. Losing them costs semantic recall until this
+  runs again; it never loses a statement, because the statement text is the
+  durable record and the vector is only an index over it. That is what makes
+  this safe to run at any time.
+
+  It is needed whenever vectors and statements fall out of step: after a
+  logical import, after an erasure, after a statement is approved while the
+  embedder was unavailable, or after the Account switches to a different
+  embedder and the old vectors stop being usable.
+
+  Runs as a background job, never on a request path — it embeds the whole scope
+  in one call and then updates one row per statement.
+
+  Each write records which embedder produced the vector (provider, model,
+  version, dimensions) alongside it. Semantic search then only compares vectors
+  from the identical embedder, so a half-migrated scope returns fewer results
+  rather than nonsensical ones.
+  """
 
   alias Cartulary.DataLayer
   alias Cartulary.Knowledge.KnowledgeItem
@@ -9,6 +30,22 @@ defmodule Cartulary.Retrieval.Indexer do
 
   require Ash.Query
 
+  @doc """
+  Re-embeds every indexable statement in one scope.
+
+  Covers both approved statements and provisional ones, since a provisional
+  statement is retrievable by the peer it is about and needs a vector too;
+  soft-deleted statements are skipped so erased content stays out of the index.
+
+  Replay-safe: it overwrites vectors rather than accumulating them, so running
+  it repeatedly converges. The whole scope runs in one Account-scoped
+  transaction as a system actor, so a failure part-way leaves the previous
+  vectors in place instead of a partially re-embedded scope.
+
+  Returns `{:ok, %{indexed: n}}`, with zero when the scope has nothing to
+  index, or the embedding provider's error tuple. Raises if a read or write
+  fails.
+  """
   def rebuild_scope(account_id, scope_id) do
     DataLayer.with_account_id(
       account_id,
@@ -23,6 +60,8 @@ defmodule Cartulary.Retrieval.Indexer do
           |> Ash.read!(actor: actor)
 
         case items do
+          # Return early rather than calling the embedder with an empty list,
+          # which some providers reject outright.
           [] ->
             {:ok, %{indexed: 0}}
 
@@ -33,12 +72,19 @@ defmodule Cartulary.Retrieval.Indexer do
     )
   end
 
+  # One batched embedding call for the whole scope, then one write per
+  # statement. The pairing relies on the provider returning vectors in the same
+  # order as the submitted texts; a reordering here would attach each vector to
+  # the wrong statement and silently corrupt semantic search.
   defp index_items(items, account_id, scope_id, actor) do
     context = %{account_id: account_id, scope_id: scope_id, actor: actor}
 
     with {:ok, result} <- Embedding.embed(Enum.map(items, & &1.statement), context) do
       Enum.each(Enum.zip(items, result.vectors), fn {item, embedding} ->
         item
+        # A dedicated action that only touches index columns. It is the sole
+        # way a knowledge vector is written, which keeps the derived index out
+        # of the actions that change a statement's meaning or lifecycle.
         |> Ash.Changeset.for_update(:index_from_pipeline, %{
           embedding: embedding,
           embedding_provider: result.provider,

@@ -133,10 +133,78 @@ document.
 
 ## Development discipline
 
+### Coding conventions
+
+**Source files are the primary documentation.** A competent Elixir developer
+who has never opened `specs/` or `docs/` must be able to open any file in this
+repository and understand, from that file alone, what it does, why it exists,
+which rules it enforces, and what a caller may not do with it.
+
+- **Explain in place; never delegate the explanation.** A comment or docstring
+  must not offload its meaning onto a spec, an architecture note, a roadmap
+  item, an issue, or a blueprint anchor. Do not write `see
+  docs/architecture/...`, `per FR-KN-3`, or `AD-DATA-1 requires this` in
+  source. State the rule itself, in plain language, at the place that enforces
+  it. Traceability belongs in commit messages, PR descriptions, ADRs, and the
+  `docs/` tree — not in code comments. Pointing at a file for *data* (a
+  fixture path, a threshold file the code actually reads) is fine; pointing at
+  a document for *understanding* is not.
+- **No retired phase labels.** `F0`–`F11` no longer name anything, and must
+  never appear in a comment or docstring. Contract version identity *values*
+  such as `f7-1`, `poc-0`, or `cartulary-account-1` are data, not labels: keep
+  the string and explain beside it which contract it versions and what
+  changing it obliges you to do.
+- **Every module carries a real `@moduledoc`.** No bare `@moduledoc false` in
+  first-party code. A moduledoc answers, in order: what this module is, what
+  it owns, the invariants it guarantees, and the mistakes callers must avoid.
+  A module that must stay out of generated docs may keep `@moduledoc false`
+  only when an equivalent `#` comment block with the same content sits
+  immediately above or below it.
+- **Every public function carries an `@doc`,** except in files that are pure
+  DSL declarations (an Ash domain listing resources, a `use`-only module). The
+  docstring gives purpose, the meaning of non-obvious arguments, the return
+  shape, and the failure modes a caller must handle — including which variants
+  raise.
+- **Comment the why, never the what.** `# increment the counter` above
+  `count + 1` is noise; delete it. Comment ordering constraints, transaction
+  boundaries, tenancy filters, replay and idempotency requirements,
+  content-safety redaction, deliberately non-obvious algorithms, workarounds,
+  and anything a future reader would otherwise "clean up" and break.
+- **Give constants a unit and a reason.** Timeouts, limits, weights,
+  thresholds, retry counts, and buffer sizes get a comment naming the unit and
+  why that value was chosen.
+- **Document Ash resources inline.** Say what one row means, which actions are
+  reachable only by the internal pipeline, why an action is create-only or
+  append-only, what each custom change or validation enforces, and what the
+  multitenancy and policy blocks actually guarantee.
+- **Document DSL blocks that encode a rule.** Policies, multitenancy,
+  identities, Oban triggers, and hand-written index or row-level-security DDL
+  need a sentence stating the guarantee, not a restatement of the DSL syntax.
+- **Non-Elixir files count too.** Shell launchers, `Dockerfile`, Compose
+  files, CI workflows, config files, schema-bearing JSON, and the `sdk/`
+  helpers open with a header comment stating purpose, inputs, outputs, and
+  assumptions. Keep the SPDX line first where the format allows comments.
+- **Comments are part of the change.** A behaviour edit updates the
+  surrounding comment in the same patch. A stale comment is a defect; a
+  comment that contradicts the code is reviewed as a bug.
+- **Exempt trees.** Generated and historical artifacts are not rewritten for
+  style: `deps/`, the generated migrations under `priv/repo/migrations/`, the
+  resource snapshots under `priv/resource_snapshots/`, recorded evaluation
+  reports under `docs/eval/results/`, and committed JSON fixtures. New
+  migrations still get comments on hand-written DDL, because that DDL is
+  authored, not generated.
+- **Existing evidence identities keep their names.** Test files and modules
+  whose paths are cited as regression evidence elsewhere in this contract are
+  renamed only by a deliberate, contract-updating change. Make them
+  self-explanatory with a moduledoc that states which behaviour the file pins
+  and why, rather than by renaming.
+
 ### Traceability
 
 - Keep each change traceable to the task, issue, and blueprint anchors it
-  implements.
+  implements. Record that trace in the commit message, the PR description, and
+  the durable documents under `docs/` — not in source comments, which must
+  stand alone.
 - Use `docs/roadmap/beta-roadmap.md` as the execution map. It does not replace
   the blueprint specs; it decomposes their remaining free-core scope into
   tracks and acceptance slices.
@@ -499,7 +567,11 @@ Reviewers and agents should ask:
   transactionally safe?
 - Does it avoid provider, database, deployment-mode, or cloud lock-in?
 - Are Free/Core and Enterprise boundaries explicit and non-forking?
-- Are blueprint anchors cited where the design depends on them?
+- Are blueprint anchors cited in the PR description and the durable docs where
+  the design depends on them — and kept out of source comments?
+- Can every touched file be read and understood on its own, without opening
+  `specs/` or `docs/`? Does each comment explain a reason rather than restate
+  the code?
 - Are test results real, current, and scoped to the change?
 - Is the PR focused on one task, with no unrelated cleanup or roadmap creep?
 

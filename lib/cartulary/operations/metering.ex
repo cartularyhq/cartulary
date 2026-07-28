@@ -1,7 +1,39 @@
 # SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
 
 defmodule Cartulary.Operations.Metering do
-  @moduledoc "Exact API/ingest ledger emission and self-host cost visibility."
+  @moduledoc """
+  Records what an Account consumed, and reports it back as an operator summary.
+
+  Two things happen on every metered call, and the order matters. First the
+  durable usage row is written; only then are the in-memory daily counters
+  bumped. The row is the exact ledger and the counters are a rebuildable cache
+  over it, so a crash between the two loses an admission hint, never a recorded
+  charge. Bumping the counter first would mean the reverse.
+
+  ## What this module owns
+
+    * Metering of edge (HTTP) traffic, which has no model behind it. Model
+      calls are metered by the model layer's single usage-emission point; this
+      module only receives their token totals for the counters.
+    * The Account-wide summary an administrator reads: exact recorded counts,
+      token totals overall and per model role, logical storage bytes, and an
+      estimated cost.
+
+  ## Cost estimates are operator-supplied, not billing state
+
+  There is no hidden billing service. The estimate multiplies recorded tokens
+  by per-million rates the operator configured; roles with no configured rate
+  contribute zero. It is a visibility aid for self-hosters and must never be
+  presented as an authoritative invoice.
+
+  ## Content safety
+
+  Everything written or returned here is identifiers, counts, timings, model
+  provenance, and status. Request bodies, statements, prompts, questions,
+  answers, and credentials must never be added: the summary is exported to
+  Account administrators, so a field added here is disclosed outside the
+  governed memory boundary.
+  """
 
   alias Cartulary.Actor
   alias Cartulary.Clock
@@ -11,6 +43,30 @@ defmodule Cartulary.Operations.Metering do
 
   @token_metrics [:input_tokens, :output_tokens, :embedding_tokens]
 
+  @doc """
+  Writes one usage-ledger row for an authenticated HTTP request, then bumps the
+  daily counters.
+
+  `attrs` must carry `:operation` (the coarse route name, for example
+  `"api.ingest"`); `:scope_id`, `:http_status`, and `:status` are optional and
+  `:status` defaults to `"ok"`. The row is attributed to the actor's Account and
+  peer, never to anything taken from the request body.
+
+  The provenance columns are filled with placeholders — an `"edge"` model role
+  and `"none"` provider/model/version — because no model was involved. The
+  pipeline version column is stamped with the literal `"f10-1"`, the same
+  identity the readiness payload carries; it names the operational payload
+  contract rather than an extraction pipeline. Changing that string is a
+  contract transition that owes a changelog entry and updated evidence, not a
+  cosmetic edit.
+
+  Requests naming the ingest operation increment a second counter, so ingest
+  volume can be throttled independently of ordinary API traffic.
+
+  Returns `:ok`. Raises if the ledger write fails, because a call that cannot be
+  metered must not be silently free; a counter update that finds no table is
+  dropped instead.
+  """
   def record_api(%Actor{} = actor, attrs) do
     operation = Map.fetch!(attrs, :operation)
     scope_id = Map.get(attrs, :scope_id)
@@ -37,8 +93,12 @@ defmodule Cartulary.Operations.Metering do
       },
       occurred_at: Clock.utc_now()
     })
+    # The caller's own role must not decide whether its usage is recorded, so
+    # the write is escalated to the internal writer that the ledger's create
+    # policy admits. The Account is still the caller's.
     |> Ash.create!(actor: %{actor | role: :system, pipeline?: true})
 
+    # Counters follow the durable write, never precede it.
     BudgetCounter.increment(actor.account_id, scope_id, :api_requests, 1)
 
     if operation == "api.ingest",
@@ -47,12 +107,39 @@ defmodule Cartulary.Operations.Metering do
     :ok
   end
 
+  @doc """
+  Folds one model call's token usage into the daily counters.
+
+  Called by the model layer's usage emission point after it has written the
+  durable row, so this function deliberately writes nothing durable itself.
+  `usage` is a map that may carry any of `:input_tokens`, `:output_tokens`, and
+  `:embedding_tokens`; a missing metric counts as zero.
+
+  Always returns `:ok`. A failure to update a rebuildable counter must never
+  fail the model call that produced the tokens.
+  """
   def record_model(account_id, scope_id, usage) do
     Enum.each(@token_metrics, fn metric ->
       BudgetCounter.increment(account_id, scope_id, metric, Map.get(usage, metric, 0))
     end)
   end
 
+  @doc """
+  Builds the Account-wide usage, storage, and estimated-cost summary.
+
+  Reads the whole ledger for the actor's Account under that actor's own
+  authorization, so an actor without administrator rights gets an error rather
+  than a redacted answer. Totals are computed in memory from every recorded row
+  — this is exact history, not a sampled or windowed estimate — which means the
+  cost of the call grows with the ledger.
+
+  The returned map holds the recorded event count, API request and ingest
+  counts, input/output/embedding token totals overall and per model role,
+  logical storage bytes, an estimated model cost, and the currency that
+  estimate is denominated in.
+
+  Raises if the actor may not read the ledger.
+  """
   def summary(%Actor{} = actor) do
     events =
       UsageEvent
@@ -85,6 +172,10 @@ defmodule Cartulary.Operations.Metering do
     }
   end
 
+  # Metadata is a free-form map on the ledger row, so a value written by an
+  # older build may be any shape. Non-integers are dropped rather than crashing
+  # the summary: a malformed historical row must not make the operator view
+  # permanently unreadable.
   defp metadata_sum(events, key) do
     events
     |> Enum.map(&Map.get(&1.metadata, key, 0))
@@ -92,7 +183,18 @@ defmodule Cartulary.Operations.Metering do
     |> Enum.sum()
   end
 
-  # Static, parameterized aggregate inside the F10 operations read boundary.
+  # Raw SQL rather than an Ash aggregate because this sums byte lengths across
+  # three unrelated tables in one round trip. It is read-only, the statement is
+  # a fixed literal, and the Account id is the one bound parameter — and it is
+  # the filter on each of the three subqueries.
+  #
+  # "Logical" means the size of the durable content itself — message text,
+  # knowledge statements, and stored document bytes — not the on-disk size of
+  # the database. Rebuildable derivations (vectors, chunks, projections) are
+  # excluded on purpose, so the number reflects what an export would carry.
+  #
+  # A failed query yields zero rather than raising: storage size is an
+  # informational field and must not take down the whole summary.
   # sobelow_skip ["SQL.Query"]
   defp logical_storage_bytes(account_id) do
     sql = """
@@ -102,6 +204,8 @@ defmodule Cartulary.Operations.Metering do
       COALESCE((SELECT sum(byte_size) FROM document_versions WHERE account_id = $1), 0)
     """
 
+    # Postgres returns a sum of bigints as numeric, which the driver decodes as
+    # a Decimal; the plain-integer clause covers drivers or plans that do not.
     case Ecto.Adapters.SQL.query(Repo, sql, [Ecto.UUID.dump!(account_id)]) do
       {:ok, %{rows: [[%Decimal{} = bytes]]}} -> Decimal.to_integer(bytes)
       {:ok, %{rows: [[bytes]]}} -> bytes
@@ -109,6 +213,11 @@ defmodule Cartulary.Operations.Metering do
     end
   end
 
+  # Rates are operator-configured price per one million tokens, per model role
+  # and per token kind. An unconfigured role or kind is worth 0.0, so a
+  # self-hoster who sets nothing sees an honest zero instead of a fabricated
+  # number. Rounded to six decimal places because a single small call can cost
+  # a fraction of a cent and truncating further would report it as free.
   defp estimated_cost(by_role) do
     rates = Application.get_env(:cartulary, :model_cost_per_million, %{})
 

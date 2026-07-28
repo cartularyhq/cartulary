@@ -1,13 +1,64 @@
 #!/bin/sh
 # SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+#
+# Packaged-release verification lane: prove that the artifact people actually
+# download works, and that it offers the same behaviour as a deployment against
+# an operator-run PostgreSQL.
+#
+# What it does, in order
+#   1. Builds the release with the pinned embedded PostgreSQL launcher (pg0)
+#      staged inside it.
+#   2. Boots that release exactly as an end user would, with no database
+#      installed: the release starts and migrates its own private PostgreSQL.
+#   3. Waits for the operational readiness endpoint to report healthy.
+#   4. Runs the whole test suite against that same running database, in
+#      external-database mode. This is the parity claim: one codebase, two
+#      deployment modes, identical guarantees. If a behaviour only holds when a
+#      human set up PostgreSQL by hand, this lane fails.
+#
+# Arguments
+#   None. Run it from anywhere; it locates the repository from its own path.
+#
+# Environment
+#   Nothing is required. Network access is needed for the pg0 download in the
+#   packaging step. Every variable the release needs is supplied inline below,
+#   so a developer's ambient DATABASE_URL or model credentials cannot change the
+#   result. TMPDIR, if set, decides where the throwaway data root is created.
+#
+# Outputs
+#   No retained artifacts. The built release stays in _build/prod/rel/cartulary
+#   for a subsequent packaging or container step; everything stateful this lane
+#   creates lives under one temporary directory that is deleted on exit.
+#
+# Failure behaviour
+#   `set -eu` aborts on the first failure. On any non-zero exit the first 240
+#   lines of the release log are printed, because a release that fails to boot
+#   leaves no other evidence once the temporary directory is removed. The
+#   cleanup trap always stops the release (and with it the managed database) and
+#   removes the temporary directory, so a failed run leaves no orphaned
+#   PostgreSQL process holding the port and no stray data on the runner.
+#
+# This lane is deliberately separate from the container lane: the container
+# image contains no pg0 and is given a stock PostgreSQL service instead. Only
+# the unpacked no-container release ships an embedded database.
 set -eu
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+# One throwaway root holds the database cluster, blobs, and the release log, so
+# cleanup is a single removal and concurrent runs cannot share state. The name
+# carries a historical tag; it is only a directory prefix.
 lane_root=$(mktemp -d "${TMPDIR:-/tmp}/cartulary-f11-pg0.XXXXXX")
 release_root="$repo_root/_build/prod/rel/cartulary"
 release_log="$lane_root/release.log"
 release_pid=
 
+# Ordering inside cleanup matters. Ask the release to shut down first: an
+# orderly release shutdown is what stops the managed PostgreSQL instance by
+# name. Killing the launcher process instead would orphan a database still
+# holding the port and the data directory, and the following `rm -rf` would then
+# delete a live cluster's files. Every step is failure-tolerant (`|| true`)
+# because cleanup also runs after a failed boot, where there may be nothing to
+# stop, and a failure here must not mask the real exit status.
 cleanup() {
   status=$?
   if [ -x "$release_root/bin/cartulary" ]; then
@@ -16,18 +67,54 @@ cleanup() {
   if [ -n "$release_pid" ] && kill -0 "$release_pid" >/dev/null 2>&1; then
     kill "$release_pid" >/dev/null 2>&1 || true
   fi
+  # The log is inside the directory about to be deleted, so it has to be
+  # surfaced here or the failure is undiagnosable. Bounded to keep a crash loop
+  # from flooding the CI output.
   if [ "$status" -ne 0 ] && [ -f "$release_log" ]; then
     sed -n '1,240p' "$release_log"
   fi
   rm -rf "$lane_root"
+  # Clear the trap before the explicit exit, otherwise exiting re-enters cleanup.
   trap - EXIT INT TERM
   exit "$status"
 }
 trap cleanup EXIT INT TERM
 
 cd "$repo_root"
+# Build the artifact under test. This stages the version-pinned, SHA-256-pinned
+# pg0 binary into the release; the lane verifies that exact package, not a
+# `mix phx.server` approximation of it.
 ./scripts/package-release
 
+# Boot the packaged release in the background, with a fully explicit
+# environment. Every variable here exists to keep the lane hermetic and
+# reproducible:
+#
+#   CARTULARY_AUTH_SIGNING_SECRET  A production boot refuses to start without at
+#       least 64 bytes of signing secret rather than inventing a guessable one.
+#       This literal is a throwaway that satisfies that length check; it is
+#       CI-only and must never be reused by a real deployment.
+#   CARTULARY_AUTO_MIGRATE  Run migrations during boot, before serving traffic,
+#       so readiness below genuinely means "schema applied and usable".
+#   CARTULARY_DATABASE_MODE=pg0  Supervise our own PostgreSQL. The release
+#       starts pg0 first, then the Repo, then migrations — that ordering is the
+#       whole point of the lane, because nothing can connect before the engine
+#       is up.
+#   CARTULARY_DATA_ROOT  Redirect the database cluster, blobs, and generated
+#       secret into the throwaway directory instead of the runner's home.
+#   CARTULARY_PG0_NAME  Names the managed instance so cleanup can stop exactly
+#       this one and not a developer's local instance.
+#   CARTULARY_PG0_PORT  A high, unlikely-to-collide TCP port; the default 5432
+#       is often already taken on a CI runner or a developer machine. The test
+#       run further below must target this same port.
+#   DATABASE_URL=  Cleared on purpose. Supplying both a database URL and pg0
+#       mode is a contradiction and the release refuses to boot, so an inherited
+#       value from the CI environment would fail the lane for the wrong reason.
+#   PORT / PHX_HOST  Bind HTTP to loopback on a non-default port, again to avoid
+#       colliding with anything else on the runner.
+#
+# stdout and stderr go to the log file because the readiness loop and the test
+# run need a clean console, and the cleanup trap replays the log on failure.
 CARTULARY_AUTH_SIGNING_SECRET=cartulary-f11-ci-only-signing-secret-that-is-longer-than-sixty-four-bytes \
 CARTULARY_AUTO_MIGRATE=true \
 CARTULARY_DATABASE_MODE=pg0 \
@@ -40,6 +127,16 @@ PHX_HOST=127.0.0.1 \
 "$release_root/bin/server" >"$release_log" 2>&1 &
 release_pid=$!
 
+# Poll the operational readiness endpoint, which returns success only once the
+# app, database, background-job supervisor, queue query, and the model-role
+# configuration are all healthy. Liveness is not enough here: the point is that
+# a cold machine reached a fully working state on its own.
+#
+# Budget: 60 attempts, one second apart, so roughly 60 s. That covers a first
+# boot, where pg0 has to initialise a brand new cluster and the whole migration
+# set has to run, on a slow shared runner. The log is printed here as well as by
+# the cleanup trap; duplicated output costs nothing next to losing the only
+# evidence of why the release never came up.
 attempt=0
 until curl -fsS http://127.0.0.1:4101/api/ready >/dev/null 2>&1; do
   attempt=$((attempt + 1))
@@ -50,6 +147,16 @@ until curl -fsS http://127.0.0.1:4101/api/ready >/dev/null 2>&1; do
   sleep 1
 done
 
+# Parity check. The release above is still running and still supervising its
+# database; the suite now connects to that same server as an ordinary external
+# client, over TCP on the port chosen above. So the identical test contract that
+# normally runs against an operator-run PostgreSQL is proven against the
+# embedded one — same migrations, same extensions, same behaviour.
+#
+# The suite reads CARTULARY_TEST_DATABASE_URL rather than DATABASE_URL so that a
+# developer running this locally cannot have their real development database
+# truncated. The database name here is lane-local and distinct from the
+# release's own database, so the tests never touch the running node's data.
 CARTULARY_DATABASE_MODE=external \
 CARTULARY_TEST_DATABASE_URL=ecto://postgres:postgres@127.0.0.1:55431/cartulary_f11_pg0 \
 MIX_ENV=test \

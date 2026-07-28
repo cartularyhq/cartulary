@@ -11,6 +11,30 @@ changelog entry and contract-version transition.
 
 ### Changed
 
+- Made every first-party source file self-explanatory. Each module now carries
+  a real `@moduledoc` stating what it owns, the invariants it guarantees, and
+  the mistakes callers must avoid; public functions document their return shape
+  and failure modes; comments explain why rather than restating code; and
+  configuration, packaging, CI, and script files carry header comments naming
+  purpose, inputs, outputs, and assumptions. No behaviour changed.
+- Removed every pointer from source comments into `specs/` and `docs/`, and
+  every remaining `F0`–`F11` phase label from code prose, replacing each with
+  the rule stated in place. The `f`-prefixed contract identity values
+  (`poc-0`, `f4-1`, `f5-1`, `f7-1`, `f9-1`, `f10-1`, `f11-1`, `f11-suite-1`,
+  `f11-surface-contracts-1`, `cartulary-account-1`) are unchanged, and the test
+  filenames that carry regression-evidence identities were deliberately not
+  renamed.
+- Added a "Coding conventions" section to `AGENTS.md` making the above a
+  contract, with matching review questions, a `CONTRIBUTING.md` rewrite, and a
+  self-explanatory-code checklist in the pull request template.
+- Expanded `README.md` with a core-concepts glossary, an end-to-end walkthrough
+  of an ingest request, a repository layout table, and a guided reading order.
+- Corrected stale `blueprint/` paths to `specs/` in `CONTRIBUTING.md`,
+  `.github/CODEOWNERS`, the pull request template, and the three issue
+  templates.
+- Replaced the boilerplate `priv/repo/seeds.exs` comment, which advised writing
+  through `Cartulary.Repo.insert!/1` and so contradicted the pipeline-only and
+  Ash-action-only write rules.
 - Updated the official GitHub Actions used by CI, nightly evaluation, and
   release workflows to maintained Node 24 action majors.
 - Retired the `F0`–`F11` roadmap phase labels from all documentation in favour

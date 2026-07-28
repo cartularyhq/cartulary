@@ -1,6 +1,52 @@
 # SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
 
 defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
+  @moduledoc """
+  Pins the coupling between a durable write, its audit entry, its processing record, and its
+  background job: either all four exist or none of them do.
+
+  The file name and module name are frozen evidence identities and are not renamed. What they
+  guard is the property that makes the rest of the system trustworthy — there is no window in
+  which an observation is stored but unaudited, audited but unqueued, or queued for work that
+  was rolled back. Five things are pinned here.
+
+  **One transaction, four effects.** Accepting a raw observation writes the observation row,
+  appends an audit event, creates (or reuses) a durable processing record, and inserts the
+  background job in the same database transaction. A failure at any point after the enqueue
+  unwinds all of them, so a job can never reference a row that does not exist and a stored row
+  can never be left with nobody scheduled to process it.
+
+  **Audit is content-safe.** An audit event records a SHA-256 digest of the content and
+  content-free metadata such as a role and a session identifier. Raw text never enters audit
+  metadata, job arguments, or telemetry, because those travel to places the content itself is
+  not allowed to go.
+
+  **The audit trail is a per-Account hash chain.** Each event stores the hash of the previous
+  event for its Account and its own hash over a fixed payload. Recomputing the chain from the
+  stored fields must reproduce every hash, which is what turns "we have logs" into "the logs
+  have not been altered". The chain head starts empty for a new Account, so the first event
+  links to nothing.
+
+  **Work is replay-safe.** Every job lane derives a deterministic idempotency key from its
+  inputs. The same inputs must produce the same key, so a retry, a reconciler sweep, and an
+  inline run all converge on one unit of work; different inputs or different lanes must
+  produce different keys, so unrelated work is never mistaken for a duplicate and silently
+  dropped. Re-running extraction merges into the existing knowledge instead of minting a
+  second copy or appending a second creation lifecycle event.
+
+  **Extraction is not a precondition for durability.** An observation ingested without an
+  inline extraction still commits with its processing record; it stays marked unprocessed so
+  the reconciler will come back to it.
+
+  ## If a test in this file fails
+
+  Treat it as a durability or integrity defect rather than a flaky test. Splitting one of the
+  four writes out of the transaction, moving the enqueue after commit, copying content into
+  audit metadata or job arguments, or changing the fields that feed the event hash will each
+  break a specific test here. The last one also invalidates every previously stored chain, so
+  it needs a migration plan, not just a new expected value.
+  """
+
   use Cartulary.DataCase, async: false
 
   alias Cartulary.Clock
@@ -12,6 +58,10 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
   alias Cartulary.Operations.PipelineRun
   alias Cartulary.Pipeline.Idempotency
 
+  # Clears every credential a provider could pick up, so nothing here can reach a network
+  # endpoint. The provider-outage test below deliberately writes a broken configuration back.
+  # Both values are global to the node, so this module is not async and both are restored
+  # afterwards.
   setup do
     original_api_key = System.get_env("OPENROUTER_API_KEY")
     original_models = Application.fetch_env!(:cartulary, :models)
@@ -40,6 +90,14 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
 
     account_id = account_id!("f2-commit")
 
+    # One query with sub-selects, deliberately: it observes the observation row, the audit
+    # event, the processing record, and the queued job at a single point in time. Four separate
+    # queries could each pass against a half-committed state.
+    #
+    # The job is matched on the Account tenant and the lane name in its arguments, because the
+    # test has no handle on the job id. Job arguments hold ids, a replay key, and a lane name;
+    # no content and no secret may be placed there, since anyone who can read the queue table
+    # can read them.
     assert %{rows: [["message.ingested", content_hash, message_count, run_count, job_count]]} =
              Ecto.Adapters.SQL.query!(
                Repo,
@@ -58,11 +116,16 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
                [Ecto.UUID.dump!(message["id"]), account_id]
              )
 
+    # The audit event points at the content by digest. Recomputing the digest from the stored
+    # message proves the reference is real without the audit row ever holding the text.
     assert content_hash == Idempotency.content_hash(message["content"])
     assert message_count == 1
     assert run_count == 1
     assert job_count == 1
 
+    # Exactly one reconciler record per Account, not one per ingest. The reconciler re-enqueues
+    # observations whose extraction never completed; its idempotency key is per Account, so
+    # repeated ingests collapse onto the same record instead of flooding the queue.
     assert scalar!(
              """
              SELECT count(*) FROM pipeline_runs
@@ -78,9 +141,18 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
                ingest_attrs("f2-rollback", "seed-session", sync_extract: false)
              )
 
+    # Snapshot of message, audit, processing-record, and job counts taken before the doomed
+    # write. The seed ingest above exists so these counts start non-zero and a rollback that
+    # wiped everything would also be caught.
     before = account_counts("f2-rollback")
     {session_id, scope_id, peer_id} = observation_ids!("f2-rollback")
 
+    # The private context flag makes the create fail *after* the audit event and the enqueue
+    # have already run inside the transaction — the exact window where a non-transactional
+    # implementation would leave an orphaned audit entry and a job for a row that never
+    # existed. The flag is reachable only from a changeset's private context, never from
+    # request input, and the production code path that honours it is here for this test: do
+    # not delete it as dead code.
     assert_raise RuntimeError, ~r/forced F2 rollback/, fn ->
       DataLayer.with_account_key("f2-rollback", fn account, actor ->
         Message
@@ -102,15 +174,24 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
       end)
     end
 
+    # All four counters unchanged. A single one moving means that write escaped the
+    # transaction and the four effects are no longer atomic.
     assert account_counts("f2-rollback") == before
   end
 
   test "AshOban extraction executes the ingest Reactor and marks durable processing complete" do
+    # `sync_extract: false` returns as soon as the observation is durable, leaving the work to
+    # the queue, so this test exercises the real background path rather than the inline one.
     assert {:ok, message} =
              Memory.ingest_message(ingest_attrs("f2-drain", "drain-session", sync_extract: false))
 
+    # Runs the queued job in this process. It can see the test's uncommitted rows only because
+    # the sandbox connection is shared, which is why this module cannot be async.
     assert %{success: 1, failure: 0} = Oban.drain_queue(queue: :ingest)
 
+    # Three facts in one row: the observation is marked processed, knowledge was produced from
+    # it, and the durable processing record reached `completed`. The completion marker is what
+    # keeps the reconciler from picking the message up again forever.
     assert %{rows: [[completed_at, 1, "completed"]]} =
              Ecto.Adapters.SQL.query!(
                Repo,
@@ -134,18 +215,31 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
              Memory.ingest_message(ingest_attrs("f2-replay", "replay-session"))
 
     account_id = account_id!("f2-replay")
+
+    # The ingest above already extracted inline, so the baseline is taken after that first run.
     before = knowledge_counts(account_id)
 
+    # Two more extractions of the same observation stand in for the ways replay really happens:
+    # a retried job, a reconciler sweep, and an inline run racing the queued one. Each returns
+    # the knowledge as if it had just produced it — replay is a normal outcome, not an error.
     assert {:ok, [_knowledge]} =
              Memory.extract_message_for_account(message["id"], account_id)
 
     assert {:ok, [_knowledge]} =
              Memory.extract_message_for_account(message["id"], account_id)
 
+    # Nothing new was written: not a duplicate knowledge item, not a second creation lifecycle
+    # event, not a repeated attribution, provenance, or audit entry. Duplicates here would
+    # inflate corroboration counts, so a statement could be promoted for having been said once.
     assert knowledge_counts(account_id) == before
   end
 
   test "provider unavailability cannot prevent raw persistence and transactional enqueue" do
+    # Points the legacy `:models` credential and base URL at a port nothing listens on, so any
+    # provider call made under this configuration would fail on connect rather than hang. The
+    # ingest below passes `sync_extract: false`, so no model call is attempted here; what the
+    # assertions prove is that the durable observation and its processing record do not depend
+    # on extraction having produced anything.
     models =
       :cartulary
       |> Application.fetch_env!(:models)
@@ -161,8 +255,11 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
                ingest_attrs("f2-provider-down", "provider-session", sync_extract: false)
              )
 
+    # `sync_extract: false` returns the observation with no "knowledge" key at all, so the
+    # caller is never handed a fabricated or fallback result while extraction is still pending.
     refute Map.has_key?(message, "knowledge")
 
+    # The observation is stored and still marked unprocessed, so the reconciler will pick it up.
     assert scalar!(
              """
              SELECT count(*)
@@ -173,6 +270,8 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
              [Ecto.UUID.dump!(message["id"])]
            ) == 1
 
+    # And the durable processing record survives the provider failure, so the work is retryable
+    # rather than lost.
     assert scalar!(
              "SELECT count(*) FROM pipeline_runs WHERE target_id = $1 AND kind = 'extraction'",
              [Ecto.UUID.dump!(message["id"])]
@@ -187,6 +286,9 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
                ingest_attrs("f2-audit-chain", "audit-session", content: content)
              )
 
+    # Reading audit needs an admin, curator, or system role; ordinary members and readers have
+    # no route to it. Sorting by insertion order with the id as a tiebreak reproduces the order
+    # the chain was built in, which is the only order in which the links verify.
     events =
       DataLayer.with_account_key(
         "f2-audit-chain",
@@ -199,17 +301,30 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
         end
       )
 
+    # A floor rather than an exact count, so adding a new audited action elsewhere does not
+    # break this test. The named actions are the ones a single ingest must always leave behind:
+    # the knowledge moved state, and both governance gates recorded what they decided.
     assert length(events) >= 4
     assert Enum.any?(events, &(&1.action == "knowledge.transitioned"))
     assert Enum.any?(events, &(&1.action == "gate_a.defer"))
     assert Enum.any?(events, &(&1.action == "gate_b.provisional"))
 
+    # Walk the chain, carrying the previous event's hash. The accumulator starts at nil because
+    # the first event of an Account links to nothing.
     events
     |> Enum.reduce(nil, fn event, previous_hash ->
+      # Each link points at its predecessor, and the hash is a full 64-character hex SHA-256.
+      # A gap or a re-pointed link means an event was removed or inserted after the fact.
       assert event.previous_hash == previous_hash
       assert event.event_hash =~ ~r/\A[0-9a-f]{64}\z/
+
+      # Content safety: the observed text must not appear anywhere in the event metadata.
+      # Inspecting the whole term catches it however deeply it was nested.
       refute inspect(event.metadata) =~ content
 
+      # Recompute the hash from the stored fields. This exact field set, in this shape, defines
+      # the chain: adding, removing, or re-typing any of them changes every future hash and
+      # invalidates every chain already written, so it is a migration, not a tweak.
       payload = %{
         account_id: event.account_id,
         category: event.category,
@@ -228,6 +343,9 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
   end
 
   test "F2 registers every job lane, continuation Reactor, and deterministic key family" do
+    # The complete set of background lanes. Listing them exactly means a new lane cannot be
+    # added without a reviewer noticing that it also needs an idempotency key family, a
+    # reconciler story, and content-free job arguments.
     trigger_names =
       PipelineRun
       |> AshOban.Info.oban_triggers()
@@ -249,17 +367,27 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
                :validation_continuation
              ])
 
+    # Each lane's orchestration module must exist and compile. A trigger whose workflow module
+    # is missing would only fail when a real job ran, in production, at retry time.
     assert Code.ensure_loaded?(Cartulary.Pipeline.Workflows.IngestExtraction)
     assert Code.ensure_loaded?(Cartulary.Pipeline.Workflows.DreamTimeReasoning)
     assert Code.ensure_loaded?(Cartulary.Pipeline.Workflows.ValidationContinuation)
     assert Code.ensure_loaded?(Cartulary.Pipeline.Workflows.AnswerCorrelationContinuation)
 
+    # Idempotency keys need two opposite properties, and both are checked here.
+    #
+    # Stable: identical inputs give an identical key, so a retry or a reconciler sweep lands on
+    # the work that already exists instead of starting a second copy.
     message_id = Ecto.UUID.generate()
     message_key = Idempotency.message_extraction(message_id, "content-hash")
 
     assert message_key ==
              Idempotency.message_extraction(message_id, "content-hash")
 
+    # Distinct: different lanes and different inputs must never collide, or one piece of work
+    # would be discarded as a duplicate of an unrelated one and never run at all. The pairs
+    # below are the collisions that could plausibly happen if a key were built from too few
+    # components — two lanes sharing a scope and watermark, one import with two manifests.
     assert message_key != Idempotency.document_extraction(Ecto.UUID.generate(), "content-hash")
 
     scope_id = Ecto.UUID.generate()
@@ -271,12 +399,18 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
     assert Idempotency.import_rebuild("import-1", "manifest-a") !=
              Idempotency.import_rebuild("import-1", "manifest-b")
 
+    # The audit categories are a closed vocabulary. Every audited action must fall into one of
+    # them, so operators can filter and retain the trail without knowing each action name.
     assert Enum.sort(Audit.categories()) ==
              Enum.sort(
                ~w(attribution configuration deletion gate governance lifecycle observation)
              )
   end
 
+  # Builds one ingest payload. Every test uses its own Account key so the count assertions are
+  # not disturbed by rows another test in this file created. Overrides are given as a keyword
+  # list purely for readability at the call sites and are converted to the string keys the
+  # ingest entry point expects.
   defp ingest_attrs(account_key, session_id, overrides \\ []) do
     %{
       "account_key" => account_key,
@@ -289,6 +423,8 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
     |> Map.merge(Map.new(overrides, fn {key, value} -> {to_string(key), value} end))
   end
 
+  # Resolves the Account identifier as text, because the counting queries below compare it
+  # against the job arguments, where it is stored as a JSON string rather than a UUID.
   defp account_id!(account_key) do
     %{rows: [[id]]} =
       Ecto.Adapters.SQL.query!(
@@ -300,6 +436,10 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
     id
   end
 
+  # Returns the session, scope, and peer the seed ingest created, so the rollback test can
+  # build a second observation against real parents. It reads them from the database rather
+  # than creating fresh ones, because creating them would itself add rows and move the
+  # before/after counts the test compares.
   defp observation_ids!(account_key) do
     %{rows: [[session_id, scope_id, peer_id]]} =
       Ecto.Adapters.SQL.query!(
@@ -319,6 +459,10 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
     {session_id, scope_id, peer_id}
   end
 
+  # The four counts that must move together: observations, audit events, processing records,
+  # and queued jobs. Read in one statement so the tuple is a consistent snapshot. Jobs are
+  # matched on the Account carried in their arguments, since the queue table is not itself an
+  # Account-scoped resource.
   defp account_counts(account_key) do
     account_id = account_id!(account_key)
 
@@ -338,6 +482,9 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
     {messages, audits, runs, jobs}
   end
 
+  # Everything a replayed extraction could wrongly duplicate: the knowledge item itself, its
+  # lifecycle history, who said it, where it came from, and the audit trail. All five are
+  # compared as one tuple so a single leaked duplicate fails the test.
   defp knowledge_counts(account_id) do
     %{rows: [[knowledge, lifecycle, attributions, provenances, audits]]} =
       Ecto.Adapters.SQL.query!(
@@ -356,6 +503,8 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
     {knowledge, lifecycle, attributions, provenances, audits}
   end
 
+  # Runs a parameterized query expected to return exactly one column of one row, and fails the
+  # match if it returns anything else.
   defp scalar!(sql, params) do
     %{rows: [[value]]} = Ecto.Adapters.SQL.query!(Repo, sql, params)
     value

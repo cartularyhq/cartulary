@@ -2,12 +2,89 @@
 
 defmodule Cartulary.Governance.Engine do
   @moduledoc """
-  Transactional Gate A/B operation layer.
+  The Gate A/B decision engine: the only place knowledge changes governance state.
 
-  New reasoned knowledge enters here as a proposal. The engine evaluates a
-  versioned matrix cell, creates the durable validation/peer queues when human
-  judgment is required, and records both the immutable decision history and
-  hash-chained audit evidence for every gate and lifecycle mutation.
+  Everything the extraction pipeline produces is written as a *proposal* and handed to this
+  module. Nothing else may activate, reject, hold, supersede, or relocate a knowledge item.
+  Each outcome is paired, in the caller's transaction, with immutable decision history, a
+  hash-chained audit event, and the derived-cache refresh work the new state implies.
+
+  ## The two gates
+
+  Gate A answers "is this worth keeping at all?" and weighs the item's confidence against the
+  matrix cell that governs it. Gate B answers "how widely may it be exposed?" and weighs how
+  many independent sources corroborate the item against that same cell, which was chosen by the
+  requested target level and the sensitivity. An outstanding subject consent blocks automatic
+  acceptance on top of both. `evaluate_proposal/3` runs both gates in one pass, so one proposal
+  can write two decision rows — one per gate.
+
+  Target levels widen in the order `"peer"`, `"scope"`, `"account"`. The level is what the
+  gates judge — how far the item is asking to travel — and is not itself a retrieval filter;
+  what a reader actually sees follows the item's scope and lifecycle state. Because the matrix
+  is keyed by level, the same confidence value can auto-activate a peer-level item and still
+  queue a scope-level one for a human.
+
+  ## The matrix
+
+  A cell is a `Cartulary.Governance.GateRule` row keyed by target level plus sensitivity.
+  Lookup order is: the active rule attached to the item's own scope, then the account-wide
+  rule (`scope_id` is `nil`), then a built-in cell that demands human review at both gates. A
+  missing matrix therefore falls back to human judgment, never to auto-activation.
+
+  Gate A modes are `"auto_keep"` (keep when confidence clears the cell's minimum),
+  `"auto_reject"` (drop unconditionally), and anything else meaning human review. Gate B has
+  `"auto_place"` (place when corroboration clears the cell's minimum) and human review.
+
+  ## Outcomes
+
+  * **accept** — `"active"`, verification `"auto_verified"`, any held scope cleared, and a
+    revalidation date set from the cell. Requires an automatic keep *and* an automatic place
+    *and* no outstanding consent requirement.
+  * **reject** — `"rejected"`, verification `"auto_rejected"`. The row survives as evidence;
+    rejected knowledge is simply never retrieved.
+  * **defer** — a human queue entry. A peer-level item becomes `"provisional"`, which means
+    only the subject peer may see it while validation is pending. A scope- or account-level
+    item becomes `"held"` at its source scope and stays out of retrieval entirely, so an
+    ungoverned claim can never leak upward merely by being proposed.
+
+  ## Consent
+
+  Personal knowledge about a human does not reach a wider scope on a curator's say-so.
+  Approving a scope-level review of a `"personal"` item without a granted, verified consent row
+  parks the queue entry in `"awaiting_consent"` and leaves the knowledge exactly where it was.
+  Consent is granted by the subject, is specific to one target scope, and only counts when it
+  arrived over a verified channel — `subject_consent/6` refuses to record a grant otherwise,
+  while allowing a denial through any channel, because withdrawing exposure should never be
+  harder than granting it.
+
+  ## Human decisions
+
+  `decide/4` and `bulk_decide/4` are the only entry points for approve, edit, reject, merge,
+  and defer. They accept a browser-session human holding an account-admin or curator role;
+  machine credentials are refused. Each call takes a transaction-scoped advisory lock on the
+  queue entry so two curators cannot decide the same item concurrently.
+
+  Curators never write knowledge text directly. An edit mints a replacement row through the
+  pipeline-only create action, supersedes the original, and sends the replacement back
+  through `evaluate_proposal/3`, so curator-authored text passes the same gates as extracted
+  text.
+
+  ## Transactions, actors, and content safety
+
+  `evaluate_proposal/3`, `transition!/4`, and `record_decision!/6` open no transaction of
+  their own and assume the caller is already inside one with the tenant's row-level-security
+  setting applied (which `Cartulary.DataLayer.with_actor/2` does). The state change, the
+  lifecycle event, the audit entry, and the enqueued jobs must commit or roll back together.
+
+  Internally the engine elevates to a pipeline actor for writes that only the pipeline is
+  allowed to perform. That is safe only because the caller-facing entry points — `decide/4`,
+  `bulk_decide/4`, `request_promotion/3`, `contest/3`, `subject_consent/6`, `self_view/1`, and
+  `history/2` — establish who the caller is before any elevation happens. `evaluate_proposal/3`,
+  `transition!/4`, and `record_decision!/6` perform no such check and expect to be handed a
+  pipeline actor by an already-authorized caller.
+
+  Audit metadata and job arguments carry ids, states, levels, channels, flags, and the
+  statement hash — never statement text. Keep it that way when adding fields.
   """
 
   alias Cartulary.Clock
@@ -28,12 +105,36 @@ defmodule Cartulary.Governance.Engine do
 
   require Ash.Query
 
+  # The complete set of curator verbs. `decide/4` guards on this list, so an unknown verb
+  # raises FunctionClauseError rather than silently doing nothing to a queued item.
   @human_actions ~w(approve edit reject merge defer)
 
+  @doc """
+  Runs Gate A and Gate B over a freshly proposed knowledge item and applies the outcome.
+
+  `knowledge` is a just-created `Cartulary.Knowledge.KnowledgeItem` in state `"proposed"`.
+  `actor` is the pipeline actor of the ingest run. Options:
+
+    * `:target_level` — how far the item is being proposed (`"peer"`, `"scope"`, or
+      `"account"`). Defaults to the item's own target level, then to `"peer"`.
+    * `:target_scope_id` — the scope the item wants to live in when the target level is above
+      peer. Held items record it so a curator can see where the request points, and it is the
+      scope a consent grant is bound to.
+
+  Returns the updated knowledge item in every branch — activated, rejected, or parked in a
+  pending state with a validation queue entry (and, for a peer subject, a peer question)
+  created alongside it.
+
+  Raises if the knowledge write, the queue write, the audit append, or a job enqueue fails;
+  because the caller supplies the transaction, that failure rolls the whole proposal back.
+  """
   def evaluate_proposal(knowledge, actor, opts \\ []) do
     target_level = Keyword.get(opts, :target_level, knowledge.target_level || "peer")
     target_scope_id = Keyword.get(opts, :target_scope_id)
     rule = matching_rule(knowledge, target_level, actor)
+
+    # Deadline for a human to act, in hours from now, taken from the matrix cell (the built-in
+    # fallback allows 168 h = 7 days). Only the deferred branch uses it.
     due_at = DateTime.add(Clock.utc_now(), rule.pending_max_age_hours, :hour)
 
     case proposal_outcome(knowledge, rule, target_level) do
@@ -104,6 +205,10 @@ defmodule Cartulary.Governance.Engine do
         end)
 
       :defer ->
+        # A peer-level item may be shown back to its own subject while it waits, so it becomes
+        # provisional. Anything aimed above peer level is held at its source scope and stays
+        # invisible to retrieval until a human decides; that is what stops an unreviewed claim
+        # from reaching a wider audience just by being proposed.
         pending_state = if target_level == "peer", do: "provisional", else: "held"
 
         updated =
@@ -130,10 +235,15 @@ defmodule Cartulary.Governance.Engine do
             "gate_a_b"
           )
 
+        # A statement about a person is best checked by that person, so a peer-level item with
+        # a known subject also gets a confirmation question routed to them.
         if target_level == "peer" && is_binary(updated.subject_peer_id) do
           PeerQueue.enqueue!(updated, validation, "confirm", actor)
         end
 
+        # Open the consent request now rather than at approval time, so the subject has the
+        # whole review window to answer. Without a target scope there is nothing to consent
+        # to, so the request is skipped and approval will demand consent later.
         if consent_required?(updated, rule, target_level) && is_binary(target_scope_id) do
           request_consent!(updated, target_scope_id, actor)
         end
@@ -170,12 +280,37 @@ defmodule Cartulary.Governance.Engine do
     end
   end
 
+  @doc """
+  Applies one curator decision to one queued validation item.
+
+  `action` is `"approve"`, `"edit"`, `"reject"`, `"merge"`, or `"defer"`; any other value
+  raises `FunctionClauseError`. `opts` may use atom or string keys and is read per action:
+
+    * `"statement"` (required for `"edit"`) — the corrected text; blank text is rejected.
+    * `"sensitivity"` (optional for `"edit"`) — overrides the replacement's sensitivity.
+    * `"merge_into_id"` (required for `"merge"`) — the surviving knowledge item.
+    * `"defer_hours"` (optional for `"defer"`) — hours to push the deadline out; a
+      non-positive or unparseable value falls back to 24 hours.
+
+  Returns a map keyed by action: approve gives
+  `%{knowledge:, validation:, consent_required:}` where a `true` flag means nothing moved
+  because subject consent is still missing; edit gives `%{knowledge:, replacement:,
+  validation:}`; merge gives `%{knowledge:, merge_target:, validation:}`; reject and defer
+  give `%{knowledge:, validation:}`.
+
+  Raises `Ash.Error.Forbidden` unless the caller is a password-session account admin or
+  curator — machine credentials must never reach a curator verb. Raises
+  `Ash.Error.Query.NotFound` for an unknown validation item or knowledge item, `KeyError`
+  when a required option is absent, and `ArgumentError` for a blank edited statement.
+  """
   def decide(actor, validation_id, action, opts \\ %{})
       when is_binary(validation_id) and action in @human_actions do
     require_human_curator!(actor)
     opts = stringify_keys(opts)
 
     DataLayer.with_actor(actor, fn account, current_actor ->
+      # Transaction-scoped advisory lock: two curators clicking the same queue row serialize
+      # here instead of both writing a decision. Released automatically at commit or rollback.
       Lock.acquire!(account.id, "validation:#{validation_id}")
       validation = validation!(account.id, current_actor, validation_id)
       knowledge = knowledge!(account.id, current_actor, validation.knowledge_id)
@@ -190,6 +325,13 @@ defmodule Cartulary.Governance.Engine do
     end)
   end
 
+  @doc """
+  Applies the same curator decision to several queued items, one at a time.
+
+  Returns `[{validation_id, result_of_decide}]` in the order given. Called outside an enclosing
+  transaction, each item is decided in its own, so a raise on the fifth leaves the first four
+  committed and aborts the rest; callers wanting all-or-nothing must not use this function.
+  """
   def bulk_decide(actor, validation_ids, action, opts \\ %{})
       when is_list(validation_ids) and action in @human_actions do
     Enum.map(validation_ids, fn validation_id ->
@@ -197,6 +339,24 @@ defmodule Cartulary.Governance.Engine do
     end)
   end
 
+  @doc """
+  Asks to move an existing knowledge item up to a wider ancestor scope.
+
+  This does not promote anything by itself. The item is parked in `"held"` at the target
+  scope with a Gate B queue entry, so a second human decision through `decide/4` is still
+  required. Personal knowledge with a known subject additionally opens a consent request and
+  routes a consent question to that subject.
+
+  Returns `%{knowledge:, validation:, consent:}` where `consent` is `nil` when no subject
+  consent applies. The queue entry is due in 168 hours (7 days), the same window the built-in
+  conservative matrix cell uses.
+
+  Raises `Ash.Error.Forbidden` unless the caller is a password-session account admin or
+  curator *and* holds an admin or curator role on the target scope itself — authority over
+  the narrow scope an item lives in does not confer authority to widen it. Raises
+  `ArgumentError` when the target is not a strict ancestor of the item's current scope, and
+  `Ash.Error.Query.NotFound` for unknown ids.
+  """
   def request_promotion(actor, knowledge_id, target_scope_id) do
     require_human_curator!(actor)
 
@@ -207,6 +367,9 @@ defmodule Cartulary.Governance.Engine do
 
       require_scope_curator!(current_actor, target_scope_id)
 
+      # Promotion may only widen exposure along the containment tree. Sideways or downward
+      # moves are rejected because they would relocate knowledge into a scope whose members
+      # were never part of the original audience decision.
       unless wider_scope?(source_scope.path, target_scope.path),
         do: raise(ArgumentError, "Gate B promotion target must be a strict ancestor scope")
 
@@ -219,6 +382,7 @@ defmodule Cartulary.Governance.Engine do
           channel: "human_ui"
         )
 
+      # 168 hours = 7 days for a second human to act on the promotion request.
       due_at = DateTime.add(Clock.utc_now(), 168, :hour)
 
       validation =
@@ -255,6 +419,19 @@ defmodule Cartulary.Governance.Engine do
     end)
   end
 
+  @doc """
+  Records the subject's own answer to a pending consent request.
+
+  `verdict` is `"grant"` or `"deny"`; anything else raises `FunctionClauseError`. `verified`
+  says whether the answer arrived over a channel whose speaker was actually authenticated,
+  and `channel` names that channel for the audit trail.
+
+  The consent row is looked up by knowledge item, target scope, and the *calling* peer as
+  subject, so one person can never answer on behalf of another. Returns `{:ok, consent}`, or
+  `{:error, :verified_channel_required}` when a grant arrives unverified — an unverified
+  denial is still recorded, because it must never be harder to refuse exposure than to allow
+  it. Raises `Ash.Error.Query.NotFound` when no matching request exists.
+  """
   def subject_consent(actor, knowledge_id, target_scope_id, verdict, verified, channel)
       when verdict in ["grant", "deny"] do
     DataLayer.with_actor(actor, fn account, current_actor ->
@@ -304,6 +481,18 @@ defmodule Cartulary.Governance.Engine do
     end)
   end
 
+  @doc """
+  Returns the full governance story of one knowledge item.
+
+  The result is `%{knowledge:, gate_decisions:, lifecycle:}` with both lists sorted oldest
+  first, so a reader can replay how the item reached its current state.
+
+  Access is controlled by the knowledge read itself: the item is fetched as the calling
+  actor, so a caller who cannot see the statement gets `Ash.Error.Query.NotFound` and never
+  reaches the history. Once that read succeeds the two history lists are fetched with
+  sufficient privilege, because decision and lifecycle rows carry no statement text — only
+  states, levels, channels, and hashes.
+  """
   def history(actor, knowledge_id) do
     DataLayer.with_actor(actor, fn account, current_actor ->
       knowledge = knowledge!(account.id, current_actor, knowledge_id)
@@ -326,6 +515,17 @@ defmodule Cartulary.Governance.Engine do
     end)
   end
 
+  @doc """
+  Lists every non-erased knowledge item whose subject is the calling peer, newest first.
+
+  This is the "what does the system say about me?" view, so it deliberately ignores scope
+  membership: a person may read statements about themselves even when they hold no role on
+  the scope those statements live in. It still shows only their own subject rows, and
+  soft-deleted rows stay hidden.
+
+  Requires an actor with a peer id; a system or unauthenticated actor raises
+  `FunctionClauseError`.
+  """
   def self_view(actor) when is_binary(actor.peer_id) do
     DataLayer.with_actor(actor, fn account, current_actor ->
       KnowledgeItem
@@ -336,6 +536,25 @@ defmodule Cartulary.Governance.Engine do
     end)
   end
 
+  @doc """
+  Applies a subject's own verdict to a statement about themselves.
+
+  `action` is one of:
+
+    * `"confirm"` — the statement is right. It becomes `"active"` with confidence 1.0,
+      because first-hand confirmation by the subject is the strongest evidence available.
+    * `"contest"` — the statement is wrong or disputed. It becomes `"contested"` and a
+      validation entry is queued for a human curator, due in 24 hours.
+    * `"redact"` — the subject does not want it retained. It becomes `"redacted"`.
+
+  Returns the updated knowledge item. Raises `Ash.Error.Query.NotFound` when the item does
+  not exist or the caller is not its subject — the mismatch is reported as "not found" rather
+  than "forbidden" so probing for another person's ids reveals nothing.
+
+  The writes run as an internal pipeline actor because subjects are not curators. The
+  subject-identity check in the function body is the only thing authorizing them, so it must
+  stay ahead of every branch.
+  """
   def contest(actor, knowledge_id, action) when action in ["confirm", "contest", "redact"] do
     DataLayer.with_actor(actor, fn account, current_actor ->
       knowledge = knowledge!(account.id, current_actor, knowledge_id)
@@ -368,6 +587,8 @@ defmodule Cartulary.Governance.Engine do
               channel: "self_view"
             )
 
+          # A disputed statement about a person is urgent: 24 hours, far shorter than an
+          # ordinary gate review, before the overdue-validation sweep escalates it.
           enqueue_validation!(
             updated,
             pipeline_actor(current_actor),
@@ -396,6 +617,24 @@ defmodule Cartulary.Governance.Engine do
     end)
   end
 
+  @doc """
+  Applies one lifecycle change to a knowledge item and keeps everything downstream in step.
+
+  This is the single funnel for changing a knowledge item's state, level, scope, confidence,
+  sensitivity, or expiry. Aging sweeps, peer answers, document supersession, erasure, and the
+  gate paths in this module all go through here, so nothing can move a knowledge item without
+  leaving a lifecycle event and an audit entry behind.
+
+  `attrs` are the attributes to change. `opts` must carry `:reason` — a short stable code
+  persisted on the lifecycle event and the audit entry, so it is stored data, not a log line
+  — and may carry `:channel` (default `"governance"`) naming where the change came from.
+
+  Returns the updated item. After the update it enqueues a projection refresh and an entity
+  re-resolution for the item's scope and marks cached context for that scope dirty, because
+  those caches are derived from governed knowledge and are now stale. Raises on a failed
+  update, a missing `:reason`, or a failed enqueue; run it inside the caller's transaction so
+  a later failure cannot leave the state changed but the refreshes unqueued.
+  """
   def transition!(knowledge, actor, attrs, opts) do
     attrs =
       attrs
@@ -413,6 +652,12 @@ defmodule Cartulary.Governance.Engine do
     updated
   end
 
+  # Projections, entity mentions, and cached context are rebuildable derivations of governed
+  # knowledge, so a state change must schedule their rebuild rather than edit them in place.
+  #
+  # The item's post-update timestamp is the idempotency watermark: replaying the same
+  # transition, or two transitions landing on the same scope at the same instant, collapses
+  # onto one job instead of queueing duplicate rebuild work.
   defp enqueue_derived_refreshes!(knowledge, actor) do
     watermark = DateTime.to_iso8601(knowledge.updated_at)
 
@@ -444,6 +689,8 @@ defmodule Cartulary.Governance.Engine do
         actor
       )
 
+    # Marking the cache dirty is a pipeline-owned write even when a curator triggered it, so
+    # the caller's actor is elevated for this call only.
     Cartulary.Context.Builder.mark_dirty(
       knowledge.account_id,
       %{actor | role: :system, pipeline?: true},
@@ -451,6 +698,26 @@ defmodule Cartulary.Governance.Engine do
     )
   end
 
+  @doc """
+  Writes one immutable gate-decision row plus its audit entry and follow-up job.
+
+  `gate` is `"gate_a"`, `"gate_b"`, or `"gate_a_b"` when a single human action settled both.
+  `decision` is the verb that was applied (for example a keep, place, hold, defer, approve,
+  reject, merge, or edit). `attrs` is a keyword list that must contain `:from_state`,
+  `:to_state`, `:to_level`, `:channel`, and `:verified`, and may contain `:metadata`. A
+  `"from_level"` key inside that metadata overrides the recorded previous level, which the
+  promotion path uses because the item's level has already been rewritten by then.
+
+  Decision rows are never updated or deleted: the history of how an item was governed must
+  stay reconstructible even after the item itself is superseded or erased. Metadata is
+  content-safe — ids, states, levels, flags — while the statement itself is represented only
+  by its hash.
+
+  Also enqueues the follow-up validation-continuation job under a key derived from the
+  decision and knowledge ids, so replaying this path schedules that work once instead of
+  duplicating it. Returns the created decision row and raises if any of the three writes
+  fails, which — inside the caller's transaction — discards the state change too.
+  """
   def record_decision!(
         actor,
         knowledge,
@@ -529,6 +796,11 @@ defmodule Cartulary.Governance.Engine do
     decision_row
   end
 
+  # Curator approval. A curator can vouch for accuracy, but cannot consent on a person's
+  # behalf: personal knowledge heading to a scope stays exactly where it is until the subject
+  # has granted consent over a verified channel. The queue entry records the attempt as
+  # `awaiting_consent`; nothing here completes it automatically once consent lands, so the
+  # curator has to approve again, and the aging sweep will auto-reject the row if nobody does.
   defp approve!(knowledge, validation, actor, _opts) do
     consent = consent_for(knowledge, validation, actor)
 
@@ -556,6 +828,9 @@ defmodule Cartulary.Governance.Engine do
 
       %{knowledge: knowledge, validation: validation, consent_required: true}
     else
+      # Approving a scope request is also the move: the item is relocated into the requested
+      # scope and the hold is cleared, which is what makes it visible to that scope's members.
+      # A peer-level approval only activates the item where it already lives.
       attrs =
         if validation.target_level == "scope" do
           %{
@@ -599,6 +874,8 @@ defmodule Cartulary.Governance.Engine do
     end
   end
 
+  # Curator rejection. The row is kept and marked rejected rather than deleted, so the audit
+  # trail can still show that the claim was seen and turned down.
   defp reject!(knowledge, validation, actor) do
     updated =
       transition!(
@@ -632,7 +909,11 @@ defmodule Cartulary.Governance.Engine do
     %{knowledge: updated, validation: validation}
   end
 
+  # "Not now." Only the queue entry's deadline moves; the knowledge item keeps its current
+  # state, which for anything above peer level means it stays held and unretrievable.
   defp defer!(knowledge, validation, actor, opts) do
+    # Hours to postpone, defaulting to 24 h and clamping anything unusable back to 24 h,
+    # because a zero or negative deadline would make the item instantly overdue.
     hours = opts |> Map.get("defer_hours", 24) |> normalize_positive_integer(24)
 
     validation =
@@ -659,6 +940,13 @@ defmodule Cartulary.Governance.Engine do
     %{knowledge: knowledge, validation: validation}
   end
 
+  # Curator correction. A curator never rewrites a stored statement in place: the original is
+  # superseded and a brand-new row carries the corrected text, so the original wording, its
+  # provenance, and the fact that a human changed it all remain readable afterwards.
+  #
+  # The replacement is created through the pipeline-only create action and then re-enters
+  # `evaluate_proposal/3`, which keeps the rule that knowledge is written by the pipeline and
+  # gated on the way in — a curator's wording gets no shortcut past the gates.
   defp edit!(knowledge, validation, actor, opts) do
     statement = opts |> Map.fetch!("statement") |> String.trim()
 
@@ -681,8 +969,15 @@ defmodule Cartulary.Governance.Engine do
         state: "proposed",
         target_level: knowledge.target_level,
         held_scope_id: knowledge.held_scope_id,
+        # Points back at the row this text replaces, and keeps the original's source messages
+        # so the corrected statement retains its provenance.
         supersedes_id: knowledge.id,
         source_message_ids: knowledge.source_message_ids,
+        # No model produced this text; the marker distinguishes curator-authored rows from
+        # extracted ones. "f4-1" is the version identity of the governed lifecycle contract
+        # (proposals enter as proposed or provisional and are gated). Changing that string is
+        # a deliberate contract transition that needs a changelog entry and updated evidence,
+        # not a cleanup.
         extracting_model: "human:curator-edit",
         pipeline_version: "f4-1"
       })
@@ -723,6 +1018,10 @@ defmodule Cartulary.Governance.Engine do
     %{knowledge: superseded, replacement: evaluated, validation: validation}
   end
 
+  # Duplicate resolution. The surviving row absorbs the evidence rather than the wording: it
+  # takes the higher confidence of the two, the sum of their corroboration counts, and the
+  # union of their source messages, so nothing that supported the duplicate is lost. The
+  # duplicate becomes superseded and points at the survivor.
   defp merge!(knowledge, validation, actor, opts) do
     target_id = Map.fetch!(opts, "merge_into_id")
     target = knowledge!(knowledge.account_id, actor, target_id)
@@ -771,6 +1070,13 @@ defmodule Cartulary.Governance.Engine do
     %{knowledge: merged, merge_target: target, validation: validation}
   end
 
+  # Selects the matrix cell for this item. Candidates are the active rules for the requested
+  # target level and the item's sensitivity, highest priority and newest version first.
+  #
+  # Precedence, most specific to least: a rule attached to the item's own scope, then the
+  # account-wide rule (no scope), then the built-in cell. Note this matches the item's own
+  # scope exactly and does not walk up ancestors — a rule on a parent scope does not govern a
+  # child scope's items.
   defp matching_rule(knowledge, target_level, actor) do
     rules =
       GateRule
@@ -786,6 +1092,13 @@ defmodule Cartulary.Governance.Engine do
       default_rule(target_level, knowledge.sensitivity)
   end
 
+  # The cell used when an Account has configured no matching rule, so an unconfigured or
+  # misconfigured Account queues everything for a human instead of auto-activating anything.
+  #
+  # * confidence 1.0 and human modes: no automatic keep or place is reachable at all.
+  # * corroboration: 1 independent source for the subject's own peer level, 2 for anything
+  #   wider, because a claim shown to more people should rest on more than one observation.
+  # * 168 hours (7 days) for a human to respond; 90 days before an active item is re-checked.
   defp default_rule(target_level, sensitivity) do
     %{
       id: nil,
@@ -801,17 +1114,25 @@ defmodule Cartulary.Governance.Engine do
     }
   end
 
+  # Gate A keeps automatically only when the cell says so and the item's confidence reaches
+  # the cell's floor. Any other mode means a human looks at it.
   defp auto_gate_a?(knowledge, rule),
     do: rule.gate_a_mode == "auto_keep" && knowledge.confidence >= rule.minimum_confidence
 
+  # Gate B places automatically only when the cell says so and enough independent sources
+  # corroborate the item. Confidence does not substitute for corroboration here: one very
+  # confident source is still one source.
   defp auto_gate_b?(knowledge, rule, _target_level),
     do:
       rule.gate_b_mode == "auto_place" &&
         knowledge.corroboration_count >= rule.minimum_corroboration
 
+  # An auto-reject cell short-circuits everything else, including confidence.
   defp proposal_outcome(_knowledge, %{gate_a_mode: "auto_reject"}, _target_level),
     do: :reject
 
+  # Automatic acceptance needs all three: both gates satisfied and no consent owed. Any single
+  # failure defers to a human rather than downgrading the outcome silently.
   defp proposal_outcome(knowledge, rule, target_level) do
     if auto_gate_a?(knowledge, rule) && auto_gate_b?(knowledge, rule, target_level) &&
          consent_not_required?(knowledge, rule, target_level),
@@ -822,11 +1143,22 @@ defmodule Cartulary.Governance.Engine do
   defp consent_not_required?(knowledge, rule, target_level),
     do: !consent_required?(knowledge, rule, target_level)
 
+  # Consent is owed whenever personal knowledge about someone is aimed above their own peer
+  # level. The rule's `requires_consent` flag is consulted, but the trailing sensitivity check
+  # makes the condition true for every personal item regardless: a matrix cell can never
+  # switch off a subject's say over their own personal information. Removing that seemingly
+  # redundant clause would hand that power to whoever edits the matrix.
   defp consent_required?(knowledge, rule, target_level),
     do:
       target_level != "peer" && knowledge.sensitivity == "personal" &&
         (rule.requires_consent || knowledge.sensitivity == "personal")
 
+  # Puts an item on the human review queue. The entry is an upsert keyed by knowledge item and
+  # kind, so re-evaluating the same item does not stack up duplicate queue rows; the existing
+  # row's deadline, confidence, provenance, and conflict list are refreshed instead.
+  #
+  # The row copies the statement's hash rather than its text, and carries the provenance and
+  # conflicting-item ids a reviewer needs to judge it.
   defp enqueue_validation!(knowledge, actor, target_level, target_scope_id, due_at, kind) do
     ValidationItem
     |> Ash.Changeset.new()
@@ -853,6 +1185,9 @@ defmodule Cartulary.Governance.Engine do
     |> Ash.create!(actor: actor)
   end
 
+  # Provenance rows are read with elevated privilege so the queue entry can list where the
+  # claim came from even when the enqueuing actor holds no direct read on those rows. Only
+  # their ids are copied onto the entry; no source content travels with it.
   defp provenance_ids(knowledge, actor) do
     Provenance
     |> Ash.Query.filter(knowledge_item_id == ^knowledge.id)
@@ -861,6 +1196,9 @@ defmodule Cartulary.Governance.Engine do
     |> Enum.map(& &1.id)
   end
 
+  # Ids of items already recorded as conflicting with this one, in either direction of the
+  # relation, so the reviewer sees the disagreement bundled with the proposal instead of
+  # approving one half of a contradiction.
   defp conflict_ids(knowledge, actor) do
     KnowledgeRelation
     |> Ash.Query.filter(
@@ -877,6 +1215,9 @@ defmodule Cartulary.Governance.Engine do
     |> Enum.uniq()
   end
 
+  # Opens a pending consent request for one knowledge item at one target scope. Upserted on
+  # that pair plus the subject, so asking again reuses the existing request instead of
+  # resetting an answer the subject already gave.
   defp request_consent!(knowledge, target_scope_id, actor) do
     Consent
     |> Ash.Changeset.new()
@@ -891,6 +1232,8 @@ defmodule Cartulary.Governance.Engine do
     |> Ash.create!(actor: actor)
   end
 
+  # Peer-level items stay with their own subject, so no consent to widen exposure exists or is
+  # needed; the clause below only runs for requests aimed at a wider scope.
   defp consent_for(_knowledge, %{target_level: "peer"}, _actor), do: nil
 
   defp consent_for(knowledge, validation, actor) do
@@ -909,6 +1252,9 @@ defmodule Cartulary.Governance.Engine do
     |> Ash.update!(actor: actor)
   end
 
+  # Tenant-scoped fetches. The tenant is always set explicitly and the read runs as the given
+  # actor, so an id belonging to another Account, or to a scope this actor cannot see, comes
+  # back as nil and is reported as not found rather than leaking its existence.
   defp validation!(account_id, actor, id) do
     ValidationItem
     |> Ash.Query.filter(id == ^id)
@@ -931,6 +1277,9 @@ defmodule Cartulary.Governance.Engine do
     end
   end
 
+  # Scope rows are read with elevated privilege because promotion has to compare the source
+  # and target paths even when the curator cannot read one of those scopes' contents. Only the
+  # path is used here; the separate role check decides whether the promotion may proceed.
   defp scope!(account_id, actor, id) do
     Scope
     |> Ash.Query.filter(id == ^id)
@@ -942,6 +1291,8 @@ defmodule Cartulary.Governance.Engine do
     end
   end
 
+  # Audit entry for a subject acting on a statement about themselves. The statement travels as
+  # a hash only; the metadata holds the resulting state and nothing readable.
   defp audit_subject_action!(actor, knowledge, action) do
     Audit.append!(actor, knowledge.account_id, %{
       scope_id: knowledge.scope_id,
@@ -955,12 +1306,18 @@ defmodule Cartulary.Governance.Engine do
     })
   end
 
+  # Curator verbs are human-only. The identity kind matters as much as the role: an API key
+  # carrying a curator role is still a machine and must not approve, edit, reject, merge,
+  # defer, or promote. Machines submit observations and read governed memory; humans judge.
   defp require_human_curator!(%{identity_kind: :password, role: role})
        when role in [:account_admin, :curator],
        do: :ok
 
   defp require_human_curator!(_actor), do: raise(Ash.Error.Forbidden, errors: [])
 
+  # Widening exposure additionally requires authority over the destination scope. The actor's
+  # scope role map is already resolved with inheritance and deny-wins applied, so an exact
+  # lookup of the target scope is the complete check.
   defp require_scope_curator!(%{scope_roles: roles}, scope_id) when is_map(roles) do
     if Map.get(roles, scope_id) in [:account_admin, :curator],
       do: :ok,
@@ -970,34 +1327,53 @@ defmodule Cartulary.Governance.Engine do
   defp require_scope_curator!(_actor, _scope_id),
     do: raise(Ash.Error.Forbidden, errors: [])
 
+  # Decision and consent rows hold ids, states, and hashes rather than statement text, so a
+  # caller who has already passed the knowledge-level check may read them. Human curators read
+  # as themselves; anyone else is elevated for that read only.
   defp history_actor(%{identity_kind: :password, role: role} = actor)
        when role in [:account_admin, :curator],
        do: actor
 
   defp history_actor(actor), do: pipeline_actor(actor)
 
+  # A signed-in person answers their own consent request as themselves, which keeps the
+  # "subject owns this row" policy in force. Other callers (a peer answering through an
+  # automated delivery path) are elevated, having already been matched to the subject.
   defp consent_actor(%{identity_kind: :password} = actor), do: actor
   defp consent_actor(actor), do: pipeline_actor(actor)
 
+  # Elevation for writes the pipeline alone may perform, such as minting a replacement item or
+  # transitioning knowledge on behalf of a subject who holds no curator role. Every public
+  # entry point authorizes the real caller before this is reached; never widen that path.
   defp pipeline_actor(%Cartulary.Actor{} = actor),
     do: %{actor | role: :system, scope_ids: :all, pipeline?: true}
 
   defp pipeline_actor(actor),
     do: actor |> Map.put(:role, :system) |> Map.put(:pipeline?, true)
 
+  # When the cell sets no revalidation interval the item never becomes due for re-checking.
   defp revalidate_at(%{revalidate_after_days: nil}), do: nil
 
+  # Interval is in days, counted from the moment of activation.
   defp revalidate_at(rule),
     do: DateTime.add(Clock.utc_now(), rule.revalidate_after_days, :day)
 
+  # The built-in fallback cell has no database row, so decisions made under it record this
+  # marker instead of a rule id. It is stored in decision metadata and tells a later reader
+  # that the Account had no configured cell for that combination.
   defp rule_id(%{id: nil}), do: "default-human"
   defp rule_id(rule), do: rule.id
 
+  # True when the target scope strictly contains the source scope. Paths are slash-delimited
+  # containment paths; the root contains everything, and the trailing slash in the prefix test
+  # keeps "/team-a" from being treated as an ancestor of "/team-alpha".
   defp wider_scope?(source_path, target_path) do
     source_path != target_path &&
       (target_path == "/" || String.starts_with?(source_path, target_path <> "/"))
   end
 
+  # Options may arrive from a form, so a count can be an integer or a string. Anything that is
+  # not a positive whole number falls back to the caller's default instead of raising.
   defp normalize_positive_integer(value, _default) when is_integer(value) and value > 0, do: value
 
   defp normalize_positive_integer(value, default) when is_binary(value) do
@@ -1009,5 +1385,7 @@ defmodule Cartulary.Governance.Engine do
 
   defp normalize_positive_integer(_value, default), do: default
 
+  # Callers pass atom keys from Elixir code and string keys from form params; normalizing once
+  # at the entry point lets every decision handler read one shape.
   defp stringify_keys(attrs), do: Map.new(attrs, fn {key, value} -> {to_string(key), value} end)
 end

@@ -1,7 +1,53 @@
 # SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
 
 defmodule Cartulary.Governance.Sweeper do
-  @moduledoc "Dream-time lifecycle sweeps for revalidation, expiry, queue aging, and decay."
+  @moduledoc """
+  Background lifecycle sweeps for one Account: revalidation, expiry, queue
+  aging, and confidence decay.
+
+  Knowledge in this system ages. An item that was true when it was captured
+  becomes doubtful, then wrong, and nobody necessarily notices. A validation
+  question sent to a curator or to the subject may never be answered. These
+  sweeps are what turn that silence into an explicit, recorded state instead of
+  letting stale memory quietly stay `active`.
+
+  ## The four sweeps
+
+  * **Revalidation** — active knowledge whose revalidation date has arrived
+    moves to `needs_revalidation`, gets a queue row, and — when the item is
+    about a specific peer — an inline question addressed to that peer.
+  * **Expiry** — knowledge past its expiry date moves to `expired`, unless it
+    already sits in a terminal state.
+  * **Queue aging** — an overdue validation row is escalated once and given a
+    short extension; if it is still unanswered after that, the knowledge is
+    auto-rejected. Silence is never read as approval.
+  * **Decay** — an unanswered peer question past its deadline marks the
+    knowledge `stale` and lowers its confidence rather than deleting it. An
+    unanswered question is weak evidence, not proof of falsehood.
+
+  ## Guarantees and constraints
+
+  Every sweep runs inside a single Account-scoped database transaction with a
+  system pipeline actor, because lifecycle transitions and validation-queue
+  writes are pipeline-only operations with no human behind them. Every helper
+  raises on failure, so any error aborts the whole sweep and leaves the
+  Account exactly as it was; the next scheduled run retries from the same
+  durable state.
+
+  Sweeps are safe to run repeatedly. Selection is driven purely by due
+  timestamps and current state, so an item already transitioned no longer
+  matches, and the queue and peer-question rows are upserted on
+  knowledge-plus-kind identity rather than duplicated.
+
+  Nothing here writes content anywhere: transitions carry a short stable reason
+  code and a channel name, and the queue rows carry hashes and ids. Statement
+  text reaches only the peer-question row that must quote it back to its
+  subject.
+
+  Each transition additionally enqueues derived-cache refresh work (projection
+  rebuild, entity re-resolution) through the governance engine, so a large
+  sweep produces background follow-up jobs as well as state changes.
+  """
 
   alias Cartulary.Clock
   alias Cartulary.DataLayer
@@ -13,7 +59,23 @@ defmodule Cartulary.Governance.Sweeper do
 
   require Ash.Query
 
+  @doc """
+  Runs one sweep for an Account and reports how many records it touched.
+
+  `kind` selects the work: `"revalidation"` and `"expiry"` each run a single
+  sweep, while `"dream_time"` runs all four. Any other value raises
+  `FunctionClauseError` — the caller is a scheduled job, so an unknown lane is
+  a wiring bug that should fail loudly rather than silently do nothing.
+
+  Returns `{:ok, counts}`. The keys of `counts` depend on `kind`
+  (`:revalidation`, `:expiry`, `:aged`, `:decayed`), so callers must not assume
+  all four are present. Raises when the underlying transaction fails, which
+  rolls back every change the sweep had made so far.
+  """
   def run(account_id, kind) when kind in ["revalidation", "expiry", "dream_time"] do
+    # One transaction per sweep, with the Account pinned for row-level security
+    # and a system pipeline actor: lifecycle transitions and validation-queue
+    # writes are pipeline-only and have no human requester behind them.
     DataLayer.with_account_id(account_id, [role: :system, pipeline?: true], fn account, actor ->
       counts =
         case kind do
@@ -26,6 +88,9 @@ defmodule Cartulary.Governance.Sweeper do
     end)
   end
 
+  # Queue rows created by the revalidation pass are due 14 days out, and the
+  # aging pass only looks at rows already past their due date, so no question is
+  # escalated before anybody has had a chance to answer it.
   defp full_sweep(account_id, actor) do
     %{
       revalidation: revalidate!(account_id, actor),
@@ -35,6 +100,14 @@ defmodule Cartulary.Governance.Sweeper do
     }
   end
 
+  # Active knowledge whose revalidation date has passed stops counting as
+  # confirmed and acquires a review row. The transition, the queue row, and the
+  # peer question commit together with the rest of the sweep or not at all.
+  #
+  # The queue row's 14-day due date is the answering window; once it passes,
+  # `age_queue!` escalates and eventually auto-rejects. A peer question is only
+  # created when the item is about an identified peer — there is nobody to ask
+  # otherwise, and the item then waits for a curator instead.
   defp revalidate!(account_id, actor) do
     due_knowledge(account_id, actor, :revalidate_after)
     |> Enum.map(fn knowledge ->
@@ -74,6 +147,8 @@ defmodule Cartulary.Governance.Sweeper do
     |> length()
   end
 
+  # Expiry is unconditional and needs no review: the item carried its own end
+  # date from the moment it was written.
   defp expire!(account_id, actor) do
     due_knowledge(account_id, actor, :expires_at)
     |> Enum.map(
@@ -88,6 +163,11 @@ defmodule Cartulary.Governance.Sweeper do
     |> length()
   end
 
+  # Two-stage aging for anything still open past its due date. A row that has
+  # never been chased gets one escalation plus 24 more hours; a row that has
+  # already been escalated or already had an attempt is auto-rejected together
+  # with its knowledge. The bias is deliberate: an unanswered proposal must not
+  # ripen into accepted memory just because nobody looked at it.
   defp age_queue!(account_id, actor) do
     now = Clock.utc_now()
 
@@ -133,6 +213,11 @@ defmodule Cartulary.Governance.Sweeper do
     |> length()
   end
 
+  # A peer question that ran out its deadline without an answer degrades the
+  # knowledge instead of removing it: state becomes `stale` and confidence
+  # drops by 0.15 on the 0.0-1.0 scale, floored at 0.0. Silence means "no
+  # longer corroborated", not "false", so repeated misses erode the item over
+  # several sweeps rather than retracting it in one step.
   defp decay_queries!(account_id, actor) do
     now = Clock.utc_now()
 
@@ -166,6 +251,13 @@ defmodule Cartulary.Governance.Sweeper do
     |> length()
   end
 
+  # Selection for both date-driven sweeps. Revalidation only touches `active`
+  # items, so an item already awaiting review is not re-queued. Expiry skips
+  # the terminal states so an already-closed item is not transitioned again;
+  # together these filters are what make repeated sweeps idempotent.
+  #
+  # The whole due set for the Account is read at once, which keeps the sweep a
+  # single pass but also means memory grows with the size of that set.
   defp due_knowledge(account_id, actor, attribute) do
     now = Clock.utc_now()
 
@@ -189,6 +281,8 @@ defmodule Cartulary.Governance.Sweeper do
     |> Ash.read!(actor: actor)
   end
 
+  # Queue and question rows only hold the knowledge id, so the referenced item
+  # is re-read under the Account tenant before it can be transitioned.
   defp knowledge!(account_id, actor, id) do
     KnowledgeItem
     |> Ash.Query.filter(id == ^id)

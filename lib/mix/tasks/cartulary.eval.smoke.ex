@@ -2,21 +2,68 @@
 
 defmodule Mix.Tasks.Cartulary.Eval.Smoke do
   @moduledoc """
-  Runs a small local memory-eval smoke pass through Cartulary's durable write/read path.
+  Runs a small local memory smoke pass through Cartulary's real durable write/read path.
+
+  This is a developer sanity check, not a graded evaluation. It ingests a handful of
+  messages, asks a handful of questions, and prints what came back. It computes no scores,
+  enforces no thresholds, and its JSON is a convenience shape rather than the versioned
+  evaluation-evidence document. Release gating belongs to `mix cartulary.eval.release`.
 
       mix cartulary.eval.smoke
       mix cartulary.eval.smoke --dataset path/to/smoke.json --profile balanced
 
-  Dataset format:
+  ## Switches
+
+    * `--dataset PATH` — JSON dataset to run. Default: a built-in three-scope dataset
+      embedded in this task, so the command works on a fresh checkout with no fixtures.
+    * `--profile NAME` — retrieval profile passed to the question path. Default `balanced`.
+      `fast` trades recall for latency, `thorough` does the opposite.
+    * `--account KEY` — Account key that owns everything this run writes. Default
+      `eval-poc`. The key is created on first use if it does not exist.
+    * `--output PATH` — write the report here instead of standard output. Default: print
+      to standard output and write no file.
+
+  ## Dataset format
 
       {
         "messages": [
-          {"session_id":"s1","scope_path":"/bench/locomo","peer_key":"alice","role":"user","content":"..."}
+          {"session_id":"s1","scope_path":"/bench/locomo","peer_key":"alice",
+           "role":"user","content":"..."}
         ],
         "questions": [
           {"id":"q1","question":"What does Alice prefer?","scope_path":"/bench/locomo"}
         ]
       }
+
+  Per-message keys other than `content` are optional and defaulted below. Each question
+  needs `question`; `id`, `scope_path`, and `expected` are optional. `expected` is copied
+  into the report for eyeballing only — nothing compares it to the answer.
+
+  ## What it writes
+
+  Durable rows, in the database the application is configured against: an Account, scopes,
+  peers, sessions, raw messages, and whatever governed knowledge extraction produces. This
+  is not a dry run and there is no cleanup step. Point it at a scratch database, and never
+  reuse an Account key that holds real user data.
+
+  The report is pretty-printed JSON with the benchmark name, profile and profile version,
+  Account key, attempted/ingested message counts, and one entry per question carrying the
+  answer, citations, abstention flag, and the retrieval strategies that contributed.
+
+  ## Models and cost
+
+  Unlike the benchmark and release tasks, this one has no `--no-model` switch: it runs with
+  whatever model roles the environment configures. With a live provider key present it will
+  call that provider and spend money. Configure the deterministic roles first if you want
+  an offline run.
+
+  ## Failure behaviour
+
+  A missing or malformed dataset file, a question without a `question` key, an unreachable
+  model provider during inline extraction, or an unwritable `--output` path raises and the
+  task exits non-zero. Ingest mostly fails loudly for that reason; the report still counts
+  `messages_attempted` separately from `messages_ingested`, and a gap between the two means
+  a message came back as an error tuple instead of a stored observation.
   """
 
   use Mix.Task
@@ -25,10 +72,21 @@ defmodule Mix.Tasks.Cartulary.Eval.Smoke do
 
   @shortdoc "Runs the Cartulary local memory smoke eval"
 
+  @doc """
+  Parses the switches described in the module documentation, runs the pass, and emits the
+  report to standard output or `--output`.
+
+  Raises on unusable input, a failed ingest or answer, or an unwritable output path, each
+  of which surfaces as a non-zero exit status.
+  """
   @impl true
   def run(args) do
+    # The smoke pass goes through the ordinary domain, so the repo, model roles, and job
+    # supervision must all be running before the first ingest.
     Mix.Task.run("app.start")
 
+    # Unknown switches are deliberately tolerated here (the third element is discarded)
+    # because this is a scratch command; the graded tasks reject them instead.
     {opts, _argv, _invalid} =
       OptionParser.parse(args,
         strict: [
@@ -51,7 +109,11 @@ defmodule Mix.Tasks.Cartulary.Eval.Smoke do
         |> Map.put_new("peer_key", "peer")
         |> Map.put_new("session_id", "smoke")
         |> Map.put_new("role", "user")
+        # `put`, not `put_new`: the switch decides which Account is written to, so a
+        # dataset file can never redirect a smoke run into somebody else's tenant.
         |> Map.put("account_key", account_key)
+        # Extraction runs inline instead of via a background job, so the questions below
+        # can see the resulting knowledge within this single command.
         |> Map.put("sync_extract", true)
         |> Memory.ingest_message()
       end)
@@ -82,6 +144,10 @@ defmodule Mix.Tasks.Cartulary.Eval.Smoke do
     report = %{
       "benchmark" => Map.get(dataset, "benchmark", "smoke"),
       "profile" => profile,
+      # Answers report the retrieval/context contract identity they were produced under.
+      # "f7-1" is only the fallback for a dataset with no questions; bumping that string is
+      # a deliberate contract change that also needs a changelog entry and fresh evidence,
+      # so do not edit it to match a local experiment.
       "profile_version" => answers |> List.first(%{}) |> Map.get("profile_version", "f7-1"),
       "account_key" => account_key,
       "messages_attempted" => length(dataset["messages"]),
@@ -101,6 +167,9 @@ defmodule Mix.Tasks.Cartulary.Eval.Smoke do
     end
   end
 
+  # The built-in dataset covers the three shapes the graded benchmarks exercise — a
+  # conversational preference, a factual assistant statement, and a scale claim — each in
+  # its own scope so a leak across scopes shows up as a wrong or abstained answer.
   defp load_dataset(nil) do
     %{
       "benchmark" => "cartulary-poc-smoke",

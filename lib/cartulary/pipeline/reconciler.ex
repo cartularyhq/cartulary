@@ -2,9 +2,29 @@
 
 defmodule Cartulary.Pipeline.Reconciler do
   @moduledoc """
-  Re-enqueues Account-local durable observations missing completed processing.
+  The safety net that finds durable work no job is going to finish.
 
-  AshOban and the `PipelineRun` identity make repeated reconciliation harmless.
+  Ingest commits the raw observation and its job together, so nothing is
+  accepted without being queued. Jobs can still die between attempts, exhaust
+  their retries, or be lost when a node is destroyed mid-flight — and a durable
+  record with no live job would otherwise sit unprocessed forever. This sweep
+  scans one Account for exactly those records and asks for them again.
+
+  It is deliberately unconditional about re-asking, because re-asking is cheap
+  and safe: every enqueue carries the same deterministic replay key the original
+  work used, so a record that already has a live run merges onto it rather than
+  being processed twice. That is why running this often, or twice concurrently,
+  cannot duplicate knowledge.
+
+  It writes no knowledge and mutates no observation. Its only effect is
+  scheduling; the ordinary pipeline still does all the work and governance still
+  gates everything it produces.
+
+  What it looks for, per Account:
+
+  - messages that were never stamped as extracted;
+  - document versions still pending, or whose processing failed;
+  - active connectors that are due (or have never run).
   """
 
   alias Cartulary.Clock
@@ -16,11 +36,35 @@ defmodule Cartulary.Pipeline.Reconciler do
 
   require Ash.Query
 
+  @doc """
+  Sweeps one Account and re-enqueues everything that looks unfinished.
+
+  The whole sweep runs inside a single Account-scoped transaction under a system
+  pipeline actor: the reads need to see rows no ordinary caller may read, and
+  every enqueue is required to happen inside a transaction so its run row and
+  its job commit together. `account_id` is installed as the transaction-local
+  setting row-level security reads, so the sweep cannot reach another tenant's
+  rows.
+
+  Returns `{:ok, counts}` with `:messages`, `:documents`, `:connectors`, and
+  `:reconciled` (their sum). The counts report how many enqueues *succeeded*,
+  not how much new work was created — a record whose run already exists is
+  counted as reconciled because the upsert succeeded. A steady non-zero count
+  therefore means "these records keep being re-offered", which is normal while
+  work is retrying, not evidence of duplicate processing.
+
+  Raises if the transaction fails, including when a query is denied or the
+  Account does not exist.
+  """
   @spec run(Ecto.UUID.t()) :: {:ok, map()}
   def run(account_id) do
     counts =
       DataLayer.with_account_id(account_id, [role: :system, pipeline?: true], fn
         _account, actor ->
+          # A message is stamped as extracted only after every knowledge row it
+          # produced is written, so an unstamped message is either still in
+          # flight or was abandoned. Both cases want the same treatment: offer
+          # the work again under its existing replay key.
           messages =
             Message
             |> Ash.Query.filter(is_nil(extraction_completed_at))
@@ -30,6 +74,8 @@ defmodule Cartulary.Pipeline.Reconciler do
               match?({:ok, _run}, Pipeline.enqueue_message_extraction(message, actor))
             end)
 
+          # Failed versions are retried as well as pending ones: a version that
+          # exhausted its job attempts has no other route back into processing.
           documents =
             DocumentVersion
             |> Ash.Query.filter(processing_status in ["pending", "failed"])
@@ -41,6 +87,10 @@ defmodule Cartulary.Pipeline.Reconciler do
 
           now = Clock.utc_now()
 
+          # Nothing polls connectors on a timer, so this sweep is what makes a
+          # due connector actually run when no explicit request triggered it. A
+          # connector that has never synced has no due time yet, so a null one
+          # counts as due.
           connectors =
             ConnectorConfig
             |> Ash.Query.filter(

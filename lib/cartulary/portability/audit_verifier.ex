@@ -1,13 +1,65 @@
 # SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
 
 defmodule Cartulary.Portability.AuditVerifier do
-  @moduledoc "Verifies the immutable per-Account audit chain before import."
+  @moduledoc """
+  Proves an archive's audit log is the same unbroken chain that was exported.
+
+  An Account's audit events form a hash chain: each event's hash is computed
+  over its own content-safe fields plus the hash of the event before it. That
+  makes the log tamper-evident — editing, deleting, inserting, or reordering any
+  event changes hashes from that point on and cannot be repaired without
+  rewriting everything after it.
+
+  This module re-derives the whole chain from a set of rows and refuses anything
+  that does not reconstruct exactly. Export uses it to record the verified head
+  and event count in the manifest; import uses it again before opening the write
+  transaction, so an Account whose history has been altered is never partially
+  restored. Verification is a gate, not a warning.
+
+  Each failure it detects means something different:
+
+  - a recomputed event hash that does not match the stored one — an event's
+    content was changed;
+  - no single starting event, or more than one — events were removed from the
+    front, or two chains were spliced together;
+  - two events claiming the same predecessor — the chain forks, so the true
+    order is unknowable;
+  - a link that revisits an event already seen — only possible in a forged
+    chain;
+  - a chain that terminates before covering every row — events were removed
+    from the middle, leaving orphans.
+
+  It compares hashes only. Audit events are content-safe by construction — they
+  carry ids, categories, actions, timestamps, and hashes of content rather than
+  content — so verification never inspects a message, a statement, or a secret.
+  """
 
   alias Cartulary.Governance.Audit
 
+  @doc """
+  Verifies a list of archived audit events, in any order.
+
+  Rows are string-keyed maps decoded from the archive. Returns
+  `{:ok, %{count: n, last_hash: hash}}` on success — the caller compares those
+  against the manifest, which is what catches an archive whose events were
+  truncated *and* whose manifest was edited to match.
+
+  An empty log verifies successfully with a nil head; a brand-new Account
+  legitimately has no events yet.
+
+  Returns `{:error, reason}` otherwise:
+  `{:audit_event_hash_mismatch, id}`, `:audit_chain_root_invalid`,
+  `{:audit_chain_branch, id}`, `:audit_chain_cycle`, or
+  `:audit_chain_disconnected`. Raises `KeyError` if a row is missing a field the
+  hash is computed over, which is itself a malformed archive.
+  """
   def verify([]), do: {:ok, %{count: 0, last_hash: nil}}
 
   def verify(rows) when is_list(rows) do
+    # Order matters: content is checked before structure, so a tampered event is
+    # reported as tampering rather than as a broken link further along. The
+    # final size comparison is what catches rows that verify individually but
+    # hang off no reachable part of the chain.
     with :ok <- verify_event_hashes(rows),
          {:ok, root} <- single_root(rows),
          {:ok, last_hash, visited} <- walk_chain(root, rows, %{}),
@@ -19,6 +71,10 @@ defmodule Cartulary.Portability.AuditVerifier do
     end
   end
 
+  # Recomputes each event's hash from exactly the fields the original append
+  # hashed, in the same shape, and stops at the first mismatch. The payload key
+  # set is part of the durable hash definition: adding, renaming, or dropping one
+  # here would invalidate every archive ever written.
   defp verify_event_hashes(rows) do
     Enum.reduce_while(rows, :ok, fn event, :ok ->
       payload = %{
@@ -43,6 +99,9 @@ defmodule Cartulary.Portability.AuditVerifier do
     end)
   end
 
+  # The chain has exactly one event with no predecessor. Zero means the start
+  # was removed (or every event points at something outside the archive); more
+  # than one means unrelated histories were merged into one file.
   defp single_root(rows) do
     case Enum.filter(rows, &is_nil(Map.get(&1, "previous_hash"))) do
       [root] -> {:ok, root}
@@ -50,6 +109,12 @@ defmodule Cartulary.Portability.AuditVerifier do
     end
   end
 
+  # Follows the chain forward one link at a time, from the root to the head,
+  # recording every event it reaches. The visited set both detects a cycle —
+  # impossible in an honest chain, possible in a forged one — and lets the
+  # caller prove that no row was left unreachable. Two successors mean the chain
+  # forks, which makes the real order ambiguous, so it is rejected rather than
+  # guessed at.
   defp walk_chain(event, rows, visited) do
     event_hash = Map.fetch!(event, "event_hash")
 
@@ -66,6 +131,9 @@ defmodule Cartulary.Portability.AuditVerifier do
     end
   end
 
+  # Timestamps must be hashed in the exact textual form the original append
+  # used, so a value that survived a JSON round trip as a string is passed
+  # through untouched rather than being parsed and re-rendered.
   defp iso8601(%DateTime{} = value), do: DateTime.to_iso8601(value)
   defp iso8601(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
   defp iso8601(value) when is_binary(value), do: value

@@ -1,16 +1,79 @@
 # SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
 
 defmodule Cartulary.Operations.Health do
-  @moduledoc "Content-safe liveness and readiness checks for F10 operators."
+  @moduledoc """
+  Liveness and readiness probes, and the queue-depth sampler.
+
+  Liveness answers "is this process running". Readiness answers the much
+  stronger question "can this node correctly serve traffic right now", and it
+  says no unless the database answers, the job supervisor is alive, the job
+  table is queryable, and the model-role configuration is readable. A load
+  balancer or orchestrator uses the difference: a live-but-not-ready node
+  should be left alone to recover, not restarted, and must not receive
+  requests.
+
+  ## Disclosure boundary
+
+  The readiness payload is served without authentication, so anyone who can
+  reach the port can read it. Component status, queue depths, model identities,
+  versions, and error classes are allowed. Credentials, connection strings,
+  secrets, exception messages, SQL, and any stored content are not — an error
+  is reduced to the name of its exception type before it is reported. Adding a
+  field to these maps is a disclosure decision, not a formatting change.
+
+  ## Never raises
+
+  Every check catches its own failure and reports it as an unhealthy component.
+  A readiness probe that crashes tells an orchestrator nothing except that the
+  endpoint is broken; one that returns "database: error" tells it what to do.
+  The queue sampler is called on a timer alongside other periodic
+  measurements, and staying silent on failure keeps a database blip from
+  killing the poller.
+
+  ## Version identity
+
+  The payloads built here carry the literal `"f10-1"`, which versions the shape
+  of the operational payload itself, not the application's release. Operator
+  tooling parses against it, so changing the string is a deliberate contract
+  transition: it owes a changelog entry, updated contract evidence, and a note
+  in the closest architecture document. Adding an optional field does not
+  require a new identity; removing or renaming one does. The `GET /api/health`
+  route is separate: it builds its own payload carrying the `"f5-1"`
+  extractor/pipeline identity and does not call this module.
+  """
 
   alias Cartulary.Repo
 
+  # Oban job states that represent outstanding work. `completed`, `discarded`,
+  # and `cancelled` are excluded deliberately: they are history, and counting
+  # them would make queue depth grow forever instead of tracking backlog.
   @queue_states ~w(available scheduled retryable executing)
 
+  @doc """
+  Minimal liveness payload: the process is up and answering.
+
+  Runs no checks and touches no dependency, which is the point — liveness must
+  stay true while a dependency is down, so an orchestrator does not restart a
+  node that is merely waiting for its database. Nothing in this repository
+  currently calls it; the `GET /api/health` route builds its own payload.
+  """
   def liveness do
     %{status: "ok", app: "cartulary", version: "f10-1"}
   end
 
+  @doc """
+  Runs every component check and returns the aggregate readiness payload.
+
+  The result is `%{status:, app:, version:, checks:}`, where `checks` maps each
+  component name to its own map carrying an `"ok"` or `"error"` status, plus an
+  error class when it failed and queue depths or model identities when it did
+  not. Overall status is `"ready"` only when every component is `"ok"`; one
+  failure makes it `"not_ready"`.
+
+  Never raises, and never blocks indefinitely: the database-backed checks carry
+  their own timeouts so a hung connection surfaces as an error instead of
+  hanging the probe.
+  """
   def readiness do
     checks = %{
       app: %{status: "ok"},
@@ -28,9 +91,29 @@ defmodule Cartulary.Operations.Health do
     %{status: status, app: "cartulary", version: "f10-1", checks: checks}
   end
 
+  @doc """
+  Whether a readiness payload means "serve traffic".
+
+  Matches only the exact ready status, so any unexpected or malformed payload
+  is treated as not ready. Callers use this to pick the HTTP status code; a
+  probe should never conclude "ready" by failing to recognise a failure.
+  """
   def ready?(%{status: "ready"}), do: true
   def ready?(_result), do: false
 
+  @doc """
+  Samples current queue depth and emits one telemetry measurement per queue and
+  state.
+
+  Queue depth has no natural event to hook — nothing "happens" while jobs sit
+  waiting — so it must be polled. Events are
+  `[:cartulary, :operations, :queue]` with a `depth` measurement and `queue`
+  and `state` tags; no Account, payload, or job argument is included.
+
+  Returns `:ok` and emits nothing when the queue query fails, so a database
+  blip cannot take down the periodic-measurement poller and with it every other
+  metric it collects.
+  """
   def emit_queue_metrics do
     case queue_check() do
       %{status: "ok", depths: depths} ->
@@ -49,6 +132,11 @@ defmodule Cartulary.Operations.Health do
     end
   end
 
+  # A trivial round trip proves the pool can hand out a working connection,
+  # which is what readiness needs; querying real data would make the probe
+  # depend on the size of the database. The 2000 ms (2 second) timeout is short
+  # enough that a probe interval is not exceeded by a hung connection, and long
+  # enough to survive an ordinary pool checkout under load.
   defp database_check do
     case Ecto.Adapters.SQL.query(Repo, "SELECT 1", [], timeout: 2_000) do
       {:ok, _result} -> %{status: "ok"}
@@ -58,6 +146,9 @@ defmodule Cartulary.Operations.Health do
     error -> %{status: "error", error_class: error_class(error)}
   end
 
+  # The job supervisor being absent means background work silently stops: raw
+  # observations would still be accepted but never processed. That is a
+  # not-ready condition, not a degraded one.
   defp oban_check do
     case Oban.whereis(Oban) do
       pid when is_pid(pid) -> %{status: "ok"}
@@ -65,7 +156,13 @@ defmodule Cartulary.Operations.Health do
     end
   end
 
-  # Static, parameterized readiness aggregate over the internal Oban table.
+  # Raw SQL rather than an Ash read because the job table is infrastructure
+  # owned by the queue library, not a domain resource. The statement is a fixed
+  # literal, the only bound parameter is the module-level state list, and it
+  # writes nothing.
+  #
+  # This doubles as a readiness signal: it confirms the queue table itself is
+  # reachable, which the plain connection check above does not.
   # sobelow_skip ["SQL.Query"]
   defp queue_check do
     sql = """
@@ -91,6 +188,16 @@ defmodule Cartulary.Operations.Health do
     error -> %{status: "error", error_class: error_class(error)}
   end
 
+  # Reports which provider, model, and model version each Account-level role is
+  # pointing at. Only the identities are exposed; API keys and endpoint
+  # credentials live elsewhere in the same configuration and must never be
+  # echoed here, since this payload is unauthenticated.
+  #
+  # Missing or malformed configuration is a readiness failure rather than a
+  # warning: a node whose roles are not configured will fail every model call
+  # it accepts. Individual entries are reported as they are found, so a role
+  # present but blank still reports "ok" here — this checks that the
+  # configuration is readable, not that every provider is reachable.
   defp model_roles_check do
     roles =
       :cartulary
@@ -111,5 +218,12 @@ defmodule Cartulary.Operations.Health do
     error -> %{status: "error", error_class: error_class(error)}
   end
 
+  # Reports the exception's type and nothing else. Exception messages routinely
+  # embed connection strings, credentials, SQL, and parameter values, and this
+  # payload is served unauthenticated, so the message must never be included.
+  #
+  # There is deliberately no fallback clause: every value reaching here is an
+  # exception struct, and a non-struct would be a bug worth surfacing rather
+  # than stringifying into an unauthenticated response.
   defp error_class(%module{}), do: inspect(module)
 end

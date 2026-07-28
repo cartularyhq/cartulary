@@ -1,6 +1,56 @@
 # SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
 
 defmodule Cartulary.F10PortabilityPackagingOperationsTest do
+  @moduledoc """
+  Pins account portability, operator surfaces, log safety, and packaging invariants.
+
+  These are the promises that make Cartulary self-hostable and leaveable: an operator can
+  take their whole account elsewhere, verify that nothing was tampered with on the way,
+  see exactly what the system is doing and what it costs, and run the same release either
+  against a database Cartulary manages for them or against one they run themselves.
+
+  ## What it pins
+
+  * **The archive is self-describing and complete enough to move an account**, and small
+    enough not to move things that should not travel. Credentials, password hashes, secret
+    values, vectors, chunks, projections, and entity caches are excluded by construction —
+    not filtered at the last moment. Anything rebuildable is rebuilt at the destination
+    under the target's own model configuration.
+  * **The audit chain is verified before any import writes.** Audit events are hash-chained:
+    each one commits to its predecessor. Changing a single field of a single event breaks
+    the chain, and the verifier must reject the whole archive rather than import a history
+    that cannot be trusted.
+  * **Readiness reports component health without leaking anything.** Component status,
+    queue counts, and model-role configuration are safe to expose; credentials and content
+    are not.
+  * **Usage is metered exactly**, per request, so cost visibility comes from a real ledger
+    rather than an estimate — and self-hosters price it with their own rates.
+  * **Production logs redact credentials and drop unlisted metadata.** The metadata filter
+    is an allowlist, so a new field added anywhere in the system cannot start appearing in
+    logs by default.
+  * **Packaging stays honest.** The embedded database launcher is version- and
+    checksum-pinned, and the container image deliberately does *not* contain it: containers
+    run against a stock Postgres image instead. Both paths are the same release with
+    different adapters, never two implementations.
+
+  ## The `cartulary-account-1` string
+
+  `cartulary-account-1` is the archive schema identity, written into every export manifest
+  and checked on import. It is data that external tooling pins. Changing it is a deliberate
+  contract transition requiring a changelog entry and updated evidence.
+
+  ## If this file fails
+
+  Treat two failures as security issues rather than test breakage: a credential, hash,
+  secret, or content field appearing in the archive inventory, and a redaction assertion
+  failing on log output. For the packaging assertions, check whether the pinned version or
+  digest was updated deliberately — an unpinned or mismatched download is a supply-chain
+  problem, not a stale test.
+
+  Runs `async: false`: it writes real archive files to a temporary path and reads
+  repository files from disk.
+  """
+
   use Cartulary.DataCase, async: false
 
   alias Cartulary.DataLayer
@@ -12,6 +62,8 @@ defmodule Cartulary.F10PortabilityPackagingOperationsTest do
   alias Cartulary.Portability.Registry
 
   test "logical export is self-describing, checksum verified, and excludes secrets and caches" do
+    # Unique account key per run so a leftover archive or account from an earlier run cannot
+    # satisfy the assertions below.
     account_key = "f10-export-#{System.unique_integer([:positive])}"
 
     assert {:ok, _message} =
@@ -34,17 +86,34 @@ defmodule Cartulary.F10PortabilityPackagingOperationsTest do
     path = temp_path("account.tar.gz")
     on_exit(fn -> File.rm(path) end)
 
+    # The export runs in one account-scoped transaction, so the manifest counts describe a
+    # single consistent snapshot rather than a moving target.
     assert {:ok, exported} = Portability.export(actor, path)
     assert exported.schema == "cartulary-account-1"
     assert exported.resource_counts["messages"] == 1
+    # At least four audit events: ingest alone produces several chained entries. A lower
+    # bound rather than an exact number, because adding an audited step is normal evolution
+    # while *losing* audit entries is not.
     assert exported.resource_counts["audit_events"] >= 4
+    # No documents were ingested, so there are no blobs to carry.
     assert exported.blob_count == 0
     assert File.regular?(path)
 
+    # Validation reads the archive back without importing it. An operator must be able to
+    # check an archive before committing it to a destination, and the audit head hash must
+    # match what the export recorded — that is what proves nothing changed in transit.
     assert {:ok, validated} = Portability.validate(path)
     assert validated.account_id == actor.account_id
     assert validated.audit["last_hash"] == exported.audit["last_hash"]
 
+    # Exclusions asserted against the inventory itself, not against one archive's contents.
+    # A resource absent from the inventory can never be exported by any code path, whereas
+    # a filter applied at write time can be forgotten on the next code path added.
+    #
+    # API keys: credentials never travel. Projections: rebuildable, and rebuilding them at
+    # the destination is cheaper and safer than trusting a stale copy. Password hashes:
+    # credentials again. Embeddings: tied to the exporting account's model identity and
+    # meaningless — silently wrong, not obviously wrong — under a different one.
     refute Cartulary.Accounts.ApiKey in Enum.map(Registry.resources(), &elem(&1, 1))
     assert Cartulary.Knowledge.Projection in Registry.derived_resources()
     assert :hashed_password in Registry.excluded_attributes(Cartulary.Accounts.Peer)
@@ -52,6 +121,8 @@ defmodule Cartulary.F10PortabilityPackagingOperationsTest do
   end
 
   test "audit verification rejects any changed event" do
+    # Build a two-event chain by hand so the tampering is unambiguous. The first event has no
+    # predecessor; the second commits to the first's hash, which is what links them.
     events = [
       audit_row(nil, "one", "2026-07-28T10:00:00.000000Z"),
       audit_row(:previous, "two", "2026-07-28T10:00:01.000000Z")
@@ -61,6 +132,9 @@ defmodule Cartulary.F10PortabilityPackagingOperationsTest do
     first_hash = event_hash(first)
     first = Map.put(first, "event_hash", first_hash)
 
+    # Order matters: the predecessor hash must be set before the event's own hash is
+    # computed, because the hash covers it. Doing it the other way round produces a chain
+    # that looks valid but proves nothing.
     second =
       second
       |> Map.put("previous_hash", first_hash)
@@ -68,6 +142,9 @@ defmodule Cartulary.F10PortabilityPackagingOperationsTest do
 
     assert {:ok, %{count: 2}} = AuditVerifier.verify([first, second])
 
+    # Change one metadata value and nothing else. The verifier must name the offending event
+    # and refuse the whole chain. Import calls this before opening its write transaction, so
+    # a tampered history can never be partially written to a destination.
     changed = Map.put(second, "metadata", %{"count" => 999})
     assert {:error, {:audit_event_hash_mismatch, "two"}} = AuditVerifier.verify([first, changed])
   end
@@ -75,11 +152,16 @@ defmodule Cartulary.F10PortabilityPackagingOperationsTest do
   test "readiness covers database, Oban, queues, and model role configuration" do
     result = Health.readiness()
 
+    # Readiness is a deployment gate, so it must check everything the app needs to actually
+    # serve: the database connection, the job supervisor, the ability to query queue depth,
+    # and that all four model roles resolve. A readiness check that only pings the web
+    # process reports "ready" for an instance that cannot process a single ingest.
     assert result.status == "ready"
     assert result.checks.database.status == "ok"
     assert result.checks.oban.status == "ok"
     assert result.checks.queues.status == "ok"
     assert result.checks.model_roles.status == "ok"
+    # All four roles, and their identities only — never their credentials.
     assert map_size(result.checks.model_roles.configured) == 4
   end
 
@@ -101,15 +183,25 @@ defmodule Cartulary.F10PortabilityPackagingOperationsTest do
              })
 
     summary = Metering.summary(actor)
+    # One recorded request, counted once as an event, once as an API request, and once as an
+    # ingest. The overlapping counters are intentional: an operator asks both "how many
+    # requests?" and "how many ingests?" and both must come from the same durable ledger.
     assert summary.event_count == 1
     assert summary.api_requests == 1
     assert summary.ingests == 1
+    # No model was called, so no tokens. Token counts come only from real provider calls;
+    # they are never estimated from request counts.
     assert summary.tokens == %{input: 0, output: 0, embedding: 0}
     assert is_integer(summary.logical_storage_bytes)
+    # Zero because a self-hoster supplies their own rates. Cartulary does not carry hidden
+    # pricing: with no configured rate, the honest estimate is 0.0, not a guess.
     assert summary.estimated_model_cost == 0.0
   end
 
   test "production JSON logs redact credentials and drop unreviewed metadata" do
+    # A deliberately hostile log line: three credential shapes in the message, and a metadata
+    # key holding user content. Logs are shipped off-box and retained, so anything that
+    # survives here has effectively escaped the system's other content-safety boundaries.
     line =
       Cartulary.Observability.JSONFormatter.format(
         %{
@@ -128,6 +220,9 @@ defmodule Cartulary.F10PortabilityPackagingOperationsTest do
       |> IO.iodata_to_binary()
       |> Jason.decode!()
 
+    # Metadata is an allowlist, asserted by equality rather than by checking the bad key is
+    # absent: only reviewed keys survive, so a field added anywhere in the system cannot
+    # start appearing in logs merely because nobody thought to exclude it.
     assert line["metadata"] == %{"request_id" => "request-1"}
     assert line["message"] =~ "[REDACTED]"
     refute line["message"] =~ "secret-token"
@@ -137,25 +232,42 @@ defmodule Cartulary.F10PortabilityPackagingOperationsTest do
   end
 
   test "packaging pins pg0 and keeps containers on stock Postgres" do
+    # The embedded database launcher is pinned to an exact version, and every supported
+    # platform's download has a reviewed SHA-256 digest. Unpinning it, or shipping a platform
+    # without a digest, turns a release build into an unverified download.
     assert File.read!("rel/pg0/VERSION") == "0.14.2\n"
 
     checksums = File.read!("rel/pg0/checksums.txt")
     assert checksums =~ "pg0-darwin-aarch64"
     assert checksums =~ "pg0-linux-x86_64-gnu"
     assert checksums =~ "pg0-windows-x86_64.exe"
+    # The Windows packaging script must verify that digest too, not just download the asset.
     assert File.read!("scripts/package-release.ps1") =~ "Get-FileHash -Algorithm SHA256"
 
     dockerfile = File.read!("Dockerfile")
+    # The native-extension build stage is pinned to an exact toolchain image.
     assert dockerfile =~ "RUST_IMAGE=rust:1.85-slim-bookworm"
+    # The runtime never runs as root.
     assert dockerfile =~ "USER cartulary"
+    # The container must not launch the embedded database. Containerised deployments use an
+    # operator-run Postgres; a container that quietly started its own would put durable data
+    # inside an ephemeral layer.
     refute dockerfile =~ "pg0 start"
 
     compose = File.read!("compose.yml")
+    # A stock Postgres image with the vector extension — nothing bespoke to reproduce.
     assert compose =~ "pgvector/pgvector:pg18-bookworm"
+    # Tracing and metrics are opt-in through a profile, not always-on.
     assert compose =~ "profiles: [observability]"
+    # No Redis, and no second worker runtime. Jobs run on Postgres in every deployment mode;
+    # introducing another datastore would fork the guarantees between the two modes.
     refute compose =~ "redis"
   end
 
+  # A minimal audit event in the shape the verifier reads from an archive. Every field here
+  # is covered by the hash, so none of them may be omitted or reordered when constructing a
+  # test chain. Metadata is a plain counter: audit records carry ids, actions, and counts,
+  # never message text, statements, prompts, or secrets.
   defp audit_row(previous_hash, id, occurred_at) do
     %{
       "id" => id,
@@ -173,6 +285,9 @@ defmodule Cartulary.F10PortabilityPackagingOperationsTest do
     }
   end
 
+  # Computes an event's hash with the same function the writer uses, so the fixture chain is
+  # verifiable for the same reason a real one is. Deliberately not a reimplementation: a
+  # second copy of the hashing rule could drift and would then verify nothing.
   defp event_hash(event) do
     Cartulary.Governance.Audit.content_hash(%{
       account_id: event["account_id"],
@@ -187,6 +302,8 @@ defmodule Cartulary.F10PortabilityPackagingOperationsTest do
     })
   end
 
+  # Unique path per call so concurrent or repeated runs never share an archive file. The
+  # caller is responsible for removing it in on_exit.
   defp temp_path(name) do
     Path.join(
       System.tmp_dir!(),

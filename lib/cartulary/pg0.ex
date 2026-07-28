@@ -2,27 +2,90 @@
 
 defmodule Cartulary.Pg0 do
   @moduledoc """
-  Release-owned lifecycle manager for the pinned pg0 process.
+  Starts and stops the PostgreSQL server that the no-container install supervises itself.
 
-  pg0 daemonises PostgreSQL itself. This process validates the data directory,
-  handles a stale `postmaster.pid`, starts the named instance, and stops it
-  during an orderly release shutdown.
+  Cartulary can run against a database an operator manages, or it can bring its
+  own. This process is the "bring its own" half: a small launcher around a
+  pinned helper executable that installs and daemonises a real PostgreSQL
+  server. Which of the two an install uses is an infrastructure choice. It
+  changes where the database lives and nothing else — same release, same
+  migrations, same behaviour — so no product code may branch on it.
+
+  ## Position in the boot order is the point
+
+  This is the first child in the supervision tree when self-supervised mode is
+  on. It must reach a database that accepts connections before the repository
+  starts and before migrations run, and it achieves that by doing all its work
+  in `init/1`: a blocking `init/1` holds up its supervisor, which is exactly the
+  ordering guarantee wanted. Moving it later leaves the repository connecting to
+  a port with nothing behind it.
+
+  ## What is pinned, and where
+
+  The helper executable, its PostgreSQL version, and the vector extension it
+  bundles are pinned by the packaging step, which downloads the platform's asset
+  and refuses it unless its SHA-256 matches a reviewed digest committed in the
+  repository. Nothing is fetched at boot. This module only *runs* the pinned
+  binary, passing the configured version through; the guarantee that every
+  install gets byte-identical PostgreSQL is made upstream of it. Startup
+  validation elsewhere refuses to boot when the configured path is not a real
+  readable, executable file.
+
+  ## Lifecycle details worth knowing before changing anything
+
+  * The database daemonises itself. This process holds no port and no OS child;
+    it is a controller, not a parent. Killing it does not stop the server.
+  * A leftover `postmaster.pid` whose process is gone is *moved aside*, never
+    deleted, so an operator can still inspect it after a crash.
+  * When a live pid file is present the launcher attaches to the running
+    instance instead of starting a second one.
+  * If the configured port is already taken by something else, boot fails
+    loudly rather than silently pointing the release at a stranger's database.
+  * The process does not trap exits, so a supervisor shutdown will not run
+    `terminate/2`. Application shutdown therefore calls `stop_database/0`
+    explicitly before the tree comes down.
   """
 
   use GenServer
 
   require Logger
 
+  # 30 s (30_000 ms) budget for a freshly started server to accept TCP
+  # connections. A first start initialises a cluster on disk, which is far
+  # slower than a restart, so this is generous on purpose.
   @startup_timeout_ms 30_000
 
+  @doc """
+  Starts the launcher under the supervision tree, registered under the module name.
+
+  Options are accepted and ignored: everything comes from the node's
+  configuration. Returns once the database accepts connections. All the work
+  happens in `init/1`, so an unusable data directory, a port occupied by a
+  foreign process, a helper that fails to start, or a server that does not
+  become reachable in time raises there and the start fails.
+  """
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
+  @doc """
+  Stops the supervised database and waits for it to shut down.
+
+  Called during an orderly node shutdown, before the supervision tree is torn
+  down. Always returns `:ok` — a database that refuses to stop cleanly is
+  logged, not raised, because failing here would abort the rest of shutdown.
+
+  The 35 s (35_000 ms) call timeout is deliberately longer than the 30 s the
+  helper is given to stop the server, so the caller waits for a real answer
+  rather than timing out on a shutdown that is still in progress.
+  """
   def stop_database do
     GenServer.call(__MODULE__, :stop_database, 35_000)
   end
 
+  # All the work happens here so that the supervisor blocks until the database
+  # is reachable. The configuration is kept as state purely so shutdown knows
+  # which named instance to stop.
   @impl true
   def init(_opts) do
     config = pg0_config()
@@ -31,6 +94,9 @@ defmodule Cartulary.Pg0 do
     {:ok, config}
   end
 
+  # Only reached when this process is stopped deliberately (the release stop
+  # path does that). A plain supervisor shutdown skips it, because the process
+  # does not trap exits — hence the explicit call during application shutdown.
   @impl true
   def terminate(_reason, config) do
     stop_database(config)
@@ -41,7 +107,12 @@ defmodule Cartulary.Pg0 do
     {:reply, stop_database(config), config}
   end
 
-  # Binary/name are fail-fast validated release configuration, never request input.
+  # Executable path and instance name come from validated configuration, never
+  # from request input, which is why shelling out here is safe.
+  #
+  # `--timeout 30` gives the server 30 s to shut down cleanly. A non-zero exit
+  # is logged rather than raised: shutdown must continue even if the database
+  # is wedged, and the log line names only the instance, never any content.
   # sobelow_skip ["CI.System"]
   defp stop_database(config) do
     {_output, status} =
@@ -56,6 +127,14 @@ defmodule Cartulary.Pg0 do
     :ok
   end
 
+  @doc """
+  Supervision child specification.
+
+  Written out rather than taken from the default so the shutdown budget can be
+  35 s (35_000 ms): the supervisor must wait longer than the 30 s the database
+  is given to stop, or it would kill this process mid-shutdown and leave a
+  running server behind.
+  """
   def child_spec(opts) do
     %{
       id: __MODULE__,
@@ -66,13 +145,21 @@ defmodule Cartulary.Pg0 do
     }
   end
 
+  # Read at boot rather than held as a module attribute, so the values come from
+  # the environment this node actually started in and not from compile time.
   defp pg0_config do
     :cartulary
     |> Application.fetch_env!(:database)
     |> Keyword.fetch!(:pg0)
   end
 
-  # The absolute operator-configured root is validated before this child starts.
+  # Fails fast on an unusable data directory rather than letting the database
+  # discover the problem later. The write probe exists because a directory can
+  # be creatable and still not writable by this user — a mounted volume with the
+  # wrong ownership is the common case, and finding out here produces a clear
+  # error instead of a confusing server crash.
+  #
+  # The root is an absolute path from validated configuration, not request input.
   # sobelow_skip ["Traversal.FileModule"]
   defp prepare_data_dir!(config) do
     data_dir = config[:data_dir]
@@ -90,7 +177,16 @@ defmodule Cartulary.Pg0 do
     handle_postmaster_pid!(Path.join(data_dir, "postmaster.pid"))
   end
 
-  # `path` is derived only from the validated pg0 data root.
+  # Decides whether an existing pid file means "a server is already running" or
+  # "the last one died badly".
+  #
+  # A live process means attach. A dead one means the file is stale, and it is
+  # renamed with a timestamp suffix rather than deleted, so an operator
+  # investigating a crash still has it. An unparseable file raises instead of
+  # being cleaned up: something unexpected owns this directory, and starting a
+  # second server over another server's data is how a cluster gets corrupted.
+  #
+  # `path` is derived from the validated data root, not from request input.
   # sobelow_skip ["Traversal.FileModule"]
   defp handle_postmaster_pid!(path) do
     case File.read(path) do
@@ -116,6 +212,9 @@ defmodule Cartulary.Pg0 do
     end
   end
 
+  # Is that OS process still there? On Unix, signal 0 performs the existence
+  # check without delivering anything. Windows has no equivalent, so the process
+  # list is filtered by pid instead.
   defp process_alive?(pid) when is_integer(pid) and pid > 0 do
     case :os.type() do
       {:win32, _name} ->
@@ -132,7 +231,20 @@ defmodule Cartulary.Pg0 do
     end
   end
 
-  # Binary and every argument are validated release configuration, not request input.
+  # Either adopts the instance already running in this data directory, or starts
+  # a new one. By this point a stale pid file has already been moved aside, so a
+  # surviving file means a live server and attaching is the correct, idempotent
+  # outcome — restarting the release must not start a second server over the
+  # same data.
+  #
+  # The port check only runs on the start path: on the attach path the port is
+  # occupied by our own server, and refusing it would make a restart impossible.
+  #
+  # Both branches end at the readiness wait, so this returns only once something
+  # is actually listening — which is what lets the repository start next.
+  #
+  # The executable and every argument come from validated configuration, not
+  # from request input.
   # sobelow_skip ["CI.System"]
   defp start_or_attach!(config) do
     pid_path = Path.join(config[:data_dir], "postmaster.pid")
@@ -170,6 +282,10 @@ defmodule Cartulary.Pg0 do
     wait_for_port!(config[:port], @startup_timeout_ms)
   end
 
+  # Refuses to start when something already listens on the configured port.
+  # Silently proceeding would leave the release talking to whatever database
+  # happens to be there — a developer's own server, or another install — which
+  # is far worse than failing to boot. 250 ms is ample for a loopback connect.
   defp ensure_port_available!(port) do
     case :gen_tcp.connect(~c"127.0.0.1", port, [:binary, active: false], 250) do
       {:ok, socket} ->
@@ -181,6 +297,14 @@ defmodule Cartulary.Pg0 do
     end
   end
 
+  # Blocks until the server accepts a TCP connection, or gives up.
+  #
+  # A successful connect is the readiness signal, so this returns only when the
+  # database can actually be reached. `remaining` counts down in units of the
+  # 100 ms sleep between attempts and does not include the time a connect
+  # attempt itself takes, so the real wall-clock wait can exceed the nominal
+  # budget on a host where connects hang. That is intentional slack, not a bug:
+  # the deadline exists to fail eventually, not to fail precisely.
   defp wait_for_port!(_port, remaining) when remaining <= 0 do
     raise "pg0 did not become ready before the startup deadline"
   end

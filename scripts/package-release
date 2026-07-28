@@ -1,12 +1,62 @@
 #!/bin/sh
 # SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+#
+# Build the self-contained Unix/macOS Mix release of Cartulary, with the pinned
+# embedded PostgreSQL launcher (pg0) staged inside it.
+#
+# Purpose
+#   Produce a release that a person can unpack and run with no database to
+#   install: `bin/server` starts a private PostgreSQL managed by the release
+#   itself. The same release also runs against an operator-run PostgreSQL; only
+#   runtime environment variables differ, never the build.
+#
+# Arguments
+#   None.
+#
+# Environment
+#   Nothing is required. `MIX_ENV=prod` is forced for the two mix calls below,
+#   so a `MIX_ENV` inherited from the caller's shell cannot produce a dev or
+#   test build by accident. A network connection is required: the pg0 asset is
+#   downloaded from its upstream release page.
+#
+# Outputs
+#   _build/prod/rel/cartulary — the unpacked release, containing bin/cartulary
+#   (the generated launcher), bin/server, bin/migrate, and bin/pg0.
+#
+# Failure behaviour
+#   `set -eu` aborts on the first failing command or unset variable. An
+#   unsupported OS/CPU pair, a failed download, or a checksum that does not
+#   match the pinned value exits non-zero and stages nothing usable. The
+#   downloaded pg0 binary is removed from the source tree on every exit path
+#   (see the trap below), so a failed or interrupted run never leaves an
+#   unverified executable behind in the working copy.
+#
+# Deliberately NOT covered here: the container image. The Docker path runs the
+# same release against a stock PostgreSQL image and must never contain pg0 —
+# shipping an embedded database inside a container that is already given one
+# would mean two servers competing for the same data volume.
 set -eu
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+
+# pg0 is pinned by exact version, and separately by a per-platform SHA-256
+# digest in rel/pg0/checksums.txt. The version alone is not a guarantee: an
+# upstream release asset can be replaced in place. Both must agree, or the
+# database engine underneath every durable write is unverified. Moving to a new
+# pg0 (and therefore a new PostgreSQL or pgvector) means editing rel/pg0/VERSION
+# and all digests in rel/pg0/checksums.txt together, in one reviewed change.
 version=$(tr -d '[:space:]' < "$repo_root/rel/pg0/VERSION")
 os=$(uname -s)
 arch=$(uname -m)
 
+# Map this machine to one upstream asset name. The asset names are also the
+# lookup keys in rel/pg0/checksums.txt, so a name typo here surfaces as an empty
+# expected digest and a checksum mismatch rather than as a silent wrong binary.
+# On Linux the C library matters as much as the CPU: a glibc-linked binary will
+# not run on a musl distribution such as Alpine, so probe `ldd` to choose.
+# `ldd --version` writes to stderr on musl and exits non-zero on some builds,
+# hence the 2>&1 redirect; the surrounding `set -e` is not tripped because the
+# command sits in an `if` condition.
 case "$os:$arch" in
   Darwin:arm64) asset=pg0-darwin-aarch64 ;;
   Darwin:x86_64) asset=pg0-darwin-x86_64 ;;
@@ -30,14 +80,33 @@ case "$os:$arch" in
     ;;
 esac
 
+# rel/overlays is copied verbatim into the release by the release definition, so
+# writing the binary to rel/overlays/bin/pg0 is what puts it at bin/pg0 inside
+# the packaged release — the same path the runtime configuration defaults to
+# when looking for the database engine.
 overlay="$repo_root/rel/overlays/bin/pg0"
+# checksums.txt is `<sha256>  <asset>` per line. Matching on the second field
+# means the file's header comment lines fall through on their own, so no comment
+# filter is needed; an unknown asset yields an empty digest, which the
+# comparison below rejects.
 expected=$(awk -v asset="$asset" '$2 == asset {print $1}' "$repo_root/rel/pg0/checksums.txt")
 url="https://github.com/vectorize-io/pg0/releases/download/v$version/$asset"
 
 mkdir -p "$(dirname "$overlay")"
+# The downloaded binary is a build input, not a tracked source file. Removing it
+# on every exit path keeps an unverified or half-downloaded executable out of
+# the working copy, and keeps repeated packaging runs honest: each one
+# re-downloads and re-verifies instead of trusting whatever is already there.
 trap 'rm -f "$overlay"' EXIT INT TERM
+# -f makes an HTTP error status a non-zero exit instead of a saved error page;
+# -L follows the redirect to the actual asset storage host.
 curl -fL "$url" -o "$overlay"
 
+# Verify before making it executable, and before `mix release` copies it. A
+# mismatch means the pinned digest and the fetched bytes disagree: either the
+# pin is stale or the download is not what was reviewed. Never "fix" this by
+# regenerating the digest from the downloaded file — that turns the pin into a
+# tautology and removes the only supply-chain check on the database engine.
 actual=$(shasum -a 256 "$overlay" | awk '{print $1}')
 if [ "$actual" != "$expected" ]; then
   echo "pg0 checksum mismatch for $asset" >&2
@@ -46,7 +115,10 @@ fi
 
 chmod 0755 "$overlay"
 cd "$repo_root"
+# --only prod keeps dev/test-only dependencies out of the shipped release.
 MIX_ENV=prod mix deps.get --only prod
+# --overwrite replaces an existing unpacked release from a previous run rather
+# than aborting, so packaging is repeatable in a dirty _build directory.
 MIX_ENV=prod mix release --overwrite
 
 echo "Release ready at $repo_root/_build/prod/rel/cartulary"

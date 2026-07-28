@@ -1,7 +1,21 @@
 # SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
 
 defmodule Cartulary.Model.Schema do
-  @moduledoc "Structured-output schema contract used by bounded validation and repair."
+  @moduledoc """
+  The contract every structured-output shape implements.
+
+  A schema module supplies two things: the JSON schema handed to the provider so
+  it can constrain its own decoding, and a `cast/2` that independently validates
+  and normalizes whatever actually came back. Both halves are required. Provider
+  schema enforcement is a hint, not a guarantee — weaker and local models
+  routinely return something that merely resembles the schema — so `cast/2` is
+  the real gate and is written to assume the input is hostile.
+
+  `cast/2` returns `{:ok, value}` or `{:error, messages}` with a list of
+  human-readable, content-free error strings. Those messages are fed back to the
+  model in a bounded repair prompt, so they must describe the *shape* problem
+  without restating Account content.
+  """
 
   @callback json_schema() :: map()
   @callback cast(map(), map()) :: {:ok, term()} | {:error, [String.t()]}
@@ -9,24 +23,90 @@ end
 
 defmodule Cartulary.Model.Schema.Extraction do
   @moduledoc """
-  Structured extraction schema derived from the authoritative KnowledgeItem
-  Ash attributes and validated through its pipeline create action.
+  The structured shape an extractor must return, and the validator that decides
+  whether a candidate is allowed to become proposed knowledge.
+
+  ## Derived from the resource, not hand-copied
+
+  The JSON schema's field types and numeric bounds are read from the knowledge
+  resource's own attribute definitions, and each candidate is finally run
+  through the pipeline create action as an unsaved changeset. A candidate that
+  action would reject is therefore rejected here, before it reaches the
+  pipeline. The enumerations are the one thing restated locally, in `@allowed`,
+  and must be kept equal to the action's own `attribute_in` validations.
+
+  ## What one candidate is
+
+  A natural-language statement plus its classification: kind, confidence,
+  sensitivity, the level it is proposed for, an independently chosen subject,
+  the update operation, a hearsay flag, and four independent timestamps
+  (expiry, revalidation, and the window the claim is true for).
+
+  ## Rules this module enforces
+
+  - **Subject is independent of source.** The model names the subject itself. A
+    `peer` subject must be one of the known peer keys supplied in the context,
+    and a `scope` subject must be exactly the current scope path. Nothing else
+    can be named, so a model cannot attach a claim to a peer or a scope the
+    caller never mentioned.
+  - **Hearsay is discounted by the engine.** A candidate marked hearsay, or one
+    whose subject reference is anything other than the source peer's key, has
+    its confidence multiplied by 0.75 here. The model's self-reported confidence
+    is an input to that calculation, never the final value.
+  - **Time bounds must be coherent.** A validity window that starts after it
+    ends is rejected.
+  - **Nothing here activates knowledge.** A valid candidate is still only a
+    proposal; it enters the `proposed` state and must pass governance before it
+    is visible to retrieval.
+
+  ## Mistakes to avoid
+
+  - Do not relax `cast/2` to salvage partially valid output. An unparseable
+    response is an error the pipeline retries, not knowledge.
+  - Do not put Account content into an error message: the messages are sent
+    back to the model in the repair prompt and appear in error tuples.
   """
 
   @behaviour Cartulary.Model.Schema
 
   alias Cartulary.Knowledge.KnowledgeItem
 
+  # Candidate fields taken straight from the knowledge resource's attributes, so
+  # their types and numeric bounds are described once and only once.
   @knowledge_fields ~w(statement kind confidence sensitivity target_level)a
+
+  # Expiry, the revalidation due date, and the two ends of the validity window
+  # are independent of each other and of when the claim was believed. All four
+  # are optional and nullable, so a timeless fact simply leaves them empty.
   @temporal_fields ~w(expires_at revalidate_after relevant_from relevant_until)a
+
+  # The only two things a statement may be about. Source is separate: who said
+  # it is not who it is about.
   @subject_types ~w(peer scope)
+
+  # What the extractor proposes doing with the candidate. `no_op` exists so the
+  # model can decline explicitly instead of inventing an empty statement.
   @operations ~w(add merge supersede_candidate no_op)
+
+  # Enumerations that the JSON schema advertises and `cast/2` re-checks. The
+  # attributes themselves carry no enum constraint, so these must be kept equal
+  # to the `attribute_in` validations on KnowledgeItem's `create_from_pipeline`.
   @allowed %{
     kind: ~w(fact preference event relation skill),
     sensitivity: ~w(public internal personal restricted),
     target_level: ~w(peer scope account)
   }
 
+  @doc """
+  Builds the JSON schema sent to the provider.
+
+  Field types and bounds come from the knowledge resource's attributes, so the
+  advertised contract cannot drift from what will actually be accepted.
+  `additionalProperties` is false, and the candidate list advertises a
+  `maxItems` of 24 — a hint to the provider about how much one raw message
+  should cost downstream. `cast/2` does not re-check the count, so a provider
+  that ignores the bound is not rejected for it.
+  """
   @impl true
   def json_schema do
     knowledge_properties =
@@ -72,6 +152,23 @@ defmodule Cartulary.Model.Schema.Extraction do
     }
   end
 
+  @doc """
+  Validates a provider response into a list of extraction candidates.
+
+  `context` must carry `:account_id` and `:scope_id`, and `:scope_path` as well
+  once any candidate names a scope subject. `:known_peer_keys` defaults to the
+  empty list, which rejects every peer subject, so a caller that wants peer
+  subjects must supply it. `:source_peer_id`, `:source_peer_key`, and
+  `:message_id` are optional. The peer keys and the scope path are the allowlist
+  a subject reference is checked against.
+
+  Returns `{:ok, candidates}` only when every candidate is valid — the response
+  is accepted or rejected as a whole, because a half-applied extraction would
+  leave the observation partially represented with no record of what was
+  dropped. Otherwise returns `{:error, messages}` with each message prefixed by
+  the failing candidate's index, which is what the repair prompt shows the
+  model.
+  """
   @impl true
   def cast(object, context) when is_map(object) and is_map(context) do
     case fetch(object, "items") do
@@ -96,6 +193,10 @@ defmodule Cartulary.Model.Schema.Extraction do
 
   def cast(_object, _context), do: {:error, ["response must be an object"]}
 
+  # Validates one candidate. The `with` chain is ordered cheapest-first and
+  # stops at the first failure, so the resource changeset check — the most
+  # expensive step — only runs on a candidate that is already well formed.
+  # Confidence is computed rather than copied: see `hearsay_confidence/4`.
   defp cast_item(item, context) when is_map(item) do
     with {:ok, statement} <- non_empty_string(item, "statement"),
          {:ok, kind} <- enum(item, "kind", allowed(:kind)),
@@ -128,6 +229,16 @@ defmodule Cartulary.Model.Schema.Extraction do
 
   defp cast_item(_item, _context), do: {:error, ["candidate must be an object"]}
 
+  # Final gate: build the real pipeline create changeset and ask whether it is
+  # valid, without saving. This makes the resource's own attribute constraints,
+  # not a copy of them, the authority on what a candidate may contain.
+  #
+  # The provenance placeholders below exist only to satisfy required attributes
+  # during this dry run. The caller replaces them with the real provider, model,
+  # and prompt identity before anything is persisted, so nothing carrying the
+  # string "schema-validation" ever reaches the database. "f5-1" is the contract
+  # identity value for the extractor and pipeline; changing it obliges a
+  # maintainer to add a changelog entry and refresh the contract evidence.
   defp validate_ash_action(item, context) do
     attrs =
       item
@@ -157,6 +268,9 @@ defmodule Cartulary.Model.Schema.Extraction do
     end
   end
 
+  # Translates one knowledge attribute into its JSON-schema fragment, carrying
+  # across whatever bounds the resource declares. Reading them from the resource
+  # is what keeps the advertised schema and the enforced schema identical.
   defp attribute_schema(name) do
     attribute = Ash.Resource.Info.attribute(KnowledgeItem, name)
     constraints = attribute.constraints || []
@@ -190,6 +304,11 @@ defmodule Cartulary.Model.Schema.Extraction do
     end
   end
 
+  # Subject references are checked against an allowlist supplied by the caller,
+  # never trusted from the model. A peer subject must be one of the peer keys
+  # the caller already knows about, and a scope subject must be exactly the
+  # scope the observation arrived in. This is what stops a model from attaching
+  # a claim to an unrelated peer or to a scope the caller cannot see.
   defp valid_subject_ref(item, "peer", context) do
     with {:ok, ref} <- non_empty_string(item, "subject_ref") do
       if ref in Map.get(context, :known_peer_keys, []) do
@@ -270,6 +389,15 @@ defmodule Cartulary.Model.Schema.Extraction do
 
   defp temporal_order(_temporal), do: :ok
 
+  # Second-hand claims are discounted by the engine, not by the model.
+  #
+  # The discount applies both when the model marked the candidate as hearsay and
+  # whenever the subject reference is not the source peer's key, because a claim
+  # about anything other than the speaker is second-hand whether or not the
+  # model noticed. That second condition also catches scope subjects, and it
+  # catches everything when the context supplies no `:source_peer_key`. The 0.75
+  # multiplier is a flat 25% reduction in stated confidence, rounded to four
+  # decimal places to keep stored values stable and comparable.
   defp hearsay_confidence(confidence, hearsay, subject_ref, context) do
     if hearsay or subject_ref != Map.get(context, :source_peer_key) do
       Float.round(confidence * 0.75, 4)
@@ -278,6 +406,11 @@ defmodule Cartulary.Model.Schema.Extraction do
     end
   end
 
+  # Looks a key up by its string name whether the map arrived with string or
+  # atom keys. Providers, cassettes, and hand-written test fixtures disagree
+  # about which they use, and this validator must behave identically for all of
+  # them. Deliberately does not call `String.to_atom/1`: input from a model must
+  # never be allowed to create atoms.
   defp fetch(map, key) do
     case Map.fetch(map, key) do
       {:ok, value} ->
@@ -305,10 +438,27 @@ defmodule Cartulary.Model.Schema.Extraction do
 end
 
 defmodule Cartulary.Model.Schema.Reasoning do
-  @moduledoc "Dream-time structured output reusing the Ash extraction candidate schema."
+  @moduledoc """
+  The structured shape for background reasoning: extraction candidates plus
+  typed relations between existing knowledge.
+
+  Reasoning reuses the extraction candidate shape unchanged, deliberately. A
+  deduction made while re-reading stored knowledge is still only a candidate: it
+  is subject to the same subject allowlist, the same hearsay discount, and the
+  same governance as anything extracted from a live observation. Reasoning
+  cannot mint knowledge that extraction could not.
+
+  What it adds is a `relations` array of `supports`, `contradicts`, and
+  `derived_from` edges between knowledge ids. Note that a contradiction is
+  recorded as an edge, not applied as an overwrite — disagreement between two
+  statements is information to keep, not a conflict to silently resolve.
+  """
 
   @behaviour Cartulary.Model.Schema
 
+  @doc """
+  The extraction schema with a required `relations` array added.
+  """
   @impl true
   def json_schema do
     extraction = Cartulary.Model.Schema.Extraction.json_schema()
@@ -329,6 +479,15 @@ defmodule Cartulary.Model.Schema.Reasoning do
     |> Map.put("required", ["items", "relations"])
   end
 
+  @doc """
+  Validates a reasoning response into `{:ok, %{items:, relations:}}`.
+
+  Candidates go through the full extraction validation, so every rule that
+  applies to extracted knowledge applies here too. Relations are read by string
+  key only and accepted as a list without further checking; a missing key is
+  treated as no relations, while a present but non-list value is an error.
+  Returns `{:error, messages}` otherwise.
+  """
   @impl true
   def cast(object, context) do
     with {:ok, items} <- Cartulary.Model.Schema.Extraction.cast(object, context),
@@ -342,10 +501,27 @@ defmodule Cartulary.Model.Schema.Reasoning do
 end
 
 defmodule Cartulary.Model.Schema.DialecticAnswer do
-  @moduledoc false
+  @moduledoc """
+  The structured shape for a grounded answer to a question.
+
+  Three fields, all required. `answer` is the text. `citations` are the ids of
+  the knowledge statements the answer rests on. `abstained` is an explicit
+  admission that the retrieved statements do not answer the question — making
+  abstention a first-class field is what allows "not known" to be a correct
+  answer rather than a failure to produce one.
+
+  Citations validated here are only checked for *shape*. Whether each cited id
+  was actually among the statements shown to the model is a separate grounding
+  check performed by the caller, because a model can return a plausible-looking
+  id it never saw. Both checks are needed: this one keeps malformed output out,
+  the caller's keeps invented provenance out.
+  """
 
   @behaviour Cartulary.Model.Schema
 
+  @doc """
+  The answer/citations/abstained object schema sent to the provider.
+  """
   @impl true
   def json_schema do
     %{
@@ -360,6 +536,14 @@ defmodule Cartulary.Model.Schema.DialecticAnswer do
     }
   end
 
+  @doc """
+  Validates a dialectic response into `{:ok, %{answer:, citations:, abstained:}}`.
+
+  All three fields must be present and correctly typed, with every citation a
+  string. Anything else returns `{:error, messages}` and the generator retries
+  within its repair budget. The context argument is unused: unlike extraction,
+  nothing here depends on the caller's scope or peers.
+  """
   @impl true
   def cast(object, _context) when is_map(object) do
     answer = Map.get(object, "answer", Map.get(object, :answer))
