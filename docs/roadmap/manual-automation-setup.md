@@ -121,10 +121,14 @@ write permissions only in narrowly scoped release or publishing jobs.
 ### Repository-level Actions settings
 
 1. Open **Settings** → **Actions** → **General**.
-2. Set default workflow permissions to **Read repository contents permission**.
-3. Disable broad write tokens unless a specific workflow task requires them.
-4. Decide whether GitHub-hosted runners are enough for Elixir/Phoenix builds.
-5. Add self-hosted runners only if you need private network access, specialized
+2. Under action access, select **Allow OWNER, and select non-OWNER, actions and
+   reusable workflows**, allow GitHub-owned actions, and add only
+   `erlef/setup-beam@*` to the explicit pattern allowlist. The F11 workflows do
+   not require other third-party actions.
+3. Set default workflow permissions to **Read repository contents permission**.
+4. Disable broad write tokens unless a specific workflow task requires them.
+5. Decide whether GitHub-hosted runners are enough for Elixir/Phoenix builds.
+6. Add self-hosted runners only if you need private network access, specialized
    hardware, or cost controls.
 
 ### Secrets and variables
