@@ -17,9 +17,9 @@ defmodule Cartulary.Pipeline.Workflows.IngestExtraction do
           Cartulary.Memory.extract_message_for_account(run.target_id, run.account_id)
 
         "document_version" ->
-          # F5 owns native document parsing/model extraction. F2 provides the
+          # F6 owns native document parsing/model extraction. F2 provides the
           # durable, idempotent execution lane now.
-          {:ok, %{document_version_id: run.target_id, deferred_to: "F5"}}
+          {:ok, %{document_version_id: run.target_id, deferred_to: "F6"}}
       end
     end
   end

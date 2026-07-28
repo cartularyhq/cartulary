@@ -42,6 +42,13 @@ env_float = fn key, default ->
   end
 end
 
+env_integer = fn key, default ->
+  case Integer.parse(env_get.(key, default)) do
+    {value, ""} -> value
+    _other -> String.to_integer(default)
+  end
+end
+
 env_sampler = fn ->
   sampler = env_get.("OTEL_TRACES_SAMPLER", "parentbased_always_on")
 
@@ -136,13 +143,83 @@ config :cartulary, :identity,
   account_name: env_get.("CARTULARY_FREE_ACCOUNT_NAME", "Local Cartulary"),
   signing_secret: auth_signing_secret
 
+model_api_key = if(config_env() == :test, do: nil, else: env_get.("OPENROUTER_API_KEY", nil))
+requested_provider = env_get.("CARTULARY_MODEL_PROVIDER", "openrouter")
+local_fallback? = env_bool.("CARTULARY_MODEL_LOCAL_FALLBACK", config_env() != :prod)
+
+generation_provider =
+  if requested_provider == "openrouter" and model_api_key in [nil, ""] and local_fallback? do
+    "deterministic"
+  else
+    requested_provider
+  end
+
+generation_model = fn role_key, default ->
+  if generation_provider == "deterministic" do
+    "local-structured-fallback"
+  else
+    env_get.(role_key, default)
+  end
+end
+
+generation_version =
+  if generation_provider == "deterministic",
+    do: "1",
+    else: env_get.("CARTULARY_MODEL_VERSION", "unversioned")
+
+generation_options = %{
+  "api_key_ref" => "env:OPENROUTER_API_KEY",
+  "base_url" => env_get.("CARTULARY_OPENAI_COMPAT_BASE_URL", "https://openrouter.ai/api/v1")
+}
+
+config :cartulary, :model_roles,
+  embedder: %{
+    provider: env_get.("CARTULARY_EMBEDDING_PROVIDER", "ortex"),
+    model: env_get.("CARTULARY_EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5"),
+    model_version: env_get.("CARTULARY_EMBEDDING_VERSION", "onnx-1"),
+    prompt_version: "none",
+    pipeline_version: "f5-1",
+    embedding_dimensions: env_integer.("CARTULARY_EMBEDDING_DIMENSIONS", "384"),
+    options: %{
+      "api_key_ref" => "env:CARTULARY_EMBEDDING_API_KEY",
+      "base_url" => env_get.("CARTULARY_EMBEDDING_BASE_URL", nil),
+      "model_path" => env_get.("CARTULARY_ORTEX_MODEL_PATH", nil),
+      "tokenizer_path" => env_get.("CARTULARY_ORTEX_TOKENIZER_PATH", nil),
+      "pooling" => env_get.("CARTULARY_ORTEX_POOLING", "cls"),
+      "execution_providers" =>
+        env_get.("CARTULARY_ORTEX_EXECUTION_PROVIDERS", "cpu")
+        |> String.split(",", trim: true)
+    }
+  },
+  ingest_extractor: %{
+    provider: generation_provider,
+    model: generation_model.("CARTULARY_MODEL_INGEST", "openai/gpt-oss-120b"),
+    model_version: generation_version,
+    prompt_version: "extract-1",
+    pipeline_version: "f5-1",
+    options: generation_options
+  },
+  dream_reasoner: %{
+    provider: generation_provider,
+    model: generation_model.("CARTULARY_MODEL_DREAM", "openai/gpt-oss-120b"),
+    model_version: generation_version,
+    prompt_version: "reason-1",
+    pipeline_version: "f5-1",
+    options: generation_options
+  },
+  dialectic_agent: %{
+    provider: generation_provider,
+    model: generation_model.("CARTULARY_MODEL_ASK", "openai/gpt-oss-120b"),
+    model_version: generation_version,
+    prompt_version: "dialectic-1",
+    pipeline_version: "f5-1",
+    options: generation_options
+  }
+
 config :cartulary, :models,
-  base_url: env_get.("CARTULARY_OPENAI_COMPAT_BASE_URL", "https://openrouter.ai/api/v1"),
-  api_key: if(config_env() == :test, do: nil, else: env_get.("OPENROUTER_API_KEY", nil)),
-  api_key_env: "OPENROUTER_API_KEY",
-  ingest: env_get.("CARTULARY_MODEL_INGEST", "openai/gpt-oss-120b"),
-  dream: env_get.("CARTULARY_MODEL_DREAM", "openai/gpt-oss-120b"),
-  ask: env_get.("CARTULARY_MODEL_ASK", "openai/gpt-oss-120b")
+  base_url: generation_options["base_url"],
+  api_key: nil,
+  api_key_ref: "env:OPENROUTER_API_KEY"
 
 otel_db_statement =
   if env_true?.("CARTULARY_OTEL_DB_STATEMENT_ENABLED"), do: :enabled, else: :disabled

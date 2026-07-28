@@ -6,7 +6,7 @@ defmodule CartularyWeb.MemoryController do
   alias Cartulary.Memory
 
   def health(conn, _params) do
-    json(conn, %{status: "ok", app: "cartulary", version: "f4-1"})
+    json(conn, %{status: "ok", app: "cartulary", version: "f5-1"})
   end
 
   def ingest(conn, params) do

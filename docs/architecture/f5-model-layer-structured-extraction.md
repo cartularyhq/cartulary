@@ -1,0 +1,128 @@
+<!-- SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0 -->
+
+# F5 Model Layer And Structured Extraction
+
+F5 replaces the POC's direct OpenRouter extractor with one provider-neutral,
+metered model boundary. It implements `FR-KN-5`, `FR-KN-6`, `FR-KN-10`,
+`FR-KN-11`, `FR-FORM-13` through `FR-FORM-16`, `AD-MODEL-1` through
+`AD-MODEL-6`, `AD-OBS-4`, `AD-EVAL-1`, and the model-outage portion of
+`NFR-8`.
+
+## Role and provider boundary
+
+`Cartulary.Model.Config` resolves exactly four Account-level roles:
+
+| Role | Capability | Default |
+| --- | --- | --- |
+| `embedder` | Pinned vector generation | Local Ortex/ONNX, 384 dimensions |
+| `ingest_extractor` | Fast structured observation extraction | ReqLLM generation role |
+| `dream_reasoner` | Slow structured reasoning and optional rerank | ReqLLM reasoning role |
+| `dialectic_agent` | Grounded structured answers | ReqLLM dialectic role |
+
+An active, versioned `ModelRoleConfig` record wins over runtime defaults.
+Per-scope role overrides remain deliberately deferred. Configuration persists
+secret references such as `env:OPENROUTER_API_KEY`, never raw credentials; the
+Ash actions reject raw secret keys in role options.
+
+Every capability uses `Cartulary.Model.Provider`. `Gateway` is the sole caller
+of provider callbacks and selects the injected test adapter, the explicit
+deterministic local adapter, the local Ortex adapter, or the ReqLLM adapter.
+ReqLLM supplies OpenRouter, OpenAI-compatible, and self-hosted provider support
+without a second engine runtime. There is no in-engine provider cascade:
+operators can place an OpenAI-compatible proxy in front of a role when they
+need deployment-level fallback.
+
+## Structured extraction and reasoning
+
+`StructuredGenerator` performs non-streaming provider-native structured
+generation followed by Ash-backed validation. Invalid output gets at most two
+content-safe repair attempts. Exhaustion returns an error to the pipeline so
+AshOban can retry; it never turns malformed output into knowledge.
+
+The extraction JSON schema is derived from `KnowledgeItem` attributes and the
+candidate is validated against `create_from_pipeline`. Each candidate includes:
+
+- statement, kind, confidence, sensitivity, and target level;
+- peer or current-scope subject, independently of the source Peer;
+- `add`, `merge`, `supersede_candidate`, or `no_op`;
+- hearsay classification with a confidence discount; and
+- expiry, revalidation, and valid-time bounds.
+
+Only known Peers and the current scope can be selected as subjects. New items
+still enter `proposed` and pass the F4 governance engine. The reasoning schema
+reuses the same candidate shape and adds typed
+`supports`/`contradicts`/`derived_from` relations. The F2 dream lane remains the
+durable retry and budget boundary; applying full higher-order reasoning results
+and building projections stay with the later pipeline/projection phases.
+
+The dialectic response schema requires answer text, retrieved knowledge IDs,
+and an explicit abstention flag. `Memory.ask` verifies that every returned
+citation was in the retrieved set and falls back to the existing grounded
+assembler on model error. `get_context` performs no model call.
+
+## Embeddings
+
+`Cartulary.Model.Embedding.Ortex` implements `AshAi.EmbeddingModel` using local
+Tokenizer and ONNX artifacts through Tokenizers and Ortex. It does not download
+models or send text to a network. `Cartulary.Model.Embedding.ReqLLM` delegates to
+AshAi's ReqLLM adapter for an API-backed role.
+
+Every vector carries provider, model, version, and dimensions. A consumer must
+compare the stored identity with the configured identity before reuse.
+Mismatch returns an `f5-1` `reembed_all` plan with
+`reuse_existing_vectors: false`; the engine never silently substitutes an
+incompatible vector space. The version covers the ONNX artifact, tokenizer,
+pooling strategy, and dimensions, so changing any of them requires a version
+bump. F7 owns the embedding columns, backfill jobs, ANN index, and semantic
+retrieval strategy.
+
+## Provenance, metering, and safety
+
+Knowledge and provenance now store provider, model, model version, prompt
+version, pipeline version, and embedding identity fields. Extraction uses
+prompt `extract-1` and pipeline `f5-1`.
+
+`Cartulary.Model.Usage` is the one durable emission point. Each provider call,
+including every repair attempt and returned provider error, appends one
+Account- and optional scope/Peer-attributed `UsageEvent` with operation, role,
+provider, model/version, prompt/pipeline versions, input/output/embedding token
+counts, duration, status, timestamp, and a content-safe metadata allowlist.
+OpenTelemetry mirrors safe timings and counts but is not the exact ledger.
+Prompts, answers, observations, credentials, and secrets never enter usage
+metadata, spans, audit records, or Oban arguments.
+
+Raw observation, audit, `PipelineRun`, and AshOban enqueue still commit before
+any provider call. A provider error leaves the raw message and queued job
+durable, keeps extraction incomplete, and is returned for retry. The same
+behavior applies when a provider-backed dream step is composed into the F2
+lane. Context reads remain available during an outage.
+
+The deterministic adapter is explicit configuration for tests and local
+development only. Development may select it when no key is present and
+`CARTULARY_MODEL_LOCAL_FALLBACK=true`; production defaults that flag to false
+and never switches to deterministic output after a live provider fails.
+
+## `f5-1` transition
+
+F0 response shapes, identity-derived tenancy, downward inheritance,
+pipeline-only writes, raw-message durability, F4 governance, and normalized
+eval fixtures remain regression floors. Extraction provenance and pipeline
+identity advance from `poc-0` to `f5-1`, and health now reports `f5-1`.
+Retrieval profiles remain `poc-0` until F7.
+
+## Evidence
+
+- Provider, schema, embedding, and usage boundary: `lib/cartulary/model/`
+- Pipeline integration: `lib/cartulary/pipeline/extractor.ex` and
+  `lib/cartulary/memory.ex`
+- Resource migration:
+  `priv/repo/migrations/20260727231504_f5_model_layer_structured_extraction.exs`
+- Generated resource snapshots: `priv/resource_snapshots/repo/`
+- F5 acceptance suite:
+  `test/cartulary/f5_model_layer_structured_extraction_test.exs`
+- Deterministic replay adapter and cassette:
+  `test/support/model_cassette_provider.ex` and
+  `test/fixtures/model/f5-provider-cassette.json`
+- Updated F0 contract evidence:
+  `test/cartulary/poc_contract_test.exs` and
+  `test/cartulary_web/controllers/memory_controller_test.exs`

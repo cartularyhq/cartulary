@@ -2,128 +2,96 @@
 
 defmodule Cartulary.Pipeline.Extractor do
   @moduledoc """
-  Converts raw observations into proposed natural-language knowledge.
+  F5 structured extraction from raw observations into proposed knowledge.
 
-  The fallback extractor is intentionally simple and deterministic so tests and
-  local smoke runs can proceed without spending model tokens.
+  Provider selection is explicit. A configured provider failure is returned so
+  AshOban retries the durable job; it never silently switches extractors.
   """
 
-  alias Cartulary.Model.OpenRouter
+  alias Cartulary.Model
+  alias Cartulary.Model.Schema.Extraction
 
-  require Logger
-
-  @pipeline_version "poc-0"
+  @pipeline_version "f5-1"
+  @prompt_version "extract-1"
 
   def pipeline_version, do: @pipeline_version
+  def prompt_version, do: @prompt_version
 
-  def extract(message) do
-    if model_configured?() do
-      model_extract(message)
-    else
-      fallback_extract(message)
-    end
-  rescue
-    error ->
-      Logger.warning(
-        "Cartulary extraction fell back to deterministic POC extractor: #{Exception.message(error)}"
-      )
+  def extract(message, context \\ %{}) do
+    schema_context = schema_context(message, context)
 
-      fallback_extract(message)
-  end
+    messages = [
+      %{
+        role: "system",
+        content: """
+        Extract durable agent-memory knowledge from exactly one raw observation.
+        Return the supplied structured schema. Natural-language statements are
+        the knowledge atom. Do not invent facts and return no item for content
+        that is not durable memory.
 
-  defp model_configured? do
-    key = Keyword.get(Application.fetch_env!(:cartulary, :models), :api_key)
+        Resolve subject independently from source. A peer subject_ref must be
+        one of the supplied known peer keys. Use the current scope path only for
+        a scope subject. Mark third-party claims as hearsay; their confidence is
+        discounted again by Cartulary. Propose sensitivity and the independent
+        expiry, revalidation, and relevant-window timestamps. Use no_op by
+        omitting the candidate rather than emitting an empty statement.
+        """
+      },
+      %{
+        role: "user",
+        content: """
+        Source peer key: #{schema_context.source_peer_key}
+        Source role: #{Map.get(message, "role", "user")}
+        Current scope: #{schema_context.scope_path}
+        Known peer keys: #{Enum.join(schema_context.known_peer_keys, ", ")}
 
-    is_binary(key) and key != ""
-  end
+        Observation:
+        #{Map.fetch!(message, "content")}
+        """
+      }
+    ]
 
-  defp model_extract(message) do
-    content = Map.fetch!(message, "content")
+    opts = [
+      task: :extraction,
+      source_peer_key: schema_context.source_peer_key,
+      observation: Map.fetch!(message, "content"),
+      prompt_version: @prompt_version
+    ]
 
-    decoded =
-      OpenRouter.chat_json!(:ingest, [
-        %{
-          role: "system",
-          content: """
-          Extract durable agent-memory knowledge from one raw observation.
-          Return strict JSON: {"items":[{"statement": "...", "kind": "fact|preference|event|relation|skill", "confidence": 0.0-1.0, "sensitivity": "public|internal|personal|restricted"}]}.
-          Store natural-language statements only. Do not invent facts.
-          If there is no durable knowledge, return {"items":[]}.
-          """
-        },
-        %{role: "user", content: content}
-      ])
+    case Model.generate_structured(
+           :ingest_extractor,
+           messages,
+           Extraction,
+           schema_context,
+           opts
+         ) do
+      {:ok, items, provenance} ->
+        {:ok,
+         items
+         |> Enum.reject(&(&1.update_operation == "no_op"))
+         |> Enum.map(&Map.merge(&1, provenance))}
 
-    decoded
-    |> Map.get("items", [])
-    |> Enum.filter(&is_map/1)
-    |> Enum.map(&normalize_item(&1, OpenRouter.role_model(:ingest)))
-  end
-
-  defp fallback_extract(%{"content" => content}) do
-    content
-    |> String.split(~r/(?<=[.!?])\s+|\n+/, trim: true)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(String.length(&1) < 12))
-    |> Enum.take(6)
-    |> Enum.map(fn statement ->
-      normalize_item(
-        %{
-          "statement" => statement,
-          "kind" => infer_kind(statement),
-          "confidence" => 0.55,
-          "sensitivity" => infer_sensitivity(statement)
-        },
-        "fallback:poc-0"
-      )
-    end)
-  end
-
-  defp normalize_item(item, model) do
-    %{
-      statement: item |> Map.get("statement", "") |> String.trim(),
-      kind:
-        item
-        |> Map.get("kind", "fact")
-        |> normalize_enum(~w(fact preference event relation skill), "fact"),
-      confidence: item |> Map.get("confidence", 0.5) |> normalize_confidence(),
-      sensitivity:
-        item
-        |> Map.get("sensitivity", "internal")
-        |> normalize_enum(~w(public internal personal restricted), "internal"),
-      extracting_model: model,
-      pipeline_version: @pipeline_version
-    }
-  end
-
-  defp normalize_enum(value, allowed, default) when is_binary(value) do
-    value = String.downcase(value)
-    if value in allowed, do: value, else: default
-  end
-
-  defp normalize_enum(_value, _allowed, default), do: default
-
-  defp normalize_confidence(value) when is_number(value), do: value |> max(0.0) |> min(1.0)
-  defp normalize_confidence(_value), do: 0.5
-
-  defp infer_kind(statement) do
-    cond do
-      String.match?(statement, ~r/\b(prefers|likes|wants|needs|favorite)\b/i) ->
-        "preference"
-
-      String.match?(statement, ~r/\b(on|at|by|before|after|yesterday|today|tomorrow)\b/i) ->
-        "event"
-
-      true ->
-        "fact"
+      {:error, error} ->
+        {:error, error}
     end
   end
 
-  defp infer_sensitivity(statement) do
-    if String.match?(statement, ~r/\b(email|phone|address|health|medical|salary|ssn)\b/i) do
-      "personal"
-    else
-      "internal"
-    end
+  defp schema_context(message, context) do
+    source_peer_key = Map.fetch!(message, "peer_key")
+
+    context
+    |> Map.put_new(:account_id, Map.get(message, "account_id", Ecto.UUID.generate()))
+    |> Map.put_new(:scope_id, Map.get(message, "scope_id", Ecto.UUID.generate()))
+    |> Map.put_new(:source_peer_id, Map.get(message, "peer_id", Ecto.UUID.generate()))
+    |> Map.put_new(:message_id, Map.get(message, "id"))
+    |> Map.put(:source_peer_key, source_peer_key)
+    |> Map.put(:scope_path, Map.fetch!(message, "scope_path"))
+    |> Map.put(
+      :known_peer_keys,
+      message
+      |> Map.get("known_peer_keys", [source_peer_key])
+      |> Kernel.++([source_peer_key])
+      |> Enum.uniq()
+    )
   end
 end

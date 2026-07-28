@@ -36,7 +36,7 @@ defmodule CartularyWeb.MemoryControllerTest do
   test "GET /api/health freezes the POC health contract", %{conn: conn} do
     conn = get(conn, ~p"/api/health")
 
-    assert %{"status" => "ok", "app" => "cartulary", "version" => "f4-1"} =
+    assert %{"status" => "ok", "app" => "cartulary", "version" => "f5-1"} =
              json_response(conn, 200)
 
     assert_trace_id(conn)
@@ -57,7 +57,7 @@ defmodule CartularyWeb.MemoryControllerTest do
                "knowledge" => [
                  %{
                    "statement" => "Avery prefers concise weekly release summaries.",
-                   "pipeline_version" => "poc-0"
+                   "pipeline_version" => "f5-1"
                  }
                ]
              }

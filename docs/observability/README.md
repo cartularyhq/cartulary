@@ -33,8 +33,13 @@ logs.
   - `cartulary.memory.ask`
   - `cartulary.memory.get_context`
   - `cartulary.model.chat`
-- Model spans include safe GenAI-style attributes such as role, model, message
-  count, JSON-response mode, and token usage when the provider returns it.
+  - `cartulary.model.structured`
+  - `cartulary.model.embed`
+  - `cartulary.model.rerank`
+- F5 model spans include safe GenAI-style attributes such as operation, role,
+  provider/model/version, duration, and input/output/embedding token usage.
+  The append-only `UsageEvent` Ash resource is the exact ledger; OTel remains a
+  sampled diagnostic mirror.
 
 ## Start The Local Stack
 
@@ -93,7 +98,7 @@ mix cartulary.eval.benchmark \
 | Eval reports | Repository files or chosen output path | `docs/eval/results/`, `docs/eval/minimal-benchmark-results.md`, or `--output ...` |
 | Database behavior | Ecto spans in Jaeger | Set `CARTULARY_OTEL_ECTO_SPANS_ENABLED=true`, then look for `cartulary.repo.query:*` spans under request/eval traces. |
 | Background jobs | Oban spans in Jaeger | Look for extraction job spans once async paths are exercised. |
-| Model calls | `cartulary.model.chat` spans | Filter by `cartulary.model.role` and `gen_ai.request.model`. |
+| Model calls | `cartulary.model.*` spans and `usage_events` | Filter traces by `cartulary.model.role`, provider, and `gen_ai.request.model`; use the database ledger for exact totals. |
 
 ## Span Controls
 
@@ -122,7 +127,7 @@ quality but destroys latency, abstention, or cost visibility is not done.
 | Retrieval | profile, profile version, strategy count, candidate count, latency, contributed strategies, dropped strategies |
 | Context | knowledge count, projection/cache hit once implemented, no model spans under normal `get_context` |
 | Ask | candidate count, model used, abstention flag, citation correctness from eval report, latency |
-| Model | role, provider/model, input/output/total tokens when available, error rate, retry behavior |
+| Model | operation, role, provider/model/version, prompt/pipeline version, input/output/embedding tokens, duration, error rate, repair attempt, retry behavior |
 | Database | query time, queue time, transaction failures, migration/index behavior |
 | Governance | gate decisions, validation queue age, consent requirement failures, audit/history coverage once implemented |
 | Portability | export/import duration, cache rebuild duration, audit hash-chain verification once implemented |
@@ -199,9 +204,10 @@ OTEL_EXPORTER_OTLP_TRACES_HEADERS=Authorization=Basic <base64-public-key-colon-s
 - Phoenix parameter filtering redacts credential fields and content-bearing
   fields such as `content`, `messages`, `prompt`, `question`, `query`,
   `statement`, and `answer`.
-- POC manual spans record counts, flags, model names, and token counts, not raw
+- Manual spans record counts, flags, model names/versions, and token counts, not raw
   content.
-- `cartulary.model.chat` does not record prompt or completion text.
+- `cartulary.model.*` spans and `UsageEvent` metadata do not record prompt,
+  observation, answer, or completion text.
 - Do not add raw knowledge statements to span attributes. Use IDs and eval
   reports for debugging content-sensitive behavior.
 
@@ -210,8 +216,8 @@ OTEL_EXPORTER_OTLP_TRACES_HEADERS=Authorization=Basic <base64-public-key-colon-s
 This is enough for development tracing and experiments, but it is not the final
 observability system. Missing free-core work remains:
 
-- exact usage ledger and budget counters;
-- model-role metering as durable Ash resources;
+- budget counters and per-scope admission rollups over the F5 exact usage
+  ledger;
 - projection/cache metrics;
 - queue depth health and readiness;
 - release/nightly eval dashboards;

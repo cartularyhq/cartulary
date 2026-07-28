@@ -36,3 +36,8 @@ tickets are recorded in `docs/architecture/f1-ash-domain-backbone.md`.
 The implemented F4 Gate A/B matrix, validation/consent lifecycle, human and MCP
 adapters, erasure semantics, and `f4-1` contract transition are recorded in
 `docs/architecture/f4-real-gate-a-b-governance.md`.
+
+The implemented F5 provider roles, structured validation/repair, local
+Ortex/ONNX embedder, model provenance, exact usage ledger, and `f5-1`
+extraction transition are recorded in
+`docs/architecture/f5-model-layer-structured-extraction.md`.

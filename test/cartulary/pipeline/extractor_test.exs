@@ -18,15 +18,23 @@ defmodule Cartulary.Pipeline.ExtractorTest do
   end
 
   test "fallback extractor emits natural-language proposed knowledge" do
-    items =
-      Extractor.extract(%{
-        "content" =>
-          "Alice prefers concise status updates. Her phone number should not be shared."
-      })
+    assert {:ok, items} =
+             Extractor.extract(%{
+               "id" => Ecto.UUID.generate(),
+               "peer_id" => Ecto.UUID.generate(),
+               "scope_id" => Ecto.UUID.generate(),
+               "peer_key" => "alice",
+               "scope_path" => "/test/extractor",
+               "content" =>
+                 "Alice prefers concise status updates. Her phone number should not be shared."
+             })
 
     assert [
              %{statement: "Alice prefers concise status updates.", kind: "preference"},
              %{statement: "Her phone number should not be shared.", sensitivity: "personal"}
            ] = items
+
+    assert Enum.all?(items, &(&1.pipeline_version == "f5-1"))
+    assert Enum.all?(items, &(&1.provider == "deterministic"))
   end
 end

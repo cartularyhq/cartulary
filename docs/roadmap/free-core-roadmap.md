@@ -406,28 +406,38 @@ offline use.
 
 Deliverables:
 
-- [ ] ReqLLM-backed provider layer with four roles: embedder, ingest extractor,
+- [x] ReqLLM-backed provider layer with four roles: embedder, ingest extractor,
   dream-time reasoner, dialectic agent.
-- [ ] `AshAi.EmbeddingModel` embedder implementation for Ortex/ONNX by default,
+- [x] `AshAi.EmbeddingModel` embedder implementation for Ortex/ONNX by default,
   plus OpenAI-compatible/API embedding configuration.
-- [ ] Structured generator behavior for extractor and reasoner using Ash resource
+- [x] Structured generator behavior for extractor and reasoner using Ash resource
   schemas, bounded validate-and-repair, and provider cassettes for deterministic
   tests.
-- [ ] Model provenance fields: provider, model, version, prompt version, pipeline
+- [x] Model provenance fields: provider, model, version, prompt version, pipeline
   version, embedding model/version.
-- [ ] Usage emission in one place for token, embedding, latency, role, account, and
+- [x] Usage emission in one place for token, embedding, latency, role, account, and
   scope.
-- [ ] Explicit model outage handling: raw ingest persists; extraction/dream-time
+- [x] Explicit model outage handling: raw ingest persists; extraction/dream-time
   jobs retry; context reads survive without a model.
 
 Acceptance:
 
-- [ ] Tests can inject a fake provider for extraction, dream-time, embeddings,
+- [x] Tests can inject a fake provider for extraction, dream-time, embeddings,
   rerank, and dialectic answers.
-- [ ] Embedder changes require a versioned re-embed path and cannot silently reuse
+- [x] Embedder changes require a versioned re-embed path and cannot silently reuse
   incompatible vectors.
-- [ ] The deterministic fallback remains available only as a test/local fallback,
+- [x] The deterministic fallback remains available only as a test/local fallback,
   not as the architectural extractor.
+
+F5 evidence lives in the provider-neutral boundary under
+`lib/cartulary/model/`, the F5 fields on `KnowledgeItem`, `Provenance`,
+`ModelRoleConfig`, and `UsageEvent`, the generated F5 migration and resource
+snapshots, `test/cartulary/f5_model_layer_structured_extraction_test.exs`, and
+the replay cassette in `test/fixtures/model/`. Role resolution, secret
+references, structured validation/repair, subject/source and temporal
+extraction, embedding identity migration, exact usage emission, outage
+behavior, and the intentional `f5-1` extractor transition are documented in
+`docs/architecture/f5-model-layer-structured-extraction.md`.
 
 ### F6: Documents, Connectors, And Sync
 
@@ -605,11 +615,11 @@ Acceptance:
 | Scopes | Path rows, limited inheritance | Scope tree plus relations, role inheritance, nearest-wins config | F1, F3 |
 | Sessions/messages | Basic persistence | Multi-peer sessions, dynamic scope set, raw observations/documents | F1, F6 |
 | Knowledge | Simple active rows and minimal lifecycle | Immutable statement, attributions, provenance, relations, ledger, tri-temporal fields | F1, F4 |
-| Extraction | OpenRouter-compatible or deterministic fallback | ReqLLM role, structured output, subject/source resolution, temporal/sensitivity proposals | F5 |
+| Extraction | F5 ReqLLM role, structured Ash validation/repair, subject/source resolution, temporal/sensitivity proposals | Apply dream-time deductions and document extraction in later workflows | F5, F6 |
 | Oban | Direct enqueue, sync by default | AshOban transactional jobs and Reactor orchestration | F2 |
 | Gate B | Confidence/sensitivity auto-activation placeholder | Gate matrix, curator/peer routing, consent, blast-radius checks | F4 |
 | Retrieval | Inline SQL lexical/temporal/salience with simple fusion | Strategy modules, pgvector, FTS, entity match, relation expansion, RRF, profiles, deadlines | F7 |
-| pgvector | Extension enabled, unused | Knowledge/document embedding columns, indexes, backfill, semantic retrieval | F5, F7 |
+| pgvector | Extension enabled; F5 pinned Ortex/API embedder has no stored vectors yet | Knowledge/document embedding columns, indexes, backfill, semantic retrieval | F5, F7 |
 | Context | Knowledge list only | Projection-backed reasoning-free context assembly | F7 |
 | Ask | Simple cited answer over candidates | Grounded dialectic loop with abstention and citation verification | F8 |
 | Eval | POC smoke and benchmark adapter | Deterministic PR gate plus release/nightly eval framework | F11 |

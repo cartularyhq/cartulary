@@ -4,7 +4,7 @@ defmodule Cartulary.Memory do
   @moduledoc """
   Compatibility facade over authoritative Ash actions.
 
-  The public `poc-0` behavior remains frozen by F0. F1 owns durable data
+  The public `poc-0` response shapes remain frozen by F0. F1 owns durable data
   through Ash tenancy/actions and F2 owns transactional audit and AshOban
   execution. Static retrieval SQL is isolated in `Cartulary.Memory.Query`
   under the explicit F7 transition ticket.
@@ -117,15 +117,14 @@ defmodule Cartulary.Memory do
       Observability.set_attribute(:memory, "cartulary.message.id", message_id)
       account_key = account_key || Query.message_account_key!(message_id)
 
-      knowledge =
+      result =
         DataLayer.with_account_key(
           account_key,
           [role: :system, pipeline?: true],
           &extract_in_account(&1, &2, message_id)
         )
 
-      Observability.set_attribute(:memory, "cartulary.knowledge.created_count", length(knowledge))
-      {:ok, knowledge}
+      record_extraction_result(result)
     end)
   end
 
@@ -133,15 +132,14 @@ defmodule Cartulary.Memory do
     Observability.with_span(:memory, "cartulary.memory.extract_message", fn ->
       Observability.set_attribute(:memory, "cartulary.message.id", message_id)
 
-      knowledge =
+      result =
         DataLayer.with_account_id(
           account_id,
           [role: :system, pipeline?: true],
           &extract_in_account(&1, &2, message_id)
         )
 
-      Observability.set_attribute(:memory, "cartulary.knowledge.created_count", length(knowledge))
-      {:ok, knowledge}
+      record_extraction_result(result)
     end)
   end
 
@@ -266,16 +264,11 @@ defmodule Cartulary.Memory do
 
       candidates = Map.fetch!(retrieval, "candidates")
 
-      answer =
-        if model_configured?() and candidates != [] do
-          model_answer(question, candidates)
-        else
-          fallback_answer(question, candidates)
-        end
+      {answer, used_model?} = answer_question(attrs, question, candidates)
 
       Observability.set_attributes(:memory, %{
         "cartulary.ask.candidate_count" => length(candidates),
-        "cartulary.ask.used_model" => model_configured?() and candidates != [],
+        "cartulary.ask.used_model" => used_model?,
         "cartulary.ask.abstained" => Map.get(answer, "abstained", false)
       })
 
@@ -423,22 +416,39 @@ defmodule Cartulary.Memory do
     |> Map.merge(%{
       "peer_key" => peer.key,
       "scope_path" => scope.path,
-      "account_key" => account.key
+      "account_key" => account.key,
+      "known_peer_keys" => known_peer_keys(account.id, actor)
     })
   end
 
   defp extract_in_account(account, actor, message_id) do
     message = fetch_message!(account, actor, message_id)
-    items = Extractor.extract(message)
-    Observability.set_attribute(:memory, "cartulary.extract.item_count", length(items))
-    knowledge = Enum.map(items, &insert_knowledge!(account.id, actor, message, &1))
-    mark_message_extracted!(account.id, actor, message_id)
-    knowledge
+
+    context = %{
+      account_id: account.id,
+      scope_id: message["scope_id"],
+      peer_id: message["peer_id"],
+      source_peer_id: message["peer_id"],
+      message_id: message["id"],
+      actor: actor
+    }
+
+    with {:ok, items} <- Extractor.extract(message, context) do
+      Observability.set_attribute(:memory, "cartulary.extract.item_count", length(items))
+      knowledge = Enum.map(items, &insert_knowledge!(account.id, actor, message, &1))
+      mark_message_extracted!(account.id, actor, message_id)
+      {:ok, knowledge}
+    end
   end
 
   defp insert_knowledge!(account_id, actor, message, item) do
+    subject = resolve_subject!(account_id, actor, message, item)
     statement_hash = Idempotency.content_hash(item.statement)
-    Lock.acquire!(account_id, "knowledge:#{message["scope_id"]}:#{statement_hash}")
+
+    Lock.acquire!(
+      account_id,
+      "knowledge:#{message["scope_id"]}:#{subject.lock_key}:#{statement_hash}"
+    )
 
     existing =
       KnowledgeItem
@@ -446,6 +456,7 @@ defmodule Cartulary.Memory do
         scope_id == ^message["scope_id"] and statement_hash == ^statement_hash and
           state in ["active", "proposed", "provisional", "held", "needs_revalidation"]
       )
+      |> knowledge_subject_filter(subject)
       |> Ash.Query.limit(1)
       |> Ash.Query.set_tenant(account_id)
       |> Ash.read_one!(actor: actor)
@@ -472,16 +483,24 @@ defmodule Cartulary.Memory do
             :create_from_pipeline,
             %{
               scope_id: message["scope_id"],
-              subject_peer_id: message["peer_id"],
+              subject_peer_id: subject.peer_id,
+              subject_scope_id: subject.scope_id,
               statement: item.statement,
               kind: item.kind,
               confidence: item.confidence,
               sensitivity: item.sensitivity,
               state: "proposed",
-              target_level: "peer",
+              target_level: item.target_level,
               verification: "pending",
               source_message_ids: [message["id"]],
-              extracting_model: item.extracting_model,
+              expires_at: item.expires_at,
+              revalidate_after: item.revalidate_after,
+              relevant_from: item.relevant_from,
+              relevant_until: item.relevant_until,
+              extracting_provider: item.provider,
+              extracting_model: item.model,
+              extracting_model_version: item.model_version,
+              prompt_version: item.prompt_version,
               pipeline_version: item.pipeline_version
             },
             account_id,
@@ -491,7 +510,7 @@ defmodule Cartulary.Memory do
         {knowledge, true}
       end
 
-    attribution = ensure_attribution!(account_id, actor, knowledge, message)
+    attribution = ensure_attribution!(account_id, actor, knowledge, message, item, subject)
 
     ensure_provenance!(account_id, actor, knowledge, message, item)
 
@@ -528,7 +547,7 @@ defmodule Cartulary.Memory do
         resource_type: "attribution",
         resource_id: attribution.id,
         content_hash: statement_hash,
-        metadata: %{"knowledge_item_id" => knowledge.id, "level" => "self"}
+        metadata: %{"knowledge_item_id" => knowledge.id, "level" => subject.level}
       })
     end
 
@@ -567,7 +586,10 @@ defmodule Cartulary.Memory do
           scope_id: knowledge.scope_id,
           source_type: "message",
           message_id: message["id"],
-          extracting_model: item.extracting_model,
+          extracting_provider: item.provider,
+          extracting_model: item.model,
+          extracting_model_version: item.model_version,
+          prompt_version: item.prompt_version,
           pipeline_version: item.pipeline_version,
           occurred_at: Clock.utc_now()
         },
@@ -576,13 +598,14 @@ defmodule Cartulary.Memory do
       )
   end
 
-  defp ensure_attribution!(account_id, actor, knowledge, message) do
+  defp ensure_attribution!(account_id, actor, knowledge, _message, _item, subject) do
     existing =
       Attribution
       |> Ash.Query.filter(
-        knowledge_item_id == ^knowledge.id and target_type == "peer" and
-          target_peer_id == ^message["peer_id"] and level == "self"
+        knowledge_item_id == ^knowledge.id and target_type == ^subject.type and
+          level == ^subject.level
       )
+      |> attribution_subject_filter(subject)
       |> Ash.Query.limit(1)
       |> Ash.Query.set_tenant(account_id)
       |> Ash.read_one!(actor: actor)
@@ -594,13 +617,77 @@ defmodule Cartulary.Memory do
         %{
           knowledge_item_id: knowledge.id,
           scope_id: knowledge.scope_id,
-          target_type: "peer",
-          target_peer_id: message["peer_id"],
-          level: "self"
+          target_type: subject.type,
+          target_peer_id: subject.peer_id,
+          target_scope_id: subject.scope_id,
+          level: subject.level
         },
         account_id,
         actor
       )
+  end
+
+  defp record_extraction_result({:ok, knowledge}) do
+    Observability.set_attribute(:memory, "cartulary.knowledge.created_count", length(knowledge))
+    {:ok, knowledge}
+  end
+
+  defp record_extraction_result({:error, error}), do: {:error, error}
+
+  defp known_peer_keys(account_id, actor) do
+    Peer
+    |> Ash.Query.sort(key: :asc)
+    |> Ash.Query.set_tenant(account_id)
+    |> Ash.read!(actor: actor)
+    |> Enum.map(& &1.key)
+  end
+
+  defp resolve_subject!(account_id, actor, message, %{subject_type: "peer"} = item) do
+    peer =
+      Peer
+      |> Ash.Query.filter(key == ^item.subject_ref)
+      |> Ash.Query.limit(1)
+      |> Ash.Query.set_tenant(account_id)
+      |> Ash.read_one!(actor: actor)
+
+    if is_nil(peer), do: raise(ArgumentError, "structured extraction referenced an unknown peer")
+
+    level =
+      if peer.id == message["peer_id"] and not item.hearsay,
+        do: "self",
+        else: "hearsay"
+
+    %{type: "peer", peer_id: peer.id, scope_id: nil, level: level, lock_key: "peer:#{peer.id}"}
+  end
+
+  defp resolve_subject!(_account_id, _actor, message, %{subject_type: "scope"} = item) do
+    if item.subject_ref != message["scope_path"] do
+      raise ArgumentError, "structured extraction referenced an unknown scope"
+    end
+
+    %{
+      type: "scope",
+      peer_id: nil,
+      scope_id: message["scope_id"],
+      level: "scope",
+      lock_key: "scope:#{message["scope_id"]}"
+    }
+  end
+
+  defp knowledge_subject_filter(query, %{type: "peer", peer_id: peer_id}) do
+    Ash.Query.filter(query, subject_peer_id == ^peer_id and is_nil(subject_scope_id))
+  end
+
+  defp knowledge_subject_filter(query, %{type: "scope", scope_id: scope_id}) do
+    Ash.Query.filter(query, is_nil(subject_peer_id) and subject_scope_id == ^scope_id)
+  end
+
+  defp attribution_subject_filter(query, %{type: "peer", peer_id: peer_id}) do
+    Ash.Query.filter(query, target_peer_id == ^peer_id and is_nil(target_scope_id))
+  end
+
+  defp attribution_subject_filter(query, %{type: "scope", scope_id: scope_id}) do
+    Ash.Query.filter(query, is_nil(target_peer_id) and target_scope_id == ^scope_id)
   end
 
   defp visible_scopes(account_id, actor, path) do
@@ -695,14 +782,32 @@ defmodule Cartulary.Memory do
     |> Enum.take(limit)
   end
 
-  defp model_configured? do
-    key = Keyword.get(Application.fetch_env!(:cartulary, :models), :api_key)
+  defp answer_question(_attrs, question, []), do: {fallback_answer(question, []), false}
 
-    is_binary(key) and key != ""
+  defp answer_question(attrs, question, candidates) do
+    with_account(attrs, fn account, actor ->
+      context = %{
+        account_id: account.id,
+        scope_id: candidates |> List.first() |> Map.get("scope_id"),
+        peer_id: actor.peer_id,
+        actor: actor
+      }
+
+      config = Cartulary.Model.role_config(:dialectic_agent, context)
+
+      provider = Cartulary.Model.Gateway.provider_module(config, context)
+
+      if Cartulary.Model.Config.local_fallback?(config) and
+           is_nil(provider_override(provider)) do
+        {fallback_answer(question, candidates), false}
+      else
+        {model_answer(question, candidates, context), true}
+      end
+    end)
   end
 
-  defp model_answer(question, candidates) do
-    context =
+  defp model_answer(question, candidates, model_context) do
+    memory_context =
       candidates
       |> Enum.map_join("\n", fn row -> "[#{row["id"]}] #{row["statement"]}" end)
 
@@ -714,26 +819,43 @@ defmodule Cartulary.Memory do
     Question: #{question}
 
     Memory:
-    #{context}
+    #{memory_context}
     """
 
-    decoded =
-      Cartulary.Model.OpenRouter.chat_json!(:ask, [
-        %{role: "system", content: "You are a grounded memory QA engine."},
-        %{role: "user", content: prompt}
-      ])
+    result =
+      Cartulary.Model.generate_structured(
+        :dialectic_agent,
+        [
+          %{role: "system", content: "You are a grounded memory QA engine."},
+          %{role: "user", content: prompt}
+        ],
+        Cartulary.Model.Schema.DialecticAnswer,
+        model_context,
+        task: :dialectic
+      )
 
-    cited_ids = candidates |> MapSet.new(& &1["id"])
-    citations = decoded |> Map.get("citations", []) |> Enum.filter(&MapSet.member?(cited_ids, &1))
+    case result do
+      {:ok, decoded, _provenance} ->
+        cited_ids = candidates |> MapSet.new(& &1["id"])
+        citations = Enum.filter(decoded.citations, &MapSet.member?(cited_ids, &1))
 
-    %{
-      "answer" => Map.get(decoded, "answer", fallback_answer(question, candidates)["answer"]),
-      "citations" => citations,
-      "abstained" => Map.get(decoded, "abstained", citations == [])
-    }
-  rescue
-    _error -> fallback_answer(question, candidates)
+        if decoded.abstained or citations == [] do
+          fallback_answer(question, [])
+        else
+          %{
+            "answer" => decoded.answer,
+            "citations" => citations,
+            "abstained" => false
+          }
+        end
+
+      {:error, _error} ->
+        fallback_answer(question, candidates)
+    end
   end
+
+  defp provider_override(Cartulary.Model.Providers.Deterministic), do: nil
+  defp provider_override(provider), do: provider
 
   defp fallback_answer(_question, []),
     do: %{"answer" => "not known", "citations" => [], "abstained" => true}

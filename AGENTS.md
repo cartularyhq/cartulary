@@ -176,6 +176,32 @@ refactoring:
   dirty affected projections/entities while retaining content-safe audit
   evidence. Inline delivery text is erasable and must not be copied into audit,
   telemetry, or Oban arguments.
+- F5 replaces the direct POC model client with the provider-neutral
+  `Cartulary.Model` boundary and advances extraction/pipeline identity to
+  `f5-1`. F5 evidence is kept in
+  `test/cartulary/f5_model_layer_structured_extraction_test.exs`,
+  `docs/architecture/f5-model-layer-structured-extraction.md`,
+  `test/fixtures/model/f5-provider-cassette.json`,
+  `priv/resource_snapshots/`, and
+  `priv/repo/migrations/20260727231504_f5_model_layer_structured_extraction.exs`.
+  All model calls must go through `Cartulary.Model.Gateway`; do not invoke
+  ReqLLM or a provider adapter from pipeline, retrieval, web, or governance
+  code.
+- F5 has exactly four Account-level roles: `embedder`, `ingest_extractor`,
+  `dream_reasoner`, and `dialectic_agent`. Persist secret references only, keep
+  per-scope role overrides deferred, and preserve provider/model/version plus
+  prompt/pipeline provenance. `Cartulary.Model.Usage` is the only durable usage
+  emission point; keep its events and model spans content-safe.
+- F5 structured extraction and reasoning use the Ash-derived schemas and
+  bounded repair in `Cartulary.Model.StructuredGenerator`. Do not accept
+  malformed provider output, bypass pipeline-only knowledge writes, collapse
+  subject into source, omit hearsay discounting, or skip F4 governance.
+  Provider failures must leave raw observations and jobs retryable, and
+  `get_context` must remain model-free.
+- F5 embedding identity includes provider, model, version, and dimensions.
+  Mismatch must return the versioned re-embed path and must never reuse or
+  silently substitute vectors. The deterministic provider is test/local-only;
+  production must not fall back to it after a provider error.
 - Direct Repo/Ecto SQL access is confined to infrastructure/data-layer modules
   and explicitly ticketed custom query helpers. The current exception is
   `Cartulary.Memory.Query`, whose removal ticket is roadmap F7.

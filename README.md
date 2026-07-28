@@ -4,11 +4,12 @@ Cartulary is an Elixir/Ash/Phoenix/Oban memory system prototype for governed
 agent memory on the BEAM. The current repository state combines the frozen
 local POC contract with the implemented F1 Ash Domain Backbone and F2
 Transactional Writes, Audit, And Jobs plus F3 Identity, Tenancy, And Basic
-RBAC and F4 Real Gate A/B Governance; it is not yet a finished product
-architecture.
+RBAC, F4 Real Gate A/B Governance, and F5 Model Layer And Structured
+Extraction; it is not yet a finished product architecture.
 
-The POC can run against local Postgres from pg0 and use an OpenAI-compatible
-model endpoint such as OpenRouter with `openai/gpt-oss-120b`.
+The POC can run against local Postgres from pg0, use local Ortex/ONNX
+embeddings, and use a ReqLLM-supported or OpenAI-compatible generation
+endpoint such as OpenRouter with `openai/gpt-oss-120b`.
 
 The target free self-host core is documented in
 `docs/roadmap/free-core-roadmap.md`. That plan starts from the POC handoff,
@@ -17,11 +18,13 @@ the Ash/Phoenix/Oban architecture, abstraction layers, decomposition, migration
 phases, and feature coverage needed for a complete single-Account community
 solution.
 
-Roadmap phases F0 through F4 are complete. F0 response shapes, persistence,
+Roadmap phases F0 through F5 are complete. F0 response shapes, persistence,
 scope inheritance, pipeline-only knowledge writes, and tiny eval fixtures
 remain regression floors. F4 intentionally versions lifecycle behavior to
 `f4-1`: new proposals are provisionally peer-visible or held for governance
-instead of being auto-activated. Nine Ash Domains and 36 Resources own the
+instead of being auto-activated. F5 advances extraction to `f5-1` with four
+pinned model roles, Ash-backed structured validation and repair, complete model
+provenance, and exact usage events. Nine Ash Domains and 36 Resources own the
 durable boundary.
 
 ## What Runs Today
@@ -66,7 +69,13 @@ durable boundary.
 - A single POC memory service that writes raw messages, extracts knowledge
   through the pipeline, retrieves candidates, and returns grounded answers with
   citations.
-- OpenRouter-compatible model client configured from `.env`.
+- Provider-neutral model gateway over ReqLLM with pinned embedder, ingest
+  extractor, dream reasoner, and dialectic roles.
+- Ash-backed structured extraction/reasoning schemas with bounded repair,
+  subject/source separation, hearsay discounting, temporal proposals, model
+  provenance, and one durable usage ledger.
+- Local Ortex/ONNX `AshAi.EmbeddingModel`, an API embedding adapter, and an
+  explicit versioned re-embed guard against incompatible vectors.
 - Built-in smoke harness for tiny LoCoMo, LongMemEval, and BEAM-style memory
   paths:
 
@@ -102,14 +111,33 @@ Create your local environment file:
 cp .env.example .env
 ```
 
-`OPENROUTER_API_KEY` is optional. If it is blank, the POC uses a deterministic
-fallback extractor so local tests and smoke runs still work. To use OpenRouter
-or another OpenAI-compatible endpoint, set:
+`OPENROUTER_API_KEY` is optional in development. If it is blank and
+`CARTULARY_MODEL_LOCAL_FALLBACK=true`, the explicit deterministic local adapter
+keeps tests and smoke runs offline. Production defaults this fallback off and
+never switches to it after a provider failure. To use OpenRouter or another
+ReqLLM/OpenAI-compatible endpoint, set:
 
 ```bash
+CARTULARY_MODEL_PROVIDER=openrouter
 OPENROUTER_API_KEY=...
 CARTULARY_OPENAI_COMPAT_BASE_URL=https://openrouter.ai/api/v1
 ```
+
+The default embedding role is local Ortex/ONNX. Point it at pinned local
+artifacts:
+
+```bash
+CARTULARY_EMBEDDING_PROVIDER=ortex
+CARTULARY_EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
+CARTULARY_EMBEDDING_VERSION=onnx-1
+CARTULARY_EMBEDDING_DIMENSIONS=384
+CARTULARY_ORTEX_MODEL_PATH=/absolute/path/to/model.onnx
+CARTULARY_ORTEX_TOKENIZER_PATH=/absolute/path/to/tokenizer.json
+CARTULARY_ORTEX_POOLING=cls
+```
+
+Treat the embedding version as the vector-space version: bump it whenever the
+ONNX artifact, tokenizer, pooling, or dimensions change.
 
 Start Postgres through pg0:
 
@@ -193,7 +221,7 @@ plan are maintained in:
 Read both documents before treating any POC code as an architectural precedent
 or before migrating POC behavior into the free-core architecture.
 
-## F0 Contract And F4 Lifecycle Version
+## F0 Contract And F5 Extraction Version
 
 F0 freezes behavior, not the POC's internal design. `Cartulary.Memory` is now a
 compatibility facade over authoritative Ash actions. F2 owns transactional
@@ -214,8 +242,9 @@ The contract evidence covers:
 F4 intentionally changes the lifecycle portion of that contract from the POC
 `active` shortcut to `proposed → provisional` by default, with scope-level
 promotion held until Gate B approval and any required consent. Health reports
-`f4-1`; extractor and retrieval profile identifiers remain `poc-0` until their
-F5/F7 migrations.
+`f5-1`. F5 changes extractor/pipeline identity from `poc-0` to `f5-1` while
+preserving the F0 payload shapes; retrieval profile identifiers remain `poc-0`
+until F7.
 
 Run the focused F0 contract:
 
@@ -296,6 +325,28 @@ Read the resource map, state flow, surfaces, aging/erasure behavior, contract
 transition, and evidence in
 `docs/architecture/f4-real-gate-a-b-governance.md`.
 
+## F5 Model Layer And Structured Extraction
+
+Every model capability now enters through one injectable provider behavior.
+Account-level role records or runtime config pin the provider, model, model
+version, prompt version, pipeline version, options, and embedding dimensions.
+ReqLLM handles generation, embeddings, and reranking across supported
+providers; the default offline embedder uses Ortex/ONNX through
+`AshAi.EmbeddingModel`.
+
+Extraction and dream reasoning share a structured generator with an
+Ash-derived schema and at most two validate-and-repair attempts. Extraction
+resolves subject independently of source, discounts hearsay, proposes
+confidence/sensitivity/target/time fields and an update operation, persists
+full provenance, then enters the unchanged F4 Gate A/B lifecycle. Every call
+emits one content-safe, Account/scope-attributed usage event. Provider failure
+keeps raw observations and retryable jobs durable, while `get_context` remains
+model-free.
+
+Read the model boundary, schemas, embedding identity rule, outage behavior,
+contract transition, and evidence in
+`docs/architecture/f5-model-layer-structured-extraction.md`.
+
 ## Free Core Direction
 
 The free core is intended to include the full memory engine, single-node
@@ -330,16 +381,19 @@ The important cuts are intentional and temporary:
 - Core durable reads and writes now use Ash. The POC retrieval strategies still
   use static parameterized SQL in the explicit F7 transition helper.
 - F2 provides the durable lanes for dream-time, lifecycle, connector,
-  portability, and projection work. Their domain behavior remains owned by
-  F4/F5/F6/F9/F12 and currently stops at typed continuation seams.
+  portability, and projection work. F4 and F5 now supply governance behavior
+  and the structured reasoner capability; connector, portability, full
+  reasoning-result application, and projection building remain in later
+  phases.
 - Retrieval is Postgres FTS plus simple temporal and salience/recency queries;
-  pgvector is enabled but semantic embeddings and ANN indexes are not yet
-  implemented.
+  the F5 embedder is implemented, but F7 still owns embedding columns,
+  backfill, semantic retrieval, and ANN indexes.
 - LoCoMo, LongMemEval, and BEAM fixture import/scoring exists for the POC, but
   upstream judge parity, ablation matrices, release thresholds, and backend
   parity evidence are not implemented.
-- F3 identity and basic RBAC are implemented. Human governance UI separation,
-  consent, validation queues, and the full Gate A/B lifecycle remain F4 work.
+- F5 provides a cassette-tested provider seam, but production model artifacts,
+  broader provider certification, and release eval thresholds remain operator
+  and later-roadmap work.
 
 ## Checks
 

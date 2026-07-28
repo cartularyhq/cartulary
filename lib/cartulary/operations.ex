@@ -26,17 +26,26 @@ defmodule Cartulary.Operations.UsageEvent do
 
     create :record do
       accept [
+        :call_id,
         :scope_id,
         :peer_id,
         :operation,
         :model_role,
+        :provider,
         :model_name,
+        :model_version,
+        :prompt_version,
+        :pipeline_version,
         :input_tokens,
         :output_tokens,
+        :embedding_tokens,
         :duration_ms,
+        :status,
         :metadata,
         :occurred_at
       ]
+
+      validate attribute_in(:status, ~w(ok error))
     end
   end
 
@@ -58,17 +67,30 @@ defmodule Cartulary.Operations.UsageEvent do
   attributes do
     uuid_primary_key :id
     attribute :account_id, :uuid, allow_nil?: false
+    attribute :call_id, :uuid, allow_nil?: false, public?: true
     attribute :scope_id, :uuid
     attribute :peer_id, :uuid
     attribute :operation, :string, allow_nil?: false, public?: true
-    attribute :model_role, :string, public?: true
-    attribute :model_name, :string, public?: true
+    attribute :model_role, :string, allow_nil?: false, public?: true
+    attribute :provider, :string, allow_nil?: false, public?: true
+    attribute :model_name, :string, allow_nil?: false, public?: true
+    attribute :model_version, :string, allow_nil?: false, public?: true
+    attribute :prompt_version, :string, allow_nil?: false, public?: true
+    attribute :pipeline_version, :string, allow_nil?: false, public?: true
     attribute :input_tokens, :integer, allow_nil?: false, default: 0, public?: true
     attribute :output_tokens, :integer, allow_nil?: false, default: 0, public?: true
+    attribute :embedding_tokens, :integer, allow_nil?: false, default: 0, public?: true
     attribute :duration_ms, :integer, allow_nil?: false, default: 0, public?: true
+
+    attribute :status, :string, allow_nil?: false, default: "ok", public?: true
+
     attribute :metadata, :map, allow_nil?: false, default: %{}
     attribute :occurred_at, :utc_datetime_usec, allow_nil?: false, public?: true
     create_timestamp :inserted_at
+  end
+
+  identities do
+    identity :call_id, [:call_id]
   end
 end
 
@@ -202,6 +224,7 @@ defmodule Cartulary.Operations.PipelineRun do
     end
 
     update :execute do
+      transaction? false
       require_atomic? false
       change Cartulary.Pipeline.Changes.ExecuteRun
     end

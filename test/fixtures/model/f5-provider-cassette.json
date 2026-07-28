@@ -1,0 +1,99 @@
+{
+  "scenarios": {
+    "repair_extraction": [
+      {
+        "operation": "structured",
+        "role": "ingest_extractor",
+        "task": "extraction",
+        "value": {
+          "items": [
+            {
+              "statement": "Avery prefers weekly release summaries.",
+              "kind": "preference",
+              "subject_type": "peer",
+              "subject_ref": "avery",
+              "confidence": 1.5,
+              "sensitivity": "internal",
+              "target_level": "peer",
+              "update_operation": "add",
+              "hearsay": false
+            }
+          ]
+        },
+        "usage": {"input_tokens": 50, "output_tokens": 20}
+      },
+      {
+        "operation": "structured",
+        "role": "ingest_extractor",
+        "task": "extraction",
+        "value": {
+          "items": [
+            {
+              "statement": "Avery prefers weekly release summaries.",
+              "kind": "preference",
+              "subject_type": "peer",
+              "subject_ref": "avery",
+              "confidence": 0.93,
+              "sensitivity": "internal",
+              "target_level": "peer",
+              "update_operation": "add",
+              "hearsay": false,
+              "expires_at": null,
+              "revalidate_after": "2026-10-01T00:00:00Z",
+              "relevant_from": null,
+              "relevant_until": null
+            }
+          ]
+        },
+        "usage": {"input_tokens": 65, "output_tokens": 24}
+      }
+    ],
+    "capabilities": [
+      {
+        "operation": "structured",
+        "role": "dream_reasoner",
+        "task": "reasoning",
+        "value": {"items": [], "relations": []},
+        "usage": {"input_tokens": 30, "output_tokens": 5}
+      },
+      {
+        "operation": "structured",
+        "role": "dialectic_agent",
+        "task": "dialectic",
+        "value": {
+          "answer": "Avery prefers weekly summaries.",
+          "citations": ["knowledge-1"],
+          "abstained": false
+        },
+        "usage": {"input_tokens": 20, "output_tokens": 8}
+      },
+      {
+        "operation": "embed",
+        "role": "embedder",
+        "task": null,
+        "value": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+        "usage": {"embedding_tokens": 6},
+        "metadata": {"vector_count": 2}
+      },
+      {
+        "operation": "rerank",
+        "role": "dream_reasoner",
+        "task": null,
+        "value": [
+          {"index": 1, "relevance_score": 0.9, "document": "second"},
+          {"index": 0, "relevance_score": 0.4, "document": "first"}
+        ],
+        "usage": {"input_tokens": 9},
+        "metadata": {"result_count": 2}
+      }
+    ],
+    "provider_outage": [
+      {
+        "operation": "structured",
+        "role": "ingest_extractor",
+        "task": "extraction",
+        "error": "provider_unavailable"
+      }
+    ]
+  }
+}

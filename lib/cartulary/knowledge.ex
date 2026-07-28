@@ -60,11 +60,21 @@ defmodule Cartulary.Knowledge.KnowledgeItem do
         :relevant_from,
         :relevant_until,
         :source_message_ids,
+        :extracting_provider,
         :extracting_model,
+        :extracting_model_version,
+        :prompt_version,
+        :embedding_provider,
+        :embedding_model,
+        :embedding_version,
         :pipeline_version
       ]
 
       change Cartulary.Knowledge.Changes.HashStatement
+      validate attribute_in(:kind, ~w(fact preference event relation skill))
+      validate attribute_in(:sensitivity, ~w(public internal personal restricted))
+      validate attribute_in(:state, ~w(proposed))
+      validate attribute_in(:target_level, ~w(peer scope account))
     end
 
     update :merge_from_pipeline do
@@ -95,6 +105,14 @@ defmodule Cartulary.Knowledge.KnowledgeItem do
 
       require_atomic? false
       change Cartulary.Knowledge.Changes.RecordTransition
+
+      validate attribute_in(
+                 :state,
+                 ~w(proposed active provisional held needs_revalidation superseded expired rejected contested redacted stale retracted)
+               )
+
+      validate attribute_in(:sensitivity, ~w(public internal personal restricted))
+      validate attribute_in(:target_level, ~w(peer scope account))
     end
 
     destroy :erase do
@@ -128,13 +146,40 @@ defmodule Cartulary.Knowledge.KnowledgeItem do
     attribute :scope_id, :uuid, allow_nil?: false, public?: true
     attribute :subject_peer_id, :uuid, public?: true
     attribute :subject_scope_id, :uuid, public?: true
-    attribute :statement, :string, allow_nil?: false, public?: true
+
+    attribute :statement, :string,
+      allow_nil?: false,
+      constraints: [min_length: 1],
+      public?: true
+
     attribute :statement_hash, :string, allow_nil?: false
-    attribute :kind, :string, allow_nil?: false, default: "fact", public?: true
-    attribute :confidence, :float, allow_nil?: false, default: 0.5, public?: true
-    attribute :sensitivity, :string, allow_nil?: false, default: "internal", public?: true
-    attribute :state, :string, allow_nil?: false, default: "proposed", public?: true
-    attribute :target_level, :string, allow_nil?: false, default: "peer", public?: true
+
+    attribute :kind, :string,
+      allow_nil?: false,
+      default: "fact",
+      public?: true
+
+    attribute :confidence, :float,
+      allow_nil?: false,
+      default: 0.5,
+      constraints: [min: 0.0, max: 1.0],
+      public?: true
+
+    attribute :sensitivity, :string,
+      allow_nil?: false,
+      default: "internal",
+      public?: true
+
+    attribute :state, :string,
+      allow_nil?: false,
+      default: "proposed",
+      public?: true
+
+    attribute :target_level, :string,
+      allow_nil?: false,
+      default: "peer",
+      public?: true
+
     attribute :verification, :string, allow_nil?: false, default: "pending", public?: true
     attribute :held_scope_id, :uuid, public?: true
     attribute :corroboration_count, :integer, allow_nil?: false, default: 1, public?: true
@@ -144,8 +189,14 @@ defmodule Cartulary.Knowledge.KnowledgeItem do
     attribute :relevant_from, :utc_datetime_usec, public?: true
     attribute :relevant_until, :utc_datetime_usec, public?: true
     attribute :source_message_ids, {:array, :uuid}, allow_nil?: false, default: [], public?: true
+    attribute :extracting_provider, :string, public?: true
     attribute :extracting_model, :string, public?: true
-    attribute :pipeline_version, :string, allow_nil?: false, default: "poc-0", public?: true
+    attribute :extracting_model_version, :string, public?: true
+    attribute :prompt_version, :string, public?: true
+    attribute :embedding_provider, :string, public?: true
+    attribute :embedding_model, :string, public?: true
+    attribute :embedding_version, :string, public?: true
+    attribute :pipeline_version, :string, allow_nil?: false, default: "f5-1", public?: true
     attribute :deleted_at, :utc_datetime_usec
     create_timestamp :inserted_at
     update_timestamp :updated_at
@@ -237,7 +288,13 @@ defmodule Cartulary.Knowledge.Provenance do
         :source_type,
         :message_id,
         :document_version_id,
+        :extracting_provider,
         :extracting_model,
+        :extracting_model_version,
+        :prompt_version,
+        :embedding_provider,
+        :embedding_model,
+        :embedding_version,
         :pipeline_version,
         :occurred_at
       ]
@@ -274,7 +331,13 @@ defmodule Cartulary.Knowledge.Provenance do
     attribute :source_type, :string, allow_nil?: false, public?: true
     attribute :message_id, :uuid, public?: true
     attribute :document_version_id, :uuid, public?: true
+    attribute :extracting_provider, :string, public?: true
     attribute :extracting_model, :string, public?: true
+    attribute :extracting_model_version, :string, public?: true
+    attribute :prompt_version, :string, public?: true
+    attribute :embedding_provider, :string, public?: true
+    attribute :embedding_model, :string, public?: true
+    attribute :embedding_version, :string, public?: true
     attribute :pipeline_version, :string, allow_nil?: false, public?: true
     attribute :occurred_at, :utc_datetime_usec, allow_nil?: false, public?: true
     create_timestamp :inserted_at

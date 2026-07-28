@@ -71,6 +71,47 @@ config :cartulary, :governance,
   attempt_cooldown_hours: 48,
   answer_window_turns: 6
 
+config :cartulary, :model_layer, max_repairs: 2
+
+config :cartulary, :model_roles,
+  embedder: %{
+    provider: "ortex",
+    model: "BAAI/bge-small-en-v1.5",
+    model_version: "onnx-1",
+    prompt_version: "none",
+    pipeline_version: "f5-1",
+    embedding_dimensions: 384,
+    options: %{}
+  },
+  ingest_extractor: %{
+    provider: "deterministic",
+    model: "local-structured-fallback",
+    model_version: "1",
+    prompt_version: "extract-1",
+    pipeline_version: "f5-1",
+    options: %{}
+  },
+  dream_reasoner: %{
+    provider: "deterministic",
+    model: "local-structured-fallback",
+    model_version: "1",
+    prompt_version: "reason-1",
+    pipeline_version: "f5-1",
+    options: %{}
+  },
+  dialectic_agent: %{
+    provider: "deterministic",
+    model: "local-structured-fallback",
+    model_version: "1",
+    prompt_version: "dialectic-1",
+    pipeline_version: "f5-1",
+    options: %{}
+  }
+
+# Compatibility key for pre-F5 tests and local tasks. Runtime configuration
+# stores only a secret reference; no credential is copied into role config.
+config :cartulary, :models, api_key: nil, api_key_ref: "env:OPENROUTER_API_KEY"
+
 # Configure the endpoint
 config :cartulary, CartularyWeb.Endpoint,
   url: [host: "localhost"],
