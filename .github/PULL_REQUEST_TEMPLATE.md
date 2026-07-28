@@ -16,10 +16,11 @@ Closes #
 - Blueprint requirements: `specs/memory-system-functional-requirements.md` (`FR-*` anchors):
 - Blueprint architecture/NFRs: `specs/memory-system-architecture-and-nfr.md` (`AD-*`, `AINV-*`, `NFR-*` anchors):
 - Product context: `specs/memory-system-product-blueprint.md`:
-- ADRs: `docs/adr/README.md` or `docs/adr/<adr-file>.md`:
-- Architecture notes: `docs/architecture/README.md` or `docs/architecture/<note>.md`:
-- Roadmap/process docs: `docs/roadmap/beta-roadmap.md`:
-- Security/eval docs: `docs/security/README.md`, `docs/eval/README.md`, or a specific note:
+- ADRs: `specs/adr/README.md` or `specs/adr/<adr-file>.md`:
+- Architecture notes: `specs/architecture/README.md` or `specs/architecture/<note>.md`:
+- Roadmap/process docs: `specs/roadmap/beta-roadmap.md`:
+- Security/eval docs: `specs/security/README.md`, `specs/eval/README.md`, or a specific note:
+- Published user documentation affected: the page(s) under `docs/`:
 - Other internal docs:
 
 ## Architecture anchors
@@ -40,6 +41,17 @@ Every touched file must be readable on its own, without opening `specs/` or
 - [ ] New or changed public functions have a `@doc` covering return shape and failure modes
 - [ ] No comment or docstring points at a spec, ADR, roadmap item, or blueprint anchor
 - [ ] Comments explain why, not what, and no comment contradicts the code it sits next to
+
+## Documentation
+
+User-visible changes ship their `docs/` update in the same patch. Design
+material goes to `specs/`; development process goes to `CONTRIBUTING.md`. See
+the "Documentation layout" section of `AGENTS.md`.
+
+- [ ] Every changed route, parameter, default, environment variable, Mix task, or operational step is reflected in the affected `docs/` page
+- [ ] Any new `docs/` page is listed in the `nav:` of `mkdocs.yml`
+- [ ] `mkdocs build` passes, or the PR states that the toolchain was unavailable
+- [ ] No design document, roadmap item, ADR, or benchmark result was added under `docs/`
 
 ## Risk class
 

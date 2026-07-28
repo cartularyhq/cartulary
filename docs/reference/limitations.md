@@ -1,0 +1,80 @@
+<!-- SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0 -->
+
+# Limitations
+
+Cartulary `0.2.0` is a community beta. This page is the honest list of what is
+not there, so nothing on this site has to be read optimistically.
+
+The machine-readable version is the surface contract inventory in the
+repository at
+[`specs/eval/surface-contract-inventory.json`](https://github.com/cartularyhq/cartulary/blob/main/specs/eval/surface-contract-inventory.json),
+which marks these surfaces `unavailable`. The release check fails if they are
+advertised as shipped.
+
+## Not implemented
+
+**Generated AshJsonApi OpenAPI.** There is no published machine-readable
+description of the HTTP surface. Use the [HTTP API reference](http-api.md).
+
+**Complete generated TypeScript and Python clients.** The modules under `sdk/`
+are transport-neutral skill-readiness helpers — no HTTP client, no
+authentication, no retries, no pagination, and nothing published to npm or
+PyPI. See [SDK helpers](../guides/sdk-helpers.md).
+
+**The OpenAI-compatible and Anthropic-compatible gateway proxy.** You cannot
+point an existing OpenAI client at Cartulary and have memory injected
+transparently.
+
+**The full grounded `ask` dialectic loop with in-loop citation verification.**
+`ask` retrieves, answers, cites, and abstains — but the multi-turn dialectic
+with citation verification inside the loop is not there.
+
+**Connector administration and Account archive administration UIs.** Both are
+driven from the command line. See [Mix tasks](mix-tasks.md).
+
+## Evaluation evidence is deliberately small
+
+Upstream-scale benchmark scores and independent live-model judge evidence do
+not exist yet. The committed fixtures are smoke-scale on purpose, and the
+recorded reports are historical baseline evidence rather than current
+performance claims.
+
+Any published quality number must carry its full provenance: application
+version, retrieval profile and exact profile version, all four model-role
+versions, dataset id, SHA-256 and split, deadline setting, date, judge
+identity, strategy override, and run limits. A number without that context is
+not a claim this project makes.
+
+## Operational gaps worth planning around
+
+**Bootstrapping a packaged release** goes through `bin/cartulary rpc` rather
+than a first-run wizard.
+
+**Ortex embedding artefacts are operator-supplied.** The embedder downloads
+nothing. Semantic retrieval requires you to provide the ONNX model and
+tokenizer.
+
+**No job pruning.** Nothing deletes rows from the Oban jobs table; plan for
+that growth.
+
+**Single Account.** The community build serves one Account. Multi-Account
+isolation is an enterprise concern.
+
+## What is *not* a limitation
+
+These are deliberate designs, not gaps:
+
+| Behaviour | Why it is intentional |
+| --- | --- |
+| `ask` abstains | An answer invented from an empty candidate set is worse than silence |
+| Extracted knowledge is not immediately visible to everyone | Blast radius scales the bar; that is the product |
+| Agents cannot approve their own submissions | The gates exist precisely to prevent this |
+| Entity data is unreachable through every API | A resolution error must never cross a scope or Account boundary |
+| No embedded alternative database engine | Every lane runs PostgreSQL, so no lane tests software nobody ships |
+
+## Where the outstanding work is tracked
+
+With acceptance criteria, in the repository at
+[`specs/roadmap/beta-roadmap.md`](https://github.com/cartularyhq/cartulary/blob/main/specs/roadmap/beta-roadmap.md).
+What actually runs today, with its verification evidence, is
+[`specs/implementation-status.md`](https://github.com/cartularyhq/cartulary/blob/main/specs/implementation-status.md).

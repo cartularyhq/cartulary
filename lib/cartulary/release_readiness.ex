@@ -42,7 +42,7 @@ defmodule Cartulary.ReleaseReadiness do
 
   The version comes from `mix.exs` and the changelog from `CHANGELOG.md`. The
   release matrix and the committed metric floors are read from
-  `docs/eval/release-suite.json` and `docs/eval/deterministic-thresholds.json`.
+  `specs/eval/release-suite.json` and `specs/eval/deterministic-thresholds.json`.
   Those are inputs this module parses, not background reading.
   """
 
@@ -150,9 +150,9 @@ defmodule Cartulary.ReleaseReadiness do
   @release_docs [
     "README.md",
     "AGENTS.md",
-    "docs/roadmap/beta-roadmap.md",
-    "docs/implementation-status.md",
-    "docs/architecture/evaluation-ci-release-readiness.md"
+    "specs/roadmap/beta-roadmap.md",
+    "specs/implementation-status.md",
+    "specs/architecture/evaluation-ci-release-readiness.md"
   ]
 
   # Case-folded, and both the spaced and hyphenated spellings are accepted, so
@@ -197,13 +197,13 @@ defmodule Cartulary.ReleaseReadiness do
 
     manifest =
       root
-      |> Path.join("docs/eval/release-suite.json")
+      |> Path.join("specs/eval/release-suite.json")
       |> read_local!()
       |> Jason.decode!()
 
     thresholds =
       root
-      |> Path.join("docs/eval/deterministic-thresholds.json")
+      |> Path.join("specs/eval/deterministic-thresholds.json")
       |> read_local!()
       |> Jason.decode!()
 

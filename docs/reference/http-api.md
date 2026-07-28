@@ -1,0 +1,230 @@
+<!-- SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0 -->
+
+# HTTP API reference
+
+All JSON. Domain actions answer `{"data": ...}`; the probes answer their
+payload unwrapped, because external probes consume it directly. Refusals are
+`{"error": "..."}`. Every response carries an `x-trace-id` header.
+
+There is **no generated OpenAPI description** in this release — see
+[Limitations](limitations.md).
+
+## Route table
+
+| Route | Auth | Purpose |
+| --- | --- | --- |
+| `GET /api/health` | none | Liveness and contract identity |
+| `GET /api/ready` | none | Component readiness |
+| `POST /api/auth/password` | none | Human sign-in |
+| `POST /api/v1/ingest` | any identity | Submit a raw observation |
+| `POST /api/v1/search` | any identity | Ranked retrieval |
+| `POST /api/v1/ask` | any identity | Cited answer |
+| `POST /api/v1/context` | any identity | Projection-backed context |
+| `POST /api/v1/readiness` | any identity | Skill-readiness gap report |
+| `GET /api/v1/knowledge` | any identity | Governed knowledge query |
+| `GET /api/v1/operations/costs` | account-admin | Usage and estimated cost |
+| `GET /api/v1/self/knowledge` | human only | Your own record |
+| `POST /api/v1/self/knowledge/:id/contest` | human only | Dispute a statement about you |
+| `POST /api/v1/self/knowledge/:id/redact` | human only | Withdraw a statement about you |
+| `POST /api/v1/self/erasure` | human only | Erase your data |
+| `/governance` | human curator session | Curator console (HTML/LiveView) |
+| `/mcp` | any identity | Model Context Protocol endpoint |
+
+"Any identity" means a human password token **or** an agent API key. "Human
+only" rejects an API key with 403 even when it belongs to the same peer.
+
+**Account is never selected by the request.** An `account_key` body field and
+the legacy `x-cartulary-account-key` header are accepted and ignored.
+
+---
+
+## `GET /api/health`
+
+Liveness. Touches no database and no queue.
+
+```json
+{"status": "ok", "app": "cartulary", "version": "f5-1"}
+```
+
+`version` identifies the extraction-and-pipeline contract, not the application
+version.
+
+---
+
+## `GET /api/ready`
+
+Readiness. Runs database, Oban, queue-depth, and model-role checks. **200** only
+when every component reports `ok`, otherwise **503**.
+
+The body is the whole check map: per-component status, queue depths by queue
+and job state, an error class per failing component, and `"f10-1"` — the
+readiness payload shape identity.
+
+Content-safe by construction: no credentials, no secrets, no stored content.
+
+---
+
+## `POST /api/auth/password`
+
+```json
+{"email": "admin@example.test", "password": "..."}
+```
+
+Returns a short-lived bearer token. A wrong email and a wrong password produce
+the same opaque 401.
+
+---
+
+## `POST /api/v1/ingest`
+
+Records one raw observation. The only write path an agent has.
+
+| Field | Required | Default | Notes |
+| --- | --- | --- | --- |
+| `session_id` | yes | — | Created on demand |
+| `scope_path` | yes | — | Created on demand |
+| `content` | yes | — | The observation text |
+| `role` | no | `"user"` | Speaker role |
+| `occurred_at` | no | now | For backfill |
+| `sync_extract` | no | `true` | `false` defers extraction to the background |
+
+Returns `{"data": message}`. With inline extraction the message also carries a
+`knowledge` list of the items just **proposed** — pipeline output, not caller
+input.
+
+The acting peer comes from the credential. A `peer_key` in the body is honoured
+only for internal callers that carry no peer of their own.
+
+A missing required field raises, which surfaces as an error status rather than
+a partially written session.
+
+---
+
+## `POST /api/v1/search`
+
+All fields optional.
+
+| Field | Default | Notes |
+| --- | --- | --- |
+| `query` | `""` | |
+| `scope_path` | `"/poc"` | Selects the scope **and its ancestors** |
+| `profile` | `"balanced"` | `fast`, `balanced`, `thorough` |
+| `limit` | `12` | Candidate cap |
+| `include_cross_links` | off | Requires authorisation at both endpoints |
+| `as_of` | now | Read memory as it stood then |
+| `min_score` | none | |
+| `source_filters` | none | |
+| `deadline` | profile default | `"disabled"` removes the budget; offline only |
+
+Returns `{"data": result}` with the profile name, `profile_version` (`"f7-1"`),
+the fused `candidates`, and which strategies contributed or were dropped.
+
+Account, authorised-scope, lifecycle, and source filtering happen **inside**
+retrieval. A raw `strategies` override is refused for external callers.
+
+---
+
+## `POST /api/v1/ask`
+
+`question` is required; every `search` field is also accepted, but `profile`
+defaults to `"thorough"`.
+
+Returns the search payload merged with `answer`, `citations`, and `abstained`.
+Retrieval is restricted to knowledge items, so citations are governed
+statements. `abstained: true` is an ordinary outcome.
+
+A missing `question` raises rather than answering over an empty query.
+
+---
+
+## `POST /api/v1/context`
+
+| Field | Default |
+| --- | --- |
+| `scope_path` | `"/poc"` |
+| `session_id` | none |
+| `budget_chars` | unset |
+
+Returns `{"data": context}` with `knowledge`, `session_summary`, `scope_cards`,
+`peer_profile`, `profile_version`, and two diagnostics:
+`projection_cache_hit` and `fast_fallback`.
+
+No generation model is ever called on this path.
+
+---
+
+## `POST /api/v1/readiness`
+
+| Field | Required | Notes |
+| --- | --- | --- |
+| `skill` | yes | |
+| `scope_path` | yes | Requirement keys inherit, nearest-scope wins |
+| `peer_id` / `peer_key` | no | Another peer you may read; defaults to the caller |
+
+Returns `{"data": report}` with `report_version` (`"f9-1"`), the resolved
+skill/peer/scope, a per-requirement `requirements` list, and unsatisfied items
+split into `blockers` and `warnings`. `ready` is true exactly when there are no
+blockers.
+
+---
+
+## `GET /api/v1/knowledge`
+
+Query parameters:
+
+| Parameter | Default |
+| --- | --- |
+| `scope_path` | `"/poc"` |
+| `state` | `"active"` |
+| `limit` | `12` |
+
+Covers the named scope plus its ancestors, ordered by confidence then recency,
+each row annotated with the `scope_path` it lives at.
+
+Read-only by design: there is deliberately no POST counterpart.
+
+---
+
+## `GET /api/v1/operations/costs`
+
+Account-admin only; any other role gets 403.
+
+Returns exact usage-event counts, API request and ingest counts,
+input/output/embedding token totals overall and per model role, logical storage
+bytes, and an estimated cost in USD computed from operator-supplied rates.
+
+---
+
+## Self-governance routes
+
+Human password identity only. The subject is always the authenticated caller.
+
+| Route | Effect |
+| --- | --- |
+| `GET /api/v1/self/knowledge` | Your record, newest first, including `provisional` and `held` items |
+| `POST /api/v1/self/knowledge/:id/contest` | Moves to contested; queues curator review with a 24-hour deadline |
+| `POST /api/v1/self/knowledge/:id/redact` | Moves to redacted; no review queued |
+| `POST /api/v1/self/erasure` | Body `{"mode": "proportionate" \| "strict"}` |
+
+Erasure answers only with the request's id, mode, and state. An unknown id and
+another peer's id are deliberately indistinguishable.
+
+---
+
+## `/mcp`
+
+Model Context Protocol, protocol revision `2025-03-26`, same bearer
+authentication. Eight tools: `ingest`, `get_context`, `search`, `ask`,
+`query_knowledge`, `check_readiness`, `resolve_validation`,
+`set_ask_preference`.
+
+No curator tool exists. See [Connecting an MCP client](../guides/mcp.md).
+
+---
+
+## Errors
+
+These actions deliberately do not rescue. Authorisation, missing-parameter, and
+not-found failures raised by the domain propagate to Phoenix's error handling,
+which answers with an error status and a generic error body — rather than
+returning 200 with a hollow payload.

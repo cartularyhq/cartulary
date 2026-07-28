@@ -15,7 +15,7 @@ defmodule Mix.Tasks.Cartulary.Eval.Release do
 
   ## Switches
 
-    * `--manifest PATH` — matrix definition. Default `docs/eval/release-suite.json`.
+    * `--manifest PATH` — matrix definition. Default `specs/eval/release-suite.json`.
     * `--thresholds PATH` — deterministic floors to assert. Default: the path the manifest
       names, resolved relative to the manifest's own directory.
     * `--output PATH` — write the suite document here. Default: print to standard output.
@@ -101,7 +101,7 @@ defmodule Mix.Tasks.Cartulary.Eval.Release do
 
     report =
       ReleaseSuite.run(
-        Keyword.get(opts, :manifest, "docs/eval/release-suite.json"),
+        Keyword.get(opts, :manifest, "specs/eval/release-suite.json"),
         account_key: Keyword.get(opts, :account, "eval-release"),
         run_id: Keyword.get(opts, :run_id),
         thresholds: Keyword.get(opts, :thresholds),

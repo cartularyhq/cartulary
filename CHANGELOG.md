@@ -9,7 +9,47 @@ changelog entry and contract-version transition.
 
 ## [Unreleased]
 
+### Added
+
+- A published user documentation site built with MkDocs Material from `docs/`
+  and deployed to GitHub Pages by `.github/workflows/docs.yml`. The site covers
+  installation, a quickstart, how the system works (memory model, ingest
+  pipeline, governance gates, retrieval and context, documents and connectors,
+  skill readiness, isolation and access control, deployment modes),
+  task-oriented guides, operations runbooks, and a reference section (HTTP API,
+  configuration, Mix tasks, contract versions, glossary, limitations). Diagrams
+  are Mermaid and render natively. The build runs with `strict: true`, so an
+  orphaned page or a broken internal link fails CI. Enabling GitHub Pages with
+  "GitHub Actions" as its source remains a maintainer-owned repository setting.
+- A "Documentation layout" section in `AGENTS.md` and a "Where documentation
+  goes" section in `CONTRIBUTING.md` making the two-tree split a contract, with
+  a table mapping each kind of change to the document it must update in the
+  same patch, plus a matching review question.
+
 ### Changed
+
+- Separated the documentation trees. `docs/` now holds only setup, usage, and
+  operations documentation for readers of the published site; every
+  design-facing document moved to `specs/`: `docs/adr/` → `specs/adr/`,
+  `docs/architecture/` → `specs/architecture/`, `docs/roadmap/` →
+  `specs/roadmap/`, `docs/eval/` → `specs/eval/`, `docs/security/` →
+  `specs/security/`, `docs/observability/` → `specs/observability/`,
+  `docs/implementation-status.md` → `specs/implementation-status.md`,
+  `docs/superpowers/specs/` → `specs/design/`, and the versioning policy and
+  release checklist from `docs/operations/` → `specs/process/`. File names are
+  unchanged, so the recorded evaluation reports and every other evidence
+  artifact keep their identities. References were updated in
+  `Cartulary.ReleaseReadiness`, `mix cartulary.eval.release`, the evaluation
+  regression test, `.github/CODEOWNERS`, the issue and pull request templates,
+  the workflows README, `AGENTS.md`, `CONTRIBUTING.md`, and `README.md`.
+- Replaced `docs/operations/README.md` with the new operations section and the
+  getting-started install pages; `backup-restore.md` and `portability.md` stay
+  under `docs/operations/` as operator-facing runbooks.
+- Rewrote the `README.md` documentation map around the two trees and linked the
+  published site from the header, the quick start, the operations section, and
+  the observability section.
+- Removed the retired `F5`, `F6`, and `F10` phase labels from `.env.example`
+  comments.
 
 - Made every first-party source file self-explanatory. Each module now carries
   a real `@moduledoc` stating what it owns, the invariants it guarantees, and

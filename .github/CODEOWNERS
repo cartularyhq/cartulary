@@ -25,13 +25,20 @@
 AGENTS.md @cartularyhq/core @aleksei-s-popov
 CONTRIBUTING.md @cartularyhq/core @aleksei-s-popov
 
-# Architecture, ADRs, blueprint specs, roadmap, security, and eval docs.
+# Architecture, ADRs, blueprint specs, roadmap, security, and eval docs. Every
+# design document lives under specs/; docs/ is the published user site.
 specs/ @cartularyhq/core @aleksei-s-popov
-docs/adr/ @cartularyhq/core @aleksei-s-popov
-docs/architecture/ @cartularyhq/core @aleksei-s-popov
-docs/roadmap/ @cartularyhq/core @aleksei-s-popov
-docs/security/ @cartularyhq/core @aleksei-s-popov
-docs/eval/ @cartularyhq/core @aleksei-s-popov
+specs/adr/ @cartularyhq/core @aleksei-s-popov
+specs/architecture/ @cartularyhq/core @aleksei-s-popov
+specs/design/ @cartularyhq/core @aleksei-s-popov
+specs/process/ @cartularyhq/core @aleksei-s-popov
+specs/roadmap/ @cartularyhq/core @aleksei-s-popov
+specs/security/ @cartularyhq/core @aleksei-s-popov
+specs/eval/ @cartularyhq/core @aleksei-s-popov
+
+# Published user documentation and its build definition.
+docs/ @cartularyhq/core @aleksei-s-popov
+mkdocs.yml @cartularyhq/core @aleksei-s-popov
 
 # Elixir project and dependency lockfiles.
 mix.exs @cartularyhq/core @aleksei-s-popov

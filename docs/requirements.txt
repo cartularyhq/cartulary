@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+#
+# Python dependencies for building the published documentation site.
+#
+# Inputs:  consumed by `pip install -r docs/requirements.txt` in the `docs.yml`
+#          GitHub Actions workflow and by anyone previewing the site locally.
+# Outputs: the MkDocs toolchain that turns `docs/` into `site/`.
+#
+# Versions are pinned to a minor series so a documentation build stays
+# reproducible and an upstream release cannot break the Pages deployment
+# without a deliberate bump here.
+mkdocs==1.6.*
+mkdocs-material==9.6.*
+pymdown-extensions==10.*

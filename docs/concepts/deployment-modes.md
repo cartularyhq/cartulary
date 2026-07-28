@@ -1,0 +1,93 @@
+<!-- SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0 -->
+
+# Deployment modes
+
+Cartulary follows one rule above all others:
+
+> **One codebase, two deployment modes, identical guarantees.**
+
+The packaged single-machine install and a queue-backed deployment are the *same
+Mix release* with different adapters and runtime configuration. They are never
+forks, and never a simplified reimplementation of one another.
+
+```mermaid
+flowchart TB
+    subgraph One["One Mix release"]
+        APP[Cartulary application]
+    end
+    APP --> M{CARTULARY_DATABASE_MODE}
+    M -->|pg0| E["Supervised pg0<br/>started, migrated, and stopped<br/>by the release itself"]
+    M -->|external| X["Operator-run PostgreSQL 18<br/>with pgvector"]
+    E --> G[(Same schema · same Oban engine<br/>same pgvector · same FTS)]
+    X --> G
+    G --> SAME["Identical product behaviour"]
+```
+
+## What the mode changes, and what it does not
+
+| Changes | Does not change |
+| --- | --- |
+| Where PostgreSQL runs | The schema |
+| Who starts and stops it | Job execution — Oban on PostgreSQL either way |
+| How migrations are triggered | Retrieval, governance, tenancy, or audit behaviour |
+| Backup procedure | The API |
+
+Pointing the release at pg0 or at an operator-run PostgreSQL is an
+**infrastructure** decision. Swapping a retrieval strategy or a gate rule is a
+**behaviour** decision. The two are deliberately different kinds of change, and
+only the second needs product review.
+
+## Supervised PostgreSQL (pg0)
+
+The packaged release carries a checksum-pinned pg0 distribution. On start it:
+
+1. verifies the pinned asset;
+2. starts pg0 **before** the Ecto repo and migrations;
+3. creates the cluster on first run;
+4. recovers from a stale lock left by an unclean shutdown;
+5. runs migrations, then serves traffic.
+
+pg0 is never in the container image path. A container host already has a
+supported way to run a database.
+
+## Operator-run PostgreSQL
+
+Set `CARTULARY_DATABASE_MODE=external` and `DATABASE_URL`. Requirements:
+
+- PostgreSQL 18 with pgvector available;
+- full-text search (built in);
+- permission to create the extensions the migrations declare.
+
+Migrations can run as a supervised startup step (`CARTULARY_AUTO_MIGRATE=true`)
+or as a separate `bin/migrate` invocation when change control demands it.
+
+## No second engine, anywhere
+
+There is no file-based or embedded alternative engine lane, and there never
+will be one. Jobs, vector search, and full-text search all depend on
+PostgreSQL in both modes; a lane on a different engine would be testing
+software nobody ships.
+
+For the same reason, there is no Redis, no external broker, and no separate
+worker fleet: durable job insertion must commit in the same transaction as the
+state change and the audit entry that requested it, and only a
+database-resident queue can do that.
+
+## Free core and enterprise
+
+The free core is the whole memory engine: single-node self-hosting,
+local/offline model options, MCP, basic RBAC, governed validation, document
+ingestion, retrieval, export/import, and release-grade evaluation.
+
+Enterprise is the scale and compliance tier: multiple Accounts, queue mode,
+SSO/SAML/SCIM, schema- or database-per-Account isolation, granular RBAC,
+customer-managed keys, SIEM streaming, and advanced compliance operations.
+
+The community build stays coherent and buildable on its own. Core never imports
+enterprise code.
+
+## Related
+
+- [Install a release](../getting-started/install-release.md)
+- [Run with Docker](../getting-started/install-docker.md)
+- [Operations overview](../operations/index.md)

@@ -1,0 +1,103 @@
+# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+#
+# Documentation site: build the user documentation and publish it to GitHub Pages.
+#
+# Purpose
+#   Turn the Markdown under `docs/` into the static site served at
+#   https://cartularyhq.github.io/cartulary/ so that installation, usage, and
+#   how-it-works documentation is readable without cloning the repository.
+#
+# Triggers
+#   Pushes to the default branch that touch the documentation sources, pull requests
+#   touching the same paths, and manual runs.
+#
+# Inputs
+#   None. No secrets and no repository variables are used, so a fork pull request builds
+#   the site exactly as the default branch does — it simply does not deploy.
+#
+# Outputs
+#   On the default branch: a GitHub Pages deployment. On a pull request: nothing but a
+#   pass/fail signal that the site still builds.
+#
+# Why the build and the deploy are separate jobs
+#   Building needs no permissions at all; deploying needs `pages: write` and `id-token:
+#   write`. Splitting them keeps the elevated token off the job that executes third-party
+#   Python packages, and lets pull requests run the build without any write scope.
+#
+# What is deliberately NOT published
+#   Only `docs/` reaches the site. Specifications, ADRs, architecture notes, the roadmap,
+#   and evaluation evidence live in `specs/` and stay in the repository, because they
+#   describe intent and history rather than how to use the software.
+#
+# Maintainer prerequisite
+#   GitHub Pages must be set to "GitHub Actions" as its source in the repository settings.
+#   That is a repository setting, not something a workflow file can assert; until it is
+#   set, the deploy job fails and the build job still guards the Markdown.
+name: Docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - ".github/workflows/docs.yml"
+  pull_request:
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+# Read-only by default; the deploy job widens this for itself alone.
+permissions:
+  contents: read
+
+# A superseded documentation build has nothing worth finishing, so cancel it. The deploy
+# group is separate and never cancels an in-flight deployment, which Pages does not
+# tolerate being interrupted.
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build documentation site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: docs/requirements.txt
+
+      - name: Install MkDocs toolchain
+        run: pip install -r docs/requirements.txt
+
+      # `mkdocs.yml` sets `strict: true`, so a broken internal link or a page missing
+      # from the navigation fails here instead of shipping a dead link to readers.
+      - name: Build site
+        run: mkdocs build
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    # Only the default branch publishes. Pull-request builds prove the site compiles and
+    # stop there, so an untrusted branch can never replace the published documentation.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

@@ -7,7 +7,7 @@ rather than placeholder-only. All workflows use read-only repository
 permissions. Repository action access is deliberately narrower than “allow all”:
 GitHub-owned actions and `erlef/setup-beam@*` are the only non-local actions
 needed. The matching repository setting is documented in
-`docs/roadmap/beta-roadmap.md`.
+`specs/roadmap/beta-roadmap.md`.
 
 ## `ci.yml`
 
@@ -46,4 +46,23 @@ package SHA-256 plus eval evidence. It does not create a GitHub Release or push
 an image; those write permissions remain an explicit maintainer decision.
 
 Configure the four CI job names as required checks only after they have reported
-successfully. See `docs/operations/release-checklist.md`.
+successfully. See `specs/process/release-checklist.md`.
+
+## `docs.yml`
+
+Builds the published user documentation from `docs/` with MkDocs Material and
+deploys it to GitHub Pages. It runs on pushes to the default branch that touch
+`docs/`, `mkdocs.yml`, or the workflow itself, on pull requests touching the
+same paths, and on manual dispatch.
+
+The build job needs no permissions and runs on pull requests too, so an
+untrusted branch proves the site still compiles without being able to publish
+it. Only the default branch reaches the deploy job, which holds `pages: write`
+and `id-token: write` and nothing else.
+
+`mkdocs.yml` sets `strict: true`, so a broken internal link or a page missing
+from the navigation fails the build rather than shipping a dead link.
+
+Publishing requires GitHub Pages to be set to "GitHub Actions" as its source.
+That is a repository setting and remains a maintainer action; until it is set,
+the deploy job fails and the build job still guards the Markdown.

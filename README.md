@@ -16,6 +16,10 @@ for no-container installs, or runs against operator-run Postgres without any
 behavioural difference. It supports local Ortex/ONNX embeddings and any
 ReqLLM-supported or OpenAI-compatible generation endpoint.
 
+📖 **User documentation: <https://cartularyhq.github.io/cartulary/>** — install,
+usage, operations, and how the system works, with diagrams. This README is the
+repository orientation; the site is the manual.
+
 ## Contents
 
 - [Core concepts](#core-concepts)
@@ -129,7 +133,7 @@ boundary. Message and document-version content is create-only, knowledge can
 only be minted or merged by a pipeline actor, and lifecycle, audit, and usage
 records are append-only. Generated migrations and resource snapshots stay in
 sync with reviewed pgcrypto, pgvector, full-text-search, index, and RLS DDL.
-→ `docs/architecture/ash-domain-backbone.md`
+→ `specs/architecture/ash-domain-backbone.md`
 
 **Transactional writes, audit, and jobs** — Each ingest commits its raw
 observation, a content-safe hash-chain audit event, a durable idempotency
@@ -139,14 +143,14 @@ projection and entity refresh, connector sync, portability rebuild,
 reconciliation, and governance continuations. Replays merge provenance instead
 of duplicating knowledge, and a provider outage delays freshness rather than
 losing observations.
-→ `docs/architecture/transactional-writes-audit-jobs.md`
+→ `specs/architecture/transactional-writes-audit-jobs.md`
 
 **Identity, tenancy, and RBAC** — AshAuthentication password/JWT identities for
 humans and hashed per-Peer API keys for agents. Account is derived from the
 authenticated identity, never from a header or request body. Role grants for
 `account-admin`, `curator`, `member`, and `reader` inherit down the scope tree
 and resolve deny-wins.
-→ `docs/architecture/identity-tenancy-rbac.md`
+→ `specs/architecture/identity-tenancy-rbac.md`
 
 **Gate A/B governance** — A versioned matrix over confidence, target level, and
 sensitivity decides whether Gate A keeps, rejects, or defers an item and whether
@@ -157,7 +161,7 @@ verified subject consent. Curator actions are reachable only by authenticated
 human sessions — never by MCP or machine credentials. Peer self-view,
 contest/redact, proportionate and strict erasure, revalidation, decay, and
 escalation are all implemented.
-→ `docs/architecture/gate-a-b-governance.md`
+→ `specs/architecture/gate-a-b-governance.md`
 
 **Model layer and structured extraction** — One provider-neutral gateway over
 ReqLLM with four Account-level roles: embedder, ingest extractor, dream
@@ -167,7 +171,7 @@ discounts hearsay, and records complete provenance. Embedding identity is
 provider + model + version + dimensions; a mismatch takes the explicit re-embed
 path and never silently substitutes vectors. One durable usage ledger meters
 every call.
-→ `docs/architecture/model-layer-structured-extraction.md`
+→ `specs/architecture/model-layer-structured-extraction.md`
 
 **Documents, connectors, and sync** — Immutable hash-addressed document
 versions over content-addressed local or S3-compatible blobs, MDEx and
@@ -176,7 +180,7 @@ extraction through the same pipeline and gates. Connector cursors advance only
 after a page is durably handled; repeated hashes are no-ops; changed content
 appends a version and supersedes stale derivations without rewriting history;
 remote deletions become tombstones.
-→ `docs/architecture/documents-connectors-sync.md`
+→ `specs/architecture/documents-connectors-sync.md`
 
 **Retrieval, entity resolution, and context** — Independent Semantic, Lexical,
 Temporal, SalienceRecency, and EntityMatch seed strategies plus hop-one
@@ -186,34 +190,34 @@ deadline, and report contributed and dropped strategies. `search` defaults to
 `:balanced`, `ask` to `:thorough`. Entity caches are internal and never
 exposed. `get_context` assembles its budget from projections and stays
 reasoning-free.
-→ `docs/architecture/retrieval-entity-context.md`
+→ `specs/architecture/retrieval-entity-context.md`
 
 **Skill readiness and procedural memory** — Human-authored, plain-versioned
 skill requirement cards with a validated selector language, nearest-scope
 requirement overrides, and a reasoning-free gap report. Required gaps block,
 preferred gaps warn, and stale knowledge cannot satisfy a requirement.
-→ `docs/architecture/skill-readiness-procedural-memory.md`
+→ `specs/architecture/skill-readiness-procedural-memory.md`
 
 **Portability, packaging, and operations** — Cross-platform Mix releases with a
 checksum-pinned pg0 binary, supervised lifecycle, first-run migration,
 stale-lock recovery, and an external-Postgres escape hatch; a non-root
 container over stock Postgres; verified whole-Account logical archives;
 readiness endpoints; exact metering; and redacted structured logs.
-→ `docs/architecture/portability-packaging-operations.md`
+→ `specs/architecture/portability-packaging-operations.md`
 
 **Evaluation, CI, and release readiness** — Reproducible reports for Cartulary
 product scenarios, LoCoMo, LongMemEval, ConvoMem, and BEAM with full
 provenance, strategy ablations, and committed correctness and citation floors;
 blocking external-Postgres and packaged-pg0 CI lanes; release and container
 builds; and fail-closed release checks.
-→ `docs/architecture/evaluation-ci-release-readiness.md`
+→ `specs/architecture/evaluation-ci-release-readiness.md`
 
-The complete, evidence-backed inventory is `docs/implementation-status.md`.
+The complete, evidence-backed inventory is `specs/implementation-status.md`.
 
 ## Not yet implemented
 
 Cartulary does not ship these, and
-`docs/eval/surface-contract-inventory.json` marks them `unavailable` so the
+`specs/eval/surface-contract-inventory.json` marks them `unavailable` so the
 release check fails if they are advertised:
 
 - generated AshJsonApi OpenAPI;
@@ -227,7 +231,7 @@ Upstream-scale benchmark scores and independent live-model judge evidence also
 do not exist yet; the committed fixtures are deliberately smoke-scale.
 
 All of it is tracked with acceptance criteria in
-`docs/roadmap/beta-roadmap.md`.
+`specs/roadmap/beta-roadmap.md`.
 
 ## Quick start
 
@@ -248,8 +252,9 @@ curl -fsS http://127.0.0.1:4000/api/ready
 ```
 
 The release also accepts `CARTULARY_DATABASE_MODE=external` and `DATABASE_URL`
-for operator-run Postgres. See `docs/operations/README.md` for install,
-configuration, Compose, and upgrade procedures.
+for operator-run Postgres. Install, configuration, Compose, and upgrade
+procedures are in the published documentation:
+<https://cartularyhq.github.io/cartulary/getting-started/>.
 
 ### Source development
 
@@ -392,7 +397,8 @@ Create, verify, and restore whole-Account logical archives with
 `mix cartulary.portability.export` and `mix cartulary.portability.import`. The
 exact release and source commands plus post-import checks are in
 `docs/operations/portability.md`; physical database and blob recovery is in
-`docs/operations/backup-restore.md`.
+`docs/operations/backup-restore.md`. Both are published at
+<https://cartularyhq.github.io/cartulary/operations/>.
 
 ## Evaluation
 
@@ -418,7 +424,7 @@ Every published quality number must carry its full provenance: application
 version, retrieval profile and exact profile version, all four model-role
 versions, dataset id/SHA-256/split, deadline setting, date, judge identity,
 strategy override, and run limits. The 2026-07-27 minimal reports under
-`docs/eval/results/` are historical baseline evidence and are never relabelled
+`specs/eval/results/` are historical baseline evidence and are never relabelled
 as current.
 
 ## Checks
@@ -459,8 +465,10 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:14318
 Watch traces at `http://localhost:16686` with service `cartulary-dev`. The
 collector's host OTLP port defaults to `14318` to avoid common local `4318`
 conflicts; override `CARTULARY_OTEL_HTTP_PORT` if needed. Each HTTP response
-includes `x-trace-id`. Read `docs/observability/README.md` for the measurement
-checklist, Langfuse setup, safe logging defaults, and eval evidence workflow.
+includes `x-trace-id`. The operator-facing guide is
+<https://cartularyhq.github.io/cartulary/operations/observability/>;
+`specs/observability/README.md` carries the measurement checklist and the eval
+evidence workflow.
 
 Traces and logs record ids, counts, profile names, model names, strategy names,
 timings, token counts, and error classes. They never record raw messages,
@@ -488,7 +496,8 @@ prompts, answers, API keys, restricted knowledge, or secrets.
 | `priv/repo/migrations/`, `priv/resource_snapshots/` | Generated by `mix ash.codegen` and then reviewed. Treated as historical once merged. |
 | `rel/`, `scripts/`, `Dockerfile`, `compose.yml` | Release packaging, the checksum-pinned pg0 asset, launchers, and the container path. |
 | `sdk/` | Transport-neutral skill-readiness helpers for Python and TypeScript. Not generated SDKs. |
-| `docs/`, `specs/` | Design notes, ADRs, operations runbooks, the roadmap, and the blueprint. |
+| `docs/` | The published user documentation: setup, usage, operations, and how the system behaves. Built by `mkdocs.yml`. |
+| `specs/` | Everything design-facing: blueprint specs, architecture notes, ADRs, design documents, the roadmap, implementation status, evaluation evidence. Not published. |
 
 ## Reading the code
 
@@ -518,22 +527,43 @@ and coding agents alike.
 
 ## Documentation map
 
+Documentation lives in exactly two trees, and they do not overlap.
+
+**`docs/` — how to use it.** Setup, usage, operations, and explanations of how
+the running system behaves, with diagrams. Published to
+<https://cartularyhq.github.io/cartulary/> by `.github/workflows/docs.yml`.
+
+| Section | What it covers |
+| --- | --- |
+| `docs/getting-started/` | Release, container, and source installs; the quickstart tutorial. |
+| `docs/concepts/` | How it works: memory model, pipeline, gates, retrieval, documents, skills, isolation, deployment modes. |
+| `docs/guides/` | Task-oriented usage: authentication, ingest, search and ask, context, readiness, curation, self-governance, MCP, SDK helpers. |
+| `docs/operations/` | Upgrades, health and cost, observability, backup and restore, export and import. |
+| `docs/reference/` | HTTP API, configuration, Mix tasks, contract versions, glossary, limitations. |
+
+**`specs/` — why it is built this way.** Design material, not published.
 Source files stand on their own; these documents exist for the reasoning
-*behind* the code — decisions, trade-offs, evidence, and operational
-procedure — not as a prerequisite for reading it.
+*behind* the code — decisions, trade-offs, evidence, and process.
 
 | Document | What it is for |
 | --- | --- |
 | `AGENTS.md` | The operating contract for agents and contributors, including the coding conventions. Read it first. |
-| `docs/roadmap/beta-roadmap.md` | The only roadmap: what is left to build, with acceptance criteria. |
-| `docs/implementation-status.md` | What runs today, its verification evidence, and its real limitations. |
-| `docs/architecture/free-core-architecture.md` | Target decomposition, abstraction layers, durable-versus-derived rules, contract version identities. |
-| `docs/architecture/` | One note per implemented capability. |
-| `docs/adr/` | Architecture decision records. |
-| `docs/operations/` | Install, upgrade, backup/restore, portability, versioning, release checklist. |
-| `docs/eval/` | Evaluation harness, thresholds, surface inventory, historical results. |
-| `docs/security/` | Security notes. |
-| `specs/` | Blueprint: functional requirements, architecture and NFRs, product blueprint, evaluation framework. |
+| `CONTRIBUTING.md` | How to develop here: workflow, checks, review expectations. |
+| `specs/memory-system-*.md` | The blueprint: functional requirements, architecture and NFRs, product blueprint, evaluation framework. |
+| `specs/architecture/free-core-architecture.md` | Target decomposition, abstraction layers, durable-versus-derived rules, contract version identities. |
+| `specs/architecture/` | One note per implemented capability. |
+| `specs/adr/` | Architecture decision records. |
+| `specs/design/` | Dated design documents behind specific ADRs. |
+| `specs/roadmap/beta-roadmap.md` | The only roadmap: what is left to build, with acceptance criteria. |
+| `specs/implementation-status.md` | What runs today, its verification evidence, and its real limitations. |
+| `specs/eval/` | Evaluation harness, thresholds, surface inventory, historical results. |
+| `specs/observability/` | Measurement discipline and the evidence workflow. |
+| `specs/process/` | Versioning policy and the release checklist. |
+| `specs/security/` | Security notes. |
+
+A change that alters anything a user or operator can see updates the matching
+`docs/` page in the same patch. The mapping is tabulated in the "Documentation
+layout" section of `AGENTS.md`.
 
 ## Free core and enterprise
 

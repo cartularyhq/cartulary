@@ -149,9 +149,9 @@ A release is ready only when:
 6. the release and container builds complete from the gated commit.
 
 Current transport coverage is recorded in
-`docs/eval/surface-contract-inventory.json`. Generated OpenAPI and complete SDK
+`specs/eval/surface-contract-inventory.json`. Generated OpenAPI and complete SDK
 clients are explicitly unavailable in 0.2.0; they belong to the
 integration-surfaces work (still to be implemented; tracked in
-`docs/roadmap/beta-roadmap.md`). The release must not advertise them, and
+`specs/roadmap/beta-roadmap.md`). The release must not advertise them, and
 release readiness requires that inventory to switch to gated evidence when those
 surfaces land.

@@ -1,0 +1,188 @@
+# Evaluation Documentation
+
+Evaluation, CI, and release readiness upgrades the original harness into a
+versioned deterministic gate and release/nightly matrix. The authoritative
+framework is `specs/memory-system-evaluation-framework.md`; implementation and
+release posture are recorded in
+`specs/architecture/evaluation-ci-release-readiness.md`.
+
+The local harness supports Cartulary product-shaped fixtures plus LoCoMo,
+LongMemEval, ConvoMem, and BEAM memory paths. It exercises the durable message
+write path, pipeline knowledge extraction, scoped retrieval, grounded
+answering, and citation validation against Postgres.
+
+The broader implementation log and refactor list is maintained in
+`specs/implementation-status.md`.
+
+For development traces, experiment labels, Langfuse forwarding, and the
+measurement checklist that should accompany eval reports, read
+`specs/observability/README.md`.
+
+Minimal LoCoMo, LongMemEval, and BEAM benchmark results are checked in at
+`specs/eval/minimal-benchmark-results.md`, with raw JSON reports under
+`specs/eval/results/`.
+
+Those 2026-07-27 `poc-0` reports are the immutable Stage 0 baseline from before
+the retrieval, entity resolution, and context rework; `poc-0` is a historical
+profile version tag rather than a phase name. Current public claims must use
+the `f11-1` report schema and exact `f7-1` profile evidence; never relabel the
+historical files.
+
+The baseline contract also freezes the four tiny input fixtures independently
+of volatile database UUIDs and latency values.
+`test/fixtures/eval/poc-contract-baseline.json` records each Cartulary, LoCoMo,
+LongMemEval, and BEAM fixture's SHA-256 plus its normalized case, message, and
+question IDs.
+
+```bash
+mix test test/cartulary/eval/fixture_contract_test.exs
+```
+
+```bash
+mix cartulary.eval.smoke --profile balanced --account eval-poc
+```
+
+To write a JSON report:
+
+```bash
+mix cartulary.eval.smoke \
+  --profile balanced \
+  --account eval-poc \
+  --output /private/tmp/cartulary-smoke-report.json
+```
+
+The built-in fixture is intentionally small. Custom fixtures use this shape:
+
+```json
+{
+  "benchmark": "local-smoke",
+  "messages": [
+    {
+      "session_id": "s1",
+      "scope_path": "/bench/locomo",
+      "peer_key": "alice",
+      "role": "user",
+      "content": "Alice prefers concise status updates."
+    }
+  ],
+  "questions": [
+    {
+      "id": "q1",
+      "scope_path": "/bench/locomo",
+      "question": "What does Alice prefer?",
+      "expected": "concise status updates"
+    }
+  ]
+}
+```
+
+Run a fixture with:
+
+```bash
+mix cartulary.eval.smoke --dataset path/to/smoke.json --profile balanced
+```
+
+## Deterministic Release Matrix
+
+Run every committed engine/product fixture and the strategy ablations:
+
+```bash
+mix cartulary.eval.release \
+  --no-model \
+  --assert-thresholds \
+  --output /private/tmp/cartulary-f11-release.json
+
+mix cartulary.eval.verify /private/tmp/cartulary-f11-release.json
+```
+
+The manifest is `release-suite.json`; deterministic correctness/citation floors
+are in `deterministic-thresholds.json`. The manifest uses distinct
+`held-out-tuning` and `release-evaluation` names and disables deadlines for
+comparable ablations.
+
+Every `f11-1` report records:
+
+- Cartulary semantic version and execution date;
+- dataset id, SHA-256, and split;
+- profile and exact profile version;
+- strategy override and deadline setting;
+- provider/model/version/prompt/pipeline identity for all four roles;
+- deterministic or model judge identity;
+- exact/contains/token-F1, abstention, citation, RAG-triad, latency, token
+  efficiency, category, scale, and BEAM degradation measures.
+
+`mix cartulary.release.check` requires this evidence for an actual release.
+Manual live-model runs add `--judge model`; the configured dream-reasoner must
+be a different provider/model family from the dialectic answer role or the run
+fails before scoring.
+
+## Full Benchmark Ingestion And Scoring
+
+Cartulary also includes a full benchmark runner for fixture ingestion and
+deterministic scoring:
+
+```bash
+mix cartulary.eval.benchmark \
+  --benchmark locomo \
+  --dataset path/to/locomo10.json \
+  --profile balanced \
+  --account eval-locomo \
+  --output /private/tmp/cartulary-locomo-report.json
+```
+
+Supported source formats:
+
+- `--benchmark locomo`: LoCoMo `locomo10.json` samples with `conversation`
+  sessions and `qa` evidence refs such as `D1:3`.
+- `--benchmark longmemeval`: LongMemEval cleaned JSON files with
+  `haystack_sessions`, `haystack_session_ids`, `answer_session_ids`, and
+  per-question metadata.
+- `--benchmark convomem`: ConvoMem rows with conversation/message history,
+  question/answer, category, evidence ids, and abstention metadata.
+- `--benchmark beam`: BEAM-style chat/probing-question JSON. The adapter accepts
+  common generated-artifact field names such as `messages`, `conversation`,
+  `probing_questions`, `questions`, `chat_size`, and `ability`.
+- `--benchmark cartulary`: the local JSON shape used by the smoke harness.
+
+Useful options:
+
+```bash
+mix cartulary.eval.benchmark \
+  --dataset path/to/fixture.json \
+  --limit-cases 1 \
+  --limit-messages 200 \
+  --limit-questions 10 \
+  --no-model
+```
+
+`--no-model` forces the deterministic extractor and fallback answerer so local
+regression runs do not depend on a model provider. Without it, the runner uses
+the configured model path for extraction/answering, then scores the outputs
+deterministically.
+
+The JSON report includes:
+
+- Per-question answer metrics: exact match, expected-answer containment,
+  token-F1, abstention correctness, citation hit, citation recall, latency, and
+  contributed retrieval strategies.
+- Aggregate metrics overall, by category, and by scale.
+- For BEAM, a `beam_degradation_curve` grouped by corpus scale.
+- RAG-triad lexical baseline, full-context/token-efficiency, profile/model
+  version, deadline, dataset digest/split, date, and run-limit evidence, per
+  ADR-0004 / `AD-EVAL-3` / `NFR-11`.
+
+The runner uses the real durable write/read path (`Cartulary.Memory`) and
+therefore records raw messages, pipeline-created knowledge, lifecycle events,
+retrieval, answers, and citations in Postgres. It is still a smoke-scale
+harness: it does not claim upstream judge parity or upstream-scale scores from
+the committed minimal fixtures. Live/pinned provider runs and larger public
+datasets use the same adapter/runner/report contract. The shipped release
+matrix provides held-out tuning discipline, named strategy ablations,
+deterministic release thresholds, explicit deadline reporting, and
+pg0/external-Postgres CI parity.
+
+The surface contract inventory records the intentional integration-surfaces
+boundary (still to be implemented; tracked in
+`specs/roadmap/beta-roadmap.md`): current Phoenix, MCP, and skill-readiness
+helpers are gated; generated OpenAPI and complete SDKs are explicitly
+unavailable in 0.2.0.

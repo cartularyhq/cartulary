@@ -96,7 +96,7 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
   end
 
   test "release suite separates held-out tuning and published splits and covers the matrix" do
-    suite = "docs/eval/release-suite.json" |> File.read!() |> Jason.decode!()
+    suite = "specs/eval/release-suite.json" |> File.read!() |> Jason.decode!()
     runs = suite["runs"]
 
     assert suite["suite_version"] == "f11-1"
@@ -192,7 +192,7 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
 
   test "surface inventory gates shipped contracts and fails closed around the integration-surfaces boundary" do
     inventory =
-      "docs/eval/surface-contract-inventory.json"
+      "specs/eval/surface-contract-inventory.json"
       |> File.read!()
       |> Jason.decode!()
 

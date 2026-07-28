@@ -21,10 +21,11 @@ assignees: ""
 - Blueprint requirements: `specs/memory-system-functional-requirements.md` (`FR-*` anchors):
 - Blueprint architecture/NFRs: `specs/memory-system-architecture-and-nfr.md` (`AD-*`, `AINV-*`, `NFR-*` anchors):
 - Product context: `specs/memory-system-product-blueprint.md`:
-- ADRs: `docs/adr/README.md` or `docs/adr/<adr-file>.md`:
-- Architecture notes: `docs/architecture/README.md` or `docs/architecture/<note>.md`:
-- Roadmap/process docs: `docs/roadmap/beta-roadmap.md`:
-- Security/eval docs: `docs/security/README.md`, `docs/eval/README.md`, or a specific note:
+- ADRs: `specs/adr/README.md` or `specs/adr/<adr-file>.md`:
+- Architecture notes: `specs/architecture/README.md` or `specs/architecture/<note>.md`:
+- Roadmap/process docs: `specs/roadmap/beta-roadmap.md`:
+- Security/eval docs: `specs/security/README.md`, `specs/eval/README.md`, or a specific note:
+- Published user documentation affected: the page(s) under `docs/`:
 - Other internal docs:
 
 ## Architecture anchors

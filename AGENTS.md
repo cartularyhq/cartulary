@@ -17,12 +17,12 @@ Before editing, read the smallest authoritative set needed for the task:
    - `specs/memory-system-functional-requirements.md`
    - `specs/memory-system-architecture-and-nfr.md`
    - `specs/memory-system-product-blueprint.md`
-3. `docs/roadmap/beta-roadmap.md` — the only roadmap. It carries the
+3. `specs/roadmap/beta-roadmap.md` — the only roadmap. It carries the
    outstanding work, the delivery workflow, and the maintainer-owned GitHub
    setup.
-4. `docs/implementation-status.md` — what actually runs today, its verification
+4. `specs/implementation-status.md` — what actually runs today, its verification
    evidence, and its real limitations.
-5. `docs/architecture/free-core-architecture.md` — target decomposition,
+5. `specs/architecture/free-core-architecture.md` — target decomposition,
    abstraction layers, durable-versus-derived rules, the public operation set,
    and the contract version identities.
 6. Any ADRs, architecture notes, eval notes, security notes, or nested
@@ -30,13 +30,17 @@ Before editing, read the smallest authoritative set needed for the task:
 7. For observability, tracing, logging, telemetry, evaluation instrumentation,
    experiment comparison, CI, versioning, or release-readiness work, also read
    `specs/memory-system-evaluation-framework.md`,
-   `docs/observability/README.md`, and
-   `docs/architecture/evaluation-ci-release-readiness.md`.
+   `specs/observability/README.md`, and
+   `specs/architecture/evaluation-ci-release-readiness.md`.
 8. For work touching Ash resources, actions, policies, tenancy, or migrations,
-   also read `docs/architecture/ash-domain-backbone.md`.
+   also read `specs/architecture/ash-domain-backbone.md`.
 9. For document ingestion, blob storage, parsing, connectors, sync,
    supersession, or document portability, also read
-   `docs/architecture/documents-connectors-sync.md`.
+   `specs/architecture/documents-connectors-sync.md`.
+10. For anything a user or operator can see — an endpoint, a parameter, a
+    default, an environment variable, a CLI command, an install or upgrade
+    step — also read the affected page under `docs/`, because you will be
+    updating it in the same patch. See "Documentation layout".
 
 Blueprint anchors are stable review handles. Preserve existing `FR-*`, `AD-*`,
 `AINV-*`, `NFR-*`, and `EV-*` meanings unless the task explicitly asks for a
@@ -133,6 +137,54 @@ document.
 
 ## Development discipline
 
+### Documentation layout
+
+The repository has exactly two documentation trees, and they do not overlap.
+Putting a file in the wrong one is a review defect, not a matter of taste.
+
+| Tree | Holds | Audience |
+| --- | --- | --- |
+| `docs/` | Setup, usage, operations, and explanations of how the running system behaves. Published to GitHub Pages by `.github/workflows/docs.yml`. | People installing, using, or operating Cartulary. |
+| `specs/` | Blueprint specs, architecture notes, ADRs, design documents, the roadmap, implementation status, evaluation methodology and evidence, observability measurement discipline, security notes, and release/versioning process. | Contributors and maintainers. Not published. |
+| `CONTRIBUTING.md` | How to develop: workflow, branch/PR rules, required checks, review expectations. | Contributors. |
+| `README.md` | Orientation: what Cartulary is, how a request flows, repository layout, where every document lives. | Everyone. |
+
+Concretely:
+
+- **Never** add a spec, plan, ADR, roadmap item, benchmark result, or design
+  rationale under `docs/`. It belongs in `specs/`.
+- **Never** put installation, configuration, API usage, or operational
+  procedure only in `specs/` or only in a source comment. If a user or an
+  operator needs it, it belongs in `docs/`.
+- Development process instructions belong in `CONTRIBUTING.md`, not in
+  `docs/`.
+- `docs/` pages are user-facing prose: explain the behaviour, not the decision
+  history behind it. Cite no `FR-*`/`AD-*`/`NFR-*` anchors there; those belong
+  in `specs/`, commit messages, and PR descriptions.
+- Diagrams in `docs/` use Mermaid fenced blocks, which the site renders
+  natively. Prefer a diagram to a paragraph when explaining a flow, a state
+  machine, or a boundary.
+- Every new `docs/` page must be added to the `nav:` in `mkdocs.yml`. The site
+  builds with `strict: true`, so a page missing from the navigation or a broken
+  internal link fails CI.
+- Links from `docs/` into `specs/` or into source must be absolute GitHub URLs.
+  MkDocs cannot resolve a relative path outside `docs/`.
+
+**Documentation is part of the change, not a follow-up.** A patch that alters
+anything in the left-hand column below must update the right-hand column in the
+same patch, or state in the PR why no update is needed:
+
+| A change to… | Updates… |
+| --- | --- |
+| A route, parameter, default, or response field | `docs/reference/http-api.md`, and the affected guide |
+| An environment variable or config default | `docs/reference/configuration.md` and `.env.example` |
+| A Mix task or release command | `docs/reference/mix-tasks.md` |
+| Install, upgrade, backup, or export behaviour | The affected page under `docs/operations/` or `docs/getting-started/` |
+| Governance, retrieval, pipeline, document, or skill behaviour | The affected page under `docs/concepts/`, and its architecture note under `specs/architecture/` |
+| A contract version identity | `docs/reference/contract-versions.md`, `CHANGELOG.md`, and the closest architecture note |
+| A surface becoming available or unavailable | `docs/reference/limitations.md` and `specs/eval/surface-contract-inventory.json` |
+| A design decision or trade-off | `specs/` only — never `docs/` |
+
 ### Coding conventions
 
 **Source files are the primary documentation.** A competent Elixir developer
@@ -143,10 +195,10 @@ which rules it enforces, and what a caller may not do with it.
 - **Explain in place; never delegate the explanation.** A comment or docstring
   must not offload its meaning onto a spec, an architecture note, a roadmap
   item, an issue, or a blueprint anchor. Do not write `see
-  docs/architecture/...`, `per FR-KN-3`, or `AD-DATA-1 requires this` in
+  specs/architecture/...`, `per FR-KN-3`, or `AD-DATA-1 requires this` in
   source. State the rule itself, in plain language, at the place that enforces
   it. Traceability belongs in commit messages, PR descriptions, ADRs, and the
-  `docs/` tree — not in code comments. Pointing at a file for *data* (a
+  `specs/` tree — not in code comments. Pointing at a file for *data* (a
   fixture path, a threshold file the code actually reads) is fine; pointing at
   a document for *understanding* is not.
 - **No retired phase labels.** `F0`–`F11` no longer name anything, and must
@@ -190,7 +242,7 @@ which rules it enforces, and what a caller may not do with it.
 - **Exempt trees.** Generated and historical artifacts are not rewritten for
   style: `deps/`, the generated migrations under `priv/repo/migrations/`, the
   resource snapshots under `priv/resource_snapshots/`, recorded evaluation
-  reports under `docs/eval/results/`, and committed JSON fixtures. New
+  reports under `specs/eval/results/`, and committed JSON fixtures. New
   migrations still get comments on hand-written DDL, because that DDL is
   authored, not generated.
 - **Existing evidence identities keep their names.** Test files and modules
@@ -203,9 +255,9 @@ which rules it enforces, and what a caller may not do with it.
 
 - Keep each change traceable to the task, issue, and blueprint anchors it
   implements. Record that trace in the commit message, the PR description, and
-  the durable documents under `docs/` — not in source comments, which must
+  the durable documents under `specs/` — not in source comments, which must
   stand alone.
-- Use `docs/roadmap/beta-roadmap.md` as the execution map. It does not replace
+- Use `specs/roadmap/beta-roadmap.md` as the execution map. It does not replace
   the blueprint specs; it decomposes their remaining free-core scope into
   tracks and acceptance slices.
 - Roadmap checkboxes are evidence markers. Mark an item `[x]` only when
@@ -247,7 +299,7 @@ which rules it enforces, and what a caller may not do with it.
 - Evidence: `test/cartulary/f1_ash_domain_backbone_test.exs`,
   `priv/resource_snapshots/`, and the generated migrations under
   `priv/repo/migrations/`. Design notes:
-  `docs/architecture/ash-domain-backbone.md`.
+  `specs/architecture/ash-domain-backbone.md`.
 - Keep Ash resources and `priv/resource_snapshots/` synchronized. Resource
   changes must use `mix ash.codegen`, manually review generated migrations, and
   keep custom pgcrypto/pgvector/FTS/index/RLS DDL intact.
@@ -272,7 +324,7 @@ which rules it enforces, and what a caller may not do with it.
   transaction. Do not enqueue pipeline work outside the `PipelineRun` Ash
   actions.
 - Evidence: `test/cartulary/f2_transactional_writes_audit_jobs_test.exs` and
-  `docs/architecture/transactional-writes-audit-jobs.md`.
+  `specs/architecture/transactional-writes-audit-jobs.md`.
 - Pipeline execution is replay-safe. New jobs need a deterministic key in
   `Cartulary.Pipeline.Idempotency`; durable source records need a reconciler
   path; and content-bearing values must not be copied into audit metadata or
@@ -287,7 +339,7 @@ which rules it enforces, and what a caller may not do with it.
   authenticated scope reads.
 - Evidence: `test/cartulary/f3_identity_tenancy_basic_rbac_test.exs`,
   `test/cartulary_web/controllers/memory_controller_test.exs`, and
-  `docs/architecture/identity-tenancy-rbac.md`.
+  `specs/architecture/identity-tenancy-rbac.md`.
 - Role grants use exactly `account-admin`, `curator`, `member`, and `reader`
   with `allow|deny` effects and per-grant propagation. Any applicable deny
   removes access to that scope. Cross-linked scope reads require access to both
@@ -299,7 +351,7 @@ which rules it enforces, and what a caller may not do with it.
   `Cartulary.Governance.Engine`. Do not reintroduce auto-activation outside the
   versioned Gate matrix.
 - Evidence: `test/cartulary/f4_real_gate_a_b_governance_test.exs` and
-  `docs/architecture/gate-a-b-governance.md`.
+  `specs/architecture/gate-a-b-governance.md`.
 - Curator decisions are human-only. Machine credentials and MCP may submit raw
   observations, read governed memory, resolve only the calling peer's frozen
   inline question, and lower that peer's ask limits; they must never expose or
@@ -324,7 +376,7 @@ which rules it enforces, and what a caller may not do with it.
   a provider adapter from pipeline, retrieval, web, or governance code.
 - Evidence: `test/cartulary/f5_model_layer_structured_extraction_test.exs`,
   `test/fixtures/model/f5-provider-cassette.json`, and
-  `docs/architecture/model-layer-structured-extraction.md`.
+  `specs/architecture/model-layer-structured-extraction.md`.
 - There are exactly four Account-level roles: `embedder`, `ingest_extractor`,
   `dream_reasoner`, and `dialectic_agent`. Persist secret references only, keep
   per-scope role overrides deferred, and preserve provider/model/version plus
@@ -346,7 +398,7 @@ which rules it enforces, and what a caller may not do with it.
 - Connectors submit raw document versions only. Extracted knowledge must still
   pass the structured extraction pipeline and Gate A/B governance.
 - Evidence: `test/cartulary/f6_documents_connectors_sync_test.exs` and
-  `docs/architecture/documents-connectors-sync.md`.
+  `specs/architecture/documents-connectors-sync.md`.
 - Connector cursors advance only after a page is durably handled. Repeated
   content hashes are no-ops, changed documents append immutable versions and
   supersede stale derivations without overwriting history, and remote deletion
@@ -368,7 +420,7 @@ which rules it enforces, and what a caller may not do with it.
   `search` defaults to `:balanced`, `ask` to `:thorough`, and only the `:fast`
   profile may run live on a `get_context` projection miss.
 - Evidence: `test/cartulary/f7_retrieval_entity_context_test.exs` and
-  `docs/architecture/retrieval-entity-context.md`.
+  `specs/architecture/retrieval-entity-context.md`.
 - Retrieval must apply Account, authorized scope, lifecycle, provisional
   subject, and source filters before candidates leave retrieval internals.
   Strategy-local scores are not comparable: merge with weighted
@@ -394,7 +446,7 @@ which rules it enforces, and what a caller may not do with it.
   memory. They are not knowledge and do not pass Gate A/B. Requirement keys
   inherit down the scope tree with nearest-scope overrides.
 - Evidence: `test/cartulary/f9_skill_readiness_procedural_memory_test.exs` and
-  `docs/architecture/skill-readiness-procedural-memory.md`.
+  `specs/architecture/skill-readiness-procedural-memory.md`.
 - Readiness may be satisfied only by authorized `active` knowledge or the
   calling peer's usable `provisional` knowledge. Expired, due-for-revalidation,
   and `needs_revalidation` items remain gaps even before a sweeper runs.
@@ -411,7 +463,7 @@ which rules it enforces, and what a caller may not do with it.
   migrations, and never add pg0 to the container path or fork behavior by
   database mode.
 - Evidence: `test/cartulary/f10_portability_packaging_operations_test.exs`,
-  `docs/architecture/portability-packaging-operations.md`, `docs/operations/`,
+  `specs/architecture/portability-packaging-operations.md`, `docs/operations/`,
   `rel/`, `Dockerfile`, and `compose.yml`.
 - Logical Account archives use schema `cartulary-account-1`, keyset-stream
   durable resources, include checksum-verified original blobs, and verify the
@@ -437,7 +489,7 @@ which rules it enforces, and what a caller may not do with it.
   correctness/citation floor fails.
 - Evidence: `test/cartulary/f11_evaluation_ci_release_readiness_test.exs`,
   `specs/memory-system-evaluation-framework.md`,
-  `docs/architecture/evaluation-ci-release-readiness.md`, `docs/eval/`,
+  `specs/architecture/evaluation-ci-release-readiness.md`, `specs/eval/`,
   `.github/workflows/`, and `CHANGELOG.md`.
 - Public benchmark and quality claims require the exact application and
   retrieval-profile versions, all four model-role versions, dataset id/SHA-256
@@ -448,7 +500,7 @@ which rules it enforces, and what a caller may not do with it.
 - Integration surfaces, gateway, and generated SDKs are **not implemented**.
   The skill-readiness helpers under `sdk/` are not generated SDKs, and `0.2.0`
   has no generated AshJsonApi OpenAPI contract. Keep unavailable surfaces
-  explicit in `docs/eval/surface-contract-inventory.json`; do not advertise
+  explicit in `specs/eval/surface-contract-inventory.json`; do not advertise
   them as shipped or silently omit their missing lane.
 
 ### Observability and safety
@@ -470,7 +522,7 @@ which rules it enforces, and what a caller may not do with it.
 - Do not rename a historical artifact that carries evidence. The migration
   filenames under `priv/repo/migrations/`, the `pipeline_version` defaults
   baked into old migrations and resource snapshots, and the recorded `poc-0`
-  evaluation reports under `docs/eval/results/` are immutable. Renaming a live
+  evaluation reports under `specs/eval/results/` are immutable. Renaming a live
   default such as the `/poc` scope path is a versioned behaviour change with
   its own roadmap item, not incidental cleanup.
 
@@ -544,11 +596,20 @@ mix cartulary.release.check \
 The pg0 CI lane additionally runs `scripts/ci-pg0-lane`; it downloads the
 checksum-pinned pg0 asset, so local execution requires network access. The
 external-Postgres and packaged-pg0 job names and the release procedure are in
-`docs/operations/release-checklist.md`.
+`specs/process/release-checklist.md`.
 
-For documentation-only changes, inspect the changed Markdown directly and run
-any available repo-local Markdown or link check. If no such tool exists, say so
-and include the manual inspection scope.
+For any change touching `docs/` or `mkdocs.yml`, build the published site. It
+runs with `strict: true`, so a broken internal link or a page missing from the
+navigation fails:
+
+```bash
+pip install -r docs/requirements.txt
+mkdocs build
+```
+
+For documentation-only changes elsewhere, inspect the changed Markdown directly
+and run any available repo-local Markdown or link check. If no such tool
+exists, say so and include the manual inspection scope.
 
 For changes touching local single-node and queue-mode behavior, provide parity
 evidence for pg0-backed and operator-run Postgres paths. Clearly mark any lane
@@ -573,6 +634,9 @@ Reviewers and agents should ask:
   `specs/` or `docs/`? Does each comment explain a reason rather than restate
   the code?
 - Are test results real, current, and scoped to the change?
+- Does every user-visible change carry its `docs/` update in the same patch,
+  and did each new document land in the correct tree — `docs/` for setup and
+  usage, `specs/` for design, `CONTRIBUTING.md` for development process?
 - Is the PR focused on one task, with no unrelated cleanup or roadmap creep?
 
 Security-, tenancy-, audit-, pipeline-, backend-parity-, or eval-sensitive work
@@ -582,7 +646,7 @@ needs explicit reviewer attention and evidence matching that risk class.
 
 One task, one issue, one branch, one PR. The full workflow, the label taxonomy,
 and the maintainer-owned GitHub settings that are still outstanding are in
-`docs/roadmap/beta-roadmap.md`.
+`specs/roadmap/beta-roadmap.md`.
 
 1. A human scopes and labels exactly one implementation issue as `ai-ready`.
 2. The agent reads this contract, the blueprint anchors, and the closest

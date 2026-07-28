@@ -15,6 +15,11 @@ posture.
 `README.md` is the fastest orientation: core concepts, how a request flows
 through the system, the repository layout, and where to start reading.
 
+The published user documentation at
+<https://cartularyhq.github.io/cartulary/> — built from `docs/` — is the
+fastest way to understand the system from the outside before changing it from
+the inside.
+
 For a change that alters product behaviour, also read the smallest relevant set
 of blueprint anchors in:
 
@@ -41,10 +46,10 @@ what it does, why it exists, and which rules it enforces.
 The full rules are the "Coding conventions" section of `AGENTS.md`. The parts
 contributors get wrong most often:
 
-- **Do not cite design documents from code.** No `see docs/architecture/...`,
+- **Do not cite design documents from code.** No `see specs/architecture/...`,
   no `per FR-KN-3` in a comment or docstring. Write the rule itself, in plain
   language, at the place that enforces it. Anchors and issue links belong in
-  the commit message, the PR description, and the documents under `docs/`.
+  the commit message, the PR description, and the documents under `specs/`.
 - **Every module gets a real `@moduledoc`,** and every public function a
   `@doc`. `@moduledoc false` is not acceptable in first-party code.
 - **Comment the why.** Ordering constraints, transaction boundaries, tenancy
@@ -55,6 +60,47 @@ contributors get wrong most often:
   are data: keep the value, explain what it versions.
 - **A stale comment is a defect.** Behaviour edits update the surrounding
   comment in the same patch.
+
+## Where documentation goes
+
+Two trees, no overlap. Putting a file in the wrong one is a review defect.
+
+| Path | Holds | Published? |
+| --- | --- | --- |
+| `docs/` | Setup, usage, operations, and how the running system behaves. | Yes — GitHub Pages, via `.github/workflows/docs.yml` |
+| `specs/` | Blueprint specs, architecture notes, ADRs, design documents, the roadmap, implementation status, evaluation methodology and evidence, observability discipline, security notes, release and versioning process. | No |
+| `CONTRIBUTING.md` | How to develop here. | No |
+| `README.md` | Orientation and the map of everything above. | No |
+
+Rules that matter in review:
+
+- A spec, plan, ADR, roadmap item, benchmark result, or design rationale never
+  goes in `docs/`.
+- Installation, configuration, API usage, and operational procedure never live
+  only in `specs/` or only in a source comment.
+- `docs/` prose is user-facing: explain the behaviour, not the decision history.
+  No `FR-*`/`AD-*`/`NFR-*` anchors there.
+- Diagrams in `docs/` are Mermaid fenced blocks; the site renders them
+  natively.
+- Every new `docs/` page goes into the `nav:` in `mkdocs.yml`. The site builds
+  with `strict: true`, so an orphaned page or a broken internal link fails CI.
+- Links from `docs/` into `specs/` or into source must be absolute GitHub URLs;
+  MkDocs cannot resolve paths outside `docs/`.
+
+**Documentation ships with the change.** If your patch alters a route, a
+parameter, a default, an environment variable, a Mix task, an install or
+upgrade step, a contract version identity, or the availability of a surface,
+update the matching page in the same patch. The mapping is tabulated in the
+"Documentation layout" section of `AGENTS.md`. If no update is needed, say why
+in the PR.
+
+Preview the site locally before pushing a documentation change:
+
+```bash
+pip install -r docs/requirements.txt
+mkdocs serve     # http://127.0.0.1:8000
+mkdocs build     # what CI runs, with strict: true
+```
 
 ## One issue, one branch, one PR
 
@@ -139,10 +185,17 @@ mix cartulary.release.check \
   --eval-report /private/tmp/cartulary-release-eval.json
 ```
 
+For any change touching `docs/` or `mkdocs.yml`:
+
+```bash
+pip install -r docs/requirements.txt
+mkdocs build
+```
+
 If a command is unavailable — no network for the pg0 lane, no local Postgres,
-no repository Markdown checker — say so explicitly in the PR. Never imply that
-an unavailable check passed. For documentation-only changes, inspect the
-changed Markdown directly and state the inspection scope.
+no Python for the documentation build — say so explicitly in the PR. Never
+imply that an unavailable check passed. For Markdown changes outside `docs/`,
+inspect the changed files directly and state the inspection scope.
 
 ## Review expectations
 
@@ -160,6 +213,8 @@ Before requesting review, confirm the PR:
   be run;
 - leaves every touched file readable on its own, with no new pointers from code
   into `specs/` or `docs/`;
+- carries its user-facing documentation update in the same patch, with each new
+  document in the correct tree;
 - includes real, current check evidence.
 
 The `core` team decides whether the PR is ready to merge.

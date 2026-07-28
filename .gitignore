@@ -35,3 +35,7 @@ priv/static/cache_manifest.json
 # committed.
 rel/overlays/bin/pg0
 rel/overlays/bin/pg0.exe
+
+# Built documentation site. `mkdocs build` regenerates it from docs/; only the
+# GitHub Actions Pages job publishes it.
+site/
