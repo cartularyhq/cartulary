@@ -97,5 +97,6 @@ defmodule Cartulary.Observability do
 
   defp span_config_key(:memory), do: :memory_spans
   defp span_config_key(:model), do: :model_spans
+  defp span_config_key(:documents), do: :document_spans
   defp span_config_key(category), do: category
 end

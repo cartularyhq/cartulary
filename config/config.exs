@@ -17,6 +17,7 @@ config :cartulary,
     Cartulary.Accounts,
     Cartulary.Topology,
     Cartulary.Observations,
+    Cartulary.Documents,
     Cartulary.Knowledge,
     Cartulary.Governance,
     Cartulary.Model,
@@ -72,6 +73,16 @@ config :cartulary, :governance,
   answer_window_turns: 6
 
 config :cartulary, :model_layer, max_repairs: 2
+
+config :ex_aws, http_client: ExAws.Request.Req
+
+config :cartulary, :documents,
+  blob_adapter: Cartulary.Documents.BlobStore.Local,
+  blob_root: Path.join(System.tmp_dir!(), "cartulary-blobs"),
+  chunk_size: 1_200,
+  chunk_overlap: 160,
+  max_extract_length: 500_000,
+  connector_adapters: %{}
 
 config :cartulary, :model_roles,
   embedder: %{

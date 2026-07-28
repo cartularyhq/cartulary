@@ -5,7 +5,8 @@ agent memory on the BEAM. The current repository state combines the frozen
 local POC contract with the implemented F1 Ash Domain Backbone and F2
 Transactional Writes, Audit, And Jobs plus F3 Identity, Tenancy, And Basic
 RBAC, F4 Real Gate A/B Governance, and F5 Model Layer And Structured
-Extraction; it is not yet a finished product architecture.
+Extraction plus F6 Documents, Connectors, And Sync; it is not yet a finished
+product architecture.
 
 The POC can run against local Postgres from pg0, use local Ortex/ONNX
 embeddings, and use a ReqLLM-supported or OpenAI-compatible generation
@@ -18,14 +19,16 @@ the Ash/Phoenix/Oban architecture, abstraction layers, decomposition, migration
 phases, and feature coverage needed for a complete single-Account community
 solution.
 
-Roadmap phases F0 through F5 are complete. F0 response shapes, persistence,
+Roadmap phases F0 through F6 are complete. F0 response shapes, persistence,
 scope inheritance, pipeline-only knowledge writes, and tiny eval fixtures
 remain regression floors. F4 intentionally versions lifecycle behavior to
 `f4-1`: new proposals are provisionally peer-visible or held for governance
 instead of being auto-activated. F5 advances extraction to `f5-1` with four
 pinned model roles, Ash-backed structured validation and repair, complete model
-provenance, and exact usage events. Nine Ash Domains and 36 Resources own the
-durable boundary.
+provenance, and exact usage events. F6 adds immutable document versions,
+content-addressed Local/S3 blobs, native parsing, chunks and embeddings,
+incremental connector sync, and document portability. Ten Ash Domains and 38
+Resources own the durable boundary.
 
 ## What Runs Today
 
@@ -56,13 +59,20 @@ durable boundary.
   member, and reader.
 - Transactional message/document ingestion that commits a content-safe
   hash-chain audit event, durable idempotency record, and AshOban job together.
+- Immutable document-version history with content-addressed Local or
+  S3-compatible blob storage, MDEx/ExtractousEx parsing, TextChunker chunking,
+  and bitcrowd/rag embedding integration.
+- Incremental connector scheduling with durable cursors, hash-based no-op
+  detection, tombstones, and provenance-preserving knowledge supersession.
+- Checksum-verified document export/import and erasure that rebuild derived
+  chunks instead of treating caches as durable state.
 - Eleven AshOban lanes for extraction, dream-time, revalidation, expiry,
   projection/entity refresh, connector sync, portability rebuild,
   reconciliation, and governance continuations.
 - Ash.Reactor flows for ingest extraction, dream-time reasoning, validation
   continuation, and transcript answer correlation.
 - Per-Account SHA-256 audit chains and an Account-scoped reconciler for raw
-  messages not yet processed.
+  messages, document versions, and due connectors not yet processed.
 - PostgreSQL RLS on every Account-scoped table, plus generated AshPostgres
   snapshots/migrations, foreign keys, FTS, and supporting indexes.
 - pgcrypto, Postgres FTS, Oban tables, and pgvector extension migration.
@@ -138,6 +148,27 @@ CARTULARY_ORTEX_POOLING=cls
 
 Treat the embedding version as the vector-space version: bump it whenever the
 ONNX artifact, tokenizer, pooling, or dimensions change.
+
+Document blobs default to a content-addressed local directory. Production
+defaults to `/var/lib/cartulary/blobs`; an S3-compatible backend is selected
+entirely through runtime configuration:
+
+```bash
+CARTULARY_BLOB_ADAPTER=local
+CARTULARY_BLOB_ROOT=/absolute/path/to/cartulary-blobs
+CARTULARY_DOCUMENT_CHUNK_SIZE=1200
+CARTULARY_DOCUMENT_CHUNK_OVERLAP=160
+CARTULARY_DOCUMENT_MAX_EXTRACT_LENGTH=500000
+
+# Or use ExAws with the normal AWS/S3-compatible environment:
+CARTULARY_BLOB_ADAPTER=s3
+CARTULARY_S3_BUCKET=cartulary
+CARTULARY_S3_PREFIX=cartulary
+# Optional for MinIO or another compatible endpoint:
+CARTULARY_S3_HOST=localhost
+CARTULARY_S3_SCHEME=http://
+CARTULARY_S3_PORT=9000
+```
 
 Start Postgres through pg0:
 
@@ -347,6 +378,25 @@ Read the model boundary, schemas, embedding identity rule, outage behavior,
 contract transition, and evidence in
 `docs/architecture/f5-model-layer-structured-extraction.md`.
 
+## F6 Documents, Connectors, And Sync
+
+Documents now enter through the same governed observation pipeline as
+messages. Each logical document keeps immutable hash-addressed versions and
+blob references; MDEx handles Markdown, ExtractousEx handles supported binary
+formats, and the parsed text is chunked and embedded with pinned F5 identity
+before structured extraction and F4 governance.
+
+Connector adapters pull raw pages behind one behavior. Their schedules and
+cursors are durable, a repeated hash is a no-op, changed content appends a
+version and supersedes stale derivations without rewriting history, and remote
+deletions become tombstones. The document portability component exports
+checksum-verified durable blobs and metadata while excluding rebuildable
+chunks and vectors.
+
+Read the storage boundary, transaction flow, sync semantics, erasure and
+portability behavior, version posture, and evidence in
+`docs/architecture/f6-documents-connectors-sync.md`.
+
 ## Free Core Direction
 
 The free core is intended to include the full memory engine, single-node
@@ -381,10 +431,10 @@ The important cuts are intentional and temporary:
 - Core durable reads and writes now use Ash. The POC retrieval strategies still
   use static parameterized SQL in the explicit F7 transition helper.
 - F2 provides the durable lanes for dream-time, lifecycle, connector,
-  portability, and projection work. F4 and F5 now supply governance behavior
-  and the structured reasoner capability; connector, portability, full
-  reasoning-result application, and projection building remain in later
-  phases.
+  portability, and projection work. F4 through F6 now supply governance,
+  structured reasoning, document connectors, and the document portability
+  component; full reasoning-result application, account-wide archives, and
+  projection building remain in later phases.
 - Retrieval is Postgres FTS plus simple temporal and salience/recency queries;
   the F5 embedder is implemented, but F7 still owns embedding columns,
   backfill, semantic retrieval, and ANN indexes.

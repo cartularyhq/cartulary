@@ -36,10 +36,16 @@ logs.
   - `cartulary.model.structured`
   - `cartulary.model.embed`
   - `cartulary.model.rerank`
+  - `cartulary.documents.process_version`
+  - `cartulary.documents.sync_connector`
 - F5 model spans include safe GenAI-style attributes such as operation, role,
   provider/model/version, duration, and input/output/embedding token usage.
   The append-only `UsageEvent` Ash resource is the exact ledger; OTel remains a
   sampled diagnostic mirror.
+- F6 document spans include safe identifiers and measures such as version id,
+  parser, byte/chunk/knowledge counts, connector id, item count, and duration.
+  They never include blob bytes, extracted text, connector cursors, source
+  metadata, or statements.
 
 ## Start The Local Stack
 
@@ -63,6 +69,7 @@ CARTULARY_OTEL_HTTP_SPANS_ENABLED=true
 CARTULARY_OTEL_PHOENIX_SPANS_ENABLED=true
 CARTULARY_OTEL_MEMORY_SPANS_ENABLED=true
 CARTULARY_OTEL_MODEL_SPANS_ENABLED=true
+CARTULARY_OTEL_DOCUMENT_SPANS_ENABLED=true
 CARTULARY_OTEL_OBAN_SPANS_ENABLED=true
 CARTULARY_OTEL_OBAN_SPAN_RELATIONSHIP=child
 CARTULARY_OTEL_ECTO_SPANS_ENABLED=false
@@ -109,6 +116,7 @@ Use these flags to tune Jaeger noise for a given debugging session:
 | `CARTULARY_OTEL_HTTP_SPANS_ENABLED` | `true` | One server trace per HTTP request. |
 | `CARTULARY_OTEL_MEMORY_SPANS_ENABLED` | `true` | Manual memory workflow spans and safe retrieval attributes. |
 | `CARTULARY_OTEL_MODEL_SPANS_ENABLED` | `true` | Model call spans and token counts, without prompt or answer text. |
+| `CARTULARY_OTEL_DOCUMENT_SPANS_ENABLED` | `true` | Document parsing, chunking, extraction, and connector spans with content-safe counts and identifiers. |
 | `CARTULARY_OTEL_OBAN_SPANS_ENABLED` | `true` | Background extraction job spans. |
 | `CARTULARY_OTEL_OBAN_SPAN_RELATIONSHIP` | `child` | `child` keeps queued jobs in the request trace; `link` creates a separate linked trace; `none` disables propagation. |
 | `CARTULARY_OTEL_PHOENIX_SPANS_ENABLED` | `true` | Phoenix route/controller span naming and framework context. |
@@ -123,6 +131,7 @@ quality but destroys latency, abstention, or cost visibility is not done.
 | Area | Signals |
 | --- | --- |
 | Ingest | message content length, sync vs async extraction, extraction item count, raw write latency, provider failure behavior |
+| Documents | version byte count, parser, chunk/knowledge counts, hash no-op count, tombstones, connector page duration, retry behavior |
 | Pipeline | Oban queue latency, retries, job duration, dream-time budget use, revalidation/expiry sweeps once implemented |
 | Retrieval | profile, profile version, strategy count, candidate count, latency, contributed strategies, dropped strategies |
 | Context | knowledge count, projection/cache hit once implemented, no model spans under normal `get_context` |
@@ -206,6 +215,8 @@ OTEL_EXPORTER_OTLP_TRACES_HEADERS=Authorization=Basic <base64-public-key-colon-s
   `statement`, and `answer`.
 - Manual spans record counts, flags, model names/versions, and token counts, not raw
   content.
+- Document spans record IDs, parser names, hashes, counts, and durations, not
+  blobs, extracted text, source metadata, connector cursors, or statements.
 - `cartulary.model.*` spans and `UsageEvent` metadata do not record prompt,
   observation, answer, or completion text.
 - Do not add raw knowledge statements to span attributes. Use IDs and eval

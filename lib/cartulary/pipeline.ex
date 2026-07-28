@@ -61,6 +61,30 @@ defmodule Cartulary.Pipeline do
     )
   end
 
+  @spec enqueue_connector_sync(struct(), map()) ::
+          {:ok, PipelineRun.t()} | {:error, term()}
+  def enqueue_connector_sync(connector, actor) do
+    scheduled_at = connector.next_sync_at || connector.last_synced_at || connector.inserted_at
+
+    enqueue(
+      "connector_sync",
+      connector.account_id,
+      %{
+        scope_id: connector.scope_id,
+        target_type: "connector_config",
+        target_id: connector.id,
+        idempotency_key: Idempotency.connector_sync(connector.id, connector.cursor, scheduled_at),
+        payload: %{
+          "cursor_hash" =>
+            connector.cursor
+            |> :erlang.term_to_binary([:deterministic])
+            |> Idempotency.content_hash()
+        }
+      },
+      actor
+    )
+  end
+
   @spec enqueue_reconciler(Ecto.UUID.t(), map(), term()) ::
           {:ok, PipelineRun.t()} | {:error, term()}
   def enqueue_reconciler(account_id, actor, watermark \\ nil) do
@@ -104,6 +128,7 @@ defmodule Cartulary.Pipeline do
         "projection_refresh" -> Cartulary.Pipeline.Workflows.DreamTimeReasoning
         "validation_continuation" -> Cartulary.Pipeline.Workflows.ValidationContinuation
         "answer_correlation" -> Cartulary.Pipeline.Workflows.AnswerCorrelationContinuation
+        "connector_sync" -> Cartulary.Pipeline.Workflows.Maintenance
         _other -> Cartulary.Pipeline.Workflows.Maintenance
       end
 

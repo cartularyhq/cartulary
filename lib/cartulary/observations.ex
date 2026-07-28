@@ -5,9 +5,9 @@ defmodule Cartulary.Observations do
   Ash domain for durable raw observations and authored document versions.
 
   Message and document-version content is create-only. This preserves
-  `FR-FORM-7`, `FR-FORM-8`, and the authored-artifact versioning rule while
-  F2 changes attach content hashes, audit, durable processing identity, and
-  AshOban enqueue effects to the same transaction.
+  `FR-FORM-7` through `FR-FORM-12` and the authored-artifact versioning rule.
+  F6 stores document bytes through the configured blob port and keeps immutable
+  content hashes, source metadata, and blob references on each durable version.
   """
 
   use Ash.Domain
@@ -281,11 +281,35 @@ defmodule Cartulary.Observations.Document do
     defaults [:read]
 
     create :create do
-      accept [:scope_id, :owner_peer_id, :external_id, :title, :source_kind, :status]
+      accept [
+        :scope_id,
+        :owner_peer_id,
+        :connector_config_id,
+        :external_id,
+        :title,
+        :source_kind,
+        :source_uri,
+        :source_metadata,
+        :status
+      ]
     end
 
     update :update_metadata do
-      accept [:title, :status, :current_version_id]
+      accept [:title, :source_uri, :source_metadata]
+    end
+
+    update :publish_version do
+      accept [:current_version_id, :current_content_hash, :status, :tombstoned_at]
+      require_atomic? false
+    end
+
+    update :tombstone do
+      accept [:status, :tombstoned_at]
+      require_atomic? false
+    end
+
+    destroy :erase do
+      require_atomic? false
     end
   end
 
@@ -297,6 +321,20 @@ defmodule Cartulary.Observations.Document do
     policy action_type(:read) do
       authorize_if {Cartulary.Policy.ScopeAccess, attribute: :scope_id}
     end
+
+    policy action(:create) do
+      authorize_if {Cartulary.Policy.ScopeRole, roles: [:account_admin, :curator, :member]}
+      authorize_if actor_attribute_equals(:pipeline?, true)
+    end
+
+    policy action(:update_metadata) do
+      authorize_if {Cartulary.Policy.ScopeRole, roles: [:account_admin, :curator, :member]}
+      authorize_if actor_attribute_equals(:pipeline?, true)
+    end
+
+    policy action([:publish_version, :tombstone, :erase]) do
+      authorize_if actor_attribute_equals(:pipeline?, true)
+    end
   end
 
   attributes do
@@ -304,17 +342,22 @@ defmodule Cartulary.Observations.Document do
     attribute :account_id, :uuid, allow_nil?: false
     attribute :scope_id, :uuid, allow_nil?: false, public?: true
     attribute :owner_peer_id, :uuid, public?: true
+    attribute :connector_config_id, :uuid, public?: true
     attribute :current_version_id, :uuid, public?: true
+    attribute :current_content_hash, :string, public?: true
     attribute :external_id, :string, public?: true
     attribute :title, :string, allow_nil?: false, public?: true
     attribute :source_kind, :string, allow_nil?: false, default: "upload", public?: true
+    attribute :source_uri, :string, public?: true
+    attribute :source_metadata, :map, allow_nil?: false, default: %{}, public?: true
     attribute :status, :string, allow_nil?: false, default: "active", public?: true
+    attribute :tombstoned_at, :utc_datetime_usec, public?: true
     create_timestamp :inserted_at
     update_timestamp :updated_at
   end
 
   identities do
-    identity :external_id, [:external_id]
+    identity :source_external_id, [:connector_config_id, :external_id]
   end
 end
 
@@ -339,12 +382,38 @@ defmodule Cartulary.Observations.DocumentVersion do
         :scope_id,
         :version,
         :content,
+        :content_hash,
+        :byte_size,
+        :blob_ref,
         :media_type,
+        :source_metadata,
         :occurred_at
       ]
 
-      change Cartulary.Observations.Changes.HashContent
+      change Cartulary.Observations.Changes.HashContentIfMissing
       change Cartulary.Observations.Changes.AuditAndEnqueueDocument
+    end
+
+    update :mark_processed do
+      accept [
+        :extracted_text,
+        :extraction_metadata,
+        :chunk_count,
+        :embedded_chunk_count,
+        :processing_status,
+        :extraction_completed_at
+      ]
+
+      require_atomic? false
+    end
+
+    update :mark_failed do
+      accept [:processing_status, :last_error_class]
+      require_atomic? false
+    end
+
+    destroy :erase do
+      require_atomic? false
     end
   end
 
@@ -356,6 +425,15 @@ defmodule Cartulary.Observations.DocumentVersion do
     policy action_type(:read) do
       authorize_if {Cartulary.Policy.ScopeAccess, attribute: :scope_id}
     end
+
+    policy action(:create) do
+      authorize_if {Cartulary.Policy.ScopeRole, roles: [:account_admin, :curator, :member]}
+      authorize_if actor_attribute_equals(:pipeline?, true)
+    end
+
+    policy action([:mark_processed, :mark_failed, :erase]) do
+      authorize_if actor_attribute_equals(:pipeline?, true)
+    end
   end
 
   attributes do
@@ -364,10 +442,20 @@ defmodule Cartulary.Observations.DocumentVersion do
     attribute :document_id, :uuid, allow_nil?: false, public?: true
     attribute :scope_id, :uuid, allow_nil?: false, public?: true
     attribute :version, :integer, allow_nil?: false, public?: true
-    attribute :content, :string, allow_nil?: false
+    attribute :content, :string
     attribute :content_hash, :string, allow_nil?: false, public?: true
+    attribute :byte_size, :integer, allow_nil?: false, default: 0, public?: true
+    attribute :blob_ref, :string, allow_nil?: false
     attribute :media_type, :string, allow_nil?: false, default: "text/plain", public?: true
+    attribute :source_metadata, :map, allow_nil?: false, default: %{}, public?: true
+    attribute :extracted_text, :string
+    attribute :extraction_metadata, :map, allow_nil?: false, default: %{}
+    attribute :chunk_count, :integer, allow_nil?: false, default: 0, public?: true
+    attribute :embedded_chunk_count, :integer, allow_nil?: false, default: 0, public?: true
+    attribute :processing_status, :string, allow_nil?: false, default: "pending", public?: true
+    attribute :last_error_class, :string
     attribute :occurred_at, :utc_datetime_usec, allow_nil?: false, public?: true
+    attribute :extraction_completed_at, :utc_datetime_usec
     create_timestamp :inserted_at
   end
 

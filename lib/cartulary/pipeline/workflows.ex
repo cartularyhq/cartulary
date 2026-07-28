@@ -17,9 +17,7 @@ defmodule Cartulary.Pipeline.Workflows.IngestExtraction do
           Cartulary.Memory.extract_message_for_account(run.target_id, run.account_id)
 
         "document_version" ->
-          # F6 owns native document parsing/model extraction. F2 provides the
-          # durable, idempotent execution lane now.
-          {:ok, %{document_version_id: run.target_id, deferred_to: "F6"}}
+          Cartulary.Documents.process_version_for_account(run.target_id, run.account_id)
       end
     end
   end
@@ -105,6 +103,12 @@ defmodule Cartulary.Pipeline.Workflows.Maintenance do
 
         kind when kind in ["revalidation", "expiry"] ->
           Cartulary.Governance.Sweeper.run(run.account_id, kind)
+
+        "connector_sync" ->
+          Cartulary.Documents.sync_connector_for_account(run.target_id, run.account_id)
+
+        "import_rebuild" when run.target_type == "document_version" ->
+          Cartulary.Documents.rebuild_version_for_account(run.target_id, run.account_id)
 
         _other ->
           Cartulary.Pipeline.Workflows.Stage.run(run)

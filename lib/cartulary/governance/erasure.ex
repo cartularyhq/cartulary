@@ -105,7 +105,7 @@ defmodule Cartulary.Governance.Erasure do
     recompute_projections!(account_id, actor, request.peer_id, delete_ids)
     recompute_entities!(account_id, actor, delete_ids)
     erase_peer_queries!(account_id, actor, request.peer_id)
-    erase_knowledge!(account_id, actor, delete_knowledge)
+    erase_knowledge_rows!(account_id, actor, delete_knowledge)
 
     retained_sourced =
       sourced_knowledge
@@ -171,7 +171,8 @@ defmodule Cartulary.Governance.Erasure do
     end
   end
 
-  defp erase_knowledge!(account_id, actor, knowledge_rows) do
+  @doc false
+  def erase_knowledge_rows!(account_id, actor, knowledge_rows) do
     ids = Enum.map(knowledge_rows, & &1.id)
 
     EntityMention

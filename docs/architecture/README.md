@@ -41,3 +41,8 @@ The implemented F5 provider roles, structured validation/repair, local
 Ortex/ONNX embedder, model provenance, exact usage ledger, and `f5-1`
 extraction transition are recorded in
 `docs/architecture/f5-model-layer-structured-extraction.md`.
+
+The implemented F6 document/blob boundary, native extraction, RAG chunking,
+dual-ingest pipeline, incremental connector sync, immutable supersession,
+tombstones, erasure, and document portability seam are recorded in
+`docs/architecture/f6-documents-connectors-sync.md`.

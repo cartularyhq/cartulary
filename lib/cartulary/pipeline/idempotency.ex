@@ -17,6 +17,10 @@ defmodule Cartulary.Pipeline.Idempotency do
   def document_extraction(document_version_id, content_hash),
     do: key(:document_extraction, [document_version_id, content_hash])
 
+  @spec connector_sync(Ecto.UUID.t(), map(), term()) :: String.t()
+  def connector_sync(connector_id, cursor, scheduled_at),
+    do: key(:connector_sync, [connector_id, cursor, scheduled_at])
+
   @spec dream_time(Ecto.UUID.t(), term()) :: String.t()
   def dream_time(scope_id, watermark), do: key(:dream_time, [scope_id, watermark])
 

@@ -23,6 +23,35 @@ defmodule Cartulary.Observations.Changes.HashContent do
   end
 end
 
+defmodule Cartulary.Observations.Changes.HashContentIfMissing do
+  @moduledoc false
+
+  use Ash.Resource.Change
+
+  alias Cartulary.Pipeline.Idempotency
+
+  @impl true
+  def change(changeset, _opts, _context) do
+    case {
+      Ash.Changeset.get_attribute(changeset, :content_hash),
+      Ash.Changeset.get_attribute(changeset, :content)
+    } do
+      {hash, _content} when is_binary(hash) and hash != "" ->
+        changeset
+
+      {_hash, content} when is_binary(content) ->
+        Ash.Changeset.force_change_attribute(
+          changeset,
+          :content_hash,
+          Idempotency.content_hash(content)
+        )
+
+      _other ->
+        changeset
+    end
+  end
+end
+
 defmodule Cartulary.Observations.Changes.AuditAndEnqueueMessage do
   @moduledoc false
 
@@ -95,10 +124,12 @@ defmodule Cartulary.Observations.Changes.AuditAndEnqueueDocument do
                metadata: %{
                  "document_id" => version.document_id,
                  "version" => version.version,
-                 "media_type" => version.media_type
+                 "media_type" => version.media_type,
+                 "byte_size" => version.byte_size
                }
              }),
-           {:ok, _run} <- Pipeline.enqueue_document_extraction(version, actor) do
+           {:ok, _run} <- Pipeline.enqueue_document_extraction(version, actor),
+           {:ok, _reconciler} <- Pipeline.enqueue_reconciler(version.account_id, actor) do
         {:ok, version}
       end
     end)

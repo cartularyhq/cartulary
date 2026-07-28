@@ -26,6 +26,9 @@ Before editing, read the smallest authoritative set needed for the task:
    or experiment-comparison work, also read `docs/observability/README.md`.
 8. For work touching Ash resources, actions, policies, tenancy, or migrations,
    also read `docs/architecture/f1-ash-domain-backbone.md`.
+9. For document ingestion, blob storage, parsing, connectors, sync,
+   supersession, or document portability, also read
+   `docs/architecture/f6-documents-connectors-sync.md`.
 
 Blueprint anchors are stable review handles. Preserve existing `FR-*`, `AD-*`,
 `AINV-*`, and `NFR-*` meanings unless the task explicitly asks for a blueprint
@@ -202,6 +205,28 @@ refactoring:
   Mismatch must return the versioned re-embed path and must never reuse or
   silently substitute vectors. The deterministic provider is test/local-only;
   production must not fall back to it after a provider error.
+- F6 adds `Cartulary.Documents` as the tenth configured Ash Domain plus
+  `ConnectorConfig` and `DocumentChunk`, taking the authoritative boundary to
+  38 Resources. F6 evidence is kept in
+  `test/cartulary/f6_documents_connectors_sync_test.exs`,
+  `docs/architecture/f6-documents-connectors-sync.md`,
+  `priv/resource_snapshots/`, and
+  `priv/repo/migrations/20260728082728_f6_documents_connectors_sync.exs`.
+  Connectors submit raw document versions only; extracted knowledge must still
+  pass the F5 structured pipeline and F4 governance.
+- F6 connector cursors advance only after a page is durably handled. Repeated
+  content hashes are no-ops, changed documents append immutable versions and
+  supersede stale derivations without overwriting history, and remote deletion
+  uses tombstones. Supersession and tombstones must not retract knowledge with
+  surviving independent provenance. Blob adapter choice is a runtime
+  infrastructure seam and must not change those semantics.
+- F6 document chunks and embeddings are rebuildable derived caches. Logical
+  export includes checksum-verified version blobs and metadata but excludes
+  chunks/vectors; import rebuilds through ordinary ingest. Erasure must remove
+  exclusive blobs and document-only knowledge while preserving content-safe
+  audit evidence and knowledge with surviving provenance. Never copy document
+  bytes, extracted text, connector cursors, source metadata, or secrets into
+  audit metadata, telemetry, or Oban arguments.
 - Direct Repo/Ecto SQL access is confined to infrastructure/data-layer modules
   and explicitly ticketed custom query helpers. The current exception is
   `Cartulary.Memory.Query`, whose removal ticket is roadmap F7.

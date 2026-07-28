@@ -143,6 +143,30 @@ defmodule Cartulary.Memory do
     end)
   end
 
+  @doc false
+  def extract_document_text(account_id, actor, attrs)
+      when is_binary(account_id) and is_map(actor) and is_map(attrs) do
+    observation =
+      attrs
+      |> normalize_attrs()
+      |> Map.put("source_type", "document")
+      |> Map.put("known_peer_keys", known_peer_keys(account_id, actor))
+
+    context = %{
+      account_id: account_id,
+      scope_id: Map.fetch!(observation, "scope_id"),
+      peer_id: Map.fetch!(observation, "peer_id"),
+      source_peer_id: Map.fetch!(observation, "peer_id"),
+      document_version_id: Map.fetch!(observation, "id"),
+      actor: actor
+    }
+
+    with {:ok, items} <- Extractor.extract(observation, context) do
+      knowledge = Enum.map(items, &insert_knowledge!(account_id, actor, observation, &1))
+      {:ok, knowledge}
+    end
+  end
+
   def query_knowledge(filters, identity_actor \\ nil) do
     Observability.with_span(:memory, "cartulary.memory.query_knowledge", fn ->
       filters = filters |> normalize_attrs() |> put_identity_actor(identity_actor)
@@ -463,7 +487,12 @@ defmodule Cartulary.Memory do
 
     {knowledge, created?} =
       if existing do
-        source_message_ids = Enum.uniq(existing.source_message_ids ++ [message["id"]])
+        source_message_ids =
+          if source_type(message) == "message" do
+            Enum.uniq(existing.source_message_ids ++ [message["id"]])
+          else
+            existing.source_message_ids
+          end
 
         knowledge =
           existing
@@ -492,7 +521,8 @@ defmodule Cartulary.Memory do
               state: "proposed",
               target_level: item.target_level,
               verification: "pending",
-              source_message_ids: [message["id"]],
+              source_message_ids:
+                if(source_type(message) == "message", do: [message["id"]], else: []),
               expires_at: item.expires_at,
               revalidate_after: item.revalidate_after,
               relevant_from: item.relevant_from,
@@ -567,12 +597,15 @@ defmodule Cartulary.Memory do
   end
 
   defp ensure_provenance!(account_id, actor, knowledge, message, item) do
-    existing =
+    source_type = source_type(message)
+
+    query =
       Provenance
-      |> Ash.Query.filter(
-        knowledge_item_id == ^knowledge.id and source_type == "message" and
-          message_id == ^message["id"]
-      )
+      |> Ash.Query.filter(knowledge_item_id == ^knowledge.id and source_type == ^source_type)
+      |> provenance_source_filter(source_type, message["id"])
+
+    existing =
+      query
       |> Ash.Query.limit(1)
       |> Ash.Query.set_tenant(account_id)
       |> Ash.read_one!(actor: actor)
@@ -584,8 +617,9 @@ defmodule Cartulary.Memory do
         %{
           knowledge_item_id: knowledge.id,
           scope_id: knowledge.scope_id,
-          source_type: "message",
-          message_id: message["id"],
+          source_type: source_type,
+          message_id: if(source_type == "message", do: message["id"]),
+          document_version_id: if(source_type == "document", do: message["id"]),
           extracting_provider: item.provider,
           extracting_model: item.model,
           extracting_model_version: item.model_version,
@@ -597,6 +631,14 @@ defmodule Cartulary.Memory do
         actor
       )
   end
+
+  defp provenance_source_filter(query, "message", id),
+    do: Ash.Query.filter(query, message_id == ^id)
+
+  defp provenance_source_filter(query, "document", id),
+    do: Ash.Query.filter(query, document_version_id == ^id)
+
+  defp source_type(message), do: Map.get(message, "source_type", "message")
 
   defp ensure_attribution!(account_id, actor, knowledge, _message, _item, subject) do
     existing =

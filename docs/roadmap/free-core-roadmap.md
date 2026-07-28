@@ -2,8 +2,8 @@
 
 # Free Core Architecture And Roadmap
 
-Status: active roadmap; F0-F1 complete
-Date: 2026-07-27
+Status: active roadmap; F0-F6 complete
+Date: 2026-07-28
 
 This roadmap turns the working local POC into the complete free self-host core:
 one Account, one Mix release, one BEAM node by default, Postgres through pg0 or
@@ -445,24 +445,33 @@ Goal: support document memory as a first-class free-core path.
 
 Deliverables:
 
-- [ ] Document and DocumentVersion resources with content hashes, source metadata,
+- [x] Document and DocumentVersion resources with content hashes, source metadata,
   blob refs, and scope visibility.
-- [ ] Extractous/ExtractousEx and MDEx ingestion for PDF, Office, email, markdown,
+- [x] Extractous/ExtractousEx and MDEx ingestion for PDF, Office, email, markdown,
   and text where supported by the chosen libraries.
-- [ ] `bitcrowd/rag` chunking path for document chunks and retrieval metrics.
-- [ ] Dual ingest: chunk + embed for retrieval, and extract knowledge through the
+- [x] `bitcrowd/rag` chunking path for document chunks and retrieval metrics.
+- [x] Dual ingest: chunk + embed for retrieval, and extract knowledge through the
   same Gate A/B pipeline.
-- [ ] Connector behavior with schedule, cursor, content-hash change detection,
+- [x] Connector behavior with schedule, cursor, content-hash change detection,
   deletion/tombstone handling, and re-extract/supersede behavior.
-- [ ] Local filesystem blob store for free core and an S3-compatible adapter
+- [x] Local filesystem blob store for free core and an S3-compatible adapter
   retained as an infrastructure port.
 
 Acceptance:
 
-- [ ] A changed synced document supersedes knowledge derived from the prior version
+- [x] A changed synced document supersedes knowledge derived from the prior version
   without overwriting history.
-- [ ] Erasure and export/import handle blobs, document metadata, and derived chunks
+- [x] Erasure and export/import handle blobs, document metadata, and derived chunks
   correctly.
+
+F6 evidence lives in the ten-domain, 38-resource Ash boundary; the document,
+blob, parser, chunking, connector, and portability modules under
+`lib/cartulary/documents/`; the generated F6 migration and resource snapshots;
+and `test/cartulary/f6_documents_connectors_sync_test.exs`. Durable versus
+derived data, native extraction, pinned embedding identity, cursor scheduling,
+hash no-ops, immutable supersession/tombstones, content-safe operations,
+erasure, the F10 archive seam, and the F7 pgvector/index handoff are documented
+in `docs/architecture/f6-documents-connectors-sync.md`.
 
 ### F7: Retrieval, Entity Resolution, And Context
 

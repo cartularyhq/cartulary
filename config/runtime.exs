@@ -221,6 +221,43 @@ config :cartulary, :models,
   api_key: nil,
   api_key_ref: "env:OPENROUTER_API_KEY"
 
+blob_adapter =
+  case env_get.("CARTULARY_BLOB_ADAPTER", "local") do
+    "local" -> Cartulary.Documents.BlobStore.Local
+    "s3" -> Cartulary.Documents.BlobStore.S3
+    invalid -> raise "unsupported CARTULARY_BLOB_ADAPTER: #{inspect(invalid)}"
+  end
+
+default_blob_root =
+  if config_env() == :prod,
+    do: "/var/lib/cartulary/blobs",
+    else: Path.join(System.tmp_dir!(), "cartulary-blobs-#{config_env()}")
+
+config :cartulary, :documents,
+  blob_adapter: blob_adapter,
+  blob_root: env_get.("CARTULARY_BLOB_ROOT", default_blob_root),
+  s3_bucket: env_get.("CARTULARY_S3_BUCKET", nil),
+  s3_prefix: env_get.("CARTULARY_S3_PREFIX", "cartulary"),
+  chunk_size: env_integer.("CARTULARY_DOCUMENT_CHUNK_SIZE", "1200"),
+  chunk_overlap: env_integer.("CARTULARY_DOCUMENT_CHUNK_OVERLAP", "160"),
+  max_extract_length: env_integer.("CARTULARY_DOCUMENT_MAX_EXTRACT_LENGTH", "500000"),
+  connector_adapters: %{}
+
+config :ex_aws,
+  http_client: ExAws.Request.Req,
+  region: env_get.("AWS_REGION", "us-east-1")
+
+case env_get.("CARTULARY_S3_HOST", nil) do
+  host when is_binary(host) and host != "" ->
+    config :ex_aws, :s3,
+      scheme: env_get.("CARTULARY_S3_SCHEME", "https://"),
+      host: host,
+      port: env_integer.("CARTULARY_S3_PORT", "443")
+
+  _unset ->
+    :ok
+end
+
 otel_db_statement =
   if env_true?.("CARTULARY_OTEL_DB_STATEMENT_ENABLED"), do: :enabled, else: :disabled
 
@@ -232,7 +269,8 @@ config :cartulary, :observability,
   oban_spans: env_bool.("CARTULARY_OTEL_OBAN_SPANS_ENABLED", true),
   oban_span_relationship: env_oban_span_relationship.(),
   memory_spans: env_bool.("CARTULARY_OTEL_MEMORY_SPANS_ENABLED", true),
-  model_spans: env_bool.("CARTULARY_OTEL_MODEL_SPANS_ENABLED", true)
+  model_spans: env_bool.("CARTULARY_OTEL_MODEL_SPANS_ENABLED", true),
+  document_spans: env_bool.("CARTULARY_OTEL_DOCUMENT_SPANS_ENABLED", true)
 
 config :opentelemetry,
   resource: %{

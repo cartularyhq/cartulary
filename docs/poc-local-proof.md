@@ -36,6 +36,11 @@ can be treated as the durable Cartulary architecture.
   provider behavior, local Ortex/ONNX and API embedding adapters, Ash-derived
   structured extraction/reasoning schemas, bounded repair, full model
   provenance, exact usage events, and cassette-injected capability tests.
+- Completed roadmap F6 with a tenth Documents Domain and a 38-resource durable
+  boundary, immutable document versions, content-addressed Local/S3 blob
+  adapters, MDEx/ExtractousEx parsing, TextChunker and bitcrowd/rag chunk
+  embeddings, incremental connector sync, supersession/tombstones, and
+  checksum-verified document export/import and erasure.
 - Converted `Cartulary.Memory` durable reads and writes to Ash actions while
   preserving the F0 shapes and intentionally versioning lifecycle semantics to
   `f4-1` and extraction to `f5-1`; the remaining parameterized retrieval SQL is isolated in
@@ -98,16 +103,17 @@ OpenRouter key.
 - `mix format --check-formatted` passed.
 - `mix compile --warnings-as-errors` passed.
 - `mix ecto.migrate` passed, including `CREATE EXTENSION IF NOT EXISTS vector`.
-- `mix test` passed with 52 tests (including two property tests), covering the F0 HTTP, persistence,
-  inheritance, Account-selection, pipeline-write, lifecycle, deterministic
-  fallback, eval-fixture contracts, the F1 Ash action/RLS suite, and the F2
-  transaction/audit/AshOban/Reactor/replay/provider-outage suite plus F3
-  password/API-key, single-Account, opaque-failure, cross-link, and property
-  suites and F4 matrix, consent, curator/MCP separation, inline assurance,
-  revalidation/decay, LiveView, and erasure coverage. F5 adds bounded structured
-  repair, subject and temporal extraction, full provenance, injected
-  reasoner/dialectic/embed/rerank capabilities, re-embed guards, exact usage,
-  and retryable provider-outage coverage.
+- `mix test` passed with 56 tests (including two property tests), covering the
+  F0 HTTP, persistence, inheritance, Account-selection, pipeline-write,
+  lifecycle, deterministic fallback, and eval-fixture contracts; the F1 Ash
+  action/RLS suite; F2 transaction/audit/AshOban/Reactor/replay/provider-outage;
+  F3 password/API-key, single-Account, opaque-failure, cross-link, and property
+  suites; F4 matrix, consent, curator/MCP separation, inline assurance,
+  revalidation/decay, LiveView, and erasure; F5 bounded structured repair,
+  subject/temporal extraction, provenance, all provider capabilities, re-embed
+  guards, exact usage, and retryable outage behavior; and F6 dual document
+  ingest, native parsing, pinned chunks, sync/no-op/supersession/tombstones,
+  portability, erasure/rebuild, independent provenance, and secret rejection.
 - `mix ash.codegen --check` passed with no resource/snapshot drift.
 - The F1 suite passed against a newly created partitioned test database,
   exercising the complete migration chain from an empty database.
@@ -116,6 +122,9 @@ OpenRouter key.
 - The combined F1/F2 suite passed against a newly created `f2` partitioned test
   database, exercising the complete migration chain from an empty database.
 - The complete F0-F5 suite passed against a newly created `f5_final`
+  partitioned test database, exercising the complete migration chain from an
+  empty database.
+- The complete F0-F6 suite passed against a newly created `f6_final`
   partitioned test database, exercising the complete migration chain from an
   empty database.
 - `mix credo --strict` passed with no issues.
@@ -149,9 +158,9 @@ These shortcuts are acceptable only for the local POC.
 - **Later pipeline behavior is parked behind F2 continuations.** AshOban and
   Ash.Reactor now own durable execution and the POC-compatible synchronous
   response is replay-safe. F4 now implements governance revalidation, expiry,
-  validation continuation, and transcript answer-correlation semantics;
-  connector, import, and full projection-refresh behavior remain in their later
-  roadmap phases.
+  validation continuation, and transcript answer-correlation semantics. F6
+  implements document connectors and the document portability component; full
+  account archives and projection-refresh behavior remain in later phases.
 - **Human identity is local free-core identity.** F3 now uses
   AshAuthentication password/JWT identities and per-Peer API keys. Enterprise
   SSO/SAML/SCIM, multi-Account provisioning, advanced RBAC administration, and
@@ -178,10 +187,12 @@ These shortcuts are acceptable only for the local POC.
 - **Projection layer is absent.** Profiles, scope cards, session summaries,
   peer profiles, ETS caches, `persistent_term` caches, and rebuild jobs are not
   implemented. F4 erasure marks the existing projection resource dirty and
-  recomputes entity derivations, ready for the full F6/F9 builders.
+  recomputes entity derivations, ready for the full F9 builders.
 - **Surfaces are partial.** F4 adds the curator LiveView, peer self-service API,
-  and AshAi MCP tools. AshJsonApi, generated SDKs, gateway proxy, and
-  import/export administration remain later phases.
+  and AshAi MCP tools. F6 supplies the internal document/connector/portability
+  boundary; AshJsonApi, generated SDKs, gateway proxy, connector
+  administration, and account-wide import/export administration remain later
+  phases.
 - **Tests are still POC-scoped.** F0 now covers the six HTTP endpoints,
   caller-header Account selection, downward scope inheritance, message and
   knowledge persistence, creation lifecycle events, deterministic extraction,
@@ -190,10 +201,14 @@ These shortcuts are acceptable only for the local POC.
   F2 adds transactional rollback, actual AshOban extraction, replay,
   hash-chain, reconciler, and provider-outage persistence coverage. F3 adds
   identity, Account-wall, inheritance/deny, cross-link, and opaque-failure
-  coverage. F5 adds replayed extraction repair, all five injectable provider
-  capabilities, exact usage, embedder migration, and outage/retry behavior. The
-  suite does not yet cover the later phases' connectors, projections, semantic
-  retrieval, or broad live-provider matrices.
+  coverage. F4 adds gate, consent, curator separation, revalidation, and
+  erasure coverage. F5 adds replayed extraction repair, all five injectable
+  provider capabilities, exact usage, embedder migration, and outage/retry
+  behavior. F6 covers document dual ingest, pinned chunks, connector hash
+  no-ops, changed-version supersession, tombstones, cursor progression,
+  portability, erasure, rebuild, and secret rejection. The suite does not yet
+  cover projections, semantic retrieval, broad live-provider matrices, or
+  operator-run Postgres parity.
 
 ## Required Refactors After POC
 
@@ -212,8 +227,8 @@ These shortcuts are acceptable only for the local POC.
    Postgres escape hatch.
 5. Add durable projections and rebuildable caches for context reads, including
    session summaries, scope cards, peer profiles, and derived indexes.
-6. Expand tests beyond F0-F5 into applied dream-time deductions, connectors,
-   projection builds, semantic retrieval fusion, broader provider
+6. Expand tests beyond F0-F6 into applied dream-time deductions, projection
+   builds, semantic retrieval fusion, broader provider
    compatibility, and release eval behavior.
 7. Wire the configured static analysis/security lanes into CI and branch
     protection when the repository automation is ready to maintain them.
