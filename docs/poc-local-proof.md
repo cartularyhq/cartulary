@@ -45,6 +45,10 @@ can be treated as the durable Cartulary architecture.
   deadline-bounded fan-out, weighted RRF, optional reranking, `f7-1` profiles,
   pgvector/FTS indexes, replay-safe vector/entity/projection rebuild, internal
   entity resolution, and projection-backed reasoning-free context assembly.
+- Completed roadmap F9 with plain-versioned authored skill cards, the strict
+  `f9-1` selector language, nearest-scope requirement overrides, reasoning-free
+  lifecycle-aware gap reports, HTTP/MCP exposure, governance authoring/review,
+  and provider-neutral TypeScript/Python elicitation helpers.
 - Converted `Cartulary.Memory` durable reads and writes to Ash actions while
   preserving the F0 shapes and intentionally versioning lifecycle semantics to
   `f4-1`, extraction to `f5-1`, and retrieval/context to `f7-1`. The obsolete
@@ -64,6 +68,7 @@ can be treated as the durable Cartulary architecture.
   - `POST /api/v1/search`
   - `POST /api/v1/ask`
   - `POST /api/v1/context`
+  - `POST /api/v1/readiness`
   - `GET /api/v1/knowledge`
 - Froze the `poc-0` behavior as roadmap phase F0:
   - HTTP contracts for all six endpoints.
@@ -199,9 +204,10 @@ These shortcuts are acceptable only for the local POC.
   release thresholds, and the operator-run Postgres parity lane remain open.
 - **Surfaces are partial.** F4 adds the curator LiveView, peer self-service API,
   and AshAi MCP tools. F6 supplies the internal document/connector/portability
-  boundary; AshJsonApi, generated SDKs, gateway proxy, connector
-  administration, and account-wide import/export administration remain later
-  phases.
+  boundary; F9 adds readiness HTTP/MCP actions, card governance UI, and
+  transport-neutral SDK helper modules. AshJsonApi, complete generated SDKs,
+  gateway proxy, connector administration, and account-wide import/export
+  administration remain later phases.
 - **Tests are still POC-scoped.** F0 now covers the six HTTP endpoints,
   caller-header Account selection, downward scope inheritance, message and
   knowledge persistence, creation lifecycle events, deterministic extraction,
@@ -215,9 +221,12 @@ These shortcuts are acceptable only for the local POC.
   provider capabilities, exact usage, embedder migration, and outage/retry
   behavior. F6 covers document dual ingest, pinned chunks, connector hash
   no-ops, changed-version supersession, tombstones, cursor progression,
-  portability, erasure, rebuild, and secret rejection. The suite does not yet
-  cover projections, semantic retrieval, broad live-provider matrices, or
-  operator-run Postgres parity.
+  portability, erasure, rebuild, and secret rejection. F7 covers strategy,
+  fusion, projection, entity privacy, and semantic retrieval contracts. F9
+  covers selector inheritance, version/audit behavior, blocker/warning
+  semantics, stale lifecycle handling, and all shipped readiness surfaces. The
+  suite does not yet cover broad live-provider matrices or operator-run
+  Postgres parity.
 
 ## Required Refactors After POC
 

@@ -5,7 +5,8 @@ agent memory on the BEAM. The current repository state combines the frozen
 local POC contract with the implemented F1 Ash Domain Backbone and F2
 Transactional Writes, Audit, And Jobs plus F3 Identity, Tenancy, And Basic
 RBAC, F4 Real Gate A/B Governance, and F5 Model Layer And Structured
-Extraction plus F6 Documents, Connectors, And Sync; it is not yet a finished
+Extraction plus F6 Documents, Connectors, And Sync, F7 Retrieval, Entity, And
+Context, and F9 Skill Readiness And Procedural Memory; it is not yet a finished
 product architecture.
 
 The POC can run against local Postgres from pg0, use local Ortex/ONNX
@@ -19,7 +20,9 @@ the Ash/Phoenix/Oban architecture, abstraction layers, decomposition, migration
 phases, and feature coverage needed for a complete single-Account community
 solution.
 
-Roadmap phases F0 through F6 are complete. F0 response shapes, persistence,
+Roadmap phases F0 through F7 and F9 are complete; F8 remains an explicit
+surface/SDK prerequisite and is not implied complete by the F9 helper modules.
+F0 response shapes, persistence,
 scope inheritance, pipeline-only knowledge writes, and tiny eval fixtures
 remain regression floors. F4 intentionally versions lifecycle behavior to
 `f4-1`: new proposals are provisionally peer-visible or held for governance
@@ -33,7 +36,7 @@ Resources own the durable boundary.
 ## What Runs Today
 
 - Phoenix API skeleton with health, ingest, search, ask, context, and knowledge
-  endpoints.
+  endpoints, plus the F9 readiness pre-flight.
 - Postgres schema for accounts, peers, scopes, sessions, raw messages,
   documents, knowledge/provenance/lifecycle, governance/config, projections,
   entities, skill cards, and usage events.
@@ -51,7 +54,12 @@ Resources own the durable boundary.
   auto-rejection.
 - AshAi MCP tools for raw ingest and governed reads, including deadline-bounded
   inline self-validation with transcript assurance and peer-lowerable ask
-  limits. Curator actions are not exposed to MCP or machine credentials.
+  limits, plus inherited `check_readiness`. Curator and skill-card authoring
+  actions are not exposed to MCP or machine credentials.
+- Plain-versioned `f9-1` skill requirement cards with validated metadata
+  selectors, requirement-level nearest-scope overrides, lifecycle-aware gap
+  reports, required blockers, preferred warnings, and provider-neutral
+  TypeScript/Python elicitation helpers.
 - AshAuthentication password/JWT identities for humans and hashed API-key
   identities for agents, linked to Peers with assurance levels.
 - One authenticated community Account, enforced by a database free-edition
@@ -225,7 +233,21 @@ Human account administrators and curators can sign in to the governance queue
 at `http://localhost:4000/governance/sign-in`. Authenticated human peers can
 inspect, contest, redact, or erase their own subject knowledge through the
 `/api/v1/self/*` routes. Machine credentials cannot use those human-governance
-routes. The MCP endpoint is `/mcp`.
+routes. The governance screen also authors and reviews skill requirement cards.
+The MCP endpoint is `/mcp`.
+
+Check readiness before a skill runs:
+
+```bash
+curl -fsS -X POST http://127.0.0.1:4000/api/v1/readiness \
+  -H 'authorization: Bearer <token>' \
+  -H 'content-type: application/json' \
+  -d '{"skill":"write-copy","scope_path":"/marketing/social"}'
+```
+
+The `f9-1` report blocks on required gaps, warns on preferred gaps, and marks
+expired or due-for-revalidation knowledge stale. Elicited answers go through
+ordinary `/api/v1/ingest`; callers rerun readiness after governance completes.
 
 Run the local smoke eval:
 
@@ -260,9 +282,10 @@ audit/AshOban behavior; F7 owns profile-based retrieval and projection-backed
 context. Database-native FTS, pgvector, and hop-one reads are confined to the
 reviewed read-only retrieval data layer.
 
-The contract evidence covers:
+The F0 contract evidence covers:
 
-- all six HTTP endpoints: health, ingest, search, ask, context, and knowledge;
+- its original six HTTP endpoints: health, ingest, search, ask, context, and
+  knowledge; F9 adds readiness as a separately versioned surface;
 - raw message persistence, pipeline-created knowledge, lifecycle insertion, and
   downward-only scope inheritance;
 - identity-derived HTTP Account selection, including regressions proving the
@@ -428,6 +451,30 @@ Read the strategy contracts, security filtering, vector/index shape, entity
 privacy, projection lifecycle, runtime controls, version transition, and
 evidence in `docs/architecture/f7-retrieval-entity-context.md`.
 
+## F9 Skill Readiness And Procedural Memory
+
+Skill requirement cards are authored, plain-versioned contracts rather than
+knowledge assertions. The `f9-1` selector language matches governed knowledge
+metadata, subject, provenance source, confidence/corroboration, and freshness.
+Requirement keys inherit down the scope tree with nearest-scope overrides or
+explicit disablement.
+
+`POST /api/v1/readiness`, the AshAi MCP `check_readiness` tool, and the internal
+Skills action all return the same reasoning-free gap report. Required gaps
+block, preferred gaps warn, a missing card blocks, and active-looking knowledge
+whose expiry or revalidation deadline is due is already stale even before the
+lifecycle sweeper runs. `ask-peer`/`either` gaps include an elicitation plan;
+answers still enter as raw observations and must pass ordinary governance.
+
+The governance LiveView publishes and reviews card versions. Transport-neutral
+TypeScript and Python helpers under `sdk/` enforce server blockers and prepare
+elicitation prompts; generation and packaging of the complete clients remains
+F8 scope.
+
+Read the selector schema, inheritance algorithm, lifecycle/source semantics,
+surface contract, content-safe telemetry posture, migration, and evidence in
+`docs/architecture/f9-skill-readiness-procedural-memory.md`.
+
 ## Free Core Direction
 
 The free core is intended to include the full memory engine, single-node
@@ -471,6 +518,8 @@ The important cuts are intentional and temporary:
 - F5 provides a cassette-tested provider seam, but production model artifacts,
   broader provider certification, and release eval thresholds remain operator
   and later-roadmap work.
+- F9 ships the readiness helpers consumed by future generated SDKs. F8 still
+  owns the full generated clients, OpenAPI packaging, and gateway surface.
 
 ## Checks
 

@@ -6,6 +6,9 @@ erl_crash.dump
 *.beam
 .elixir_ls/
 .idea/
+__pycache__/
+*.py[cod]
+node_modules/
 priv/plts/
 priv/repo/*.sqlite*
 priv/static/assets/

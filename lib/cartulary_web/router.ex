@@ -42,6 +42,7 @@ defmodule CartularyWeb.Router do
       post "/ask", MemoryController, :ask
       post "/search", MemoryController, :search
       post "/context", MemoryController, :context
+      post "/readiness", MemoryController, :readiness
       get "/knowledge", MemoryController, :knowledge
     end
   end
@@ -78,6 +79,7 @@ defmodule CartularyWeb.Router do
         :search,
         :ask,
         :query_knowledge,
+        :check_readiness,
         :resolve_validation,
         :set_ask_preference
       ],

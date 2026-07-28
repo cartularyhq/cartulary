@@ -549,20 +549,30 @@ agent acts.
 
 Deliverables:
 
-- [ ] SkillRequirementCard authored resource with inherited scope overrides.
-- [ ] Selector language over knowledge metadata, freshness, subject, source policy,
+- [x] SkillRequirementCard authored resource with inherited scope overrides.
+- [x] Selector language over knowledge metadata, freshness, subject, source policy,
   and required/preferred levels.
-- [ ] `check_readiness(skill, peer, scope)` action and API/MCP exposure.
-- [ ] Gap report result schema, blocker/warning distinction, and SDK helper for
+- [x] `check_readiness(skill, peer, scope)` action and API/MCP exposure.
+- [x] Gap report result schema, blocker/warning distinction, and SDK helper for
   elicitation.
-- [ ] Revalidation integration so stale knowledge cannot satisfy requirements.
-- [ ] Governance UI for authoring and reviewing skill cards.
+- [x] Revalidation integration so stale knowledge cannot satisfy requirements.
+- [x] Governance UI for authoring and reviewing skill cards.
 
 Acceptance:
 
-- [ ] Required gaps block the helper path.
-- [ ] Preferred gaps warn without blocking.
-- [ ] Expired or `needs_revalidation` knowledge does not satisfy readiness.
+- [x] Required gaps block the helper path.
+- [x] Preferred gaps warn without blocking.
+- [x] Expired or `needs_revalidation` knowledge does not satisfy readiness.
+
+F9 evidence lives in the selector/authoring/readiness modules under
+`lib/cartulary/skills/`, the existing `SkillRequirementCard` Ash Resource, the
+HTTP and AshAi MCP action surfaces, the governance LiveView, the generated F9
+migration/resource snapshot, the provider-neutral helpers under `sdk/`, and
+`test/cartulary/f9_skill_readiness_procedural_memory_test.exs`. Selector and
+gap-report identity `f9-1`, requirement-level nearest-scope override semantics,
+content-safe audit, lifecycle freshness, elicitation behavior, and the
+intentional F9/F8 SDK boundary are documented in
+`docs/architecture/f9-skill-readiness-procedural-memory.md`.
 
 ### F10: Portability, Packaging, And Operations
 

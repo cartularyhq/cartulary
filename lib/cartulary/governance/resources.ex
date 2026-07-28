@@ -762,6 +762,15 @@ defmodule Cartulary.Governance.McpTools do
       run {Cartulary.Governance.Actions.McpRead, operation: :query_knowledge}
     end
 
+    action :check_readiness, :map do
+      description "Check inherited procedural-memory requirements before running a skill."
+      argument :session_id, :string, public?: true
+      argument :skill, :string, allow_nil?: false, public?: true
+      argument :scope_path, :string, allow_nil?: false, public?: true
+      argument :peer_id, :uuid, public?: true
+      run {Cartulary.Governance.Actions.McpRead, operation: :check_readiness}
+    end
+
     action :resolve_validation, :map do
       description "Answer only a pending validation addressed to the calling peer."
       argument :id, :uuid, allow_nil?: false, public?: true

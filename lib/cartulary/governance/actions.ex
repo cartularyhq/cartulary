@@ -32,6 +32,7 @@ defmodule Cartulary.Governance.Actions.McpRead do
         :search -> Cartulary.Memory.search(attrs, context.actor)
         :ask -> Cartulary.Memory.ask(attrs, context.actor)
         :query_knowledge -> %{"data" => Cartulary.Memory.query_knowledge(attrs, context.actor)}
+        :check_readiness -> Cartulary.Memory.check_readiness(attrs, context.actor)
       end
 
     topic = attrs["query"] || attrs["question"]

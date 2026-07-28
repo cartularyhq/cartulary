@@ -144,6 +144,7 @@ defmodule Cartulary.F4RealGateABGovernanceTest do
     assert tool_names ==
              Enum.sort([
                :ask,
+               :check_readiness,
                :get_context,
                :ingest,
                :query_knowledge,

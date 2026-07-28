@@ -30,6 +30,7 @@ defmodule Cartulary.Governance do
     tool(:search, Cartulary.Governance.McpTools, :search)
     tool(:ask, Cartulary.Governance.McpTools, :ask)
     tool(:query_knowledge, Cartulary.Governance.McpTools, :query_knowledge)
+    tool(:check_readiness, Cartulary.Governance.McpTools, :check_readiness)
     tool(:resolve_validation, Cartulary.Governance.McpTools, :resolve_validation)
     tool(:set_ask_preference, Cartulary.Governance.McpTools, :set_ask_preference)
   end

@@ -255,6 +255,25 @@ refactoring:
   synchronized with resource and migration changes. Projection changes must
   preserve dirty marking, bounded delta compaction, source ids, and PubSub/ETS
   invalidation; normal `get_context` assembly must not call a reasoning model.
+- F9 completes the authored `Cartulary.Skills.SkillRequirementCard` Resource
+  without changing the 38-Resource durable boundary. F9 evidence is kept in
+  `test/cartulary/f9_skill_readiness_procedural_memory_test.exs`,
+  `docs/architecture/f9-skill-readiness-procedural-memory.md`,
+  `priv/resource_snapshots/`, and
+  `priv/repo/migrations/20260728101329_f9_skill_readiness_procedural_memory.exs`.
+  Keep selector and gap-report identity at `f9-1` unless the public contract is
+  deliberately versioned.
+- F9 cards are human-authored, plain-versioned procedural memory; they are not
+  knowledge and do not pass Gate A/B. Requirement keys inherit down the scope
+  tree with nearest-scope overrides. Readiness may be satisfied only by
+  authorized `active` knowledge or the calling peer's usable `provisional`
+  knowledge; expired, due-for-revalidation, and `needs_revalidation` items
+  remain gaps even before a sweeper runs.
+- F9 required gaps block helper execution and preferred gaps only warn.
+  `ask-peer` and `either` gaps may produce an elicitation prompt, but the answer
+  must return through ordinary raw `ingest` and governance before readiness is
+  checked again. SDK helpers must never override a server blocker or write
+  knowledge directly.
 - Direct Repo/Ecto SQL access is confined to infrastructure/data-layer modules
   and explicitly ticketed custom query helpers.
   `Cartulary.Retrieval.Store` is the F7 read-only helper for static,

@@ -41,6 +41,14 @@ defmodule CartularyWeb.MemoryController do
     json(conn, %{data: result})
   end
 
+  def readiness(conn, params) do
+    result =
+      params
+      |> Memory.check_readiness(conn.assigns.current_actor)
+
+    json(conn, %{data: result})
+  end
+
   def knowledge(conn, params) do
     result =
       params

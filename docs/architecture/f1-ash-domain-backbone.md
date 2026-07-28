@@ -86,3 +86,8 @@ F3 adds the 28th Resource, `Cartulary.Accounts.ApiKey`, and the authenticated
 edge/RBAC resolver without changing F1's domain ownership. Its implementation
 and evidence are documented in
 `docs/architecture/f3-identity-tenancy-basic-rbac.md`.
+
+F9 completes the authored `SkillRequirementCard` placeholder without adding a
+new Resource. Versioned selectors, inherited procedural memory, readiness
+checks, and their public/helper contracts are documented in
+`docs/architecture/f9-skill-readiness-procedural-memory.md`.

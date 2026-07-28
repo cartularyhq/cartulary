@@ -29,6 +29,7 @@ defmodule Cartulary.Memory do
   alias Cartulary.Pipeline.Idempotency
   alias Cartulary.Pipeline.Lock
   alias Cartulary.Retrieval.Query, as: RetrievalQuery
+  alias Cartulary.Skills
   alias Cartulary.Topology.Scope
 
   require Ash.Query
@@ -314,6 +315,15 @@ defmodule Cartulary.Memory do
 
       context
     end)
+  end
+
+  def check_readiness(attrs, identity_actor \\ nil) do
+    attrs = attrs |> normalize_attrs() |> put_identity_actor(identity_actor)
+
+    case identity_actor(attrs) do
+      %Actor{} = actor -> Skills.check_readiness(actor, attrs)
+      nil -> raise ArgumentError, "an authenticated identity actor is required"
+    end
   end
 
   defp ensure_peer!(account_id, actor, key, nil),
