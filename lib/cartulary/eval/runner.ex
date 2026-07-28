@@ -6,28 +6,41 @@ defmodule Cartulary.Eval.Runner do
   """
 
   alias Cartulary.Clock
-  alias Cartulary.Eval.Scorer
+  alias Cartulary.Eval.{ModelJudge, Scorer}
   alias Cartulary.Memory
 
   def run(dataset, opts \\ []) do
     profile = Keyword.get(opts, :profile, "balanced")
     account_key = Keyword.get(opts, :account_key, "eval-benchmark")
-    run_id = Keyword.get_lazy(opts, :run_id, &default_run_id/0)
+    run_id = Keyword.get(opts, :run_id) || default_run_id()
     benchmark = dataset.benchmark
     scope_root = "/bench/#{benchmark}/#{run_id}"
+    deadline = Keyword.get(opts, :deadline, "disabled")
 
     cases =
       dataset.cases
       |> take_limit(Keyword.get(opts, :limit_cases))
-      |> Enum.map(&run_case(&1, dataset, scope_root, account_key, profile, opts))
+      |> Enum.map(&run_case(&1, dataset, scope_root, account_key, profile, deadline, opts))
 
     question_results = Enum.flat_map(cases, & &1.question_results)
 
     %{
+      "report_schema" => "f11-1",
+      "cartulary_version" => cartulary_version(),
+      "generated_at" => Clock.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601(),
       "benchmark" => benchmark,
       "source_format" => dataset.source_format,
+      "dataset" => %{
+        "id" => Map.get(dataset, :dataset_id, "#{benchmark}-in-memory"),
+        "sha256" => Map.get(dataset, :dataset_sha256, in_memory_fingerprint(dataset)),
+        "split" => Keyword.get(opts, :split, "evaluation")
+      },
       "profile" => profile,
       "profile_version" => profile_version(question_results),
+      "strategies" => Keyword.get(opts, :strategies),
+      "deadline" => deadline,
+      "model_roles" => model_role_versions(),
+      "judge" => judge_identity(opts),
       "account_key" => account_key,
       "run_id" => run_id,
       "scope_root" => scope_root,
@@ -40,7 +53,7 @@ defmodule Cartulary.Eval.Runner do
     }
   end
 
-  defp run_case(case, dataset, scope_root, account_key, profile, opts) do
+  defp run_case(case, dataset, scope_root, account_key, profile, deadline, opts) do
     scope_path = "#{scope_root}/#{slug(case.id)}"
 
     messages =
@@ -67,6 +80,11 @@ defmodule Cartulary.Eval.Runner do
       case.questions
       |> take_limit(Keyword.get(opts, :limit_questions))
 
+    full_context_tokens =
+      messages
+      |> Enum.map(&token_count(&1.content))
+      |> Enum.sum()
+
     question_results =
       questions
       |> Enum.map(fn question ->
@@ -77,12 +95,31 @@ defmodule Cartulary.Eval.Runner do
               "scope_path" => scope_path,
               "question" => question.question,
               "profile" => profile,
-              "deadline" => "disabled"
+              "deadline" => deadline,
+              "strategies" => Keyword.get(opts, :strategies)
             })
           end)
 
         cited_refs = cited_refs(answer, ref_map, question.evidence_granularity)
-        score = Scorer.score_question(question, answer, cited_refs)
+
+        deterministic_score =
+          Scorer.score_question(question, answer, cited_refs,
+            full_context_tokens: full_context_tokens
+          )
+
+        score =
+          if Keyword.get(opts, :judge, "deterministic") == "model" do
+            Map.merge(
+              deterministic_score,
+              ModelJudge.score(
+                question.question,
+                Map.get(answer, "answer", ""),
+                Map.get(answer, "candidates", [])
+              )
+            )
+          else
+            deterministic_score
+          end
 
         Map.merge(score, %{
           "benchmark" => dataset.benchmark,
@@ -219,6 +256,52 @@ defmodule Cartulary.Eval.Runner do
     |> DateTime.truncate(:second)
     |> DateTime.to_iso8601()
     |> String.replace(~r/[^0-9TZ]+/, "")
+  end
+
+  defp cartulary_version do
+    case Application.spec(:cartulary, :vsn) do
+      nil -> "0.0.0"
+      version -> to_string(version)
+    end
+  end
+
+  defp model_role_versions do
+    :cartulary
+    |> Application.fetch_env!(:model_roles)
+    |> Map.new(fn {role, config} ->
+      {Atom.to_string(role),
+       %{
+         "provider" => to_string(config.provider),
+         "model" => to_string(config.model),
+         "version" => to_string(config.model_version),
+         "prompt_version" => to_string(config.prompt_version),
+         "pipeline_version" => to_string(config.pipeline_version)
+       }}
+    end)
+  end
+
+  defp judge_identity(opts) do
+    if Keyword.get(opts, :judge, "deterministic") == "model" do
+      ModelJudge.identity()
+    else
+      %{"kind" => "deterministic", "method" => "deterministic-lexical-f11-1"}
+    end
+  end
+
+  defp in_memory_fingerprint(dataset) do
+    dataset
+    |> :erlang.term_to_binary()
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
+  end
+
+  defp token_count(value) do
+    value
+    |> to_string()
+    |> String.downcase()
+    |> String.replace(~r/[^[:alnum:]\s]+/u, " ")
+    |> String.split(~r/\s+/, trim: true)
+    |> length()
   end
 
   defp slug(value) do

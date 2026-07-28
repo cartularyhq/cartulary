@@ -2,7 +2,8 @@
 
 Date: 2026-07-27
 
-This document records the minimal LoCoMo, LongMemEval, and BEAM benchmark runs
+This document is the immutable Stage 0 record of the minimal LoCoMo,
+LongMemEval, and BEAM benchmark runs
 executed against the local POC benchmark runner. These are not upstream-scale
 scores. They prove that the POC can ingest the named benchmark families,
 exercise the real `Cartulary.Memory` write/read path, score answers and
@@ -15,6 +16,9 @@ All quoted scores use retrieval profile `balanced`, profile version `poc-0`.
 The current POC runner does not yet expose benchmark-specific deadline disable
 or fixed-clock controls in the report, so the deadline setting is the normal POC
 retrieval path.
+
+F11 does not relabel these historical files. Current `f7-1` claims use the
+`f11-1` report schema and `docs/eval/release-suite.json`.
 
 ## Commands Run
 
@@ -126,7 +130,8 @@ This is the minimum credible benchmark proof for the local POC:
 - The LongMemEval abstention miss documents a known retrieval/answering gap
   before release thresholds or upstream judge parity are added.
 
-Remaining eval work is still the same POC hardening path: upstream-scale
-datasets, upstream-compatible judging, held-out tuning, strategy ablations,
-explicit deadline-disable/fixed-clock reporting, release thresholds, CI gates,
-and pg0/operator-run Postgres parity evidence.
+F11 subsequently added held-out tuning discipline, strategy ablations, explicit
+deadline/report provenance, deterministic release thresholds, CI gates,
+ConvoMem support, and pg0/external-Postgres lanes. Remaining evidence work is
+upstream-scale datasets and independent-family live-model judging; smoke-scale
+fixtures are not comparative product scores.

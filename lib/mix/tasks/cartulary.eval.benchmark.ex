@@ -19,8 +19,7 @@ defmodule Mix.Tasks.Cartulary.Eval.Benchmark do
 
   use Mix.Task
 
-  alias Cartulary.Eval.Adapter
-  alias Cartulary.Eval.Runner
+  alias Cartulary.Eval.{Adapter, Runner, Runtime}
 
   @shortdoc "Runs full Cartulary benchmark ingestion/scoring"
 
@@ -53,8 +52,8 @@ defmodule Mix.Tasks.Cartulary.Eval.Benchmark do
     end
 
     dataset_path = Keyword.get(opts, :dataset) || Mix.raise("--dataset is required")
+    if Keyword.get(opts, :no_model, false), do: Runtime.use_deterministic_models()
     Mix.Task.run("app.start")
-    maybe_disable_model(opts)
 
     dataset =
       Adapter.load!(dataset_path,
@@ -84,31 +83,6 @@ defmodule Mix.Tasks.Cartulary.Eval.Benchmark do
       path ->
         File.write!(path, encoded)
         Mix.shell().info("wrote #{path}")
-    end
-  end
-
-  defp maybe_disable_model(opts) do
-    if Keyword.get(opts, :no_model, false) do
-      models = Application.get_env(:cartulary, :models, [])
-      Application.put_env(:cartulary, :models, Keyword.put(models, :api_key, nil))
-
-      roles =
-        :cartulary
-        |> Application.fetch_env!(:model_roles)
-        |> Enum.map(fn
-          {role, config} when role in [:ingest_extractor, :dream_reasoner, :dialectic_agent] ->
-            {role,
-             config
-             |> Map.put(:provider, "deterministic")
-             |> Map.put(:model, "local-structured-fallback")
-             |> Map.put(:model_version, "1")}
-
-          role_config ->
-            role_config
-        end)
-
-      Application.put_env(:cartulary, :model_roles, roles)
-      System.delete_env("OPENROUTER_API_KEY")
     end
   end
 end

@@ -9,12 +9,23 @@ defmodule Cartulary.Eval.Adapter do
   path.
   """
 
-  @benchmark_names ~w(locomo longmemeval beam cartulary)
+  @benchmark_names ~w(locomo longmemeval convomem beam cartulary)
 
   def load!(path, opts \\ []) do
-    path
-    |> read_fixture!()
-    |> normalize(opts)
+    body = read_fixture!(path)
+
+    dataset =
+      body
+      |> decode_fixture!()
+      |> normalize(opts)
+
+    Map.merge(dataset, %{
+      dataset_id: Path.basename(path),
+      dataset_sha256:
+        body
+        |> then(&:crypto.hash(:sha256, &1))
+        |> Base.encode16(case: :lower)
+    })
   end
 
   def normalize(data, opts \\ []) do
@@ -30,6 +41,7 @@ defmodule Cartulary.Eval.Adapter do
     case benchmark do
       "locomo" -> normalize_locomo(data)
       "longmemeval" -> normalize_longmemeval(data)
+      "convomem" -> normalize_convomem(data)
       "beam" -> normalize_beam(data)
       "cartulary" -> normalize_cartulary(data)
     end
@@ -37,8 +49,9 @@ defmodule Cartulary.Eval.Adapter do
 
   # Benchmark fixture paths come from the local Mix task, not from a web request.
   # sobelow_skip ["Traversal.FileModule"]
-  defp read_fixture!(path) do
-    body = File.read!(path)
+  defp read_fixture!(path), do: File.read!(path)
+
+  defp decode_fixture!(body) do
     trimmed = String.trim(body)
 
     if String.starts_with?(trimmed, ["[", "{"]) do
@@ -78,12 +91,14 @@ defmodule Cartulary.Eval.Adapter do
     cond do
       Map.has_key?(first, "conversation") and Map.has_key?(first, "qa") -> "locomo"
       Map.has_key?(first, "haystack_sessions") -> "longmemeval"
+      Map.has_key?(first, "conversations") and Map.has_key?(first, "question") -> "convomem"
       true -> "beam"
     end
   end
 
   defp detect_benchmark(%{"haystack_sessions" => _}), do: "longmemeval"
   defp detect_benchmark(%{"conversation" => _, "qa" => _}), do: "locomo"
+  defp detect_benchmark(%{"conversations" => _, "question" => _}), do: "convomem"
   defp detect_benchmark(_data), do: "beam"
 
   defp normalize_cartulary(%{"messages" => messages, "questions" => questions} = data) do
@@ -362,6 +377,124 @@ defmodule Cartulary.Eval.Adapter do
       count > 0 -> "s"
       true -> nil
     end
+  end
+
+  defp normalize_convomem(data) when is_map(data) do
+    rows =
+      cond do
+        is_list(data["data"]) -> data["data"]
+        is_list(data["questions"]) -> data["questions"]
+        true -> [data]
+      end
+
+    normalize_convomem(rows)
+  end
+
+  defp normalize_convomem(rows) when is_list(rows) do
+    %{
+      benchmark: "convomem",
+      source_format: "convomem",
+      cases:
+        rows
+        |> Enum.with_index(1)
+        |> Enum.map(fn {row, index} ->
+          case_id =
+            row
+            |> first_present(["id", "question_id", "sample_id"])
+            |> default_to("convomem-#{index}")
+            |> to_string()
+
+          category =
+            row
+            |> first_present(["category", "question_type", "type"])
+            |> maybe_string()
+
+          conversations =
+            row
+            |> first_present(["conversations", "conversation_history", "history", "messages"])
+            |> listify()
+
+          %{
+            id: case_id,
+            scope_path: "/bench/convomem/#{slug(case_id)}",
+            category: category,
+            scale: conversations |> length() |> Integer.to_string(),
+            metadata: Map.take(row, ["split", "category", "question_type"]),
+            messages: convomem_messages(conversations, case_id),
+            questions: [
+              %{
+                id: case_id,
+                scope_path: nil,
+                question: row |> Map.fetch!("question") |> to_string(),
+                expected: expected_values(row),
+                category: category,
+                evidence_refs:
+                  row
+                  |> first_present(["evidence", "evidence_ids", "supporting_message_ids"])
+                  |> listify()
+                  |> Enum.map(&to_string/1),
+                evidence_granularity: "turn",
+                abstention_expected:
+                  category in ["abstention", "unanswerable"] or abstention_expected?(row),
+                metadata: Map.take(row, ["split"])
+              }
+            ]
+          }
+        end)
+    }
+  end
+
+  defp convomem_messages(conversations, case_id) do
+    conversations
+    |> Enum.with_index(1)
+    |> Enum.flat_map(fn {conversation, conversation_index} ->
+      if is_map(conversation) do
+        session_id =
+          conversation
+          |> first_present(["id", "conversation_id", "session_id"])
+          |> default_to("#{case_id}-conversation-#{conversation_index}")
+          |> to_string()
+
+        case first_present(conversation, ["messages", "turns", "conversation"]) do
+          turns when is_list(turns) ->
+            convomem_turns(turns, case_id, session_id)
+
+          _turns ->
+            convomem_turns([conversation], case_id, session_id)
+        end
+      else
+        []
+      end
+    end)
+  end
+
+  defp convomem_turns(turns, case_id, session_id) do
+    turns
+    |> Enum.with_index(1)
+    |> Enum.map(fn {turn, index} ->
+      role = turn |> first_present(["role", "speaker"]) |> default_to("user") |> normalize_role()
+
+      id =
+        turn
+        |> first_present(["id", "message_id", "turn_id"])
+        |> default_to("#{session_id}:#{index}")
+        |> to_string()
+
+      %{
+        id: id,
+        session_id: "#{case_id}-#{session_id}",
+        scope_path: nil,
+        peer_key: role,
+        role: role,
+        content:
+          turn
+          |> first_present(["content", "text", "message"])
+          |> default_to("")
+          |> to_string(),
+        occurred_at: first_present(turn, ["occurred_at", "timestamp", "date"]),
+        metadata: %{"source_session_id" => session_id, "turn_index" => index}
+      }
+    end)
   end
 
   defp normalize_beam(data) when is_map(data) do

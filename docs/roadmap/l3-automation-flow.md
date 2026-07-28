@@ -32,7 +32,10 @@ Codex can rely on them:
   policy, and disclosure contacts.
 - Any paid services, model-provider keys, eval accounts, or deployment targets.
 
-Until those are configured, this repo should prefer inert placeholders and
-reviewable documentation over active automation.
+F11 now supplies read-only CI, nightly-eval, and release-readiness workflows.
+Repository rulesets, required-check selection, protected secrets/environments,
+and publishing permissions remain manual maintainer configuration. Until those
+settings are configured, do not describe the presence of workflow files as
+proof that `main` is protected.
 
 For detailed operator steps, use `manual-automation-setup.md`.

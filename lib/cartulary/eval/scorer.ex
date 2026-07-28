@@ -18,9 +18,18 @@ defmodule Cartulary.Eval.Scorer do
     "cannot answer"
   ]
 
-  def score_question(question, result, cited_refs) do
+  @doc """
+  Scores one answer with deterministic correctness, evidence, RAG-triad proxy,
+  and token-efficiency metrics.
+
+  The lexical RAG triad is the deterministic PR/release baseline. Live release
+  reports may add a separately identified model judge, but must never replace
+  these reproducible measurements.
+  """
+  def score_question(question, result, cited_refs, opts \\ []) do
     expected = Map.get(question, :expected, [])
     answer = result |> Map.get("answer", "") |> to_string()
+    candidates = Map.get(result, "candidates", [])
     abstention_expected? = Map.get(question, :abstention_expected, false)
     abstained? = Map.get(result, "abstained", false) == true or not_known?(answer)
     token_f1 = best_token_f1(answer, expected)
@@ -28,6 +37,8 @@ defmodule Cartulary.Eval.Scorer do
     exact_match? = exact_match?(answer, expected)
     evidence_refs = Map.get(question, :evidence_refs, [])
     citation = citation_score(evidence_refs, cited_refs)
+    triad = rag_triad(Map.get(question, :question, ""), answer, candidates, abstained?)
+    efficiency = token_efficiency(answer, candidates, Keyword.get(opts, :full_context_tokens, 0))
 
     correct? =
       if abstention_expected? do
@@ -45,6 +56,15 @@ defmodule Cartulary.Eval.Scorer do
       "correct" => correct?,
       "citation_hit" => citation.hit?,
       "citation_recall" => citation.recall,
+      "groundedness" => triad.groundedness,
+      "context_relevance" => triad.context_relevance,
+      "answer_relevance" => triad.answer_relevance,
+      "rag_triad_method" => "deterministic-lexical-f11-1",
+      "context_tokens" => efficiency.context_tokens,
+      "answer_tokens" => efficiency.answer_tokens,
+      "end_to_end_tokens" => efficiency.end_to_end_tokens,
+      "full_context_tokens" => efficiency.full_context_tokens,
+      "token_efficiency_ratio" => efficiency.ratio,
       "expected_refs" => evidence_refs,
       "cited_refs" => cited_refs
     }
@@ -80,6 +100,12 @@ defmodule Cartulary.Eval.Scorer do
       "abstention_accuracy" => nil,
       "citation_hit_rate" => 0.0,
       "mean_citation_recall" => 0.0,
+      "mean_groundedness" => 0.0,
+      "mean_context_relevance" => 0.0,
+      "mean_answer_relevance" => 0.0,
+      "mean_end_to_end_tokens" => 0.0,
+      "mean_full_context_tokens" => 0.0,
+      "mean_token_efficiency_ratio" => 0.0,
       "latency_ms" => latency_summary([])
     }
   end
@@ -99,8 +125,70 @@ defmodule Cartulary.Eval.Scorer do
         ),
       "citation_hit_rate" => ratio(results, &Map.get(&1, "citation_hit")),
       "mean_citation_recall" => mean(results, &Map.get(&1, "citation_recall")),
+      "mean_groundedness" => mean(results, &Map.get(&1, "groundedness")),
+      "mean_context_relevance" => mean(results, &Map.get(&1, "context_relevance")),
+      "mean_answer_relevance" => mean(results, &Map.get(&1, "answer_relevance")),
+      "mean_end_to_end_tokens" => mean(results, &Map.get(&1, "end_to_end_tokens")),
+      "mean_full_context_tokens" => mean(results, &Map.get(&1, "full_context_tokens")),
+      "mean_token_efficiency_ratio" => mean(results, &Map.get(&1, "token_efficiency_ratio")),
+      "mean_model_groundedness" => optional_mean(results, "model_groundedness"),
+      "mean_model_context_relevance" => optional_mean(results, "model_context_relevance"),
+      "mean_model_answer_relevance" => optional_mean(results, "model_answer_relevance"),
       "latency_ms" => results |> Enum.map(&Map.get(&1, "latency_ms", 0)) |> latency_summary()
     }
+  end
+
+  defp rag_triad(_question, _answer, _candidates, true) do
+    %{groundedness: 1.0, context_relevance: 0.0, answer_relevance: 1.0}
+  end
+
+  defp rag_triad(question, answer, candidates, false) do
+    context =
+      candidates
+      |> Enum.map_join(" ", fn candidate ->
+        Map.get(candidate, "statement") || Map.get(candidate, "content") || ""
+      end)
+
+    %{
+      groundedness: lexical_f1(answer, context),
+      context_relevance: lexical_f1(question, context),
+      answer_relevance: lexical_f1(question, answer)
+    }
+  end
+
+  defp token_efficiency(answer, candidates, full_context_tokens) do
+    context_tokens =
+      candidates
+      |> Enum.map(fn candidate ->
+        candidate
+        |> then(&(Map.get(&1, "statement") || Map.get(&1, "content") || ""))
+        |> token_count()
+      end)
+      |> Enum.sum()
+
+    answer_tokens = token_count(answer)
+    end_to_end_tokens = context_tokens + answer_tokens
+
+    %{
+      context_tokens: context_tokens,
+      answer_tokens: answer_tokens,
+      end_to_end_tokens: end_to_end_tokens,
+      full_context_tokens: full_context_tokens,
+      ratio:
+        if(full_context_tokens > 0,
+          do: end_to_end_tokens / full_context_tokens,
+          else: 0.0
+        )
+    }
+  end
+
+  defp lexical_f1(left, right), do: token_f1(token_counts(left), token_counts(right))
+
+  defp token_count(value) do
+    value
+    |> token_counts()
+    |> Map.values()
+    |> Enum.sum()
   end
 
   defp citation_score([], _cited_refs), do: %{hit?: false, recall: 0.0}
@@ -194,6 +282,13 @@ defmodule Cartulary.Eval.Scorer do
     |> case do
       [] -> 0.0
       numbers -> Enum.sum(numbers) / length(numbers)
+    end
+  end
+
+  defp optional_mean(values, key) do
+    case Enum.filter(values, &is_number(Map.get(&1, key))) do
+      [] -> nil
+      scored -> mean(scored, &Map.get(&1, key))
     end
   end
 

@@ -21,6 +21,10 @@ defmodule Cartulary.Eval.ScorerTest do
     assert score["contains_expected"]
     assert score["citation_hit"]
     assert score["citation_recall"] == 0.5
+    assert is_number(score["groundedness"])
+    assert is_number(score["context_relevance"])
+    assert is_number(score["answer_relevance"])
+    assert score["rag_triad_method"] == "deterministic-lexical-f11-1"
   end
 
   test "scores expected abstention" do

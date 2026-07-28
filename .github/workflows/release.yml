@@ -1,0 +1,79 @@
+# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+name: Release readiness
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing semantic release tag to validate
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: pgvector/pgvector:pg18-bookworm
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      MIX_ENV: test
+      CARTULARY_DATABASE_MODE: external
+      CARTULARY_TEST_DATABASE_URL: ecto://postgres:postgres@127.0.0.1:5432/cartulary_f11_release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          elixir-version: "1.18"
+      - run: mix deps.get
+      - run: mix ash.codegen --check
+      - run: mix format --check-formatted
+      - run: mix compile --warnings-as-errors
+      - run: mix test
+      - run: mix credo --strict
+      - run: mix dialyzer
+      - run: mix sobelow --config
+      - run: mix hex.audit
+      - run: >-
+          mix cartulary.eval.release
+          --no-model
+          --assert-thresholds
+          --run-id release-${{ github.run_id }}-${{ github.run_attempt }}
+          --output /tmp/cartulary-f11-release.json
+      - name: Validate tag, changelog, and eval guardrails
+        shell: bash
+        run: |
+          tag="${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}"
+          mix cartulary.release.check --tag "$tag" --eval-report /tmp/cartulary-f11-release.json
+      - name: Verify packaged pg0 lane and build platform release
+        run: ./scripts/ci-pg0-lane
+      - run: tar -C _build/prod/rel -czf /tmp/cartulary-linux-x86_64.tar.gz cartulary
+      - run: shasum -a 256 /tmp/cartulary-linux-x86_64.tar.gz > /tmp/cartulary-linux-x86_64.tar.gz.sha256
+      - run: docker build --tag cartulary:release .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cartulary-release-${{ github.run_id }}
+          path: |
+            /tmp/cartulary-linux-x86_64.tar.gz
+            /tmp/cartulary-linux-x86_64.tar.gz.sha256
+            /tmp/cartulary-f11-release.json
+          retention-days: 90

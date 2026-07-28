@@ -627,27 +627,41 @@ Goal: make quality claims reproducible and release gates real.
 
 Deliverables:
 
-- [ ] Deterministic PR gate: format, compile warnings-as-errors, tests, Credo,
+- [x] Deterministic PR gate: format, compile warnings-as-errors, tests, Credo,
   Dialyzer, Sobelow, data-layer contracts, strategy contracts, OpenAPI/MCP/SDK
   contracts, account isolation properties, consent/promotion scenarios, and
   no-public-entity-surface tests.
-- [ ] Provider cassette layer for realistic deterministic model tests.
-- [ ] Release/nightly eval: LoCoMo, LongMemEval, ConvoMem, BEAM degradation curve,
+- [x] Provider cassette layer for realistic deterministic model tests.
+- [x] Release/nightly eval: LoCoMo, LongMemEval, ConvoMem, BEAM degradation curve,
   Cartulary product evaluations, groundedness, context relevance, answer
   relevance, token efficiency, latency, abstention, and strategy-ablation
   matrices.
-- [ ] Stage 0 benchmark baselines before retrieval strategy changes, held-out
+- [x] Stage 0 benchmark baselines before retrieval strategy changes, held-out
   tuning discipline, profile-version citations, and deadline setting in every
   published number.
-- [ ] CI lanes for pg0 and external Postgres where available.
-- [ ] Release checklist and changelog discipline tied to blueprint anchors.
+- [x] CI lanes for pg0 and external Postgres where available.
+- [x] Release checklist and changelog discipline tied to blueprint anchors.
 
 Acceptance:
 
-- [ ] A release cannot be cut with failing deterministic guardrails.
-- [ ] Public benchmark or quality claims cite exact profile version, model role
+- [x] A release cannot be cut with failing deterministic guardrails.
+- [x] Public benchmark or quality claims cite exact profile version, model role
   versions, dataset, deadline setting, and date.
-- [ ] Missing parity lanes are reported explicitly until they exist.
+- [x] Missing parity lanes are reported explicitly until they exist.
+
+F11 evidence lives in `lib/cartulary/eval/`, the `cartulary.eval.release`,
+`cartulary.eval.verify`, and `cartulary.release.check` Mix tasks, the provider
+cassette layer, `docs/eval/`, `CHANGELOG.md`, the semantic-version and release
+runbooks, and `.github/workflows/`. Focused evidence is
+`test/cartulary/f11_evaluation_ci_release_readiness_test.exs`; existing F1–F10
+contracts remain the data-layer, retrieval, tenancy, consent/promotion, surface,
+cassette, portability, and entity-privacy guardrails. CI runs the complete suite
+against external Postgres and packaged pg0, then builds the release and
+container. The `f11-1` validator requires exact application/profile/model
+versions, dataset SHA-256/split, deadline, date, judge, and limits.
+F8-generated OpenAPI and full SDKs remain explicitly unavailable rather than
+being misrepresented as shipped; the surface inventory makes that prerequisite
+a gated contract.
 
 ## POC To Target Mapping
 

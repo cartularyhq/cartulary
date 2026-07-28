@@ -1,10 +1,10 @@
+# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
 name: CI
 
 on:
   pull_request:
   push:
-    branches:
-      - main
+    branches: [main]
   merge_group:
 
 permissions:
@@ -14,182 +14,125 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  MIX_ENV: test
+
 jobs:
-  format:
-    name: Format
-    runs-on: ubuntu-latest
+  external-postgres:
+    name: Deterministic gate (external Postgres)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: pgvector/pgvector:pg18-bookworm
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      CARTULARY_DATABASE_MODE: external
+      CARTULARY_TEST_DATABASE_URL: ecto://postgres:postgres@127.0.0.1:5432/cartulary_f11_external
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Set up BEAM
-        if: ${{ hashFiles('mix.exs') != '' }}
-        uses: erlef/setup-beam@v1
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
         with:
-          otp-version: '27'
-          elixir-version: '1.18'
-      - name: Check formatting
-        run: |
-          if [ ! -f mix.exs ]; then
-            echo '::notice::mix.exs is not present yet; skipping format check until the Mix project exists.'
-            exit 0
-          fi
-          mix deps.get
-          mix format --check-formatted
-
-  compile:
-    name: Compile
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Set up BEAM
-        if: ${{ hashFiles('mix.exs') != '' }}
-        uses: erlef/setup-beam@v1
+          otp-version: "27"
+          elixir-version: "1.18"
+      - uses: actions/cache@v4
         with:
-          otp-version: '27'
-          elixir-version: '1.18'
-      - name: Compile with warnings as errors
-        run: |
-          if [ ! -f mix.exs ]; then
-            echo '::notice::mix.exs is not present yet; skipping compile check until the Mix project exists.'
-            exit 0
-          fi
-          mix deps.get
-          mix compile --warnings-as-errors
-
-  test:
-    name: Unit tests
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Set up BEAM
-        if: ${{ hashFiles('mix.exs') != '' }}
-        uses: erlef/setup-beam@v1
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-beam-test-${{ hashFiles('mix.lock') }}
+      - run: mix deps.get
+      - run: mix ash.codegen --check
+      - run: mix format --check-formatted
+      - run: mix compile --warnings-as-errors
+      - run: mix test
+      - run: mix credo --strict
+      - run: mix sobelow --config
+      - run: mix hex.audit
+      - name: Deterministic release evaluation
+        run: >-
+          mix cartulary.eval.release
+          --no-model
+          --assert-thresholds
+          --run-id ci-${{ github.run_id }}-${{ github.run_attempt }}
+          --output /tmp/cartulary-f11-eval.json
+      - run: mix cartulary.eval.verify /tmp/cartulary-f11-eval.json
+      - run: >-
+          mix cartulary.release.check
+          --eval-report /tmp/cartulary-f11-eval.json
+      - uses: actions/upload-artifact@v4
         with:
-          otp-version: '27'
-          elixir-version: '1.18'
-      - name: Run unit tests
-        run: |
-          if [ ! -f mix.exs ]; then
-            echo '::notice::mix.exs is not present yet; skipping unit tests until the Mix project exists.'
-            exit 0
-          fi
-          mix deps.get
-          mix test
-
-  credo:
-    name: Credo
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Set up BEAM
-        if: ${{ hashFiles('mix.exs') != '' }}
-        uses: erlef/setup-beam@v1
-        with:
-          otp-version: '27'
-          elixir-version: '1.18'
-      - name: Run Credo strict
-        run: |
-          if [ ! -f mix.exs ]; then
-            echo '::notice::mix.exs is not present yet; skipping Credo until the Mix project exists.'
-            exit 0
-          fi
-          mix deps.get
-          mix credo --strict
+          name: deterministic-eval-${{ github.run_id }}
+          path: /tmp/cartulary-f11-eval.json
 
   dialyzer:
     name: Dialyzer
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Set up BEAM
-        if: ${{ hashFiles('mix.exs') != '' }}
-        uses: erlef/setup-beam@v1
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
         with:
-          otp-version: '27'
-          elixir-version: '1.18'
-      - name: Restore PLT cache
-        if: ${{ hashFiles('mix.exs') != '' }}
-        uses: actions/cache@v4
+          otp-version: "27"
+          elixir-version: "1.18"
+      - uses: actions/cache@v4
         with:
-          path: priv/plts
-          key: ${{ runner.os }}-plt-${{ hashFiles('mix.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-plt-
-      - name: Run Dialyzer
-        run: |
-          if [ ! -f mix.exs ]; then
-            echo '::notice::mix.exs is not present yet; skipping Dialyzer until the Mix project exists.'
-            exit 0
-          fi
-          mix deps.get
-          mix dialyzer
+          path: |
+            deps
+            _build
+            priv/plts
+          key: ${{ runner.os }}-dialyzer-${{ hashFiles('mix.lock') }}
+      - run: mix deps.get
+      - run: mix dialyzer
 
-  sobelow:
-    name: Sobelow
-    runs-on: ubuntu-latest
+  pg0:
+    name: Deterministic gate (packaged pg0)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Set up BEAM
-        if: ${{ hashFiles('mix.exs') != '' }}
-        uses: erlef/setup-beam@v1
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
         with:
-          otp-version: '27'
-          elixir-version: '1.18'
-      - name: Run Sobelow
-        run: |
-          if [ ! -f mix.exs ]; then
-            echo '::notice::mix.exs is not present yet; skipping Sobelow until the Phoenix project exists.'
-            exit 0
-          fi
-          mix deps.get
-          mix sobelow --config
-
-  deps-audit:
-    name: Dependency audit
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Set up BEAM
-        if: ${{ hashFiles('mix.exs') != '' }}
-        uses: erlef/setup-beam@v1
+          otp-version: "27"
+          elixir-version: "1.18"
+      - uses: actions/cache@v4
         with:
-          otp-version: '27'
-          elixir-version: '1.18'
-      - name: Run dependency audit
-        run: |
-          if [ ! -f mix.exs ]; then
-            echo '::notice::mix.exs is not present yet; skipping dependency audit until the Mix project exists.'
-            exit 0
-          fi
-          mix deps.get
-          mix deps.audit
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-beam-pg0-${{ hashFiles('mix.lock') }}
+      - run: mix deps.get
+      - run: ./scripts/ci-pg0-lane
 
-  sqlite:
-    name: SQLite tests
-    runs-on: ubuntu-latest
+  builds:
+    name: Release and container builds
+    needs: [external-postgres, dialyzer, pg0]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
     env:
-      MIX_ENV: test
-      CARTULARY_DATA_LAYER: sqlite
+      MIX_ENV: prod
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Set up BEAM
-        if: ${{ hashFiles('mix.exs') != '' }}
-        uses: erlef/setup-beam@v1
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
         with:
-          otp-version: '27'
-          elixir-version: '1.18'
-      - name: Run SQLite-marked tests
-        run: |
-          if [ ! -f mix.exs ]; then
-            echo '::notice::mix.exs is not present yet; skipping SQLite test lane until backend tests exist.'
-            exit 0
-          fi
-          mix deps.get
-          mix test --only sqlite
+          otp-version: "27"
+          elixir-version: "1.18"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-beam-prod-${{ hashFiles('mix.lock') }}
+      - run: mix deps.get --only prod
+      - run: mix release --overwrite
+      - run: docker build --tag cartulary:ci .

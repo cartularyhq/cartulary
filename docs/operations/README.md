@@ -129,5 +129,8 @@ correlation, and the content-safety contract.
   transport-neutral while F8 still owns complete generated clients.
 - Governance: `/governance/sign-in` for authenticated humans only.
 - Evaluation: `mix cartulary.eval.smoke --profile balanced --account eval-poc`.
+- Release evaluation and guardrails: `docs/eval/README.md`.
+- Semantic versioning and changelog policy: `versioning.md`.
+- Release procedure and required CI checks: `release-checklist.md`.
 - Logical moves: `docs/operations/portability.md`.
 - Disaster recovery: `docs/operations/backup-restore.md`.

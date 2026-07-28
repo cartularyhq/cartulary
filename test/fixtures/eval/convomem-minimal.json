@@ -1,0 +1,50 @@
+{
+  "data": [
+    {
+      "id": "convomem-preference",
+      "split": "release-evaluation",
+      "category": "preferences",
+      "conversations": [
+        {
+          "conversation_id": "preference-session",
+          "messages": [
+            {
+              "id": "cm-pref-1",
+              "role": "user",
+              "content": "Morgan prefers incident summaries with a short timeline."
+            },
+            {
+              "id": "cm-pref-2",
+              "role": "assistant",
+              "content": "Future incident summaries will include a short timeline."
+            }
+          ]
+        }
+      ],
+      "question": "What should Morgan's incident summaries include?",
+      "answer": "a short timeline",
+      "evidence_ids": ["cm-pref-1"]
+    },
+    {
+      "id": "convomem-abstention",
+      "split": "release-evaluation",
+      "category": "abstention",
+      "conversations": [
+        {
+          "conversation_id": "abstention-session",
+          "messages": [
+            {
+              "id": "cm-abs-1",
+              "role": "user",
+              "content": "Morgan uses metric units in operational reports."
+            }
+          ]
+        }
+      ],
+      "question": "Which airline does Morgan prefer?",
+      "answer": "No information available.",
+      "evidence_ids": [],
+      "abstention_expected": true
+    }
+  ]
+}

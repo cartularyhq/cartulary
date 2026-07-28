@@ -56,8 +56,9 @@ Return a Markdown review with these sections:
 
 ### Backend parity and deployment-mode concerns
 
-- Check whether the change preserves single-node SQLite mode and queue-mode
-  Postgres behavior as one codebase with identical guarantees.
+- Check whether the change preserves supervised-pg0 single-node mode and
+  external-Postgres queue-mode behavior as one codebase with identical
+  guarantees.
 - Flag database-specific logic, queue/Oban behavior, indexing/cache assumptions,
   provider lock-in, cloud lock-in, or enterprise/free boundaries that appear to
   fork behavior without an explicit reviewed seam.

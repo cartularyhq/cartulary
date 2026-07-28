@@ -1,9 +1,15 @@
 # Evaluation Documentation
 
-The local POC includes a tiny smoke harness for the LoCoMo, LongMemEval, and
-BEAM-style memory paths. It exercises the durable message write path, pipeline
-knowledge extraction, scoped retrieval, grounded answering, and citation
-validation against Postgres.
+F11 upgrades the original POC harness into a versioned deterministic gate and
+release/nightly matrix. The authoritative framework is
+`specs/memory-system-evaluation-framework.md`; implementation and release
+posture are recorded in
+`docs/architecture/f11-evaluation-ci-release-readiness.md`.
+
+The local harness supports Cartulary product-shaped fixtures plus LoCoMo,
+LongMemEval, ConvoMem, and BEAM memory paths. It exercises the durable message
+write path, pipeline knowledge extraction, scoped retrieval, grounded
+answering, and citation validation against Postgres.
 
 The broader POC implementation log and refactor list is maintained in
 `docs/poc-local-proof.md`.
@@ -15,6 +21,10 @@ measurement checklist that should accompany eval reports, read
 Minimal LoCoMo, LongMemEval, and BEAM benchmark results are checked in at
 `docs/eval/minimal-benchmark-results.md`, with raw JSON reports under
 `docs/eval/results/`.
+
+Those 2026-07-27 `poc-0` reports are the immutable Stage 0 baseline from before
+F7. Current public claims must use the `f11-1` report schema and exact `f7-1`
+profile evidence; never relabel the historical files.
 
 F0 also freezes the four tiny input fixtures independently of volatile database
 UUIDs and latency values. `test/fixtures/eval/poc-contract-baseline.json`
@@ -69,6 +79,40 @@ Run a fixture with:
 mix cartulary.eval.smoke --dataset path/to/smoke.json --profile balanced
 ```
 
+## Deterministic Release Matrix
+
+Run every committed engine/product fixture and the strategy ablations:
+
+```bash
+mix cartulary.eval.release \
+  --no-model \
+  --assert-thresholds \
+  --output /private/tmp/cartulary-f11-release.json
+
+mix cartulary.eval.verify /private/tmp/cartulary-f11-release.json
+```
+
+The manifest is `release-suite.json`; deterministic correctness/citation floors
+are in `deterministic-thresholds.json`. The manifest uses distinct
+`held-out-tuning` and `release-evaluation` names and disables deadlines for
+comparable ablations.
+
+Every `f11-1` report records:
+
+- Cartulary semantic version and execution date;
+- dataset id, SHA-256, and split;
+- profile and exact profile version;
+- strategy override and deadline setting;
+- provider/model/version/prompt/pipeline identity for all four roles;
+- deterministic or model judge identity;
+- exact/contains/token-F1, abstention, citation, RAG-triad, latency, token
+  efficiency, category, scale, and BEAM degradation measures.
+
+`mix cartulary.release.check` requires this evidence for an actual release.
+Manual live-model runs add `--judge model`; the configured dream-reasoner must
+be a different provider/model family from the dialectic answer role or the run
+fails before scoring.
+
 ## Full Benchmark Ingestion And Scoring
 
 The POC also includes a full benchmark runner for fixture ingestion and
@@ -90,6 +134,8 @@ Supported source formats:
 - `--benchmark longmemeval`: LongMemEval cleaned JSON files with
   `haystack_sessions`, `haystack_session_ids`, `answer_session_ids`, and
   per-question metadata.
+- `--benchmark convomem`: ConvoMem rows with conversation/message history,
+  question/answer, category, evidence ids, and abstention metadata.
 - `--benchmark beam`: BEAM-style chat/probing-question JSON. The adapter accepts
   common generated-artifact field names such as `messages`, `conversation`,
   `probing_questions`, `questions`, `chat_size`, and `ability`.
@@ -118,12 +164,19 @@ The JSON report includes:
   contributed retrieval strategies.
 - Aggregate metrics overall, by category, and by scale.
 - For BEAM, a `beam_degradation_curve` grouped by corpus scale.
-- Profile version and run-limit evidence, per ADR-0004 / `AD-EVAL-3`.
+- RAG-triad lexical baseline, full-context/token-efficiency, profile/model
+  version, deadline, dataset digest/split, date, and run-limit evidence, per
+  ADR-0004 / `AD-EVAL-3` / `NFR-11`.
 
 The runner uses the real local POC write/read path (`Cartulary.Memory`) and
 therefore records raw messages, pipeline-created knowledge, lifecycle events,
 retrieval, answers, and citations in Postgres. It is still a POC harness: it
-does not yet implement upstream LLM-judge parity, held-out weight tuning,
-strategy ablation matrices beyond the currently configured profiles, release
-thresholds, explicit deadline-disable/fixed-clock reporting, or operator-run
-Postgres parity evidence.
+does not claim upstream judge parity or upstream-scale scores from the committed
+minimal fixtures. Live/pinned provider runs and larger public datasets use the
+same adapter/runner/report contract. The shipped F11 matrix provides held-out
+tuning discipline, named strategy ablations, deterministic release thresholds,
+explicit deadline reporting, and pg0/external-Postgres CI parity.
+
+The surface contract inventory records the intentional F8 boundary: current
+Phoenix, MCP, and F9 readiness helpers are gated; generated OpenAPI and complete
+SDKs are explicitly unavailable in 0.2.0.

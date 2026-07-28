@@ -49,6 +49,10 @@ can be treated as the durable Cartulary architecture.
   `f9-1` selector language, nearest-scope requirement overrides, reasoning-free
   lifecycle-aware gap reports, HTTP/MCP exposure, governance authoring/review,
   and provider-neutral TypeScript/Python elicitation helpers.
+- Completed roadmap F11 with deterministic external-Postgres and packaged-pg0
+  gates, release/container builds, versioned LoCoMo/LongMemEval/ConvoMem/BEAM
+  and Cartulary eval reports, strategy ablations, token/RAG-triad evidence,
+  semantic versioning, changelog discipline, and fail-closed release checks.
 - Converted `Cartulary.Memory` durable reads and writes to Ash actions while
   preserving the F0 shapes and intentionally versioning lifecycle semantics to
   `f4-1`, extraction to `f5-1`, and retrieval/context to `f7-1`. The obsolete
@@ -152,6 +156,12 @@ OpenRouter key.
   - the read-only static retrieval data layer in `Cartulary.Retrieval.Store`.
   - the static UUID-only message-to-Account bootstrap lookup in
     `Cartulary.DataLayer`.
+- F11 raised the suite to 83 passing tests (81 examples plus two properties);
+  `mix ash.codegen --check`, formatting, warnings-as-errors compilation, Credo,
+  Dialyzer, and Sobelow passed. The deterministic `f11-1` release matrix covered
+  Cartulary, LoCoMo, LongMemEval, ConvoMem, and BEAM plus eight ablations,
+  validated report provenance, met every committed correctness/citation floor,
+  and passed the semantic-version/changelog release check for `0.2.0`.
 - `mix cartulary.eval.smoke --profile balanced --account eval-openrouter-current`
   ingested 3 messages and answered all 3 smoke questions with citations.
 - `mix cartulary.eval.benchmark --dataset test/fixtures/eval/cartulary-smoke.json --benchmark cartulary --profile balanced --account eval-f7-final-2 --run-id f7-final-2 --no-model`
@@ -193,19 +203,21 @@ These shortcuts are acceptable only for the local POC.
   provider-neutral ReqLLM seam and local Ortex/ONNX execution, but does not
   download or package ONNX/tokenizer artifacts, certify every ReqLLM provider,
   or add an in-engine multi-provider cascade.
-- **Evaluation is still POC-grade.** Full LoCoMo, LongMemEval, and BEAM-style
-  fixture importers now exist, with deterministic answer/citation scoring,
-  category metrics, latency summaries, and BEAM scale curves. Missing pieces are
-  upstream LLM-judge parity, held-out weight tuning, broader strategy-ablation
-  matrices, release thresholds, and CI gates.
+- **Committed eval data remains minimal.** F11 supplies LoCoMo, LongMemEval,
+  ConvoMem, BEAM, and Cartulary adapters; deterministic correctness/citation,
+  RAG-triad, token-efficiency, latency, category, scale, and ablation reports;
+  held-out tuning discipline; release thresholds; and CI gates. The committed
+  fixtures are smoke-scale and are not presented as upstream-scale scores.
+  Independent live-model judge and large-corpus results remain release evidence
+  to produce when protected provider credentials and upstream datasets exist.
 - **pg0 packaging is operational.** F10 pins and checksum-verifies pg0,
   supervises its release lifecycle, migrates on first run, checks ports/data
   directories, and retains the external-Postgres mode. ONNX/tokenizer
   artifacts remain operator-supplied by design.
 - **Retrieval tuning remains evidence work.** F7 provides versioned profiles,
   raw internal ablations, deadline-disabled evals, and complete strategy
-  instrumentation. Held-out fusion-weight tuning, upstream judge parity,
-  and release thresholds remain open.
+  instrumentation. F11 enforces the held-out split and release floors; actual
+  fusion-weight changes still require upstream-scale held-out evidence.
 - **Surfaces are partial.** F4 adds the curator LiveView, peer self-service API,
   and AshAi MCP tools. F6 supplies the internal document/connector/portability
   boundary; F9 adds readiness HTTP/MCP actions, card governance UI, and
@@ -213,7 +225,7 @@ These shortcuts are acceptable only for the local POC.
   commands. AshJsonApi, complete generated SDKs, gateway proxy, connector
   administration, and an Account archive administration UI remain later
   phases.
-- **Tests are still POC-scoped.** F0 now covers the six HTTP endpoints,
+- **Tests retain the POC regression floor.** F0 now covers the six HTTP endpoints,
   caller-header Account selection, downward scope inheritance, message and
   knowledge persistence, creation lifecycle events, deterministic extraction,
   eval normalization/scoring, and the missing direct knowledge-write route.
@@ -231,8 +243,10 @@ These shortcuts are acceptable only for the local POC.
   covers selector inheritance, version/audit behavior, blocker/warning
   semantics, stale lifecycle handling, and all shipped readiness surfaces. F10
   covers archive exclusions/integrity, tamper rejection, readiness, exact edge
-  metering, packaging pins, and pg0/external-Postgres lanes. The suite does not
-  yet cover broad live-provider matrices.
+  metering, packaging pins, and pg0/external-Postgres lanes. F11 turns those
+  contracts into blocking CI, adds report/version/surface/release contracts,
+  and builds release/container artifacts. The suite does not claim broad
+  live-provider certification.
 
 ## Required Refactors After POC
 
@@ -242,17 +256,16 @@ These shortcuts are acceptable only for the local POC.
 2. Complete embedding persistence and retrieval: add the `pgvector`
    column/index, backfill jobs, semantic strategy, and rebuild/parity evidence
    around the F5 pinned embedder.
-3. Harden the LoCoMo, LongMemEval, and BEAM eval runner with upstream LLM-judge
-   parity, held-out tuning discipline, strategy-ablation matrices, regression
-   thresholds, generated release reports, and operator-run Postgres parity
-   evidence.
+3. Run upstream-scale LoCoMo, LongMemEval, ConvoMem, and BEAM datasets plus an
+   independent-family live judge through the F11 report contract; retain the
+   results as release evidence rather than treating smoke fixtures as scores.
 4. Add durable projections and rebuildable caches for context reads, including
    session summaries, scope cards, peer profiles, and derived indexes.
 5. Expand tests beyond F0-F6 into applied dream-time deductions, projection
    builds, semantic retrieval fusion, broader provider
    compatibility, and release eval behavior.
-6. Wire the configured static analysis/security lanes into CI and branch
-    protection when the repository automation is ready to maintain them.
+6. Configure the documented F11 job names as GitHub required checks; repository
+   rulesets remain a maintainer-owned external setting.
 
 ## Current Local Commands
 

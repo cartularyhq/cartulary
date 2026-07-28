@@ -1,0 +1,136 @@
+{
+  "suite_version": "f11-1",
+  "thresholds": "deterministic-thresholds.json",
+  "tuning_policy": {
+    "tuning_split": "held-out-tuning",
+    "published_split": "release-evaluation",
+    "rule": "Fusion weights may use only held-out-tuning. No release-evaluation answer or score may inform weights."
+  },
+  "runs": [
+    {
+      "id": "cartulary-balanced",
+      "benchmark": "cartulary",
+      "dataset": "../../test/fixtures/eval/cartulary-smoke.json",
+      "profile": "balanced",
+      "split": "release-evaluation",
+      "deadline": "disabled",
+      "release_guardrail": true
+    },
+    {
+      "id": "locomo-balanced",
+      "benchmark": "locomo",
+      "dataset": "../../test/fixtures/eval/locomo-minimal.json",
+      "profile": "balanced",
+      "split": "release-evaluation",
+      "deadline": "disabled",
+      "release_guardrail": true
+    },
+    {
+      "id": "locomo-lexical",
+      "benchmark": "locomo",
+      "dataset": "../../test/fixtures/eval/locomo-minimal.json",
+      "profile": "balanced",
+      "strategies": ["lexical"],
+      "split": "release-evaluation",
+      "deadline": "disabled",
+      "release_guardrail": false
+    },
+    {
+      "id": "locomo-salience",
+      "benchmark": "locomo",
+      "dataset": "../../test/fixtures/eval/locomo-minimal.json",
+      "profile": "balanced",
+      "strategies": ["salience_recency"],
+      "split": "release-evaluation",
+      "deadline": "disabled",
+      "release_guardrail": false
+    },
+    {
+      "id": "longmemeval-balanced",
+      "benchmark": "longmemeval",
+      "dataset": "../../test/fixtures/eval/longmemeval-minimal.json",
+      "profile": "balanced",
+      "split": "release-evaluation",
+      "deadline": "disabled",
+      "release_guardrail": true
+    },
+    {
+      "id": "longmemeval-lexical",
+      "benchmark": "longmemeval",
+      "dataset": "../../test/fixtures/eval/longmemeval-minimal.json",
+      "profile": "balanced",
+      "strategies": ["lexical"],
+      "split": "release-evaluation",
+      "deadline": "disabled",
+      "release_guardrail": false
+    },
+    {
+      "id": "longmemeval-salience",
+      "benchmark": "longmemeval",
+      "dataset": "../../test/fixtures/eval/longmemeval-minimal.json",
+      "profile": "balanced",
+      "strategies": ["salience_recency"],
+      "split": "release-evaluation",
+      "deadline": "disabled",
+      "release_guardrail": false
+    },
+    {
+      "id": "convomem-balanced",
+      "benchmark": "convomem",
+      "dataset": "../../test/fixtures/eval/convomem-minimal.json",
+      "profile": "balanced",
+      "split": "release-evaluation",
+      "deadline": "disabled",
+      "release_guardrail": true
+    },
+    {
+      "id": "convomem-lexical",
+      "benchmark": "convomem",
+      "dataset": "../../test/fixtures/eval/convomem-minimal.json",
+      "profile": "balanced",
+      "strategies": ["lexical"],
+      "split": "release-evaluation",
+      "deadline": "disabled",
+      "release_guardrail": false
+    },
+    {
+      "id": "convomem-salience",
+      "benchmark": "convomem",
+      "dataset": "../../test/fixtures/eval/convomem-minimal.json",
+      "profile": "balanced",
+      "strategies": ["salience_recency"],
+      "split": "release-evaluation",
+      "deadline": "disabled",
+      "release_guardrail": false
+    },
+    {
+      "id": "beam-balanced",
+      "benchmark": "beam",
+      "dataset": "../../test/fixtures/eval/beam-minimal.json",
+      "profile": "balanced",
+      "split": "release-evaluation",
+      "deadline": "disabled",
+      "release_guardrail": true
+    },
+    {
+      "id": "beam-lexical",
+      "benchmark": "beam",
+      "dataset": "../../test/fixtures/eval/beam-minimal.json",
+      "profile": "balanced",
+      "strategies": ["lexical"],
+      "split": "release-evaluation",
+      "deadline": "disabled",
+      "release_guardrail": false
+    },
+    {
+      "id": "beam-salience",
+      "benchmark": "beam",
+      "dataset": "../../test/fixtures/eval/beam-minimal.json",
+      "profile": "balanced",
+      "strategies": ["salience_recency"],
+      "split": "release-evaluation",
+      "deadline": "disabled",
+      "release_guardrail": false
+    }
+  ]
+}

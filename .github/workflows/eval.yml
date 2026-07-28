@@ -1,0 +1,75 @@
+# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+name: Nightly evaluation
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+    inputs:
+      model_mode:
+        description: Run deterministic cassettes or configured live models
+        required: true
+        default: deterministic
+        type: choice
+        options: [deterministic, live]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-eval-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-eval:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: pgvector/pgvector:pg18-bookworm
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      MIX_ENV: test
+      CARTULARY_DATABASE_MODE: external
+      CARTULARY_TEST_DATABASE_URL: ecto://postgres:postgres@127.0.0.1:5432/cartulary_f11_nightly
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      CARTULARY_MODEL_DREAM: ${{ vars.CARTULARY_EVAL_JUDGE_MODEL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          elixir-version: "1.18"
+      - run: mix deps.get
+      - run: mix ecto.create
+      - run: mix ecto.migrate
+      - name: Run release matrix
+        shell: bash
+        run: |
+          mode="${{ inputs.model_mode || 'deterministic' }}"
+          args=(--assert-thresholds --run-id "nightly-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" --output /tmp/cartulary-f11-nightly.json)
+          if [ "$mode" = deterministic ]; then
+            args+=(--no-model)
+          elif [ -z "$OPENROUTER_API_KEY" ] || [ -z "$CARTULARY_MODEL_DREAM" ]; then
+            echo "::error::OPENROUTER_API_KEY and CARTULARY_EVAL_JUDGE_MODEL are required for live model mode"
+            exit 1
+          else
+            args+=(--judge model)
+          fi
+          mix cartulary.eval.release "${args[@]}"
+      - run: mix cartulary.eval.verify /tmp/cartulary-f11-nightly.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nightly-eval-${{ github.run_id }}
+          path: /tmp/cartulary-f11-nightly.json
+          retention-days: 30

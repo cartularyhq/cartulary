@@ -64,11 +64,11 @@ If a standard check was not run, explain why:
 
 ## Backend parity
 
-Does this PR affect SQLite single-node mode, Postgres queue-mode, queues, storage, retrieval, or derived caches?
+Does this PR affect pg0 single-node mode, external-Postgres queue-mode, queues, storage, retrieval, or derived caches?
 
 - [ ] No backend-parity impact
-- [ ] Parity evidence provided for SQLite/single-node
-- [ ] Parity evidence provided for Postgres/queue-mode
+- [ ] Parity evidence provided for packaged pg0/single-node
+- [ ] Parity evidence provided for external Postgres/queue-mode
 - [ ] Parity lane not yet available; limitation explained below
 
 Parity notes:

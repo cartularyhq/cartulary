@@ -1,0 +1,23 @@
+{
+  "scenarios": {
+    "rag_triad": [
+      {
+        "operation": "structured",
+        "role": "dream_reasoner",
+        "task": "eval_judge",
+        "value": {
+          "groundedness": 5,
+          "context_relevance": 4,
+          "answer_relevance": 3
+        },
+        "usage": {
+          "input_tokens": 80,
+          "output_tokens": 12
+        },
+        "metadata": {
+          "result_count": 1
+        }
+      }
+    ]
+  }
+}

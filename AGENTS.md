@@ -23,7 +23,10 @@ Before editing, read the smallest authoritative set needed for the task:
 6. For work migrating the POC toward the complete free self-host core, also read
    `docs/roadmap/free-core-roadmap.md`.
 7. For observability, tracing, logging, telemetry, evaluation instrumentation,
-   or experiment-comparison work, also read `docs/observability/README.md`.
+   experiment-comparison, CI, versioning, or release-readiness work, also read
+   `specs/memory-system-evaluation-framework.md`,
+   `docs/observability/README.md`, and
+   `docs/architecture/f11-evaluation-ci-release-readiness.md`.
 8. For work touching Ash resources, actions, policies, tenancy, or migrations,
    also read `docs/architecture/f1-ash-domain-backbone.md`.
 9. For document ingestion, blob storage, parsing, connectors, sync,
@@ -296,6 +299,27 @@ refactoring:
   self-host cost visibility uses operator-provided rates rather than hidden
   billing state. Production structured logs retain only the reviewed metadata
   allowlist.
+- F11 versions application releases with Semantic Versioning and evaluation
+  evidence with `f11-1` without changing the 38-Resource durable boundary.
+  F11 evidence is kept in
+  `test/cartulary/f11_evaluation_ci_release_readiness_test.exs`,
+  `specs/memory-system-evaluation-framework.md`,
+  `docs/architecture/f11-evaluation-ci-release-readiness.md`, `docs/eval/`,
+  `.github/workflows/`, and `CHANGELOG.md`. A release must not proceed when a
+  deterministic guardrail, external-Postgres/pg0 lane, release/container build,
+  semantic tag/changelog check, report provenance check, or committed
+  correctness/citation floor fails.
+- F11 public benchmark and quality claims require the exact application and
+  retrieval-profile versions, all four model-role versions, dataset id/SHA-256
+  and split, deadline setting, date, judge identity, strategy override, and run
+  limits. Quality, latency, token efficiency, and degradation remain
+  frontier-tracked; do not turn them into gates without an explicit reviewed
+  threshold change. Fusion weights may use only held-out tuning data.
+- F11 preserves the F8 boundary. The F9 readiness helpers are not complete
+  generated SDKs, and 0.2.0 has no generated AshJsonApi OpenAPI/SDK contract.
+  Keep unavailable surfaces explicit in
+  `docs/eval/surface-contract-inventory.json`; do not advertise them as shipped
+  or silently omit their missing lane.
 - Direct Repo/Ecto SQL access is confined to infrastructure/data-layer modules
   and explicitly ticketed custom query helpers.
   `Cartulary.Retrieval.Store` is the F7 read-only helper for static,
@@ -326,6 +350,9 @@ refactoring:
 - Keep docs, code, tests, eval fixtures, and ADRs aligned. If behavior changes,
   update the closest durable documentation or explain why no doc update is
   needed.
+- Keep `mix.exs`, `CHANGELOG.md`, release tags, protocol/report identities, and
+  release artifacts aligned. Every release has a dated changelog entry citing
+  the closest blueprint/architecture anchors.
 - Keep observability content-safe. Traces and logs may record ids, counts,
   profile names, model names, strategy names, timings, token counts, and error
   classes; they must not record raw messages, prompts, answers, API keys,
@@ -394,6 +421,22 @@ mix credo --strict
 mix dialyzer
 mix sobelow --config
 ```
+
+For evaluation, CI, versioning, or release-readiness changes, also run:
+
+```bash
+mix cartulary.eval.release \
+  --no-model \
+  --assert-thresholds \
+  --output /private/tmp/cartulary-f11-release.json
+mix cartulary.release.check \
+  --eval-report /private/tmp/cartulary-f11-release.json
+```
+
+The pg0 CI lane additionally runs `scripts/ci-pg0-lane`; it downloads the
+checksum-pinned pg0 asset, so local execution requires network access. The
+external-Postgres and packaged-pg0 job names and release procedure are in
+`docs/operations/release-checklist.md`.
 
 For documentation-only changes before the project exists, inspect the changed
 Markdown directly and run any available repo-local Markdown or link check. If no

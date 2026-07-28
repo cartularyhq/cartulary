@@ -99,4 +99,18 @@ defmodule Cartulary.Eval.AdapterTest do
     assert hd(case.messages).id == "t1"
     assert hd(case.questions).category == "Instruction Following"
   end
+
+  test "normalizes ConvoMem conversations, categories, evidence, and abstention" do
+    dataset =
+      Adapter.load!("test/fixtures/eval/convomem-minimal.json", benchmark: "convomem")
+
+    [preference, abstention] = dataset.cases
+
+    assert dataset.benchmark == "convomem"
+    assert dataset.source_format == "convomem"
+    assert byte_size(dataset.dataset_sha256) == 64
+    assert hd(preference.messages).id == "cm-pref-1"
+    assert hd(preference.questions).evidence_refs == ["cm-pref-1"]
+    assert hd(abstention.questions).abstention_expected
+  end
 end

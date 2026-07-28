@@ -6,7 +6,7 @@ defmodule Cartulary.MixProject do
   def project do
     [
       app: :cartulary,
-      version: "0.1.0",
+      version: "0.2.0",
       elixir: "~> 1.17",
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -108,6 +108,7 @@ defmodule Cartulary.MixProject do
         "test",
         "LICENSE.md",
         "LICENSE_EE.md",
+        "CHANGELOG.md",
         "mix.exs",
         "README.md"
       ]

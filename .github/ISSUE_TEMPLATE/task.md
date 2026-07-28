@@ -61,8 +61,8 @@ Out of scope:
 
 - [ ] Documentation inspection
 - [ ] Unit
-- [ ] SQLite data-layer test
-- [ ] Postgres data-layer test
+- [ ] Packaged pg0 data-layer test
+- [ ] External Postgres data-layer test
 - [ ] Contract test
 - [ ] Property/invariant test
 - [ ] Security test
@@ -97,7 +97,7 @@ Risk and routing labels:
 - `tenancy-sensitive`: Tenant isolation or account-boundary review required.
 - `audit-sensitive`: Audit, ledger, or immutable-history review required.
 - `pipeline-sensitive`: Oban, transactional outbox, ingest, or background-job review required.
-- `backend-parity-required`: SQLite and Postgres parity evidence required.
+- `backend-parity-required`: pg0 and external-Postgres parity evidence required.
 - `eval-required`: Eval scenario or workflow evidence required.
 - `good-first-agent-task`: Small, low-risk task suitable for Codex.
 

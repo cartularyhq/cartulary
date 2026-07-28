@@ -1,0 +1,41 @@
+{
+  "schema": "f11-surface-contracts-1",
+  "release": "0.2.0",
+  "surfaces": {
+    "phoenix_http": {
+      "status": "gated",
+      "evidence": [
+        "test/cartulary_web/controllers/memory_controller_test.exs",
+        "test/cartulary/f9_skill_readiness_procedural_memory_test.exs"
+      ]
+    },
+    "mcp": {
+      "status": "gated",
+      "evidence": [
+        "test/cartulary/f4_real_gate_a_b_governance_test.exs",
+        "test/cartulary/f9_skill_readiness_procedural_memory_test.exs"
+      ]
+    },
+    "skill_readiness_helpers": {
+      "status": "gated",
+      "evidence": [
+        "test/cartulary/f9_skill_readiness_procedural_memory_test.exs"
+      ]
+    },
+    "ash_json_api_openapi": {
+      "status": "unavailable",
+      "prerequisite": "F8",
+      "rule": "Do not advertise or package generated OpenAPI until F8 supplies and gates it."
+    },
+    "generated_typescript_sdk": {
+      "status": "unavailable",
+      "prerequisite": "F8",
+      "rule": "The F9 readiness helper is not a generated transport SDK."
+    },
+    "generated_python_sdk": {
+      "status": "unavailable",
+      "prerequisite": "F8",
+      "rule": "The F9 readiness helper is not a generated transport SDK."
+    }
+  }
+}

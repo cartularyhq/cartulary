@@ -1,0 +1,36 @@
+{
+  "schema": "f11-thresholds-1",
+  "policy": "Only deterministic correctness and citation guardrails gate releases. Quality, token cost, and latency remain frontier-tracked.",
+  "benchmarks": {
+    "cartulary": {
+      "balanced": {
+        "accuracy": 1.0,
+        "citation_hit_rate": 1.0
+      }
+    },
+    "locomo": {
+      "balanced": {
+        "accuracy": 1.0,
+        "citation_hit_rate": 1.0
+      }
+    },
+    "longmemeval": {
+      "balanced": {
+        "accuracy": 0.5,
+        "citation_hit_rate": 0.5
+      }
+    },
+    "convomem": {
+      "balanced": {
+        "accuracy": 0.5,
+        "citation_hit_rate": 0.5
+      }
+    },
+    "beam": {
+      "balanced": {
+        "accuracy": 1.0,
+        "citation_hit_rate": 1.0
+      }
+    }
+  }
+}

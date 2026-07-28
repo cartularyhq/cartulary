@@ -46,3 +46,18 @@ The implemented F6 document/blob boundary, native extraction, RAG chunking,
 dual-ingest pipeline, incremental connector sync, immutable supersession,
 tombstones, erasure, and document portability seam are recorded in
 `docs/architecture/f6-documents-connectors-sync.md`.
+
+The implemented F7 retrieval strategies, entity privacy, projections, and
+reasoning-free context boundary are recorded in
+`docs/architecture/f7-retrieval-entity-context.md`.
+
+The implemented F9 procedural-memory and skill-readiness boundary is recorded
+in `docs/architecture/f9-skill-readiness-procedural-memory.md`.
+
+The implemented F10 packaging, portability, runtime validation, readiness,
+metering, and operations boundary is recorded in
+`docs/architecture/f10-portability-packaging-operations.md`.
+
+The implemented F11 deterministic gates, evaluation provenance, database-mode
+CI parity, semantic versioning, changelog, and release controls are recorded in
+`docs/architecture/f11-evaluation-ci-release-readiness.md`.

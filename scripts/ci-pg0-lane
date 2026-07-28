@@ -1,0 +1,56 @@
+#!/bin/sh
+# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+set -eu
+
+repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+lane_root=$(mktemp -d "${TMPDIR:-/tmp}/cartulary-f11-pg0.XXXXXX")
+release_root="$repo_root/_build/prod/rel/cartulary"
+release_log="$lane_root/release.log"
+release_pid=
+
+cleanup() {
+  status=$?
+  if [ -x "$release_root/bin/cartulary" ]; then
+    CARTULARY_DATA_ROOT="$lane_root/data" "$release_root/bin/cartulary" stop >/dev/null 2>&1 || true
+  fi
+  if [ -n "$release_pid" ] && kill -0 "$release_pid" >/dev/null 2>&1; then
+    kill "$release_pid" >/dev/null 2>&1 || true
+  fi
+  if [ "$status" -ne 0 ] && [ -f "$release_log" ]; then
+    sed -n '1,240p' "$release_log"
+  fi
+  rm -rf "$lane_root"
+  trap - EXIT INT TERM
+  exit "$status"
+}
+trap cleanup EXIT INT TERM
+
+cd "$repo_root"
+./scripts/package-release
+
+CARTULARY_AUTH_SIGNING_SECRET=cartulary-f11-ci-only-signing-secret-that-is-longer-than-sixty-four-bytes \
+CARTULARY_AUTO_MIGRATE=true \
+CARTULARY_DATABASE_MODE=pg0 \
+CARTULARY_DATA_ROOT="$lane_root/data" \
+CARTULARY_PG0_NAME="cartulary-f11-ci" \
+CARTULARY_PG0_PORT=55431 \
+DATABASE_URL= \
+PORT=4101 \
+PHX_HOST=127.0.0.1 \
+"$release_root/bin/server" >"$release_log" 2>&1 &
+release_pid=$!
+
+attempt=0
+until curl -fsS http://127.0.0.1:4101/api/ready >/dev/null 2>&1; do
+  attempt=$((attempt + 1))
+  if [ "$attempt" -ge 60 ]; then
+    sed -n '1,240p' "$release_log"
+    exit 1
+  fi
+  sleep 1
+done
+
+CARTULARY_DATABASE_MODE=external \
+CARTULARY_TEST_DATABASE_URL=ecto://postgres:postgres@127.0.0.1:55431/cartulary_f11_pg0 \
+MIX_ENV=test \
+mix test

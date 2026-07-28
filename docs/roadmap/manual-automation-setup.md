@@ -43,7 +43,7 @@ Create these labels first:
 | `tenancy-sensitive` | Tenant isolation or account-boundary review required. |
 | `audit-sensitive` | Audit, ledger, or immutable-history review required. |
 | `pipeline-sensitive` | Oban, transactional outbox, ingest, or background-job review required. |
-| `backend-parity-required` | SQLite and Postgres parity evidence required. |
+| `backend-parity-required` | Packaged-pg0 and external-Postgres parity evidence required. |
 | `eval-required` | Eval scenario or eval workflow evidence required. |
 | `good-first-agent-task` | Small, low-risk task suitable for Codex. |
 
@@ -71,7 +71,7 @@ gh label create security-sensitive --description "Security review required" --co
 gh label create tenancy-sensitive --description "Tenant isolation review required" --color ee0701
 gh label create audit-sensitive --description "Audit or ledger review required" --color ee0701
 gh label create pipeline-sensitive --description "Pipeline or Oban review required" --color fbca04
-gh label create backend-parity-required --description "SQLite and Postgres parity evidence required" --color 5319e7
+gh label create backend-parity-required --description "Packaged pg0 and external Postgres parity evidence required" --color 5319e7
 gh label create eval-required --description "Eval scenario or workflow evidence required" --color 006b75
 gh label create good-first-agent-task --description "Small low-risk Codex task" --color c5def5
 ```
@@ -83,7 +83,7 @@ GitHub can only require checks that have reported recently.
 
 ### Initial `main` protection target
 
-When CI tasks land, protect `main` with these rules:
+F11 supplies the CI jobs. Protect `main` with these rules:
 
 - Require a pull request before merge.
 - Require at least one approving review.
@@ -105,6 +105,13 @@ When CI tasks land, protect `main` with these rules:
 
 If rulesets are not available on your plan, use **Settings** → **Branches** →
 **Branch protection rules** and create a rule for `main` with equivalent options.
+
+The F11 required-check names are:
+
+- `Deterministic gate (external Postgres)`
+- `Dialyzer`
+- `Deterministic gate (packaged pg0)`
+- `Release and container builds`
 
 ## 3. GitHub Actions permissions, secrets, environments, and runners
 

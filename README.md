@@ -7,7 +7,8 @@ Transactional Writes, Audit, And Jobs plus F3 Identity, Tenancy, And Basic
 RBAC, F4 Real Gate A/B Governance, and F5 Model Layer And Structured
 Extraction plus F6 Documents, Connectors, And Sync, F7 Retrieval, Entity, And
 Context, F9 Skill Readiness And Procedural Memory, and F10 Portability,
-Packaging, And Operations; it is not yet a finished product architecture.
+Packaging, And Operations, plus F11 Evaluation, CI, And Release Readiness; it is
+not yet a finished product architecture.
 
 The community release supervises a pinned pg0/PostgreSQL/pgvector distribution
 for no-container installs or uses operator-run Postgres without changing
@@ -22,7 +23,7 @@ the Ash/Phoenix/Oban architecture, abstraction layers, decomposition, migration
 phases, and feature coverage needed for a complete single-Account community
 solution.
 
-Roadmap phases F0 through F7, F9, and F10 are complete; F8 remains an explicit
+Roadmap phases F0 through F7 and F9 through F11 are complete; F8 remains an explicit
 surface/SDK prerequisite and is not implied complete by the F9 helper modules.
 F0 response shapes, persistence,
 scope inheritance, pipeline-only knowledge writes, and tiny eval fixtures
@@ -87,6 +88,13 @@ Resources own the durable boundary.
 - Versioned readiness for the app, database, Oban, queues, and model roles,
   redacted JSON production logs, exact request/token/storage metering,
   dream-time budget admission, and self-host cost visibility.
+- `f11-1` reproducible evaluation reports for Cartulary, LoCoMo, LongMemEval,
+  ConvoMem, and BEAM with dataset hashes/splits, exact profile and model-role
+  versions, deadline identity, RAG-triad/token/latency measures, category and
+  degradation evidence, and strategy ablations.
+- Blocking external-Postgres and packaged-pg0 CI lanes, Dialyzer/security gates,
+  Mix-release and container builds, nightly evaluation, semantic version/tag
+  validation, and fail-closed release checks.
 - Eleven AshOban lanes for extraction, dream-time, revalidation, expiry,
   projection/entity refresh, connector sync, portability rebuild,
   reconciliation, and governance continuations.
@@ -280,6 +288,18 @@ Run the local smoke eval:
 
 ```bash
 mix cartulary.eval.smoke --profile balanced --account eval-poc
+```
+
+Run the deterministic F11 release matrix:
+
+```bash
+mix cartulary.eval.release \
+  --no-model \
+  --assert-thresholds \
+  --output /private/tmp/cartulary-f11-release.json
+
+mix cartulary.release.check \
+  --eval-report /private/tmp/cartulary-f11-release.json
 ```
 
 Run the test gate:
@@ -520,6 +540,27 @@ Read the design and evidence in
 `docs/architecture/f10-portability-packaging-operations.md` and begin operating
 the community release at `docs/operations/README.md`.
 
+## F11 Evaluation, CI, And Release Readiness
+
+F11 separates blocking deterministic guardrails from frontier-tracked quality,
+latency, and token efficiency. Every current claim report identifies the
+Cartulary semantic version, date, dataset id/SHA-256/split, profile and exact
+version, deadline setting, strategy override, all four model-role versions,
+judge method, and run limits. The historical `poc-0` minimal reports remain the
+Stage 0 baseline rather than being relabeled as `f7-1`.
+
+CI runs the complete suite against external Postgres and a checksum-built
+packaged pg0 instance, then builds the same Mix release and production
+container. Nightly and semantic-tag workflows run the release matrix; the tag
+workflow fails unless version, changelog, tag, deterministic thresholds, and
+eval evidence agree.
+
+Cartulary uses Semantic Versioning and a Keep-a-Changelog-style `CHANGELOG.md`.
+Read the implementation and evidence in
+`docs/architecture/f11-evaluation-ci-release-readiness.md`, the evaluation
+framework in `specs/memory-system-evaluation-framework.md`, and the operator
+procedure in `docs/operations/release-checklist.md`.
+
 ## Free Core Direction
 
 The free core is intended to include the full memory engine, single-node
@@ -557,9 +598,10 @@ The important cuts are intentional and temporary:
   component; F7 supplies retrieval/entity/projection execution, and F10
   supplies Account-wide archives and operational packaging. Full
   reasoning-result application remains later work.
-- LoCoMo, LongMemEval, and BEAM fixture import/scoring exists for the POC, but
-  upstream judge parity, held-out profile-weight tuning, release thresholds,
-  and automated release thresholds are not implemented.
+- The F11 eval/report/CI framework is release-grade, but committed benchmark
+  fixtures are deliberately smoke-scale. Upstream-scale scores and independent
+  live-model judge evidence must be produced with protected credentials and
+  immutable upstream datasets before making comparative quality claims.
 - F5 provides a cassette-tested provider seam, but production model artifacts,
   broader provider certification, and release eval thresholds remain operator
   and later-roadmap work.
@@ -579,6 +621,10 @@ mix test
 mix credo --strict
 mix dialyzer
 mix sobelow --config
+mix cartulary.eval.release --no-model --assert-thresholds \
+  --output /private/tmp/cartulary-f11-release.json
+mix cartulary.release.check \
+  --eval-report /private/tmp/cartulary-f11-release.json
 ```
 
 ## Development Observability
