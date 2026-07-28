@@ -139,7 +139,7 @@ quality but destroys latency, abstention, or cost visibility is not done.
 | Model | operation, role, provider/model/version, prompt/pipeline version, input/output/embedding tokens, duration, error rate, repair attempt, retry behavior |
 | Database | query time, queue time, transaction failures, migration/index behavior |
 | Governance | gate decisions, validation queue age, consent requirement failures, audit/history coverage once implemented |
-| Portability | export/import duration, cache rebuild duration, audit hash-chain verification once implemented |
+| Portability | export/import duration, resource count, rebuild duration, audit hash-chain verification outcome |
 | Evaluation | exact match, expected containment, token-F1, abstention correctness, citation hit/recall, BEAM degradation curve, profile version |
 
 ## Experiment Discipline
@@ -224,13 +224,10 @@ OTEL_EXPORTER_OTLP_TRACES_HEADERS=Authorization=Basic <base64-public-key-colon-s
 
 ## Gaps
 
-This is enough for development tracing and experiments, but it is not the final
-observability system. Missing free-core work remains:
+F10 adds daily per-scope budget counters over the exact usage ledger, queue
+depth readiness/telemetry, and an allowlisted redacted production JSON
+formatter. Remaining release-evidence work is:
 
-- budget counters and per-scope admission rollups over the F5 exact usage
-  ledger;
 - projection/cache metrics;
-- queue depth health and readiness;
 - release/nightly eval dashboards;
-- production-grade log redaction policy tests;
 - full OpenTelemetry metrics export from app-level `telemetry_metrics`.

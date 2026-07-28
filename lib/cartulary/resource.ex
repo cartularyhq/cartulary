@@ -20,6 +20,31 @@ defmodule Cartulary.Resource do
         table unquote(table)
         repo Cartulary.Repo
       end
+
+      actions do
+        read :portability_export do
+          public? false
+
+          pagination do
+            keyset? true
+            required? false
+          end
+        end
+
+        create :portability_import do
+          public? false
+          accept []
+          argument :attributes, :map, allow_nil?: false
+          change Cartulary.Portability.Changes.RestoreAttributes
+        end
+      end
+
+      policies do
+        policy action([:portability_export, :portability_import]) do
+          authorize_if actor_attribute_equals(:pipeline?, true)
+          authorize_if {Cartulary.Policy.RoleIn, roles: [:system]}
+        end
+      end
     end
   end
 end

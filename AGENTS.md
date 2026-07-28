@@ -274,6 +274,28 @@ refactoring:
   must return through ordinary raw `ingest` and governance before readiness is
   checked again. SDK helpers must never override a server blocker or write
   knowledge directly.
+- F10 makes the same release operational in supervised-pg0 and external-
+  Postgres modes without changing the 38-Resource durable boundary. F10
+  evidence is kept in
+  `test/cartulary/f10_portability_packaging_operations_test.exs`,
+  `docs/architecture/f10-portability-packaging-operations.md`,
+  `docs/operations/`, `rel/`, `Dockerfile`, and `compose.yml`. Keep pg0 version
+  and platform SHA-256 values pinned, run it before Repo and migrations, and
+  never add pg0 to the container path or fork behavior by database mode.
+- F10 logical Account archives use schema `cartulary-account-1`, keyset-stream
+  durable resources, include checksum-verified original blobs, and verify the
+  entire audit graph before any durable import. Credentials, password hashes,
+  secrets, vectors, chunks, projections, entities, entity mentions, and
+  extracted-text caches must remain excluded. Imports require a fresh target,
+  write only through the private Ash portability actions in one Account-scoped
+  transaction, and enqueue replay-keyed ordinary rebuild work.
+- F10 operations remain content-safe. `/api/ready` may expose component status,
+  queue counts, model identities, versions, and error classes; it must never
+  expose credentials or content. Exact API/model usage stays in `UsageEvent`,
+  ETS budget counters remain rebuildable, dream-time is throttled first, and
+  self-host cost visibility uses operator-provided rates rather than hidden
+  billing state. Production structured logs retain only the reviewed metadata
+  allowlist.
 - Direct Repo/Ecto SQL access is confined to infrastructure/data-layer modules
   and explicitly ticketed custom query helpers.
   `Cartulary.Retrieval.Store` is the F7 read-only helper for static,

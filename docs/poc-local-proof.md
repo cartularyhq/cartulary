@@ -140,8 +140,10 @@ OpenRouter key.
   partitioned test database, exercising the complete migration chain from an
   empty database.
 - The F7 migration and complete F0-F7 suite passed against the configured test
-  Postgres and a newly created `f7_final` partitioned database. Explicit
-  pg0/operator-run parity lanes have not yet been run.
+  Postgres and a newly created `f7_final` partitioned database.
+- F10 adds a second stock-Postgres lane through `compose.yml`, the
+  `CARTULARY_TEST_DATABASE_URL` override, a packaged pg0 startup/readiness
+  smoke, and a real fresh-database Account export/import round trip.
 - `mix credo --strict` passed with no issues.
 - `mix dialyzer` passed with 0 errors.
 - `mix sobelow --config` passed with no findings after three targeted
@@ -181,8 +183,8 @@ These shortcuts are acceptable only for the local POC.
   response is replay-safe. F4 now implements governance revalidation, expiry,
   validation continuation, and transcript answer-correlation semantics. F6
   implements document connectors and the document portability component; F7
-  implements vector/entity/projection refresh. Full account archives remain in
-  later phases.
+  implements vector/entity/projection refresh; F10 implements verified full
+  Account archives and rebuild scheduling.
 - **Human identity is local free-core identity.** F3 now uses
   AshAuthentication password/JWT identities and per-Peer API keys. Enterprise
   SSO/SAML/SCIM, multi-Account provisioning, advanced RBAC administration, and
@@ -195,19 +197,22 @@ These shortcuts are acceptable only for the local POC.
   fixture importers now exist, with deterministic answer/citation scoring,
   category metrics, latency summaries, and BEAM scale curves. Missing pieces are
   upstream LLM-judge parity, held-out weight tuning, broader strategy-ablation
-  matrices, release thresholds, CI gates, and backend parity evidence.
-- **pg0 is manually launched.** The local test used `/private/tmp/pg0`; the
-  release does not yet download, pin, supervise, health-check, or recover pg0.
+  matrices, release thresholds, and CI gates.
+- **pg0 packaging is operational.** F10 pins and checksum-verifies pg0,
+  supervises its release lifecycle, migrates on first run, checks ports/data
+  directories, and retains the external-Postgres mode. ONNX/tokenizer
+  artifacts remain operator-supplied by design.
 - **Retrieval tuning remains evidence work.** F7 provides versioned profiles,
   raw internal ablations, deadline-disabled evals, and complete strategy
   instrumentation. Held-out fusion-weight tuning, upstream judge parity,
-  release thresholds, and the operator-run Postgres parity lane remain open.
+  and release thresholds remain open.
 - **Surfaces are partial.** F4 adds the curator LiveView, peer self-service API,
   and AshAi MCP tools. F6 supplies the internal document/connector/portability
   boundary; F9 adds readiness HTTP/MCP actions, card governance UI, and
-  transport-neutral SDK helper modules. AshJsonApi, complete generated SDKs,
-  gateway proxy, connector administration, and account-wide import/export
-  administration remain later phases.
+  transport-neutral SDK helper modules; F10 adds operator Account export/import
+  commands. AshJsonApi, complete generated SDKs, gateway proxy, connector
+  administration, and an Account archive administration UI remain later
+  phases.
 - **Tests are still POC-scoped.** F0 now covers the six HTTP endpoints,
   caller-header Account selection, downward scope inheritance, message and
   knowledge persistence, creation lifecycle events, deterministic extraction,
@@ -224,9 +229,10 @@ These shortcuts are acceptable only for the local POC.
   portability, erasure, rebuild, and secret rejection. F7 covers strategy,
   fusion, projection, entity privacy, and semantic retrieval contracts. F9
   covers selector inheritance, version/audit behavior, blocker/warning
-  semantics, stale lifecycle handling, and all shipped readiness surfaces. The
-  suite does not yet cover broad live-provider matrices or operator-run
-  Postgres parity.
+  semantics, stale lifecycle handling, and all shipped readiness surfaces. F10
+  covers archive exclusions/integrity, tamper rejection, readiness, exact edge
+  metering, packaging pins, and pg0/external-Postgres lanes. The suite does not
+  yet cover broad live-provider matrices.
 
 ## Required Refactors After POC
 
@@ -240,36 +246,28 @@ These shortcuts are acceptable only for the local POC.
    parity, held-out tuning discipline, strategy-ablation matrices, regression
    thresholds, generated release reports, and operator-run Postgres parity
    evidence.
-4. Pin and package pg0 for local mode, supervise its lifecycle from the release,
-   handle port conflicts and stale data directories, and document the external
-   Postgres escape hatch.
-5. Add durable projections and rebuildable caches for context reads, including
+4. Add durable projections and rebuildable caches for context reads, including
    session summaries, scope cards, peer profiles, and derived indexes.
-6. Expand tests beyond F0-F6 into applied dream-time deductions, projection
+5. Expand tests beyond F0-F6 into applied dream-time deductions, projection
    builds, semantic retrieval fusion, broader provider
    compatibility, and release eval behavior.
-7. Wire the configured static analysis/security lanes into CI and branch
+6. Wire the configured static analysis/security lanes into CI and branch
     protection when the repository automation is ready to maintain them.
 
 ## Current Local Commands
 
-Create local configuration:
+For a downloaded release, one command starts the pinned pg0 instance, migrates,
+and serves:
+
+```bash
+bin/server
+```
+
+For source development, create local configuration and provide the Postgres
+server selected by `DATABASE_URL`:
 
 ```bash
 cp .env.example .env
-```
-
-Install pg0 into `/private/tmp` on macOS ARM64:
-
-```bash
-curl -fL https://github.com/vectorize-io/pg0/releases/latest/download/pg0-darwin-aarch64 -o /private/tmp/pg0
-chmod +x /private/tmp/pg0
-```
-
-Start pg0:
-
-```bash
-/private/tmp/pg0 start --name cartulary --port 5432 --username postgres --password postgres --database cartulary_dev
 ```
 
 Run setup and checks:

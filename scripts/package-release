@@ -1,0 +1,52 @@
+#!/bin/sh
+# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+set -eu
+
+repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+version=$(tr -d '[:space:]' < "$repo_root/rel/pg0/VERSION")
+os=$(uname -s)
+arch=$(uname -m)
+
+case "$os:$arch" in
+  Darwin:arm64) asset=pg0-darwin-aarch64 ;;
+  Darwin:x86_64) asset=pg0-darwin-x86_64 ;;
+  Linux:aarch64|Linux:arm64)
+    if ldd --version 2>&1 | grep -qi musl; then
+      asset=pg0-linux-aarch64-musl
+    else
+      asset=pg0-linux-aarch64-gnu
+    fi
+    ;;
+  Linux:x86_64|Linux:amd64)
+    if ldd --version 2>&1 | grep -qi musl; then
+      asset=pg0-linux-x86_64-musl
+    else
+      asset=pg0-linux-x86_64-gnu
+    fi
+    ;;
+  *)
+    echo "Unsupported release platform: $os $arch" >&2
+    exit 1
+    ;;
+esac
+
+overlay="$repo_root/rel/overlays/bin/pg0"
+expected=$(awk -v asset="$asset" '$2 == asset {print $1}' "$repo_root/rel/pg0/checksums.txt")
+url="https://github.com/vectorize-io/pg0/releases/download/v$version/$asset"
+
+mkdir -p "$(dirname "$overlay")"
+trap 'rm -f "$overlay"' EXIT INT TERM
+curl -fL "$url" -o "$overlay"
+
+actual=$(shasum -a 256 "$overlay" | awk '{print $1}')
+if [ "$actual" != "$expected" ]; then
+  echo "pg0 checksum mismatch for $asset" >&2
+  exit 1
+fi
+
+chmod 0755 "$overlay"
+cd "$repo_root"
+MIX_ENV=prod mix deps.get --only prod
+MIX_ENV=prod mix release --overwrite
+
+echo "Release ready at $repo_root/_build/prod/rel/cartulary"

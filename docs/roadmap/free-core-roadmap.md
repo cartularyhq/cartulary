@@ -580,31 +580,46 @@ Goal: make the free core installable, movable, observable, and recoverable.
 
 Deliverables:
 
-- [ ] No-container Mix release with pinned pg0 binary, release-supervised lifecycle,
+- [x] No-container Mix release with pinned pg0 binary, release-supervised lifecycle,
   first-run migration, stale lock handling, port conflict handling, data
   directory health checks, and external Postgres escape hatch.
-- [ ] Container image and compose file for single-node free core using stock
+- [x] Container image and compose file for single-node free core using stock
   Postgres, plus optional local observability profile.
-- [ ] Runtime config validation and clear boot errors for missing or conflicting
+- [x] Runtime config validation and clear boot errors for missing or conflicting
   settings.
-- [ ] Logical account export/import with manifest, JSONL resources, blobs, audit
+- [x] Logical account export/import with manifest, JSONL resources, blobs, audit
   hash-chain verification, derived cache exclusions, and rebuild jobs.
-- [ ] Physical backup/restore runbook for pg0 directory, external Postgres, and
+- [x] Physical backup/restore runbook for pg0 directory, external Postgres, and
   blob storage.
-- [ ] Health/readiness endpoints for app, DB, Oban, queues, and model role
+- [x] Health/readiness endpoints for app, DB, Oban, queues, and model role
   configuration.
-- [ ] OpenTelemetry emission, redacted structured logging, exact usage/metering
+- [x] OpenTelemetry emission, redacted structured logging, exact usage/metering
   ledger, budget counters, and self-host cost visibility.
-- [ ] Documentation for install, upgrade, backup/restore, export/import, model
+- [x] Documentation for install, upgrade, backup/restore, export/import, model
   config, local embeddings, gateway, MCP, SDK, governance, and eval.
 
 Acceptance:
 
-- [ ] A new user can start a fresh free-core instance with one command on a
+- [x] A new user can start a fresh free-core instance with one command on a
   supported platform after download.
-- [ ] Export from one instance and import into a fresh instance preserves durable
+- [x] Export from one instance and import into a fresh instance preserves durable
   data, verifies audit continuity, and rebuilds derived caches.
-- [ ] pg0-backed and external-Postgres paths have parity evidence.
+- [x] pg0-backed and external-Postgres paths have parity evidence.
+
+F10 evidence lives in the runtime boundary under `lib/cartulary/runtime_config.ex`,
+the supervised pg0/release modules, `rel/`, `scripts/package-release*`,
+`Dockerfile`, `compose.yml`, the Account archive boundary under
+`lib/cartulary/portability/`, the operations modules and HTTP surfaces,
+`test/cartulary/f10_portability_packaging_operations_test.exs`, and
+`docs/architecture/f10-portability-packaging-operations.md`. Operator runbooks
+live in `docs/operations/`. A packaged Darwin ARM64 release initialized
+PostgreSQL 18.1.0 plus pgvector, applied the full migration chain, returned
+`f10-1` readiness, recovered/attached the same durable directory, and shut down
+cleanly. The production container built, ran as non-root UID 10001 without
+Rust or pg0 in its runtime layer, and returned `f10-1` readiness. The complete
+75-test suite passed independently against the local pg0 lane and the stock
+external `pgvector/pgvector:pg18-bookworm` Compose lane; a fresh two-database
+logical archive round trip provides the matching portability evidence.
 
 ### F11: Evaluation, CI, And Release Readiness
 

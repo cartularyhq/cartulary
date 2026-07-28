@@ -6,12 +6,14 @@ local POC contract with the implemented F1 Ash Domain Backbone and F2
 Transactional Writes, Audit, And Jobs plus F3 Identity, Tenancy, And Basic
 RBAC, F4 Real Gate A/B Governance, and F5 Model Layer And Structured
 Extraction plus F6 Documents, Connectors, And Sync, F7 Retrieval, Entity, And
-Context, and F9 Skill Readiness And Procedural Memory; it is not yet a finished
-product architecture.
+Context, F9 Skill Readiness And Procedural Memory, and F10 Portability,
+Packaging, And Operations; it is not yet a finished product architecture.
 
-The POC can run against local Postgres from pg0, use local Ortex/ONNX
-embeddings, and use a ReqLLM-supported or OpenAI-compatible generation
-endpoint such as OpenRouter with `openai/gpt-oss-120b`.
+The community release supervises a pinned pg0/PostgreSQL/pgvector distribution
+for no-container installs or uses operator-run Postgres without changing
+behavior. It supports local Ortex/ONNX embeddings and a ReqLLM-supported or
+OpenAI-compatible generation endpoint such as OpenRouter with
+`openai/gpt-oss-120b`.
 
 The target free self-host core is documented in
 `docs/roadmap/free-core-roadmap.md`. That plan starts from the POC handoff,
@@ -20,7 +22,7 @@ the Ash/Phoenix/Oban architecture, abstraction layers, decomposition, migration
 phases, and feature coverage needed for a complete single-Account community
 solution.
 
-Roadmap phases F0 through F7 and F9 are complete; F8 remains an explicit
+Roadmap phases F0 through F7, F9, and F10 are complete; F8 remains an explicit
 surface/SDK prerequisite and is not implied complete by the F9 helper modules.
 F0 response shapes, persistence,
 scope inheritance, pipeline-only knowledge writes, and tiny eval fixtures
@@ -74,6 +76,17 @@ Resources own the durable boundary.
   detection, tombstones, and provenance-preserving knowledge supersession.
 - Checksum-verified document export/import and erasure that rebuild derived
   chunks instead of treating caches as durable state.
+- Versioned whole-Account archives with manifest/resource/blob checksums,
+  complete audit-chain verification, credential/vector/cache exclusions, and
+  replay-keyed rebuild work on fresh import.
+- Cross-platform Mix releases with checksum-pinned pg0, first-run migrations,
+  supervised shutdown, stale-lock recovery, explicit port conflicts, and an
+  external-Postgres escape hatch.
+- A non-root container image and Compose stack using stock Postgres, with an
+  optional OpenTelemetry Collector, Jaeger, and Prometheus profile.
+- Versioned readiness for the app, database, Oban, queues, and model roles,
+  redacted JSON production logs, exact request/token/storage metering,
+  dream-time budget admission, and self-host cost visibility.
 - Eleven AshOban lanes for extraction, dream-time, revalidation, expiry,
   projection/entity refresh, connector sync, portability rebuild,
   reconciliation, and governance continuations.
@@ -103,25 +116,31 @@ mix cartulary.eval.smoke --profile balanced --account eval-poc
 
 ## Local Setup
 
-Prerequisites:
+### Downloaded release: one command
 
-- Elixir 1.17 or newer.
-- A local pg0 binary. The current POC expects a Postgres-compatible server on
-  `localhost:5432`.
-
-Install pg0 into `/private/tmp` on macOS ARM64:
+Unpack the release for the current OS and architecture, then run:
 
 ```bash
-curl -fL https://github.com/vectorize-io/pg0/releases/latest/download/pg0-darwin-aarch64 -o /private/tmp/pg0
-chmod +x /private/tmp/pg0
+bin/server
 ```
 
-For another OS or CPU architecture, download the matching binary from the pg0
-releases page:
+On Windows use `bin\server.bat`. The launcher creates a private data root,
+generates the local signing secret, starts the packaged pg0 binary, migrates the
+fresh database, and serves the API. The readiness endpoint is:
 
 ```bash
-https://github.com/vectorize-io/pg0/releases
+curl -fsS http://127.0.0.1:4000/api/ready
 ```
+
+The release also accepts `CARTULARY_DATABASE_MODE=external` and `DATABASE_URL`
+for operator-run Postgres. See `docs/operations/README.md` for install,
+configuration, Compose, and upgrade procedures.
+
+### Source development
+
+Prerequisites are Elixir 1.17 or newer and PostgreSQL with pgvector on
+`localhost:5432`. The repository's normal local database is a pg0-backed
+Postgres instance, but source mode does not download infrastructure at boot.
 
 Create your local environment file:
 
@@ -178,12 +197,6 @@ CARTULARY_S3_SCHEME=http://
 CARTULARY_S3_PORT=9000
 ```
 
-Start Postgres through pg0:
-
-```bash
-/private/tmp/pg0 start --name cartulary --port 5432 --username postgres --password postgres --database cartulary_dev
-```
-
 Install dependencies and migrate:
 
 ```bash
@@ -217,6 +230,20 @@ Health check:
 ```bash
 curl -fsS http://127.0.0.1:4000/api/health
 ```
+
+Operator readiness and exact self-host usage/cost visibility:
+
+```bash
+curl -fsS http://127.0.0.1:4000/api/ready
+curl -fsS http://127.0.0.1:4000/api/v1/operations/costs \
+  -H 'authorization: Bearer <account-admin-token>'
+```
+
+Create, verify, and restore whole-Account logical archives with
+`mix cartulary.portability.export` and
+`mix cartulary.portability.import`. The exact release/source commands and
+post-import checks are in `docs/operations/portability.md`; physical database
+and blob recovery is in `docs/operations/backup-restore.md`.
 
 Sign in and use the returned token as `Authorization: Bearer <token>`:
 
@@ -475,6 +502,24 @@ Read the selector schema, inheritance algorithm, lifecycle/source semantics,
 surface contract, content-safe telemetry posture, migration, and evidence in
 `docs/architecture/f9-skill-readiness-procedural-memory.md`.
 
+## F10 Portability, Packaging, And Operations
+
+F10 keeps one release and one durable Ash boundary across embedded pg0 and
+external Postgres. Platform packages checksum and stage pg0 v0.14.2; the
+release supervises its lifecycle and migrations. The container path uses stock
+Postgres and the same Repo, migrations, Oban jobs, policies, and APIs.
+
+Whole-Account archives stream 33 durable Resource types plus original document
+blobs, verify every checksum and the full audit graph before import, exclude
+credentials/secrets and rebuildable caches, restore through private Ash
+actions, and enqueue deterministic scope/document rebuilds. Readiness, exact
+metering, budget counters, structured redaction, queue metrics, and self-host
+cost inspection complete the operator boundary.
+
+Read the design and evidence in
+`docs/architecture/f10-portability-packaging-operations.md` and begin operating
+the community release at `docs/operations/README.md`.
+
 ## Free Core Direction
 
 The free core is intended to include the full memory engine, single-node
@@ -509,12 +554,12 @@ The important cuts are intentional and temporary:
 - F2 provides the durable lanes for dream-time, lifecycle, connector,
   portability, and projection work. F4 through F6 now supply governance,
   structured reasoning, document connectors, and the document portability
-  component; F7 supplies retrieval/entity/projection execution. Full
-  reasoning-result application and account-wide archives remain in later
-  phases.
+  component; F7 supplies retrieval/entity/projection execution, and F10
+  supplies Account-wide archives and operational packaging. Full
+  reasoning-result application remains later work.
 - LoCoMo, LongMemEval, and BEAM fixture import/scoring exists for the POC, but
   upstream judge parity, held-out profile-weight tuning, release thresholds,
-  and operator-run Postgres parity evidence are not implemented.
+  and automated release thresholds are not implemented.
 - F5 provides a cassette-tested provider seam, but production model artifacts,
   broader provider certification, and release eval thresholds remain operator
   and later-roadmap work.

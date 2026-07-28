@@ -77,6 +77,20 @@ defmodule CartularyWeb.Telemetry do
           "The time the connection spent waiting before being checked out for the query"
       ),
 
+      # F10 operations and portability metrics
+      last_value("cartulary.operations.queue.depth",
+        tags: [:queue, :state],
+        description: "Current Oban queue depth by queue and state"
+      ),
+      summary("cartulary.portability.export.duration",
+        unit: {:millisecond, :millisecond},
+        tags: [:status]
+      ),
+      summary("cartulary.portability.import.duration",
+        unit: {:millisecond, :millisecond},
+        tags: [:status]
+      ),
+
       # VM Metrics
       summary("vm.memory.total", unit: {:byte, :kilobyte}),
       summary("vm.total_run_queue_lengths.total"),
@@ -87,9 +101,7 @@ defmodule CartularyWeb.Telemetry do
 
   defp periodic_measurements do
     [
-      # A module, function and arguments to be invoked periodically.
-      # This function must call :telemetry.execute/3 and a metric must be added above.
-      # {CartularyWeb, :count_users, []}
+      {Cartulary.Operations.Health, :emit_queue_metrics, []}
     ]
   end
 end

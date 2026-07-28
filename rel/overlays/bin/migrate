@@ -1,0 +1,6 @@
+#!/bin/sh
+# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+set -eu
+
+release_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+exec "$release_root/bin/cartulary" eval "Cartulary.Release.migrate()"

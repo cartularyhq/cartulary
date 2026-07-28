@@ -308,6 +308,14 @@ defmodule Cartulary.Observations.Document do
       require_atomic? false
     end
 
+    update :portability_restore do
+      public? false
+      require_atomic? false
+      accept []
+      argument :attributes, :map, allow_nil?: false
+      change Cartulary.Portability.Changes.RestoreAttributes
+    end
+
     destroy :erase do
       require_atomic? false
     end
@@ -334,6 +342,11 @@ defmodule Cartulary.Observations.Document do
 
     policy action([:publish_version, :tombstone, :erase]) do
       authorize_if actor_attribute_equals(:pipeline?, true)
+    end
+
+    policy action(:portability_restore) do
+      authorize_if actor_attribute_equals(:pipeline?, true)
+      authorize_if {Cartulary.Policy.RoleIn, roles: [:system]}
     end
   end
 

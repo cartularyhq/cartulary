@@ -49,6 +49,25 @@ env_integer = fn key, default ->
   end
 end
 
+env_integer! = fn key, default ->
+  value = env_get.(key, default)
+
+  case Integer.parse(value) do
+    {integer, ""} -> integer
+    _other -> raise "#{key} must be an integer, got: #{inspect(value)}"
+  end
+end
+
+env_bool! = fn key, default ->
+  value = env_get.(key, if(default, do: "true", else: "false"))
+
+  case String.downcase(value) do
+    truthy when truthy in ~w(true 1 yes on) -> true
+    falsy when falsy in ~w(false 0 no off) -> false
+    _other -> raise "#{key} must be true or false, got: #{inspect(value)}"
+  end
+end
+
 env_sampler = fn ->
   sampler = env_get.("OTEL_TRACES_SAMPLER", "parentbased_always_on")
 
@@ -117,8 +136,66 @@ if System.get_env("PHX_SERVER") do
   config :cartulary, CartularyWeb.Endpoint, server: true
 end
 
-config :cartulary, CartularyWeb.Endpoint,
-  http: [port: String.to_integer(env_get.("PORT", "4000"))]
+config :cartulary, CartularyWeb.Endpoint, http: [port: env_integer!.("PORT", "4000")]
+
+release_root = System.get_env("RELEASE_ROOT") || File.cwd!()
+database_mode = env_get.("CARTULARY_DATABASE_MODE", "external")
+
+database_url =
+  if config_env() == :test do
+    System.get_env("CARTULARY_TEST_DATABASE_URL")
+  else
+    env_get.("DATABASE_URL", nil)
+  end
+
+pg0_port = env_integer!.("CARTULARY_PG0_PORT", "5432")
+pg0_database = env_get.("CARTULARY_PG0_DATABASE", "cartulary")
+pg0_username = env_get.("CARTULARY_PG0_USERNAME", "postgres")
+pg0_password = env_get.("CARTULARY_PG0_PASSWORD", "postgres")
+
+if database_mode not in ~w(pg0 external) do
+  raise "CARTULARY_DATABASE_MODE must be pg0 or external"
+end
+
+if database_mode == "pg0" and database_url not in [nil, ""] do
+  raise "DATABASE_URL conflicts with CARTULARY_DATABASE_MODE=pg0"
+end
+
+effective_database_url =
+  if database_mode == "pg0" do
+    "ecto://#{URI.encode_www_form(pg0_username)}:#{URI.encode_www_form(pg0_password)}@" <>
+      "127.0.0.1:#{pg0_port}/#{URI.encode_www_form(pg0_database)}"
+  else
+    database_url
+  end
+
+if effective_database_url not in [nil, ""] do
+  config :cartulary, Cartulary.Repo,
+    url: effective_database_url,
+    pool_size: env_integer!.("POOL_SIZE", "10"),
+    socket_options: if(env_true?.("ECTO_IPV6"), do: [:inet6], else: [])
+end
+
+config :cartulary, :require_database_url, config_env() == :prod and database_mode == "external"
+
+config :cartulary, :database,
+  mode: database_mode,
+  database_url: effective_database_url,
+  auto_migrate: env_bool!.("CARTULARY_AUTO_MIGRATE", database_mode == "pg0"),
+  pg0: [
+    binary: env_get.("CARTULARY_PG0_BINARY", Path.join(release_root, "bin/pg0")),
+    name: env_get.("CARTULARY_PG0_NAME", "cartulary"),
+    postgres_version: env_get.("CARTULARY_PG0_POSTGRES_VERSION", "18.1.0"),
+    data_dir:
+      env_get.(
+        "CARTULARY_PG0_DATA_DIR",
+        Path.expand("~/.cartulary/pg0/instances/cartulary/data")
+      ),
+    port: pg0_port,
+    username: pg0_username,
+    password: pg0_password,
+    database: pg0_database
+  ]
 
 auth_signing_secret =
   case env_get.("CARTULARY_AUTH_SIGNING_SECRET", nil) do
@@ -282,6 +359,55 @@ config :cartulary, :models,
   api_key: nil,
   api_key_ref: "env:OPENROUTER_API_KEY"
 
+budget_key_map = %{
+  "input_tokens" => :input_tokens,
+  "output_tokens" => :output_tokens,
+  "embedding_tokens" => :embedding_tokens
+}
+
+budget_limits =
+  "CARTULARY_BUDGET_LIMITS_JSON"
+  |> env_get.("{}")
+  |> Jason.decode!()
+  |> Map.new(fn {key, value} ->
+    metric =
+      Map.get(budget_key_map, key) ||
+        raise "unsupported budget metric in CARTULARY_BUDGET_LIMITS_JSON: #{inspect(key)}"
+
+    unless is_integer(value) and value >= 0 do
+      raise "budget limit #{key} must be a non-negative integer"
+    end
+
+    {metric, value}
+  end)
+
+cost_key_map = %{"input" => :input, "output" => :output, "embedding" => :embedding}
+
+model_costs =
+  "CARTULARY_MODEL_COSTS_JSON"
+  |> env_get.("{}")
+  |> Jason.decode!()
+  |> Map.new(fn {role, rates} ->
+    unless is_map(rates), do: raise("model cost rates for #{role} must be an object")
+
+    normalized =
+      Map.new(rates, fn {metric, rate} ->
+        cost_metric =
+          Map.get(cost_key_map, metric) ||
+            raise "unsupported cost metric in CARTULARY_MODEL_COSTS_JSON: #{inspect(metric)}"
+
+        unless is_number(rate) and rate >= 0,
+          do: raise("model cost rate #{role}.#{metric} must be non-negative")
+
+        {cost_metric, rate * 1.0}
+      end)
+
+    {role, normalized}
+  end)
+
+config :cartulary, :budget_limits, budget_limits
+config :cartulary, :model_cost_per_million, model_costs
+
 blob_adapter =
   case env_get.("CARTULARY_BLOB_ADAPTER", "local") do
     "local" -> Cartulary.Documents.BlobStore.Local
@@ -358,51 +484,8 @@ else
   config :opentelemetry, traces_exporter: :none
 end
 
-# A developer's .env normally points at cartulary_dev and must not override the
-# sandboxed database from config/test.exs. CI may still opt into a test database
-# URL by exporting DATABASE_URL explicitly.
-database_url =
-  if config_env() == :test do
-    System.get_env("DATABASE_URL")
-  else
-    env_get.("DATABASE_URL", nil)
-  end
-
-if database_url do
-  config :cartulary, Cartulary.Repo,
-    url: database_url,
-    pool_size: String.to_integer(env_get.("POOL_SIZE", "10"))
-end
-
 if config_env() == :prod do
-  database_url =
-    env_get.("DATABASE_URL", nil) ||
-      raise """
-      environment variable DATABASE_URL is missing.
-      For example: ecto://USER:PASS@HOST/DATABASE
-      """
-
-  maybe_ipv6 = if env_get.("ECTO_IPV6", nil) in ~w(true 1), do: [:inet6], else: []
-
-  config :cartulary, Cartulary.Repo,
-    # ssl: true,
-    url: database_url,
-    pool_size: String.to_integer(env_get.("POOL_SIZE", "10")),
-    # For machines with several cores, consider starting multiple pools of `pool_size`
-    # pool_count: 4,
-    socket_options: maybe_ipv6
-
-  # The secret key base is used to sign/encrypt cookies and other secrets.
-  # A default value is used in config/dev.exs and config/test.exs but you
-  # want to use a different value for prod and you most likely don't want
-  # to check this value into version control, so we use an environment
-  # variable instead.
-  secret_key_base =
-    env_get.("SECRET_KEY_BASE", nil) ||
-      raise """
-      environment variable SECRET_KEY_BASE is missing.
-      You can generate one by calling: mix phx.gen.secret
-      """
+  secret_key_base = env_get.("SECRET_KEY_BASE", auth_signing_secret)
 
   host = env_get.("PHX_HOST", "example.com")
 

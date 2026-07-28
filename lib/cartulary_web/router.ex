@@ -9,6 +9,7 @@ defmodule CartularyWeb.Router do
 
   pipeline :authenticated_api do
     plug CartularyWeb.Plugs.RequireIdentity
+    plug CartularyWeb.Plugs.MeterUsage
   end
 
   pipeline :browser do
@@ -33,6 +34,7 @@ defmodule CartularyWeb.Router do
     pipe_through :api
 
     get "/health", MemoryController, :health
+    get "/ready", MemoryController, :ready
     post "/auth/password", AuthController, :password
 
     scope "/v1" do
@@ -44,6 +46,7 @@ defmodule CartularyWeb.Router do
       post "/context", MemoryController, :context
       post "/readiness", MemoryController, :readiness
       get "/knowledge", MemoryController, :knowledge
+      get "/operations/costs", MemoryController, :costs
     end
   end
 

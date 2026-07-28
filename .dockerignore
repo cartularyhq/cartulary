@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+.git
+.env
+_build
+deps
+priv/plts
+docs
+test
+sdk

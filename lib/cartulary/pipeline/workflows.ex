@@ -39,7 +39,11 @@ defmodule Cartulary.Pipeline.Workflows.DreamTimeReasoning do
     run fn %{pipeline_run: run}, _context ->
       case run.kind do
         "dream_time" ->
-          Cartulary.Governance.Sweeper.run(run.account_id, "dream_time")
+          if Cartulary.Operations.Budget.admit?(run.account_id, run.scope_id, :dream_time) do
+            Cartulary.Governance.Sweeper.run(run.account_id, "dream_time")
+          else
+            {:ok, %{status: "throttled", lane: "dream_time"}}
+          end
 
         "entity_resolution" ->
           Cartulary.Retrieval.EntityResolver.rebuild_scope(run.account_id, run.scope_id)
@@ -118,6 +122,9 @@ defmodule Cartulary.Pipeline.Workflows.Maintenance do
 
         "import_rebuild" when run.target_type == "document_version" ->
           Cartulary.Documents.rebuild_version_for_account(run.target_id, run.account_id)
+
+        "import_rebuild" when run.target_type == "scope" ->
+          Cartulary.Retrieval.Rebuild.scope(run.account_id, run.target_id)
 
         _other ->
           Cartulary.Pipeline.Workflows.Stage.run(run)

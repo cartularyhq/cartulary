@@ -1,0 +1,68 @@
+# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg18-bookworm
+    environment:
+      POSTGRES_DB: cartulary
+      POSTGRES_USER: cartulary
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cartulary-local-only}
+    volumes:
+      - cartulary-postgres:/var/lib/postgresql
+    ports:
+      - "${CARTULARY_POSTGRES_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cartulary -d cartulary"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  cartulary:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PHX_SERVER: "true"
+      PORT: "4000"
+      DATABASE_URL: ecto://cartulary:${POSTGRES_PASSWORD:-cartulary-local-only}@postgres/cartulary
+      CARTULARY_DATABASE_MODE: external
+      CARTULARY_AUTO_MIGRATE: "true"
+      CARTULARY_AUTH_SIGNING_SECRET: ${CARTULARY_AUTH_SIGNING_SECRET:-replace-this-compose-secret-with-at-least-64-random-bytes-development-only}
+      CARTULARY_BLOB_ADAPTER: local
+      CARTULARY_BLOB_ROOT: /var/lib/cartulary/blobs
+      CARTULARY_OTEL_ENABLED: ${CARTULARY_OTEL_ENABLED:-false}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    ports:
+      - "${CARTULARY_PORT:-4000}:4000"
+    volumes:
+      - cartulary-blobs:/var/lib/cartulary/blobs
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.128.0
+    profiles: [observability]
+    command: ["--config=/etc/otelcol/config.yml"]
+    volumes:
+      - ./dev/observability/otel-collector.yml:/etc/otelcol/config.yml:ro
+    ports:
+      - "4318:4318"
+      - "8889:8889"
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.68.0
+    profiles: [observability]
+    ports:
+      - "16686:16686"
+
+  prometheus:
+    image: prom/prometheus:v3.4.1
+    profiles: [observability]
+    command: ["--config.file=/etc/prometheus/prometheus.yml"]
+    volumes:
+      - ./dev/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+volumes:
+  cartulary-postgres:
+  cartulary-blobs:

@@ -15,6 +15,7 @@ defmodule Cartulary.MixProject do
       dialyzer: dialyzer(),
       deps: deps(),
       package: package(),
+      releases: releases(),
       listeners: [Phoenix.CodeReloader]
     ]
   end
@@ -55,7 +56,7 @@ defmodule Cartulary.MixProject do
       {:ash_ai, "~> 0.7.3"},
       {:ash_postgres, "~> 2.11"},
       {:ash_oban, "~> 0.8.10"},
-      {:igniter, "~> 0.6.16", override: true, only: [:dev, :test], runtime: false},
+      {:igniter, "~> 0.6.16", override: true, runtime: false},
       {:simple_sat, "~> 0.1.4"},
       {:oban, "~> 2.19"},
       {:nx, "~> 0.10", override: true},
@@ -109,6 +110,16 @@ defmodule Cartulary.MixProject do
         "LICENSE_EE.md",
         "mix.exs",
         "README.md"
+      ]
+    ]
+  end
+
+  defp releases do
+    [
+      cartulary: [
+        include_executables_for: [:unix, :windows],
+        applications: [runtime_tools: :permanent],
+        overlays: ["rel/overlays"]
       ]
     ]
   end

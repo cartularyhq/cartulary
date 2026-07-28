@@ -29,6 +29,23 @@ config :cartulary,
 
 config :cartulary, Cartulary.Repo, types: Cartulary.PostgrexTypes
 
+config :cartulary, :database,
+  mode: "external",
+  database_url: nil,
+  auto_migrate: false,
+  pg0: [
+    binary: "/private/tmp/pg0",
+    name: "cartulary",
+    postgres_version: "18.1.0",
+    data_dir: Path.join(System.tmp_dir!(), "cartulary-pg0"),
+    port: 5432,
+    username: "postgres",
+    password: "postgres",
+    database: "cartulary"
+  ]
+
+config :cartulary, :require_database_url, false
+
 config :cartulary, :identity,
   account_key: "local",
   account_name: "Local Cartulary"
@@ -112,6 +129,9 @@ config :cartulary, :governance,
   answer_window_turns: 6
 
 config :cartulary, :model_layer, max_repairs: 2
+
+config :cartulary, :budget_limits, %{}
+config :cartulary, :model_cost_per_million, %{}
 
 config :ex_aws, http_client: ExAws.Request.Req
 

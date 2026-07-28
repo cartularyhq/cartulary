@@ -1,0 +1,35 @@
+#!/bin/sh
+# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+set -eu
+
+release_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+data_root=${CARTULARY_DATA_ROOT:-"$HOME/.cartulary"}
+secret_file="$data_root/auth-signing-secret"
+
+mkdir -p "$data_root"
+chmod 0700 "$data_root"
+
+if [ -z "${CARTULARY_AUTH_SIGNING_SECRET:-}" ]; then
+  if [ ! -f "$secret_file" ]; then
+    umask 077
+    dd if=/dev/urandom bs=48 count=1 2>/dev/null | base64 > "$secret_file"
+  fi
+
+  CARTULARY_AUTH_SIGNING_SECRET=$(tr -d '\r\n' < "$secret_file")
+  export CARTULARY_AUTH_SIGNING_SECRET
+fi
+
+: "${CARTULARY_DATABASE_MODE:=pg0}"
+: "${CARTULARY_AUTO_MIGRATE:=true}"
+: "${CARTULARY_PG0_BINARY:=$release_root/bin/pg0}"
+: "${CARTULARY_PG0_DATA_DIR:=$data_root/pg0/instances/cartulary/data}"
+: "${CARTULARY_BLOB_ROOT:=$data_root/blobs}"
+
+export CARTULARY_DATABASE_MODE
+export CARTULARY_AUTO_MIGRATE
+export CARTULARY_PG0_BINARY
+export CARTULARY_PG0_DATA_DIR
+export CARTULARY_BLOB_ROOT
+export PHX_SERVER=true
+
+exec "$release_root/bin/cartulary" start

@@ -147,6 +147,31 @@ defmodule Cartulary.DataLayer do
     end
   end
 
+  @doc false
+  def with_portability_import(account_id, account_key, fun)
+      when is_binary(account_id) and is_binary(account_key) and is_function(fun, 1) do
+    case Repo.transaction(fn ->
+           set_account_key!(account_key)
+           set_account_id!(account_id)
+
+           actor = %Actor{
+             account_id: account_id,
+             account_key: account_key,
+             identity_kind: :system,
+             assurance: :high,
+             role: :system,
+             scope_ids: :all,
+             scope_roles: %{},
+             pipeline?: true
+           }
+
+           fun.(actor)
+         end) do
+      {:ok, result} -> result
+      {:error, error} -> raise "Portability import transaction failed: #{inspect(error)}"
+    end
+  end
+
   defp set_account_key!(account_key) do
     Ecto.Adapters.SQL.query!(
       Repo,

@@ -6,6 +6,7 @@ defmodule Cartulary.Model.Usage do
   alias Cartulary.Clock
   alias Cartulary.Model.Config
   alias Cartulary.Model.Config.Role
+  alias Cartulary.Operations.Metering
   alias Cartulary.Operations.UsageEvent
 
   @safe_metadata_keys ~w(error_class fallback repair_attempt result_count vector_count)
@@ -40,6 +41,7 @@ defmodule Cartulary.Model.Usage do
     })
     |> Ash.create!(actor: pipeline_actor(actor))
 
+    Metering.record_model(account_id, Map.get(context, :scope_id), usage)
     :ok
   end
 
