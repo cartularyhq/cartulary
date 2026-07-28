@@ -1,13 +1,21 @@
 # SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
 
 defmodule Cartulary.Retrieval do
-  @moduledoc "Ash domain for named, versioned retrieval profiles (`AD-SEAM-3`)."
+  @moduledoc """
+  Ash domain and F7 boundary for named multi-strategy retrieval.
+
+  Candidate generation is scope-filtered before fusion; public callers never
+  receive entity rows or alias data.
+  """
 
   use Ash.Domain
 
   resources do
     resource Cartulary.Retrieval.RetrievalProfile
   end
+
+  defdelegate retrieve(query, profile, opts \\ []), to: Cartulary.Retrieval.Engine
+  defdelegate rebuild_scope(account_id, scope_id), to: Cartulary.Retrieval.Rebuild, as: :scope
 end
 
 defmodule Cartulary.Retrieval.RetrievalProfile do

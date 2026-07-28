@@ -246,7 +246,7 @@ defmodule Cartulary.Documents.Service do
           extracted_text: parsed.text,
           extraction_metadata: parsed.metadata,
           chunk_count: length(chunks),
-          embedded_chunk_count: Enum.count(chunks, &is_list(&1.embedding)),
+          embedded_chunk_count: Enum.count(chunks, &(not is_nil(&1.embedding))),
           processing_status: "complete",
           extraction_completed_at: Clock.utc_now()
         })

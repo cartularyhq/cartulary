@@ -227,9 +227,39 @@ refactoring:
   audit evidence and knowledge with surviving provenance. Never copy document
   bytes, extracted text, connector cursors, source metadata, or secrets into
   audit metadata, telemetry, or Oban arguments.
+- F7 replaces the POC retrieval helper with
+  `Cartulary.Retrieval.Strategy`, takes retrieval profile identity to `f7-1`,
+  and makes `Cartulary.Context` the reasoning-free projection assembly
+  boundary. F7 evidence is kept in
+  `test/cartulary/f7_retrieval_entity_context_test.exs`,
+  `docs/architecture/f7-retrieval-entity-context.md`,
+  `priv/resource_snapshots/`, and
+  `priv/repo/migrations/20260728092147_f7_retrieval_entity_context.exs`.
+  `search` defaults to `:balanced`, `ask` to `:thorough`, and only the
+  `:fast` profile may run live on a `get_context` projection miss.
+- F7 retrieval must apply Account, authorized scope, lifecycle, provisional
+  subject, and source filters before candidates leave retrieval internals.
+  Strategy-local scores are not comparable: merge with weighted reciprocal-rank
+  fusion, compute disagreement before fusion, enforce the remaining deadline
+  around strategies and reranking, and report contributed and dropped
+  strategies. Raw strategy overrides remain internal/eval-only.
+- F7 `Entity` and `EntityMention` rows are rebuildable, pipeline-internal
+  caches. Never expose entity rows, canonical names, aliases, surface forms, or
+  entity ids through Phoenix, MCP, SDK, LiveView, projection payloads, or
+  retrieval responses. Erasure and import must recompute them from surviving
+  governed statements. Scope relations and shared-entity edges may expand
+  retrieval only after both endpoint scopes pass the caller's authorization.
+- F7 vectors carry provider, model, version, and dimensions. A mismatch follows
+  the explicit re-embed path; never reuse or silently substitute vectors.
+  Keep knowledge/chunk/entity HNSW indexes and statement/chunk PG-FTS indexes
+  synchronized with resource and migration changes. Projection changes must
+  preserve dirty marking, bounded delta compaction, source ids, and PubSub/ETS
+  invalidation; normal `get_context` assembly must not call a reasoning model.
 - Direct Repo/Ecto SQL access is confined to infrastructure/data-layer modules
-  and explicitly ticketed custom query helpers. The current exception is
-  `Cartulary.Memory.Query`, whose removal ticket is roadmap F7.
+  and explicitly ticketed custom query helpers.
+  `Cartulary.Retrieval.Store` is the F7 read-only helper for static,
+  parameterized PG-FTS, pgvector ANN, and hop-one expansion queries; it performs
+  no durable write and must keep all authorization filters inside each query.
   `Cartulary.Pipeline.Lock` is an F2 infrastructure helper for parameterized
   transaction-scoped advisory locks and performs no durable write.
   `Cartulary.Identity.CredentialLocator` is the F3 bootstrap helper that maps

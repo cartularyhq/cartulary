@@ -273,7 +273,7 @@ defmodule Cartulary.Documents.DocumentChunk do
     attribute :end_byte, :integer, allow_nil?: false, public?: true
     attribute :text, :string, allow_nil?: false
     attribute :content_hash, :string, allow_nil?: false
-    attribute :embedding, {:array, :float}, allow_nil?: false
+    attribute :embedding, :vector, allow_nil?: false
     attribute :embedding_provider, :string, allow_nil?: false, public?: true
     attribute :embedding_model, :string, allow_nil?: false, public?: true
     attribute :embedding_version, :string, allow_nil?: false, public?: true

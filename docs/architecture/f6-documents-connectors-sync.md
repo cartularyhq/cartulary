@@ -40,8 +40,9 @@ vectors are excluded from logical export and regenerated from version blobs.
 The F6 migration preserves PostgreSQL RLS on both new Account-scoped tables,
 adds foreign keys and scheduling/lookup indexes, retains the existing
 document-version FTS column, and safely represents any pre-F6 inline document
-content with a `legacy-db://` reference. F7 still owns pgvector columns, ANN
-indexes, semantic retrieval, and the final document-chunk retrieval strategy.
+content with a `legacy-db://` reference. F7 converts chunk embeddings from
+float arrays to PostgreSQL `vector`, adds the chunk HNSW and generated-FTS
+indexes, and retrieves chunks through Semantic and Lexical strategies.
 
 ## Dual ingest
 
@@ -121,5 +122,5 @@ deleted. Audit retains only IDs, hashes, actions, and counts.
 
 F0 HTTP response shapes, the F4 lifecycle contract, and F5 message extraction
 remain unchanged. F6 adds a new document path and does not rename the existing
-`f5-1` health/message pipeline identity. Retrieval profile identity remains
-`poc-0` until F7.
+`f5-1` health/message pipeline identity. F7 subsequently advances retrieval
+profile identity to `f7-1`.

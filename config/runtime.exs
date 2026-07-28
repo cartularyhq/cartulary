@@ -216,6 +216,67 @@ config :cartulary, :model_roles,
     options: generation_options
   }
 
+retrieval_strategy_names = %{
+  "semantic" => :semantic,
+  "lexical" => :lexical,
+  "temporal" => :temporal,
+  "salience_recency" => :salience_recency,
+  "entity_match" => :entity_match,
+  "relation_expand" => :relation_expand
+}
+
+retrieval_profiles = Application.fetch_env!(:cartulary, :retrieval_profiles)
+
+enabled_retrieval_strategies =
+  "CARTULARY_RETRIEVAL_ENABLED_STRATEGIES"
+  |> env_get.(
+    retrieval_profiles
+    |> Keyword.fetch!(:enabled_strategies)
+    |> Enum.map_join(",", &Atom.to_string/1)
+  )
+  |> String.split(",", trim: true)
+  |> Enum.map(fn name ->
+    Map.get(retrieval_strategy_names, String.trim(name)) ||
+      raise "unsupported retrieval strategy: #{inspect(name)}"
+  end)
+  |> Enum.uniq()
+
+retrieval_profiles =
+  retrieval_profiles
+  |> Keyword.put(:enabled_strategies, enabled_retrieval_strategies)
+  |> Keyword.update!(
+    :fast,
+    &Map.put(
+      &1,
+      :deadline_ms,
+      env_integer.("CARTULARY_RETRIEVAL_FAST_DEADLINE_MS", Integer.to_string(&1.deadline_ms))
+    )
+  )
+  |> Keyword.update!(
+    :balanced,
+    &Map.put(
+      &1,
+      :deadline_ms,
+      env_integer.(
+        "CARTULARY_RETRIEVAL_BALANCED_DEADLINE_MS",
+        Integer.to_string(&1.deadline_ms)
+      )
+    )
+  )
+  |> Keyword.update!(
+    :thorough,
+    &Map.put(
+      &1,
+      :deadline_ms,
+      env_integer.(
+        "CARTULARY_RETRIEVAL_THOROUGH_DEADLINE_MS",
+        Integer.to_string(&1.deadline_ms)
+      )
+    )
+  )
+
+config :cartulary, :retrieval_profiles, retrieval_profiles
+
 config :cartulary, :models,
   base_url: generation_options["base_url"],
   api_key: nil,

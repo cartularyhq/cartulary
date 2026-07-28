@@ -40,10 +40,10 @@ map in `docs/roadmap/free-core-roadmap.md`. It is subordinate to `FR-TOP-*`,
 - Entity and entity-mention actions are pipeline-internal and have no public
   route, preserving `FR-KN-21`.
 
-`Cartulary.Memory` remains a compatibility facade for the frozen HTTP and eval
-surfaces, but its durable reads and writes call Ash actions. Static retrieval
-SQL is isolated in `Cartulary.Memory.Query` with roadmap F7 as its explicit
-removal ticket.
+`Cartulary.Memory` remains a compatibility facade for the HTTP and eval
+surfaces, but its durable reads and writes call Ash actions. F7 removed
+`Cartulary.Memory.Query`; database-native retrieval reads now live in the
+reviewed read-only `Cartulary.Retrieval.Store` data-layer helper.
 
 ## Isolation
 
@@ -78,8 +78,9 @@ Deterministic evidence is in:
 F2 now transactionally couples state transitions, audit entries, durable
 pipeline-run records, and AshOban enqueue effects. Its implementation boundary
 and evidence are documented in
-`docs/architecture/f2-transactional-writes-audit-jobs.md`. F7 owns the
-remaining retrieval SQL transition.
+`docs/architecture/f2-transactional-writes-audit-jobs.md`. F7 completes the
+retrieval SQL transition and is documented in
+`docs/architecture/f7-retrieval-entity-context.md`.
 
 F3 adds the 28th Resource, `Cartulary.Accounts.ApiKey`, and the authenticated
 edge/RBAC resolver without changing F1's domain ownership. Its implementation

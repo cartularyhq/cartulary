@@ -82,7 +82,7 @@ defmodule Mix.Tasks.Cartulary.Eval.Smoke do
     report = %{
       "benchmark" => Map.get(dataset, "benchmark", "smoke"),
       "profile" => profile,
-      "profile_version" => "poc-0",
+      "profile_version" => answers |> List.first(%{}) |> Map.get("profile_version", "f7-1"),
       "account_key" => account_key,
       "messages_attempted" => length(dataset["messages"]),
       "messages_ingested" => Enum.count(ingested, &match?({:ok, _}, &1)),

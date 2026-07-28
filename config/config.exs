@@ -27,6 +27,8 @@ config :cartulary,
   ],
   generators: [timestamp_type: :utc_datetime]
 
+config :cartulary, Cartulary.Repo, types: Cartulary.PostgrexTypes
+
 config :cartulary, :identity,
   account_key: "local",
   account_name: "Local Cartulary"
@@ -51,17 +53,54 @@ config :ash_oban,
   shared_context: [:job]
 
 config :cartulary, :retrieval_profiles,
-  fast: %{version: "poc-0", strategies: [:lexical, :salience_recency], deadline_ms: 250},
+  fast: %{
+    version: "f7-1",
+    strategies: [:semantic, :salience_recency],
+    weights: %{semantic: 1.0, salience_recency: 0.8},
+    rerank: false,
+    deadline_ms: 100
+  },
   balanced: %{
-    version: "poc-0",
-    strategies: [:lexical, :temporal, :salience_recency],
-    deadline_ms: 750
+    version: "f7-1",
+    strategies: [:semantic, :lexical, :temporal, :entity_match],
+    weights: %{semantic: 1.0, lexical: 1.0, temporal: 0.7, entity_match: 0.9},
+    rerank: false,
+    deadline_ms: 300
   },
   thorough: %{
-    version: "poc-0",
-    strategies: [:lexical, :temporal, :salience_recency],
+    version: "f7-1",
+    strategies: [
+      :semantic,
+      :lexical,
+      :temporal,
+      :salience_recency,
+      :entity_match,
+      :relation_expand
+    ],
+    weights: %{
+      semantic: 1.0,
+      lexical: 1.0,
+      temporal: 0.7,
+      salience_recency: 0.8,
+      entity_match: 0.9,
+      relation_expand: 0.6
+    },
+    rerank: true,
     deadline_ms: 1500
-  }
+  },
+  enabled_strategies: [
+    :semantic,
+    :lexical,
+    :temporal,
+    :salience_recency,
+    :entity_match,
+    :relation_expand
+  ],
+  rrf_k: 60,
+  max_candidates: 50,
+  rerank_head: 20,
+  projection_compaction_every: 20,
+  context_budget_chars: 8_000
 
 config :cartulary, :governance,
   attach_deadline_ms: 15,

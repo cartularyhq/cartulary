@@ -480,30 +480,39 @@ and reasoning-free context assembly.
 
 Deliverables:
 
-- [ ] `Cartulary.Retrieval.Strategy` behavior with independent contracts.
-- [ ] Seed strategies: Semantic, Lexical, Temporal, SalienceRecency, EntityMatch.
-- [ ] Expansion strategy: RelationExpand over knowledge relations, scope relations,
+- [x] `Cartulary.Retrieval.Strategy` behavior with independent contracts.
+- [x] Seed strategies: Semantic, Lexical, Temporal, SalienceRecency, EntityMatch.
+- [x] Expansion strategy: RelationExpand over knowledge relations, scope relations,
   and shared-entity edges.
-- [ ] RRF fusion, optional rerank over fused head, profile versioning, profile
+- [x] RRF fusion, optional rerank over fused head, profile versioning, profile
   inheritance, deadlines, dropped-strategy reporting, and internal/eval raw
   strategy overrides.
-- [ ] Knowledge and document embedding columns, pgvector indexes, PG-FTS indexes,
+- [x] Knowledge and document embedding columns, pgvector indexes, PG-FTS indexes,
   backfill/rebuild jobs, and tiny-corpus `Nx` baseline for tests/eval.
-- [ ] Entity and EntityMention derived caches, dream-time resolution cascade, import
+- [x] Entity and EntityMention derived caches, dream-time resolution cascade, import
   rebuild, erasure recomputation, and no-public-entity-surface tests.
-- [ ] Incremental projections: peer profile, scope card, session summary, dirty
+- [x] Incremental projections: peer profile, scope card, session summary, dirty
   marking, delta updates, bounded full compaction, ETS/cache invalidation.
-- [ ] `get_context` budget assembly from projections plus salience-ranked knowledge
+- [x] `get_context` budget assembly from projections plus salience-ranked knowledge
   with no LLM call except the allowed `:fast` fallback on cache miss.
 
 Acceptance:
 
-- [ ] `search` defaults to `:balanced`; `ask` defaults to `:thorough`;
+- [x] `search` defaults to `:balanced`; `ask` defaults to `:thorough`;
   `get_context` remains reasoning-free.
-- [ ] Retrieval responses identify contributed and dropped strategies.
-- [ ] Public surfaces never expose Entity or EntityMention rows, names, or aliases.
-- [ ] Scope and Account filters are applied before candidate material leaves
+- [x] Retrieval responses identify contributed and dropped strategies.
+- [x] Public surfaces never expose Entity or EntityMention rows, names, or aliases.
+- [x] Scope and Account filters are applied before candidate material leaves
   retrieval internals.
+
+F7 evidence lives in the strategy/profile/fusion/store/index/entity modules
+under `lib/cartulary/retrieval/`, the projection/cache/assembly modules under
+`lib/cartulary/context/`, the generated F7 migration and resource snapshots,
+and `test/cartulary/f7_retrieval_entity_context_test.exs`. Profile `f7-1`,
+scope-first filtering, pgvector/FTS indexes, replay-safe rebuild, internal-only
+entity caches, PubSub-backed ETS invalidation, context budgets, and the
+intentional F0 retrieval-contract transition are documented in
+`docs/architecture/f7-retrieval-entity-context.md`.
 
 ### F8: Grounded Ask, API Surfaces, Gateway, And SDKs
 

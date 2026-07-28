@@ -403,10 +403,52 @@ defmodule Cartulary.Governance.Engine do
       |> Map.put(:reason, Keyword.fetch!(opts, :reason))
       |> Map.put(:channel, Keyword.get(opts, :channel, "governance"))
 
-    knowledge
-    |> Ash.Changeset.for_update(:transition, attrs)
-    |> Ash.Changeset.set_tenant(knowledge.account_id)
-    |> Ash.update!(actor: actor)
+    updated =
+      knowledge
+      |> Ash.Changeset.for_update(:transition, attrs)
+      |> Ash.Changeset.set_tenant(knowledge.account_id)
+      |> Ash.update!(actor: actor)
+
+    enqueue_derived_refreshes!(updated, actor)
+    updated
+  end
+
+  defp enqueue_derived_refreshes!(knowledge, actor) do
+    watermark = DateTime.to_iso8601(knowledge.updated_at)
+
+    {:ok, _projection_run} =
+      Pipeline.enqueue(
+        "projection_refresh",
+        knowledge.account_id,
+        %{
+          scope_id: knowledge.scope_id,
+          target_type: "scope",
+          target_id: knowledge.scope_id,
+          idempotency_key: Idempotency.projection_refresh(knowledge.scope_id, watermark),
+          payload: %{"knowledge_id" => knowledge.id}
+        },
+        actor
+      )
+
+    {:ok, _entity_run} =
+      Pipeline.enqueue(
+        "entity_resolution",
+        knowledge.account_id,
+        %{
+          scope_id: knowledge.scope_id,
+          target_type: "scope",
+          target_id: knowledge.scope_id,
+          idempotency_key: Idempotency.entity_resolution(knowledge.scope_id, watermark),
+          payload: %{"knowledge_id" => knowledge.id}
+        },
+        actor
+      )
+
+    Cartulary.Context.Builder.mark_dirty(
+      knowledge.account_id,
+      %{actor | role: :system, pipeline?: true},
+      knowledge.scope_id
+    )
   end
 
   def record_decision!(

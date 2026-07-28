@@ -134,7 +134,7 @@ quality but destroys latency, abstention, or cost visibility is not done.
 | Documents | version byte count, parser, chunk/knowledge counts, hash no-op count, tombstones, connector page duration, retry behavior |
 | Pipeline | Oban queue latency, retries, job duration, dream-time budget use, revalidation/expiry sweeps once implemented |
 | Retrieval | profile, profile version, strategy count, candidate count, latency, contributed strategies, dropped strategies |
-| Context | knowledge count, projection/cache hit once implemented, no model spans under normal `get_context` |
+| Context | knowledge count, projection/cache hit, fast-fallback flag, no reasoning-model spans under normal `get_context` |
 | Ask | candidate count, model used, abstention flag, citation correctness from eval report, latency |
 | Model | operation, role, provider/model/version, prompt/pipeline version, input/output/embedding tokens, duration, error rate, repair attempt, retry behavior |
 | Database | query time, queue time, transaction failures, migration/index behavior |

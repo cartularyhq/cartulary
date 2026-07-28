@@ -38,8 +38,17 @@ defmodule Cartulary.Pipeline.Workflows.DreamTimeReasoning do
 
     run fn %{pipeline_run: run}, _context ->
       case run.kind do
-        "dream_time" -> Cartulary.Governance.Sweeper.run(run.account_id, "dream_time")
-        _other -> Cartulary.Pipeline.Workflows.Stage.run(run)
+        "dream_time" ->
+          Cartulary.Governance.Sweeper.run(run.account_id, "dream_time")
+
+        "entity_resolution" ->
+          Cartulary.Retrieval.EntityResolver.rebuild_scope(run.account_id, run.scope_id)
+
+        "projection_refresh" ->
+          Cartulary.Retrieval.rebuild_scope(run.account_id, run.scope_id)
+
+        _other ->
+          Cartulary.Pipeline.Workflows.Stage.run(run)
       end
     end
   end

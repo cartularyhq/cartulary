@@ -101,11 +101,13 @@ defmodule Cartulary.Governance.Erasure do
 
     delete_knowledge = Enum.uniq_by(subject_knowledge ++ strict_extra, & &1.id)
     delete_ids = MapSet.new(delete_knowledge, & &1.id)
+    affected_scope_ids = delete_knowledge |> Enum.map(& &1.scope_id) |> Enum.uniq()
 
     recompute_projections!(account_id, actor, request.peer_id, delete_ids)
     recompute_entities!(account_id, actor, delete_ids)
     erase_peer_queries!(account_id, actor, request.peer_id)
     erase_knowledge_rows!(account_id, actor, delete_knowledge)
+    refresh_derived_scopes!(account_id, affected_scope_ids)
 
     retained_sourced =
       sourced_knowledge
@@ -226,7 +228,7 @@ defmodule Cartulary.Governance.Erasure do
       projection
       |> Ash.Changeset.for_update(:refresh_from_pipeline, %{dirty: true})
       |> Ash.Changeset.set_tenant(account_id)
-      |> Ash.update!(actor: actor)
+      |> Ash.update!(actor: actor, authorize?: false)
     end)
   end
 
@@ -248,8 +250,17 @@ defmodule Cartulary.Governance.Erasure do
           entity
           |> Ash.Changeset.for_update(:recompute_from_pipeline, %{derived_from: surviving})
           |> Ash.Changeset.set_tenant(account_id)
-          |> Ash.update!(actor: actor)
+          |> Ash.update!(actor: actor, authorize?: false)
       end
+    end)
+  end
+
+  defp refresh_derived_scopes!(account_id, scope_ids) do
+    Enum.each(scope_ids, fn scope_id ->
+      {:ok, _entities} =
+        Cartulary.Retrieval.EntityResolver.rebuild_scope(account_id, scope_id)
+
+      {:ok, _projections} = Cartulary.Context.Builder.refresh_scope(account_id, scope_id)
     end)
   end
 

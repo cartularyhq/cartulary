@@ -22,6 +22,7 @@ defmodule Cartulary.Application do
        )},
       {DNSCluster, query: Application.get_env(:cartulary, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Cartulary.PubSub},
+      Cartulary.Context.Cache,
       # Start a worker by calling: Cartulary.Worker.start_link(arg)
       # {Cartulary.Worker, arg},
       # Start to serve requests, typically the last entry

@@ -41,10 +41,14 @@ can be treated as the durable Cartulary architecture.
   adapters, MDEx/ExtractousEx parsing, TextChunker and bitcrowd/rag chunk
   embeddings, incremental connector sync, supersession/tombstones, and
   checksum-verified document export/import and erasure.
+- Completed roadmap F7 with six independent retrieval strategies, two-phase
+  deadline-bounded fan-out, weighted RRF, optional reranking, `f7-1` profiles,
+  pgvector/FTS indexes, replay-safe vector/entity/projection rebuild, internal
+  entity resolution, and projection-backed reasoning-free context assembly.
 - Converted `Cartulary.Memory` durable reads and writes to Ash actions while
   preserving the F0 shapes and intentionally versioning lifecycle semantics to
-  `f4-1` and extraction to `f5-1`; the remaining parameterized retrieval SQL is isolated in
-  `Cartulary.Memory.Query` under the F7 transition ticket.
+  `f4-1`, extraction to `f5-1`, and retrieval/context to `f7-1`. The obsolete
+  `Cartulary.Memory.Query` transition helper has been removed.
 - Added `Cartulary.Memory` as the POC write/read path for message ingestion,
   pipeline extraction, knowledge insertion, search, ask, and context reads.
 - Added a pipeline extractor that accepts only schema-valid structured output,
@@ -103,7 +107,7 @@ OpenRouter key.
 - `mix format --check-formatted` passed.
 - `mix compile --warnings-as-errors` passed.
 - `mix ecto.migrate` passed, including `CREATE EXTENSION IF NOT EXISTS vector`.
-- `mix test` passed with 56 tests (including two property tests), covering the
+- `mix test` passed with 65 tests (including two property tests), covering the
   F0 HTTP, persistence, inheritance, Account-selection, pipeline-write,
   lifecycle, deterministic fallback, and eval-fixture contracts; the F1 Ash
   action/RLS suite; F2 transaction/audit/AshOban/Reactor/replay/provider-outage;
@@ -113,7 +117,10 @@ OpenRouter key.
   subject/temporal extraction, provenance, all provider capabilities, re-embed
   guards, exact usage, and retryable outage behavior; and F6 dual document
   ingest, native parsing, pinned chunks, sync/no-op/supersession/tombstones,
-  portability, erasure/rebuild, independent provenance, and secret rejection.
+  portability, erasure/rebuild, independent provenance, and secret rejection;
+  plus F7 strategy/profile contracts, vector/FTS indexes, semantic and
+  relation/entity retrieval, Account/scope filtering, deadline reporting,
+  internal entity opacity, and model-free context caching.
 - `mix ash.codegen --check` passed with no resource/snapshot drift.
 - The F1 suite passed against a newly created partitioned test database,
   exercising the complete migration chain from an empty database.
@@ -127,17 +134,26 @@ OpenRouter key.
 - The complete F0-F6 suite passed against a newly created `f6_final`
   partitioned test database, exercising the complete migration chain from an
   empty database.
+- The F7 migration and complete F0-F7 suite passed against the configured test
+  Postgres and a newly created `f7_final` partitioned database. Explicit
+  pg0/operator-run parity lanes have not yet been run.
 - `mix credo --strict` passed with no issues.
 - `mix dialyzer` passed with 0 errors.
-- `mix sobelow --config` passed with no findings after two targeted
+- `mix sobelow --config` passed with no findings after three targeted
   POC false-positive skips:
   - local benchmark fixture reads in `Cartulary.Eval.Adapter`.
-  - the internal static-SQL helper in `Cartulary.Memory`.
+  - the read-only static retrieval data layer in `Cartulary.Retrieval.Store`.
+  - the static UUID-only message-to-Account bootstrap lookup in
+    `Cartulary.DataLayer`.
 - `mix cartulary.eval.smoke --profile balanced --account eval-openrouter-current`
   ingested 3 messages and answered all 3 smoke questions with citations.
-- `mix cartulary.eval.benchmark --dataset test/fixtures/eval/cartulary-smoke.json --benchmark cartulary --profile balanced --account eval-benchmark-local --run-id docs-poc-check-2 --no-model`
-  ingested 2 messages and scored 1 deterministic question through the full
-  benchmark runner.
+- `mix cartulary.eval.benchmark --dataset test/fixtures/eval/cartulary-smoke.json --benchmark cartulary --profile balanced --account eval-f7-final-2 --run-id f7-final-2 --no-model`
+  ingested 2 messages and scored 1 deterministic `f7-1` question through the
+  full benchmark runner with accuracy `1.0`, citation hit rate `1.0`, contains
+  accuracy `1.0`, mean token F1 `0.4`, and retrieval latency `9 ms`. The
+  operator-supplied local embedding artifact was not configured, so the
+  background projection refresh remained retryable as required by F5 while the
+  no-model lexical/temporal retrieval path completed.
 - Minimal LoCoMo, LongMemEval, and BEAM fixtures were run through the full
   benchmark runner and wrote repository-local JSON reports. Results are
   recorded in `docs/eval/minimal-benchmark-results.md`.
@@ -159,20 +175,13 @@ These shortcuts are acceptable only for the local POC.
   Ash.Reactor now own durable execution and the POC-compatible synchronous
   response is replay-safe. F4 now implements governance revalidation, expiry,
   validation continuation, and transcript answer-correlation semantics. F6
-  implements document connectors and the document portability component; full
-  account archives and projection-refresh behavior remain in later phases.
+  implements document connectors and the document portability component; F7
+  implements vector/entity/projection refresh. Full account archives remain in
+  later phases.
 - **Human identity is local free-core identity.** F3 now uses
   AshAuthentication password/JWT identities and per-Peer API keys. Enterprise
   SSO/SAML/SCIM, multi-Account provisioning, advanced RBAC administration, and
   channel-linking UX remain later licensed/governance work.
-- **Retrieval is inline and partial.** Lexical, temporal, and salience/recency
-  strategies are implemented as SQL branches in one module with RRF fusion.
-  There are no strategy behaviours, per-strategy budgets, async fan-out,
-  deadline dropping, reranking, or configurable weights yet.
-- **pgvector is enabled but not used.** The migration creates the extension, but
-  F5 now supplies the pinned embedding role and Ortex/API adapters; there is no
-  embedding column, ANN index, backfill job, semantic strategy, or vector
-  parity evidence until F7.
 - **Model deployment assets remain operator-supplied.** F5 supplies the
   provider-neutral ReqLLM seam and local Ortex/ONNX execution, but does not
   download or package ONNX/tokenizer artifacts, certify every ReqLLM provider,
@@ -184,10 +193,10 @@ These shortcuts are acceptable only for the local POC.
   matrices, release thresholds, CI gates, and backend parity evidence.
 - **pg0 is manually launched.** The local test used `/private/tmp/pg0`; the
   release does not yet download, pin, supervise, health-check, or recover pg0.
-- **Projection layer is absent.** Profiles, scope cards, session summaries,
-  peer profiles, ETS caches, `persistent_term` caches, and rebuild jobs are not
-  implemented. F4 erasure marks the existing projection resource dirty and
-  recomputes entity derivations, ready for the full F9 builders.
+- **Retrieval tuning remains evidence work.** F7 provides versioned profiles,
+  raw internal ablations, deadline-disabled evals, and complete strategy
+  instrumentation. Held-out fusion-weight tuning, upstream judge parity,
+  release thresholds, and the operator-run Postgres parity lane remain open.
 - **Surfaces are partial.** F4 adds the curator LiveView, peer self-service API,
   and AshAi MCP tools. F6 supplies the internal document/connector/portability
   boundary; AshJsonApi, generated SDKs, gateway proxy, connector

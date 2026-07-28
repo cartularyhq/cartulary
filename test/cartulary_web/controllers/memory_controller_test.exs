@@ -84,7 +84,7 @@ defmodule CartularyWeb.MemoryControllerTest do
     assert %{
              "data" => %{
                "profile" => "balanced",
-               "profile_version" => "poc-0",
+               "profile_version" => "f7-1",
                "dropped_strategies" => [],
                "candidates" => [%{"statement" => statement} | _]
              }
@@ -112,7 +112,7 @@ defmodule CartularyWeb.MemoryControllerTest do
     assert %{
              "data" => %{
                "profile" => "thorough",
-               "profile_version" => "poc-0",
+               "profile_version" => "f7-1",
                "answer" => answer,
                "abstained" => false,
                "citations" => [_ | _]
@@ -137,10 +137,11 @@ defmodule CartularyWeb.MemoryControllerTest do
 
     assert %{
              "data" => %{
-               "profile_version" => "poc-0",
+               "profile_version" => "f7-1",
                "session_summary" => nil,
                "scope_cards" => [],
                "peer_profile" => [],
+               "fast_fallback" => true,
                "knowledge" => [%{"statement" => statement} | _]
              }
            } = json_response(conn, 200)

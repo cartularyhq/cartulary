@@ -252,12 +252,13 @@ plan are maintained in:
 Read both documents before treating any POC code as an architectural precedent
 or before migrating POC behavior into the free-core architecture.
 
-## F0 Contract And F5 Extraction Version
+## F0 Contract And F7 Retrieval Version
 
 F0 freezes behavior, not the POC's internal design. `Cartulary.Memory` is now a
 compatibility facade over authoritative Ash actions. F2 owns transactional
-audit/AshOban behavior; the only remaining static retrieval SQL is the named
-F7 transition helper in `Cartulary.Memory.Query`.
+audit/AshOban behavior; F7 owns profile-based retrieval and projection-backed
+context. Database-native FTS, pgvector, and hop-one reads are confined to the
+reviewed read-only retrieval data layer.
 
 The contract evidence covers:
 
@@ -274,8 +275,9 @@ F4 intentionally changes the lifecycle portion of that contract from the POC
 `active` shortcut to `proposed → provisional` by default, with scope-level
 promotion held until Gate B approval and any required consent. Health reports
 `f5-1`. F5 changes extractor/pipeline identity from `poc-0` to `f5-1` while
-preserving the F0 payload shapes; retrieval profile identifiers remain `poc-0`
-until F7.
+preserving the F0 payload shapes. F7 intentionally advances search, ask, and
+context profile identity from `poc-0` to `f7-1`; the F0 HTTP evidence records
+that explicit contract transition.
 
 Run the focused F0 contract:
 
@@ -371,8 +373,9 @@ resolves subject independently of source, discounts hearsay, proposes
 confidence/sensitivity/target/time fields and an update operation, persists
 full provenance, then enters the unchanged F4 Gate A/B lifecycle. Every call
 emits one content-safe, Account/scope-attributed usage event. Provider failure
-keeps raw observations and retryable jobs durable, while `get_context` remains
-model-free.
+keeps raw observations and retryable jobs durable. F7 keeps normal
+`get_context` assembly reasoning-free and permits only its bounded `:fast`
+retrieval fallback after a projection miss.
 
 Read the model boundary, schemas, embedding identity rule, outage behavior,
 contract transition, and evidence in
@@ -396,6 +399,34 @@ chunks and vectors.
 Read the storage boundary, transaction flow, sync semantics, erasure and
 portability behavior, version posture, and evidence in
 `docs/architecture/f6-documents-connectors-sync.md`.
+
+## F7 Retrieval, Entity Resolution, And Context
+
+Retrieval now runs independent Semantic, Lexical, Temporal,
+SalienceRecency, and EntityMatch seed strategies, followed by hop-one
+RelationExpand over knowledge, permission-filtered scope, and shared-entity
+edges. Weighted reciprocal-rank fusion combines strategy-local ranks;
+`:thorough` optionally reranks the fused head. Named profiles are versioned,
+inherit nearest-wins from scope configuration, honor deployment strategy
+constraints, enforce a hard deadline, and report contributed and dropped
+strategies.
+
+Knowledge and document chunks use PostgreSQL `vector` values with pinned
+provider/model/version/dimension identity, HNSW cosine indexes, and PG-FTS GIN
+indexes. Replay-safe projection jobs backfill knowledge vectors, run the
+dream-time exact/embedding/reasoner entity cascade, and update bounded-delta
+scope cards, peer profiles, and session summaries. Entity rows and aliases
+remain internal derived caches and are never exposed through public routes.
+
+`get_context` reads clean projections through an ETS cache with PubSub
+invalidation, reserves its budget for summary/profile/cards before knowledge,
+and stays reasoning-free. Its only live retrieval work is the allowed `:fast`
+fallback after a cache miss. `search` defaults to `:balanced`; `ask` defaults to
+`:thorough`.
+
+Read the strategy contracts, security filtering, vector/index shape, entity
+privacy, projection lifecycle, runtime controls, version transition, and
+evidence in `docs/architecture/f7-retrieval-entity-context.md`.
 
 ## Free Core Direction
 
@@ -428,19 +459,15 @@ applicable license.
 
 The important cuts are intentional and temporary:
 
-- Core durable reads and writes now use Ash. The POC retrieval strategies still
-  use static parameterized SQL in the explicit F7 transition helper.
 - F2 provides the durable lanes for dream-time, lifecycle, connector,
   portability, and projection work. F4 through F6 now supply governance,
   structured reasoning, document connectors, and the document portability
-  component; full reasoning-result application, account-wide archives, and
-  projection building remain in later phases.
-- Retrieval is Postgres FTS plus simple temporal and salience/recency queries;
-  the F5 embedder is implemented, but F7 still owns embedding columns,
-  backfill, semantic retrieval, and ANN indexes.
+  component; F7 supplies retrieval/entity/projection execution. Full
+  reasoning-result application and account-wide archives remain in later
+  phases.
 - LoCoMo, LongMemEval, and BEAM fixture import/scoring exists for the POC, but
-  upstream judge parity, ablation matrices, release thresholds, and backend
-  parity evidence are not implemented.
+  upstream judge parity, held-out profile-weight tuning, release thresholds,
+  and operator-run Postgres parity evidence are not implemented.
 - F5 provides a cassette-tested provider seam, but production model artifacts,
   broader provider certification, and release eval thresholds remain operator
   and later-roadmap work.

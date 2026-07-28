@@ -4,10 +4,9 @@ defmodule Cartulary.Memory do
   @moduledoc """
   Compatibility facade over authoritative Ash actions.
 
-  The public `poc-0` response shapes remain frozen by F0. F1 owns durable data
-  through Ash tenancy/actions and F2 owns transactional audit and AshOban
-  execution. Static retrieval SQL is isolated in `Cartulary.Memory.Query`
-  under the explicit F7 transition ticket.
+  F1 owns durable data through Ash tenancy/actions and F2 owns transactional
+  audit and AshOban execution. F7 routes search and context through the
+  profile-based retrieval and projection boundaries.
   """
 
   alias Cartulary.Accounts.Peer
@@ -21,7 +20,6 @@ defmodule Cartulary.Memory do
   alias Cartulary.Knowledge.KnowledgeItem
   alias Cartulary.Knowledge.LifecycleEvent
   alias Cartulary.Knowledge.Provenance
-  alias Cartulary.Memory.Query
   alias Cartulary.Observability
   alias Cartulary.Observations.Message
   alias Cartulary.Observations.Session
@@ -30,6 +28,7 @@ defmodule Cartulary.Memory do
   alias Cartulary.Pipeline.Extractor
   alias Cartulary.Pipeline.Idempotency
   alias Cartulary.Pipeline.Lock
+  alias Cartulary.Retrieval.Query, as: RetrievalQuery
   alias Cartulary.Topology.Scope
 
   require Ash.Query
@@ -115,7 +114,7 @@ defmodule Cartulary.Memory do
   def extract_message(message_id, account_key \\ nil) do
     Observability.with_span(:memory, "cartulary.memory.extract_message", fn ->
       Observability.set_attribute(:memory, "cartulary.message.id", message_id)
-      account_key = account_key || Query.message_account_key!(message_id)
+      account_key = account_key || DataLayer.message_account_key!(message_id)
 
       result =
         DataLayer.with_account_key(
@@ -208,64 +207,60 @@ defmodule Cartulary.Memory do
       filters = filters |> normalize_attrs() |> put_identity_actor(identity_actor)
       query = Map.get(filters, "query", "")
       scope_path = Map.get(filters, "scope_path", "/poc")
-      profile = parse_profile(Map.get(filters, "profile", "balanced"))
+      profile = Map.get(filters, "profile", "balanced")
       limit = parse_int(Map.get(filters, "limit"), @default_limit)
-      deadline? = Map.get(filters, "deadline", "enabled")
-      started_at = System.monotonic_time(:millisecond)
-      profile_config = profile_config(profile)
-      strategies = Map.fetch!(profile_config, :strategies)
+      deadline? = Map.get(filters, "deadline", "enabled") != "disabled"
 
-      {strategy_results, scope_count} =
+      {retrieval, scope_count} =
         with_account(filters, fn account, actor ->
-          scope_paths =
+          scopes =
             account.id
-            |> visible_scopes(actor, scope_path)
-            |> Enum.map(& &1.path)
+            |> visible_scopes(
+              actor,
+              scope_path,
+              Map.get(filters, "include_cross_links", false) in [true, "true", "1"]
+            )
 
-          results =
-            Enum.map(strategies, fn strategy ->
-              {strategy,
-               Query.run_strategy(
-                 strategy,
-                 account.id,
-                 scope_paths,
-                 actor.peer_id,
-                 query,
-                 limit
-               )}
-            end)
+          retrieval_query = %RetrievalQuery{
+            account_id: account.id,
+            actor: actor,
+            scope_ids: Enum.map(scopes, & &1.id),
+            text: query,
+            target: retrieval_target(Map.get(filters, "_retrieval_target", "all")),
+            as_of: parse_datetime(Map.get(filters, "as_of")),
+            min_score: parse_float(Map.get(filters, "min_score")),
+            source_filters: Map.get(filters, "source_filters", %{}),
+            max_candidates: limit
+          }
 
-          {results, length(scope_paths)}
+          internal? = actor.identity_kind == :system
+
+          opts =
+            [
+              deadline?: deadline?,
+              internal?: internal?,
+              strategies: Map.get(filters, "strategies")
+            ]
+            |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+
+          {Cartulary.Retrieval.retrieve(retrieval_query, profile, opts), length(scopes)}
         end)
 
       Observability.set_attributes(:memory, %{
-        "cartulary.retrieval.profile" => Atom.to_string(profile),
-        "cartulary.retrieval.profile_version" => Map.fetch!(profile_config, :version),
-        "cartulary.retrieval.strategy_count" => length(strategies),
+        "cartulary.retrieval.profile" => retrieval.profile,
+        "cartulary.retrieval.profile_version" => retrieval.profile_version,
+        "cartulary.retrieval.strategy_count" => length(retrieval.contributed_strategies),
         "cartulary.query.limit" => limit,
         "cartulary.query.text_length" => String.length(query),
         "cartulary.query.scope_count" => scope_count
       })
 
-      fused = fuse(strategy_results, limit)
-      latency_ms = System.monotonic_time(:millisecond) - started_at
-
       Observability.set_attributes(:memory, %{
-        "cartulary.retrieval.candidate_count" => length(fused),
-        "cartulary.retrieval.latency_ms" => latency_ms
+        "cartulary.retrieval.candidate_count" => length(retrieval.candidates),
+        "cartulary.retrieval.latency_ms" => retrieval.latency_ms
       })
 
-      %{
-        "query" => query,
-        "profile" => Atom.to_string(profile),
-        "profile_version" => Map.fetch!(profile_config, :version),
-        "deadline" => deadline?,
-        "latency_ms" => latency_ms,
-        "contributed_strategies" =>
-          Enum.map(strategy_results, fn {strategy, rows} -> strategy_name(strategy, rows) end),
-        "dropped_strategies" => [],
-        "candidates" => fused
-      }
+      stringify_top_level(retrieval)
     end)
   end
 
@@ -284,6 +279,7 @@ defmodule Cartulary.Memory do
         attrs
         |> Map.put("query", question)
         |> Map.put("profile", profile)
+        |> Map.put("_retrieval_target", "knowledge")
         |> search()
 
       candidates = Map.fetch!(retrieval, "candidates")
@@ -303,17 +299,20 @@ defmodule Cartulary.Memory do
   def get_context(attrs, identity_actor \\ nil) do
     Observability.with_span(:memory, "cartulary.memory.get_context", fn ->
       attrs = attrs |> normalize_attrs() |> put_identity_actor(identity_actor)
-      knowledge = query_knowledge(Map.put(attrs, "limit", Map.get(attrs, "limit", 8)))
 
-      Observability.set_attribute(:memory, "cartulary.context.knowledge_count", length(knowledge))
+      context =
+        with_account(attrs, fn account, actor ->
+          scopes = visible_scopes(account.id, actor, Map.get(attrs, "scope_path", "/poc"))
+          Cartulary.Context.get(account, actor, scopes, attrs)
+        end)
 
-      %{
-        "profile_version" => "poc-0",
-        "session_summary" => nil,
-        "scope_cards" => [],
-        "peer_profile" => [],
-        "knowledge" => knowledge
-      }
+      Observability.set_attributes(:memory, %{
+        "cartulary.context.knowledge_count" => length(context["knowledge"]),
+        "cartulary.context.projection_cache_hit" => context["projection_cache_hit"],
+        "cartulary.context.fast_fallback" => context["fast_fallback"]
+      })
+
+      context
     end)
   end
 
@@ -732,15 +731,39 @@ defmodule Cartulary.Memory do
     Ash.Query.filter(query, is_nil(target_peer_id) and target_scope_id == ^scope_id)
   end
 
-  defp visible_scopes(account_id, actor, path) do
+  defp visible_scopes(account_id, actor, path, include_cross_links? \\ false) do
     ancestor_paths = path |> normalize_path() |> ancestor_paths()
 
-    Scope
-    |> Ash.Query.filter(path in ^ancestor_paths)
-    |> Ash.Query.sort(path: :desc)
-    |> Ash.Query.set_tenant(account_id)
-    |> Ash.read!(actor: actor)
-    |> Enum.sort_by(&String.length(&1.path), :desc)
+    scopes =
+      Scope
+      |> Ash.Query.filter(path in ^ancestor_paths)
+      |> Ash.Query.sort(path: :desc)
+      |> Ash.Query.set_tenant(account_id)
+      |> Ash.read!(actor: actor)
+
+    if include_cross_links? do
+      scope_ids = Enum.map(scopes, & &1.id)
+
+      linked_ids =
+        Cartulary.Topology.ScopeRelation
+        |> Ash.Query.filter(source_scope_id in ^scope_ids or target_scope_id in ^scope_ids)
+        |> Ash.Query.set_tenant(account_id)
+        |> Ash.read!(actor: actor)
+        |> Enum.flat_map(&[&1.source_scope_id, &1.target_scope_id])
+        |> Enum.uniq()
+
+      linked =
+        Scope
+        |> Ash.Query.filter(id in ^linked_ids)
+        |> Ash.Query.set_tenant(account_id)
+        |> Ash.read!(actor: actor)
+
+      (scopes ++ linked)
+      |> Enum.uniq_by(& &1.id)
+      |> Enum.sort_by(&String.length(&1.path), :desc)
+    else
+      Enum.sort_by(scopes, &String.length(&1.path), :desc)
+    end
   end
 
   defp read_one_by_id!(resource, id, account_id, actor) do
@@ -806,22 +829,6 @@ defmodule Cartulary.Memory do
     |> Enum.map(& &1.name)
     |> then(&Map.take(record, &1))
     |> Map.new(fn {key, value} -> {Atom.to_string(key), value} end)
-  end
-
-  defp fuse(strategy_results, limit) do
-    strategy_results
-    |> Enum.flat_map(fn {_strategy, rows} -> rows end)
-    |> Enum.group_by(& &1["id"])
-    |> Enum.map(fn {_id, rows} ->
-      rrf_score = Enum.reduce(rows, 0.0, fn row, acc -> acc + 1.0 / (60 + row["rank"]) end)
-
-      rows
-      |> List.first()
-      |> Map.put("rrf_score", rrf_score)
-      |> Map.put("strategies", Enum.map(rows, & &1["strategy"]) |> Enum.uniq())
-    end)
-    |> Enum.sort_by(& &1["rrf_score"], :desc)
-    |> Enum.take(limit)
   end
 
   defp answer_question(_attrs, question, []), do: {fallback_answer(question, []), false}
@@ -912,24 +919,15 @@ defmodule Cartulary.Memory do
     }
   end
 
-  defp profile_config(profile) when profile in [:fast, :balanced, :thorough] do
-    :cartulary
-    |> Application.fetch_env!(:retrieval_profiles)
-    |> Keyword.fetch!(profile)
+  defp retrieval_target("knowledge"), do: :knowledge
+  defp retrieval_target("documents"), do: :documents
+  defp retrieval_target(:knowledge), do: :knowledge
+  defp retrieval_target(:documents), do: :documents
+  defp retrieval_target(_target), do: :all
+
+  defp stringify_top_level(map) do
+    Map.new(map, fn {key, value} -> {to_string(key), value} end)
   end
-
-  defp profile_config(_profile), do: profile_config(:balanced)
-
-  defp parse_profile("fast"), do: :fast
-  defp parse_profile("balanced"), do: :balanced
-  defp parse_profile("thorough"), do: :thorough
-  defp parse_profile(:fast), do: :fast
-  defp parse_profile(:balanced), do: :balanced
-  defp parse_profile(:thorough), do: :thorough
-  defp parse_profile(_profile), do: :balanced
-
-  defp strategy_name(strategy, []), do: "#{strategy}:empty"
-  defp strategy_name(strategy, _rows), do: Atom.to_string(strategy)
 
   defp normalize_attrs(attrs) when is_map(attrs) do
     Map.new(attrs, fn {key, value} -> {to_string(key), value} end)
@@ -986,4 +984,29 @@ defmodule Cartulary.Memory do
   end
 
   defp parse_int(_value, default), do: default
+
+  defp parse_float(nil), do: nil
+  defp parse_float(value) when is_float(value), do: value
+  defp parse_float(value) when is_integer(value), do: value * 1.0
+
+  defp parse_float(value) when is_binary(value) do
+    case Float.parse(value) do
+      {number, ""} -> number
+      _other -> nil
+    end
+  end
+
+  defp parse_float(_value), do: nil
+
+  defp parse_datetime(nil), do: nil
+  defp parse_datetime(%DateTime{} = datetime), do: datetime
+
+  defp parse_datetime(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> datetime
+      _other -> nil
+    end
+  end
+
+  defp parse_datetime(_value), do: nil
 end

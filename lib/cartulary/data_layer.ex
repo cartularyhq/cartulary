@@ -17,6 +17,22 @@ defmodule Cartulary.DataLayer do
 
   require Ash.Query
 
+  # Static bootstrap lookup retained inside the infrastructure boundary.
+  # sobelow_skip ["SQL.Query"]
+  def message_account_key!(message_id) do
+    sql = """
+    SELECT account.key
+    FROM messages AS message
+    JOIN accounts AS account ON account.id = message.account_id
+    WHERE message.id = $1
+    """
+
+    case Ecto.Adapters.SQL.query!(Repo, sql, [Ecto.UUID.dump!(message_id)]) do
+      %{rows: [[account_key]]} -> account_key
+      %{rows: []} -> raise Ecto.NoResultsError, queryable: sql
+    end
+  end
+
   def with_account_key(account_key, actor_overrides \\ [], fun)
       when is_binary(account_key) and is_function(fun, 2) do
     case Repo.transaction(fn ->

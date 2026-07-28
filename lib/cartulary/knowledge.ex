@@ -67,6 +67,7 @@ defmodule Cartulary.Knowledge.KnowledgeItem do
         :embedding_provider,
         :embedding_model,
         :embedding_version,
+        :embedding_dimensions,
         :pipeline_version
       ]
 
@@ -79,6 +80,18 @@ defmodule Cartulary.Knowledge.KnowledgeItem do
 
     update :merge_from_pipeline do
       accept [:confidence, :source_message_ids, :corroboration_count]
+      require_atomic? false
+    end
+
+    update :index_from_pipeline do
+      accept [
+        :embedding,
+        :embedding_provider,
+        :embedding_model,
+        :embedding_version,
+        :embedding_dimensions
+      ]
+
       require_atomic? false
     end
 
@@ -130,7 +143,7 @@ defmodule Cartulary.Knowledge.KnowledgeItem do
       authorize_if expr(subject_peer_id == ^actor(:peer_id))
     end
 
-    policy action([:create_from_pipeline, :merge_from_pipeline]) do
+    policy action([:create_from_pipeline, :merge_from_pipeline, :index_from_pipeline]) do
       authorize_if actor_attribute_equals(:pipeline?, true)
     end
 
@@ -196,6 +209,8 @@ defmodule Cartulary.Knowledge.KnowledgeItem do
     attribute :embedding_provider, :string, public?: true
     attribute :embedding_model, :string, public?: true
     attribute :embedding_version, :string, public?: true
+    attribute :embedding, :vector, select_by_default?: false
+    attribute :embedding_dimensions, :integer, public?: true
     attribute :pipeline_version, :string, allow_nil?: false, default: "f5-1", public?: true
     attribute :deleted_at, :utc_datetime_usec
     create_timestamp :inserted_at
@@ -455,12 +470,37 @@ defmodule Cartulary.Knowledge.Projection do
   actions do
     defaults [:read]
 
-    create :create_from_pipeline do
-      accept [:scope_id, :peer_id, :session_id, :kind, :version, :content, :source_ids, :dirty]
+    create :upsert_from_pipeline do
+      accept [
+        :cache_key,
+        :scope_id,
+        :peer_id,
+        :session_id,
+        :kind,
+        :version,
+        :content,
+        :source_ids,
+        :dirty,
+        :watermark,
+        :delta_count
+      ]
+
+      upsert? true
+      upsert_identity :cache_key
+
+      upsert_fields [
+        :version,
+        :content,
+        :source_ids,
+        :dirty,
+        :watermark,
+        :delta_count,
+        :updated_at
+      ]
     end
 
     update :refresh_from_pipeline do
-      accept [:version, :content, :source_ids, :dirty]
+      accept [:version, :content, :source_ids, :dirty, :watermark, :delta_count]
     end
   end
 
@@ -473,7 +513,7 @@ defmodule Cartulary.Knowledge.Projection do
       authorize_if {Cartulary.Policy.ScopeAccess, attribute: :scope_id}
     end
 
-    policy action([:create_from_pipeline, :refresh_from_pipeline]) do
+    policy action([:upsert_from_pipeline, :refresh_from_pipeline]) do
       authorize_if actor_attribute_equals(:pipeline?, true)
     end
   end
@@ -481,6 +521,7 @@ defmodule Cartulary.Knowledge.Projection do
   attributes do
     uuid_primary_key :id
     attribute :account_id, :uuid, allow_nil?: false
+    attribute :cache_key, :string, allow_nil?: false
     attribute :scope_id, :uuid, allow_nil?: false
     attribute :peer_id, :uuid, public?: true
     attribute :session_id, :uuid, public?: true
@@ -489,8 +530,14 @@ defmodule Cartulary.Knowledge.Projection do
     attribute :content, :map, allow_nil?: false, default: %{}
     attribute :source_ids, {:array, :uuid}, allow_nil?: false, default: []
     attribute :dirty, :boolean, allow_nil?: false, default: false, public?: true
+    attribute :watermark, :utc_datetime_usec
+    attribute :delta_count, :integer, allow_nil?: false, default: 0
     create_timestamp :inserted_at
     update_timestamp :updated_at
+  end
+
+  identities do
+    identity :cache_key, [:cache_key]
   end
 end
 
@@ -508,11 +555,45 @@ defmodule Cartulary.Knowledge.Entity do
     defaults [:read]
 
     create :create_from_pipeline do
-      accept [:canonical_name, :kind, :aliases, :derived_from]
+      accept [
+        :canonical_name,
+        :kind,
+        :aliases,
+        :alias_embedding,
+        :embedding_provider,
+        :embedding_model,
+        :embedding_version,
+        :embedding_dimensions,
+        :derived_from
+      ]
+
+      upsert? true
+      upsert_identity :canonical_name_kind
+
+      upsert_fields [
+        :aliases,
+        :alias_embedding,
+        :embedding_provider,
+        :embedding_model,
+        :embedding_version,
+        :embedding_dimensions,
+        :derived_from,
+        :updated_at
+      ]
     end
 
     update :recompute_from_pipeline do
-      accept [:canonical_name, :kind, :aliases, :derived_from]
+      accept [
+        :canonical_name,
+        :kind,
+        :aliases,
+        :alias_embedding,
+        :embedding_provider,
+        :embedding_model,
+        :embedding_version,
+        :embedding_dimensions,
+        :derived_from
+      ]
     end
 
     destroy :erase do
@@ -540,6 +621,11 @@ defmodule Cartulary.Knowledge.Entity do
     attribute :canonical_name, :string, allow_nil?: false
     attribute :kind, :string, allow_nil?: false
     attribute :aliases, {:array, :string}, allow_nil?: false, default: []
+    attribute :alias_embedding, :vector, select_by_default?: false
+    attribute :embedding_provider, :string
+    attribute :embedding_model, :string
+    attribute :embedding_version, :string
+    attribute :embedding_dimensions, :integer
     attribute :derived_from, {:array, :uuid}, allow_nil?: false, default: []
     create_timestamp :inserted_at
     update_timestamp :updated_at

@@ -126,7 +126,8 @@ semantics intentionally advance to `f4-1`: ingest records
 `proposed → provisional` by default instead of the removed
 `poc_auto_gate → active` shortcut, and health reports `f4-1`. Extractor and
 retrieval profile versions remain `poc-0` at the F4 checkpoint. F5 subsequently
-advances extraction and health to `f5-1`; retrieval remains `poc-0` until F7.
+advances extraction and health to `f5-1`; F7 advances retrieval and context
+profiles to `f7-1`.
 
 ## Evidence
 

@@ -73,8 +73,9 @@ Mismatch returns an `f5-1` `reembed_all` plan with
 `reuse_existing_vectors: false`; the engine never silently substitutes an
 incompatible vector space. The version covers the ONNX artifact, tokenizer,
 pooling strategy, and dimensions, so changing any of them requires a version
-bump. F7 owns the embedding columns, backfill jobs, ANN index, and semantic
-retrieval strategy.
+bump. F7 now supplies the knowledge/document vector columns, replay-safe
+backfill, 384-dimensional HNSW indexes, semantic strategy, and tiny-corpus Nx
+baseline.
 
 ## Provenance, metering, and safety
 
@@ -108,7 +109,8 @@ F0 response shapes, identity-derived tenancy, downward inheritance,
 pipeline-only writes, raw-message durability, F4 governance, and normalized
 eval fixtures remain regression floors. Extraction provenance and pipeline
 identity advance from `poc-0` to `f5-1`, and health now reports `f5-1`.
-Retrieval profiles remain `poc-0` until F7.
+F7 subsequently advances retrieval/context profile identity to `f7-1` without
+changing the F5 message/extractor identity.
 
 ## Evidence
 

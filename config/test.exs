@@ -31,6 +31,11 @@ config :cartulary, Oban, testing: :manual
 # model credential. The runtime model config deliberately clears that key.
 config :cartulary, :governance, attach_deadline_ms: 1_000
 
+# SQL sandbox owns one shared connection per non-async test. Production keeps
+# true Task fan-out; tests execute the same strategy contracts serially so four
+# tasks do not contend for the single sandbox connection.
+config :cartulary, :retrieval_concurrency, false
+
 # Initialize plugs at runtime for faster test compilation
 config :phoenix, :plug_init_mode, :runtime
 

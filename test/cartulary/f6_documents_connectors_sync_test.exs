@@ -189,12 +189,27 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest do
     %{chunks: chunks, provenances: provenances, knowledge: knowledge} =
       document_derivations(account.id, actor, document.id)
 
-    assert Enum.all?(chunks, &(&1.embedding_dimensions == 3 and length(&1.embedding) == 3))
+    assert Enum.all?(
+             chunks,
+             &(&1.embedding_dimensions == 3 and &1.embedding.dimensions == 3)
+           )
+
     assert Enum.all?(chunks, &(&1.status == "active"))
     assert Enum.all?(provenances, &(&1.source_type == "document"))
     assert Enum.all?(provenances, &(&1.document_version_id == version.id))
     assert Enum.all?(knowledge, &(&1.state in ~w(provisional held active)))
     assert Enum.all?(knowledge, &(&1.source_message_ids == []))
+
+    retrieval =
+      Cartulary.Memory.search(
+        %{"scope_path" => scope.path, "query" => "release handbook"},
+        actor
+      )
+
+    assert Enum.any?(
+             retrieval["candidates"],
+             &(&1["candidate_type"] == "document_chunk" and &1["document_id"] == document.id)
+           )
 
     assert {:ok, %{metadata: %{"parser" => "mdex"}, format: :markdown}} =
              Parser.extract("# Native markdown", "text/markdown")
