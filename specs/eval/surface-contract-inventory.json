@@ -1,6 +1,6 @@
 {
   "schema": "f11-surface-contracts-1",
-  "release": "0.2.0",
+  "release": "0.2.1",
   "surfaces": {
     "phoenix_http": {
       "status": "gated",
