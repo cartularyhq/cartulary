@@ -154,6 +154,21 @@ changelog entry and contract-version transition.
   now history in `docs/implementation-status.md` (formerly
   `docs/poc-local-proof.md`).
 
+## [0.2.1] - 2026-07-29
+
+### Fixed
+
+- Ingest extraction no longer fails validation with `confidence must be
+  between 0 and 1` when a provider's structured tool-call output round-trips
+  the `confidence` field as a JSON string instead of a native number —
+  observed identically across unrelated backing models over the OpenRouter
+  compat path, which pointed at a type problem rather than a range problem.
+  `Cartulary.Model.Schema.Extraction`'s `confidence/1` validator now parses a
+  numeric string before range-checking it; the 0–1 range check itself, for
+  both numbers and numeric strings, is unchanged. No contract version
+  identity changed. Regression evidence:
+  `test/cartulary/model/schema_extraction_test.exs`.
+
 ## [0.2.0] - 2026-07-28
 
 ### Added

@@ -340,15 +340,28 @@ defmodule Cartulary.Model.Schema.Extraction do
     end
   end
 
+  # Some providers' tool-call decoding round-trips a JSON number as a quoted
+  # string (observed identically across unrelated backing models over the
+  # OpenRouter compat path), so a numeric string is parsed before being
+  # range-checked instead of rejected outright as a shape error.
   defp confidence(item) do
     case fetch(item, "confidence") do
-      value when is_number(value) and value >= 0.0 and value <= 1.0 ->
-        {:ok, value / 1}
+      value when is_number(value) ->
+        confidence_in_range(value / 1)
+
+      value when is_binary(value) ->
+        case Float.parse(value) do
+          {parsed, ""} -> confidence_in_range(parsed)
+          _other -> {:error, ["confidence must be between 0 and 1"]}
+        end
 
       _other ->
         {:error, ["confidence must be between 0 and 1"]}
     end
   end
+
+  defp confidence_in_range(value) when value >= 0.0 and value <= 1.0, do: {:ok, value}
+  defp confidence_in_range(_value), do: {:error, ["confidence must be between 0 and 1"]}
 
   defp boolean(item, key) do
     case fetch(item, key) do
