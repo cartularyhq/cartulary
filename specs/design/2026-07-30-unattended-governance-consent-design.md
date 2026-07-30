@@ -209,9 +209,11 @@ which remain entirely `GateRule`'s decision as before. `approve!/4` is
 `consent.status != "granted" || !consent.verified` check exactly like a real
 grant would.
 
-`account!/2` is a new private point-read (`Ash.get!`-style, tenant-scoped, via
-`pipeline_actor/1`), the same pattern `scope!/3` and `knowledge!/3` already
-use.
+`account!/2` is a new private point-read (`Ash.get!`-style, elevated via
+`pipeline_actor/1`, the same pattern `scope!/3` and `knowledge!/3` already
+use). It does not set a tenant: `Cartulary.Accounts.Account` is not
+multitenant — it *is* the tenant — the same reason
+`Cartulary.DataLayer.with_actor/2` reads it without one.
 
 ### 3.4 What does not change
 
