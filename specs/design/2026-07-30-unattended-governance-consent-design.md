@@ -159,7 +159,8 @@ defp resolve_consent(knowledge, rule, target_level, target_scope_id, actor) do
       {:granted, auto_grant_consent!(knowledge, target_scope_id || knowledge.scope_id, actor)}
 
     true ->
-      {:pending, request_consent!(knowledge, target_scope_id || knowledge.scope_id, actor)}
+      {:pending,
+       request_consent!(knowledge, target_scope_id || knowledge.scope_id, pipeline_actor(actor))}
   end
 end
 
