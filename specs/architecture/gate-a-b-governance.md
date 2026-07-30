@@ -63,6 +63,41 @@ decision writes an immutable `GateDecision`, a content-safe hash-chain audit
 event, a lifecycle event where state changes, and a replay-keyed validation
 continuation.
 
+## Declared-auto consent (ADR-0007)
+
+`FR-GOV-12` requires the subject's own verified consent, not merely a
+curator's approval, before personal knowledge attributes upward — a
+requirement `consent_required?/3` enforces unconditionally, independent of
+any `GateRule` cell, per its own inline comment. That has no exception for
+accounts with no real human subject at all: a benchmark, evaluation, or
+imported corpus about third parties who never hold a Peer identity. Without
+one, such items are permanently `held`, with no supported path out.
+
+Two switches, both off by default, let an operator make that declaration
+explicit and auditable: `Cartulary.Accounts.Account.consent_mode` (`"auto"`,
+`account_admin`-only, audited via the same `Cartulary.Governance.Changes.AuditResource`
+pattern `GateRule` uses) and `CARTULARY_GOVERNANCE_UNATTENDED`
+(`Cartulary.Governance.UnattendedMode`, boot-time, deployment-wide, logged
+and reported on `GET /api/ready`). When either is active,
+`Cartulary.Governance.Engine.resolve_consent/5` writes a real `Consent` row
+on the subject's behalf — `status: "granted"`, `verified: true` — via the
+pipeline actor, distinguished from a genuine subject grant only by its
+`channel` (`"auto:account_mode"` / `"auto:unattended_deployment"`). Every
+existing reader of `Consent` needs no special case; the channel value is
+what makes the bypass auditable rather than silent. `GateRule.requires_consent`
+remains exactly as inert as documented — this is a separate mechanism, not a
+matrix waiver.
+
+This also fixes a structural gap in the ordinary (non-`request_promotion`)
+ingestion path: `evaluate_proposal/3`'s real call site never threads a
+`target_scope_id`, and `Consent.target_scope_id` does not allow `nil`, so no
+consent row — pending or granted — could ever be opened there before this
+change, for a real subject or a declared-auto one. `resolve_consent/5` falls
+back to the item's own `scope_id` when no explicit target was supplied.
+
+Full design: `specs/design/2026-07-30-unattended-governance-consent-design.md`.
+Decision record: `specs/adr/0007-unattended-governance-consent.md`.
+
 ## Human and machine surfaces
 
 `/governance` is a password-session-only LiveView for account administrators
@@ -144,3 +179,8 @@ profiles to `f7-1`.
   `test/cartulary_web/controllers/memory_controller_test.exs`
 - Operation layer: `lib/cartulary/governance/`
 - Human and self-service adapters: `lib/cartulary_web/`
+- Declared-auto consent: `lib/cartulary/governance/unattended_mode.ex`,
+  `Cartulary.Governance.Engine.resolve_consent/5` in
+  `lib/cartulary/governance/engine.ex`, and `consent_mode`/`configure_governance`
+  on `Cartulary.Accounts.Account` in `lib/cartulary/accounts.ex`; regression
+  and RBAC evidence in `test/cartulary/f4_real_gate_a_b_governance_test.exs`

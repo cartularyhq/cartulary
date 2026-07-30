@@ -31,6 +31,17 @@ changelog entry and contract-version transition.
 
 ### Added
 
+- Two off-by-default switches let an operator declare an Account or a whole
+  deployment has no real human governance participant, and auto-grant the
+  subject-consent step `Cartulary.Governance.Engine` otherwise blocks on for
+  personal knowledge above peer level: `Account.consent_mode: "auto"`
+  (account-admin only, audited) and `CARTULARY_GOVERNANCE_UNATTENDED=true`
+  (boot-time, logged, reported on `GET /api/ready`). Intended for benchmark,
+  evaluation, and synthetic-data deployments that have no real subject who
+  could ever grant consent themselves. Also fixes a structural gap where the
+  ordinary (non-promotion) ingestion path could never open a consent request
+  at all, for a real subject or a declared-auto one. See
+  `specs/adr/0007-unattended-governance-consent.md`.
 - A browser console at `/console`, open to every human role. It carries an
   overview dashboard scoped to the reader's grants, a knowledge explorer with
   attribute filters and a side-by-side retrieval preview reporting contributed
