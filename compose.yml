@@ -36,6 +36,12 @@ services:
     image: pgvector/pgvector:pg18-bookworm
     environment:
       POSTGRES_DB: cartulary
+      # `initdb --username` (which this image runs with POSTGRES_USER) always creates a
+      # superuser, and PostgreSQL exempts superusers from row-level security unconditionally.
+      # That is not a gap here: the application provisions its own restricted, NOSUPERUSER
+      # NOBYPASSRLS role on boot using this superuser's CREATEROLE privilege, and every pooled
+      # connection switches to it before serving traffic (Cartulary.Database.AppRole, ADR-0008).
+      # This role only ever migrates the schema and provisions that restricted role.
       POSTGRES_USER: cartulary
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cartulary-local-only}
     volumes:

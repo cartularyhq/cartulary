@@ -269,6 +269,20 @@ config :cartulary, :require_database_url, config_env() == :prod and database_mod
 config :cartulary, :database,
   mode: database_mode,
   database_url: effective_database_url,
+  # The database role the running node's connections switch to, and which the
+  # row-level security policies are actually enforced against. It is created
+  # with NOSUPERUSER NOBYPASSRLS and granted no ownership, because PostgreSQL
+  # skips those policies entirely for a superuser. Renaming it is only useful
+  # where the default name collides with an existing role in a shared cluster;
+  # the name is interpolated into DDL, so it must be a plain lowercase
+  # identifier.
+  app_role: env_get.("CARTULARY_DATABASE_APP_ROLE", "cartulary_app"),
+  # Escape hatch for a deployment that cannot yet provide a role which is
+  # neither a superuser nor granted BYPASSRLS. Turning it on lets the node boot
+  # with the database half of cross-Account isolation inert, logging the
+  # condition at error level on every start. It exists so an upgrade cannot
+  # strand a running install, not as a supported way to operate one.
+  allow_unrestricted_role: env_bool!.("CARTULARY_ALLOW_UNRESTRICTED_DATABASE_ROLE", false),
   # Migrations run as a supervised startup step before the endpoint accepts
   # traffic. Defaulted on for pg0 because that install is meant to be turnkey,
   # and off for external Postgres where change control usually requires

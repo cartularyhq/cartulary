@@ -59,7 +59,13 @@ The Account wall has three in-process/database layers:
    scoped reads additionally use the actor's resolved scope ids.
 3. PostgreSQL RLS is enabled and forced on `accounts` and every table carrying
    `account_id`. Policies use transaction-local `cartulary.account_id` (and
-   `cartulary.account_key` only while bootstrapping the initial Account).
+   `cartulary.account_key` only while bootstrapping the initial Account). This
+   layer only enforces when the connection itself is neither a superuser nor
+   holds `BYPASSRLS` — PostgreSQL exempts both unconditionally, and `FORCE ROW
+   LEVEL SECURITY` does not change that. `Cartulary.Database.AppRole`
+   provisions a `NOSUPERUSER NOBYPASSRLS` role and switches every pooled
+   connection to it at boot; `Cartulary.Database.RoleGuard` refuses to serve
+   traffic if that switch did not take (`ADR-0008`).
 
 Identity, tenancy, and RBAC replaced the local HTTP Account header with
 password/JWT and API-key identities, single-Account free-mode enforcement, and

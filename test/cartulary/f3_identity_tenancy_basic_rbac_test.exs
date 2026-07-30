@@ -140,6 +140,18 @@ defmodule Cartulary.F3IdentityTenancyBasicRbacTest do
     # Enforced by a partial unique index on the edition slot, so the limit holds against direct
     # SQL and any future code path, not just the provisioning function. The insert is deliberately
     # raw for that reason: it bypasses every application-level guard and must still be refused.
+    #
+    # Declaring the Account key first is what lets this test reach the index at all: the
+    # connection here is the same restricted role production connects as, and row-level
+    # security's WITH CHECK clause would otherwise reject the insert before the index ever saw
+    # it, since a fresh id and an undeclared key match neither half of the accounts policy. The
+    # key is declared, never the id, matching the row this statement is about to attempt.
+    Ecto.Adapters.SQL.query!(
+      Repo,
+      "SELECT set_config('cartulary.account_key', $1, true)",
+      ["second-free"]
+    )
+
     assert {:error, %Postgrex.Error{postgres: %{code: :unique_violation}}} =
              Ecto.Adapters.SQL.query(
                Repo,

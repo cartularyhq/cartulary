@@ -45,7 +45,10 @@ The packaged release carries a checksum-pinned pg0 distribution. On start it:
 2. starts pg0 **before** the Ecto repo and migrations;
 3. creates the cluster on first run;
 4. recovers from a stale lock left by an unclean shutdown;
-5. runs migrations, then serves traffic.
+5. provisions the restricted database role and switches every connection to
+   it, so row-level security enforces rather than being silently skipped for
+   pg0's superuser bootstrap login;
+6. runs migrations, then serves traffic.
 
 pg0 is never in the container image path. A container host already has a
 supported way to run a database.
@@ -56,10 +59,19 @@ Set `CARTULARY_DATABASE_MODE=external` and `DATABASE_URL`. Requirements:
 
 - PostgreSQL 18 with pgvector available;
 - full-text search (built in);
-- permission to create the extensions the migrations declare.
+- permission to create the extensions the migrations declare;
+- `DATABASE_URL`'s role either has `CREATEROLE` (Cartulary provisions and
+  switches to a restricted role itself) or is already `NOSUPERUSER
+  NOBYPASSRLS` (see `CARTULARY_DATABASE_APP_ROLE` in
+  [Configuration](../reference/configuration.md)). PostgreSQL skips row-level
+  security entirely for a superuser or a `BYPASSRLS` role, and Cartulary
+  refuses to boot without one of these two paths available.
 
 Migrations can run as a supervised startup step (`CARTULARY_AUTO_MIGRATE=true`)
-or as a separate `bin/migrate` invocation when change control demands it.
+or as a separate `bin/migrate` invocation when change control demands it. Both
+paths run migrations over the unrestricted connecting role — the restricted
+role owns nothing and cannot alter the schema — and re-grant its rights over
+whatever the migration just created afterward.
 
 ## No second engine, anywhere
 

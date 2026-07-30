@@ -79,6 +79,11 @@ config :cartulary, :database,
   # developer's back; operators under change control keep it off and run
   # `bin/migrate` as a separate step.
   auto_migrate: false,
+  # The role the running node's connections switch to, so that the row-level
+  # security policies on every tenant table are enforced rather than skipped.
+  # `config/runtime.exs` documents both settings in full.
+  app_role: "cartulary_app",
+  allow_unrestricted_role: false,
   pg0: [
     # Placeholder path only. Startup validation refuses to boot in pg0 mode
     # unless this points at a real, readable, executable file, and the packaged
