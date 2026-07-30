@@ -60,7 +60,15 @@ defmodule Cartulary.Release do
     try do
       for repo <- Application.fetch_env!(@app, :ecto_repos) do
         {:ok, _pid, _apps} =
-          Ecto.Migrator.with_repo(repo, &Ecto.Migrator.run(&1, :up, all: true))
+          Ecto.Migrator.with_repo(repo, fn started ->
+            Ecto.Migrator.run(started, :up, all: true)
+            # The restricted role the running node connects as owns nothing and
+            # is granted rights explicitly, so a table this run has just created
+            # would be unreachable to it until these grants are re-applied. This
+            # connection still holds the privileged role, which is what makes it
+            # the right place to do that.
+            Cartulary.Database.AppRole.provision!(started)
+          end)
       end
     after
       stop_pg0(pg0)
@@ -205,7 +213,19 @@ defmodule Cartulary.Release.Migrator do
       # Read from the release's own priv directory rather than a source path, so
       # this works identically in a packaged release and in development.
       migrations_path = Application.app_dir(:cartulary, "priv/repo/migrations")
-      Ecto.Migrator.run(Cartulary.Repo, migrations_path, :up, all: true)
+
+      # Migrations issue DDL, and the application pool has already switched to a
+      # role that owns nothing and may not. So this runs over its own short-lived
+      # privileged instance rather than the pool beside it, and re-grants
+      # afterwards so the restricted role can reach whatever was just created.
+      Cartulary.Database.AppRole.with_privileged_repo(fn privileged ->
+        Ecto.Migrator.run(Cartulary.Repo, migrations_path, :up,
+          all: true,
+          dynamic_repo: privileged
+        )
+
+        Cartulary.Database.AppRole.provision!(privileged)
+      end)
     end
 
     {:ok, %{}}

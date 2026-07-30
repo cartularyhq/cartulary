@@ -22,16 +22,21 @@ defmodule Cartulary.Application do
      In external-database mode this entry is simply absent; the release, the
      schema, and every guarantee are otherwise identical, because where
      Postgres lives is infrastructure, not behaviour.
-  2. Telemetry, then the repository.
+  2. Telemetry, then the step that creates the restricted database role, then
+     the repository. The role has to exist before the pool opens its first
+     connection, because each connection switches to it as it is established.
   3. The migration step. When automatic migration is switched on it blocks in
      its own `init/1` until the schema is current; when it is off the process
      starts and does nothing. It sits after the repository (it needs a
      connection) and before the web endpoint (no request may be served against
      a stale schema).
-  4. Authentication, the rebuildable spend counters, the job supervisor,
+  4. The guard that refuses to continue when those connections could still
+     bypass row-level security. It runs after migrations because a fresh
+     database has no tables to grant rights over until they have run.
+  5. Authentication, the rebuildable spend counters, the job supervisor,
      optional node discovery, and the PubSub and projection-cache processes the
      request path expects to be alive.
-  5. The web endpoint last, so the node only accepts traffic once everything it
+  6. The web endpoint last, so the node only accepts traffic once everything it
      depends on is up.
 
   Reordering these is not a cosmetic change: moving the endpoint earlier serves
@@ -57,8 +62,17 @@ defmodule Cartulary.Application do
       infrastructure_children ++
         [
           CartularyWeb.Telemetry,
-          Cartulary.Repo,
+          Cartulary.Database.RoleProvisioner,
+          # Every pooled connection switches to the restricted role as it is
+          # opened. That switch is what makes the row-level security policies on
+          # the tenant tables apply at all: PostgreSQL exempts superusers from
+          # them unconditionally, and it evaluates that exemption against the
+          # connection's current role. Passing the callback here rather than in
+          # configuration is what keeps migration and provisioning connections —
+          # which start the repository with its plain configuration — privileged.
+          {Cartulary.Repo, after_connect: {Cartulary.Database.AppRole, :set_role, []}},
           Cartulary.Release.Migrator,
+          Cartulary.Database.RoleGuard,
           {AshAuthentication.Supervisor, otp_app: :cartulary},
           Cartulary.Operations.BudgetCounter,
           # Queues run on the Postgres engine in every deployment mode, driven by

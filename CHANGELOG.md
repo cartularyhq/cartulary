@@ -69,6 +69,23 @@ changelog entry and contract-version transition.
   longer rolls back the ledger row for a call that really was billed.
   Extraction ordering, idempotency, advisory locking, gate outcomes, provenance,
   and the `f5-1`, `f7-1`, and `poc-0` contract identities are unchanged.
+- PostgreSQL row-level security — the database-enforced half of cross-Account
+  isolation described in `AGENTS.md` as "two independent locks on the same
+  door" — was inert in every deployment mode and every test lane, because
+  PostgreSQL exempts superusers from RLS unconditionally and `FORCE ROW LEVEL
+  SECURITY` only removes the table owner's exemption, never the superuser's.
+  Every connection Cartulary made was a superuser connection: `postgres` in
+  `mix test` and every CI lane, and — the deployment-affecting case — the
+  bootstrap role pg0's `initdb` creates in the turnkey single-node install.
+  This did not leak tenant data; the Ash actor and tenant filter still ran on
+  every query and were the layer actually enforcing isolation. It meant the
+  documented backstop for a missed application-layer filter was not there,
+  and no test could detect its absence. Every deployment mode now provisions
+  and connects as a `NOSUPERUSER NOBYPASSRLS` role
+  (`Cartulary.Database.AppRole`), and refuses to boot if that switch did not
+  take unless `CARTULARY_ALLOW_UNRESTRICTED_DATABASE_ROLE=true` is set. See
+  `specs/adr/0008-restricted-database-role-for-rls-enforcement.md` and
+  GitHub issue #55.
 - A job that failed once and was scheduled for a delayed retry (state
   `retryable`) stayed in that state permanently instead of running again once
   its backoff elapsed. `config :cartulary, Oban` sets `plugins: false`, and

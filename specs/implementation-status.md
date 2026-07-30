@@ -29,7 +29,11 @@ generated SDKs — is not implemented and is never described here as if it were.
   only be minted or merged by a pipeline actor; lifecycle, audit, and usage
   records are append-only.
 - PostgreSQL RLS on every Account-scoped table, enforced alongside Ash
-  actor/tenant policies.
+  actor/tenant policies. Every deployment mode connects as a provisioned
+  `NOSUPERUSER NOBYPASSRLS` role (`Cartulary.Database.AppRole`) rather than the
+  bootstrap superuser, and a startup guard refuses to serve traffic otherwise
+  — see `ADR-0008` (issue #55: this was previously inert everywhere, because
+  PostgreSQL exempts superusers from RLS regardless of `FORCE`).
 
 Details: `specs/architecture/ash-domain-backbone.md`.
 

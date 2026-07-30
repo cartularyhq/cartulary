@@ -258,17 +258,58 @@ defmodule Cartulary.F1AshDomainBackboneTest do
     assert :statement in action_accept(KnowledgeItem, :create_from_pipeline)
   end
 
+  # This is the test the row-level-security policies could not previously earn: PostgreSQL
+  # exempts superusers from row-level security unconditionally, and FORCE ROW LEVEL SECURITY
+  # only removes the table owner's exemption, never the superuser's. Every connection this
+  # suite made before Cartulary.Database.AppRole existed was a superuser, so a query issued
+  # with no Account setting at all still returned rows — the isolation failure this asserts
+  # against would have passed silently. Confirming the role's own catalog attributes first is
+  # what makes the zero-rows assertion below mean something rather than being a coincidence of
+  # this particular row set.
+  test "the connection cannot bypass row-level security, and an undeclared Account sees nothing" do
+    assert %{rows: [[current_role, superuser?, bypass_rls?]]} =
+             Ecto.Adapters.SQL.query!(
+               Repo,
+               """
+               SELECT current_user::text, COALESCE(rolsuper, false), COALESCE(rolbypassrls, false)
+               FROM pg_roles
+               WHERE rolname = current_user
+               """,
+               []
+             )
+
+    refute superuser?, "connected as #{current_role}, which is a superuser and exempt from RLS"
+
+    refute bypass_rls?,
+           "connected as #{current_role}, which holds BYPASSRLS and is exempt from RLS"
+
+    seed!("f1-undeclared", "/f1/undeclared")
+
+    # Seeding goes through the Account-scoped transaction helper, which leaves its Account
+    # settings installed on this connection for the rest of the enclosing transaction — under
+    # the sandbox, that is the rest of this test. Clearing both explicitly is what makes the
+    # query below run with no Account declared at all, not one accidentally left by the setup
+    # that would trivially see its own row.
+    Ecto.Adapters.SQL.query!(Repo, "SELECT set_config('cartulary.account_id', '', true)", [])
+    Ecto.Adapters.SQL.query!(Repo, "SELECT set_config('cartulary.account_key', '', true)", [])
+
+    # No Account setting is installed on this connection at all — not even a foreign one. A
+    # superuser or BYPASSRLS role would still return the row created above; the restricted role
+    # this suite now runs as must return nothing.
+    assert %{rows: []} =
+             Ecto.Adapters.SQL.query!(
+               Repo,
+               "SELECT id FROM scopes WHERE path = $1",
+               ["/f1/undeclared"]
+             )
+  end
+
   test "Postgres RLS filters reads and rejects cross-Account writes for a non-owner role" do
     seed!("f1-rls-a", "/f1/rls/a")
     seed!("f1-rls-b", "/f1/rls/b")
 
     account_a_id = account_id!("f1-rls-a")
     account_b_id = account_id!("f1-rls-b")
-
-    # Role names are cluster-wide, so the name is made unique to avoid colliding with a role
-    # leaked by an earlier run. Role creation is transactional and the sandbox rolls the whole
-    # test back, so nothing needs to drop it.
-    role = "cartulary_rls_#{System.unique_integer([:positive])}"
 
     # Catalog check, not a behaviour check: every walled table must have row security enabled
     # (relrowsecurity), forced so the table owner is subject to it too (relforcerowsecurity),
@@ -294,15 +335,13 @@ defmodule Cartulary.F1AshDomainBackboneTest do
 
     assert Enum.map(policy_rows, &hd/1) == Enum.sort(@rls_tables)
 
-    # Switch the connection to an unprivileged role for the rest of the transaction. Row-level
-    # security never applies to a superuser or a role with the bypass attribute, and test and
-    # migration connections are usually privileged, so without this switch the queries below
-    # would prove nothing. SET LOCAL lasts until the end of the transaction, which under the
-    # test sandbox is the end of the test.
-    sql!("CREATE ROLE #{role} NOLOGIN")
-    sql!("GRANT USAGE ON SCHEMA public TO #{role}")
-    sql!("GRANT SELECT, INSERT ON accounts, scopes TO #{role}")
-    sql!("SET LOCAL ROLE #{role}")
+    # No role switch happens here, and that absence is the point. This connection already runs
+    # as the restricted role the application connects as everywhere, which is neither a
+    # superuser nor granted BYPASSRLS, so the policies below are the same ones a production
+    # query meets. An earlier version of this test created a throwaway unprivileged role and
+    # switched to it, because the suite itself connected as a superuser and would otherwise
+    # have proved nothing; that scaffolding would now hide the very regression it was
+    # compensating for, since a suite that fell back to a superuser would still pass.
 
     # This is how an Account is declared to the database: a transaction-local setting (the
     # third argument makes it local) that the policy compares each row against. It is set by
@@ -377,35 +416,54 @@ defmodule Cartulary.F1AshDomainBackboneTest do
     |> Map.fetch!(:accept)
   end
 
-  # Direct SQL on purpose: the row-level-security test needs the raw identifiers before it
-  # switches to the unprivileged role, and reading them through Ash would install tenancy
-  # state that the test is trying to exercise from the database side.
+  # Direct SQL on purpose: reading these identifiers through Ash would install tenancy state
+  # that the test is trying to exercise from the database side.
+  #
+  # The Account key has to be declared first because this connection is subject to the wall
+  # like any other. The policy on `accounts` matches a row by id *or* by key, and the key is
+  # the half that exists before an id is known — the same bootstrap path the Account-scoped
+  # transaction helper uses. Declaring it here rather than trusting whatever a prior helper
+  # left installed is what makes this safe to call regardless of call order.
   defp account_id!(key) do
+    set_account_key!(key)
+
     %{rows: [[id]]} =
       Ecto.Adapters.SQL.query!(Repo, "SELECT id::text FROM accounts WHERE key = $1", [key])
 
     id
   end
 
-  # Joins through `accounts` rather than trusting the path alone: scope paths are unique only
-  # within an Account, so two Accounts in this suite can legitimately share one.
+  # The `scopes` policy matches only by account id — unlike `accounts`, it has no key fallback
+  # for bootstrapping — so the id has to be resolved and declared before this can see anything.
   defp scope_id!(account_key, path) do
+    account_id = account_id!(account_key)
+    set_account_id!(account_id)
+
     %{rows: [[id]]} =
       Ecto.Adapters.SQL.query!(
         Repo,
-        """
-        SELECT scope.id::text
-        FROM scopes AS scope
-        JOIN accounts AS account ON account.id = scope.account_id
-        WHERE account.key = $1 AND scope.path = $2
-        """,
-        [account_key, path]
+        "SELECT id::text FROM scopes WHERE account_id = $1::uuid AND path = $2",
+        [Ecto.UUID.dump!(account_id), path]
       )
 
     id
   end
 
-  # Runs a parameterless statement. Only used for role and grant management in this file; the
-  # interpolated role name is a locally generated identifier, never caller-supplied input.
-  defp sql!(statement), do: Ecto.Adapters.SQL.query!(Repo, statement, [])
+  # Mirrors the transaction-local settings `Cartulary.DataLayer` installs in production, so a
+  # test reading raw SQL meets the same row-level-security policies a real request would.
+  defp set_account_key!(account_key) do
+    Ecto.Adapters.SQL.query!(
+      Repo,
+      "SELECT set_config('cartulary.account_key', $1, true)",
+      [account_key]
+    )
+  end
+
+  defp set_account_id!(account_id) do
+    Ecto.Adapters.SQL.query!(
+      Repo,
+      "SELECT set_config('cartulary.account_id', $1, true)",
+      [account_id]
+    )
+  end
 end

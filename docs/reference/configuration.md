@@ -23,8 +23,28 @@ in the repository.
 | `CARTULARY_PG0_DATABASE` | `cartulary` | Database name |
 | `CARTULARY_PG0_USERNAME` / `_PASSWORD` | `postgres` | Local credentials |
 | `ECTO_IPV6` | `false` | Connect over IPv6 |
+| `CARTULARY_DATABASE_APP_ROLE` | `cartulary_app` | Restricted PostgreSQL role every connection switches to |
+| `CARTULARY_ALLOW_UNRESTRICTED_DATABASE_ROLE` | `false` | Boot anyway if that role can't be provisioned or reached |
 
 External mode needs PostgreSQL 18 with pgvector available.
+
+!!! danger "The connecting role must be able to reach a restricted role, or boot fails"
+    PostgreSQL row-level security is skipped entirely for a superuser or a role
+    granted `BYPASSRLS`, no matter how the policies are written. Cartulary
+    therefore refuses to serve traffic unless its connections run as a role
+    that is neither. There are two ways to satisfy this:
+
+    - Give `DATABASE_URL`'s role `CREATEROLE`, and Cartulary provisions
+      `CARTULARY_DATABASE_APP_ROLE` itself on every boot (idempotent) and
+      switches every pooled connection to it.
+    - Or point `DATABASE_URL` at a login already created with `NOSUPERUSER
+      NOBYPASSRLS` — the stronger arrangement, since that connection then has
+      no path back to elevated access at all.
+
+    `CARTULARY_ALLOW_UNRESTRICTED_DATABASE_ROLE=true` boots anyway with the
+    database's isolation backstop inert, logging that fact at error level on
+    every start. It exists so an upgrade cannot strand a running install, not
+    as a supported way to operate one.
 
 ## Identity and secrets
 

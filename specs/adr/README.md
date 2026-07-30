@@ -14,6 +14,7 @@ settled by the blueprint specs.
 | `0005-peer-inline-validation-over-mcp.md` | Validation questions attached to read-tool results. |
 | `0006-entity-resolution.md` | Canonical referents resolved at dream-time, exposed through no public surface. |
 | `0007-unattended-governance-consent.md` | Declared-account/deployment auto-grant of subject consent, off by default. |
+| `0008-restricted-database-role-for-rls-enforcement.md` | A NOSUPERUSER NOBYPASSRLS role is what makes Postgres row-level security actually enforce. |
 
 Conventions for future ADRs:
 
