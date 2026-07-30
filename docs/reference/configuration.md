@@ -53,15 +53,24 @@ External mode needs PostgreSQL 18 with pgvector available.
 | `CARTULARY_MODEL_DREAM` | — | Model for the dream-reasoner role |
 | `CARTULARY_MODEL_ASK` | — | Model for the dialectic-agent role |
 | `CARTULARY_MODEL_LOCAL_FALLBACK` | `true` in dev, off in prod | Deterministic local adapter |
+| `CARTULARY_MODEL_REASONING_EFFORT` | `low` | Reasoning-token budget shared by all three generation roles |
 | `CARTULARY_MODEL_MAX_TOKENS` | `8192` | Output-token cap shared by all three generation roles |
+| `CARTULARY_MODEL_RECEIVE_TIMEOUT_MS` | `120000` | Request timeout (ms) shared by all three generation roles |
 
-!!! warning "Reasoning models can blow the context window without a cap"
+!!! warning "Reasoning models can blow the context window or time out without these"
     A reasoning model (the default `openai/gpt-oss-120b` included) can spend an
     uncapped share of its context window on internal reasoning tokens before
-    ever emitting output. Without `CARTULARY_MODEL_MAX_TOKENS`, a single small
-    extraction can request as much output as the model's entire context length
-    and fail outright. Raise the default only if a chosen model genuinely needs
-    a larger budget to answer.
+    ever emitting output — regardless of how small the input is.
+    `CARTULARY_MODEL_REASONING_EFFORT` bounds that spend directly; without it,
+    a single small extraction can request as much output as the model's entire
+    context length and fail outright. `CARTULARY_MODEL_MAX_TOKENS` is the hard
+    backstop once reasoning is bounded. `CARTULARY_MODEL_RECEIVE_TIMEOUT_MS`
+    matters separately: ReqLLM only extends its request timeout for model ids
+    it recognizes as reasoning models (OpenAI's o-series, gpt-5, and codex
+    families), so `openai/gpt-oss-120b` and reasoning models from other
+    vendors get ReqLLM's plain 30-second default unless this is set. Raise
+    these only if a chosen model genuinely needs a larger budget or more time
+    to answer.
 
 There are exactly four Account-level model roles: `embedder`,
 `ingest_extractor`, `dream_reasoner`, and `dialectic_agent`. Only secret

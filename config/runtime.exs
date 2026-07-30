@@ -375,18 +375,32 @@ generation_version =
 # the credential. Role configuration is durable and exportable, so a raw key
 # must never enter it.
 #
-# max_tokens caps the provider's output-token budget for every generation role.
-# Reasoning models (e.g. the default openai/gpt-oss-120b) spend an uncapped
-# share of the context window on internal reasoning tokens before ever emitting
-# the structured object; observed in practice as a single-sentence extraction
-# call requesting ~131k output tokens and failing once it exceeded the model's
-# whole context window. Bounding it here is what keeps a slow or verbose model
-# from turning one ingest call into a blown context window instead of a normal
-# response.
+# Three settings exist together to keep a reasoning model (e.g. the default
+# openai/gpt-oss-120b) from turning one ingest call into a blown context window
+# or a killed request instead of a normal response:
+#
+# - reasoning_effort bounds how much of the call a model spends on internal
+#   reasoning tokens *before* it ever emits output. This is the primary lever:
+#   without it, a model can spend an unbounded share of its context on
+#   reasoning regardless of how small the input is — observed in practice as a
+#   single-sentence extraction call whose usage was ~600 input/tool tokens
+#   against ~131k requested output tokens, almost all of it reasoning.
+# - max_tokens is the hard backstop once reasoning is bounded: it caps total
+#   output so a call that still runs long fails with an ordinary, retryable
+#   validation error instead of a provider 400 for exceeding the whole context
+#   window.
+# - receive_timeout exists because ReqLLM's own long-running "thinking"
+#   timeout only applies to model ids it recognizes as reasoning models
+#   (o-series, gpt-5, codex); "openai/gpt-oss-120b" and other reasoning models
+#   from other vendors do not match that pattern, so without an explicit
+#   override here they get ReqLLM's plain 30-second chat timeout, which a
+#   genuinely slow reasoning call can exceed even with the two settings above.
 generation_options = %{
   "api_key_ref" => "env:OPENROUTER_API_KEY",
   "base_url" => env_get.("CARTULARY_OPENAI_COMPAT_BASE_URL", "https://openrouter.ai/api/v1"),
-  "max_tokens" => env_integer.("CARTULARY_MODEL_MAX_TOKENS", "8192")
+  "max_tokens" => env_integer.("CARTULARY_MODEL_MAX_TOKENS", "8192"),
+  "reasoning_effort" => env_get.("CARTULARY_MODEL_REASONING_EFFORT", "low"),
+  "receive_timeout" => env_integer.("CARTULARY_MODEL_RECEIVE_TIMEOUT_MS", "120000")
 }
 
 # The four model roles. Any OpenAI-compatible endpoint, including a self-hosted

@@ -42,8 +42,13 @@ defmodule Cartulary.Model.Providers.ReqLLM do
 
   # The only role options that may become outbound request options. Anything
   # else in the options map is configuration for this adapter, not for the
-  # request, and must not be forwarded.
-  @request_option_keys ~w(base_url max_tokens max_retries receive_timeout temperature top_p)a
+  # request, and must not be forwarded. `reasoning_effort` bounds how much a
+  # reasoning model spends on internal reasoning tokens before it ever emits
+  # output — capping `max_tokens` alone only truncates a call after that
+  # spend already happened.
+  @request_option_keys ~w(
+    base_url max_tokens max_retries receive_timeout temperature top_p reasoning_effort
+  )a
 
   @doc """
   Generates one schema-constrained object.
