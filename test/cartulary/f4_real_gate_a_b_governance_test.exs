@@ -525,6 +525,37 @@ defmodule Cartulary.F4RealGateABGovernanceTest do
     assert consent.status == "pending"
   end
 
+  test "a scope-subject item marked personal defers through the ordinary matrix instead of crashing on peer consent" do
+    %{actor: actor} = bootstrap_human!("scope-subject-personal")
+
+    knowledge =
+      propose_direct_scope_subject!(
+        actor,
+        "/governance/scope-subject-personal",
+        "account",
+        "This team's budget allocation is confidential."
+      )
+
+    assert knowledge.subject_peer_id == nil
+    assert knowledge.sensitivity == "personal"
+    # No configured matrix cell for target_level "account", so Gate A/B defers exactly as it
+    # would for a non-personal item — the peer-consent leg of consent_required?/3 cannot apply
+    # to a subject that has no peer, so it must not block or crash this proposal.
+    assert knowledge.state == "held"
+
+    consent =
+      DataLayer.with_actor(actor, fn account, current_actor ->
+        Cartulary.Governance.Consent
+        |> Ash.Query.filter(knowledge_id == ^knowledge.id)
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read_one!(actor: pipeline_actor(current_actor))
+      end)
+
+    # consent_required?/3 must have judged :not_required rather than opening a pending or
+    # auto-granted row for a peer that does not exist.
+    assert consent == nil
+  end
+
   test "inline peer validation is rate-limited, transcript-verified, and correction text cannot mint" do
     %{actor: actor} = bootstrap_human!("inline")
 
@@ -942,6 +973,52 @@ defmodule Cartulary.F4RealGateABGovernanceTest do
         state: "proposed",
         target_level: target_level,
         extracting_model: "test:direct-propose",
+        pipeline_version: "f5-1"
+      })
+      |> Ash.create!(actor: pipeline)
+
+    Engine.evaluate_proposal(knowledge, pipeline)
+  end
+
+  # Same as propose_direct!/4, but the subject is the scope itself (subject_peer_id: nil,
+  # subject_scope_id set) rather than the ingesting peer — the shape real structured extraction
+  # produces for a subject_type: "scope" candidate (Cartulary.Memory.resolve_subject!/4). A
+  # scope has no peer to own consent, so this is the regression case for the "personal
+  # knowledge about someone" reading of consent_required?/3: a scope-subject item can still
+  # carry sensitivity: "personal" (nothing ties the two), and must not crash trying to open a
+  # Consent row for a subject that does not exist.
+  defp propose_direct_scope_subject!(actor, scope_path, target_level, statement) do
+    ingest!(
+      actor,
+      "propose-direct-scope-subject-bootstrap-#{scope_path}",
+      scope_path,
+      "The team uses Elixir."
+    )
+
+    pipeline = pipeline_actor(actor)
+
+    scope =
+      DataLayer.with_actor(actor, fn account, _current_actor ->
+        Cartulary.Topology.Scope
+        |> Ash.Query.filter(path == ^scope_path)
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read_one!(actor: %{pipeline | scope_ids: :all})
+      end)
+
+    knowledge =
+      KnowledgeItem
+      |> Ash.Changeset.new()
+      |> Ash.Changeset.set_tenant(actor.account_id)
+      |> Ash.Changeset.for_create(:create_from_pipeline, %{
+        scope_id: scope.id,
+        subject_scope_id: scope.id,
+        statement: statement,
+        kind: "fact",
+        confidence: 1.0,
+        sensitivity: "personal",
+        state: "proposed",
+        target_level: target_level,
+        extracting_model: "test:direct-propose-scope-subject",
         pipeline_version: "f5-1"
       })
       |> Ash.create!(actor: pipeline)
