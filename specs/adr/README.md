@@ -13,6 +13,7 @@ settled by the blueprint specs.
 | `0004-multi-strategy-retrieval.md` | Candidate generation, fusion, and rerank as three seams under a deadline. |
 | `0005-peer-inline-validation-over-mcp.md` | Validation questions attached to read-tool results. |
 | `0006-entity-resolution.md` | Canonical referents resolved at dream-time, exposed through no public surface. |
+| `0007-unattended-governance-consent.md` | Declared-account/deployment auto-grant of subject consent, off by default. |
 
 Conventions for future ADRs:
 
