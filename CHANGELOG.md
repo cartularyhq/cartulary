@@ -9,6 +9,26 @@ changelog entry and contract-version transition.
 
 ## [Unreleased]
 
+### Fixed
+
+- Generation roles (`ingest_extractor`, `dream_reasoner`, `dialectic_agent`)
+  now default to a bounded reasoning-token spend, an 8192 output-token cap,
+  and a 120-second request timeout, overridable with
+  `CARTULARY_MODEL_REASONING_EFFORT`, `CARTULARY_MODEL_MAX_TOKENS`, and
+  `CARTULARY_MODEL_RECEIVE_TIMEOUT_MS` respectively. Without them, a
+  reasoning model such as the default `openai/gpt-oss-120b` could spend an
+  uncapped share of its context window on internal reasoning tokens
+  regardless of input size — observed in practice as a single-sentence
+  ingest extraction with ~600 input/tool tokens requesting roughly 131k
+  output tokens and failing once it exceeded the model's whole
+  131072-token context window — and, separately, could exceed ReqLLM's
+  plain 30-second default request timeout, because ReqLLM only extends its
+  timeout for model ids it recognizes as reasoning models (OpenAI's
+  o-series, gpt-5, and codex families), which `gpt-oss-120b` does not match.
+  `max_tokens` and `receive_timeout` request options already existed in
+  `Cartulary.Model.Providers.ReqLLM`; `reasoning_effort` was added to its
+  allowlist, and all three now have a default.
+
 ### Added
 
 - A browser console at `/console`, open to every human role. It carries an
