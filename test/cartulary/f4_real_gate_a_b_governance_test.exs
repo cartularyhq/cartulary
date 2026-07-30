@@ -373,6 +373,158 @@ defmodule Cartulary.F4RealGateABGovernanceTest do
     Application.put_env(:cartulary, :governance, previous)
   end
 
+  test "account consent_mode: auto grants consent for a direct scope-level proposal with no promotion" do
+    %{actor: actor} = bootstrap_human!("auto-consent-direct")
+
+    create_gate_rule!(actor, %{
+      target_level: "scope",
+      sensitivity: "personal",
+      gate_a_mode: "auto_keep",
+      gate_b_mode: "auto_place",
+      minimum_confidence: 0.0,
+      minimum_corroboration: 1
+    })
+
+    set_consent_mode!(actor, "auto")
+
+    # propose_direct! (not ingest!) because this account's deterministic test
+    # extractor always proposes at peer level (lib/cartulary/model/providers/
+    # deterministic.ex): reaching a direct, non-promoted scope-level proposal
+    # requires calling evaluate_proposal/3 the way real structured extraction
+    # would, with target_level: "scope" set on the item itself.
+    knowledge =
+      propose_direct!(
+        actor,
+        "/governance/auto-consent",
+        "scope",
+        "Avery's medical appointment is scheduled for next Thursday."
+      )
+
+    # No request_promotion call: the matrix cell alone would already
+    # auto-accept, but consent_required?/3 would ordinarily still defer this
+    # personal item. consent_mode: "auto" removes exactly that block, and
+    # only that block.
+    assert knowledge.sensitivity == "personal"
+    assert knowledge.state == "active"
+
+    consent =
+      DataLayer.with_actor(actor, fn account, current_actor ->
+        Cartulary.Governance.Consent
+        |> Ash.Query.filter(knowledge_id == ^knowledge.id)
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read_one!(actor: pipeline_actor(current_actor))
+      end)
+
+    assert consent.status == "granted"
+    assert consent.verified
+    assert consent.channel == "auto:account_mode"
+    assert consent.target_scope_id == knowledge.scope_id
+    assert consent.decided_by_peer_id == nil
+  end
+
+  test "account consent_mode: auto grants consent for an explicit Gate B promotion" do
+    %{actor: actor} = bootstrap_human!("auto-consent-promotion")
+    set_consent_mode!(actor, "auto")
+
+    knowledge =
+      ingest!(
+        actor,
+        "auto-consent-promotion",
+        "/private/auto-consent",
+        "Avery's medical appointment is scheduled for next Thursday."
+      )
+
+    root = scope_by_path!(actor, "/")
+    promotion = Engine.request_promotion(actor, knowledge.id, root.id)
+
+    assert promotion.consent.status == "granted"
+    assert promotion.consent.verified
+    assert promotion.consent.channel == "auto:account_mode"
+
+    approved = Engine.decide(actor, promotion.validation.id, "approve")
+    assert approved.knowledge.state == "active"
+    assert approved.knowledge.scope_id == root.id
+  end
+
+  test "CARTULARY_GOVERNANCE_UNATTENDED grants consent regardless of consent_mode" do
+    previous = Application.get_env(:cartulary, :governance, [])
+    Application.put_env(:cartulary, :governance, Keyword.put(previous, :unattended, true))
+
+    %{actor: actor} = bootstrap_human!("unattended-consent")
+
+    create_gate_rule!(actor, %{
+      target_level: "scope",
+      sensitivity: "personal",
+      gate_a_mode: "auto_keep",
+      gate_b_mode: "auto_place",
+      minimum_confidence: 0.0,
+      minimum_corroboration: 1
+    })
+
+    knowledge =
+      propose_direct!(
+        actor,
+        "/governance/unattended",
+        "scope",
+        "Avery's medical appointment is scheduled for next Thursday."
+      )
+
+    assert knowledge.state == "active"
+
+    consent =
+      DataLayer.with_actor(actor, fn account, current_actor ->
+        Cartulary.Governance.Consent
+        |> Ash.Query.filter(knowledge_id == ^knowledge.id)
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read_one!(actor: pipeline_actor(current_actor))
+      end)
+
+    assert consent.channel == "auto:unattended_deployment"
+  after
+    Application.put_env(
+      :cartulary,
+      :governance,
+      Application.get_env(:cartulary, :governance, []) |> Keyword.put(:unattended, false)
+    )
+  end
+
+  test "default consent_mode still blocks the direct-proposal path exactly as before" do
+    %{actor: actor} = bootstrap_human!("default-consent-regression")
+
+    create_gate_rule!(actor, %{
+      target_level: "scope",
+      sensitivity: "personal",
+      gate_a_mode: "auto_keep",
+      gate_b_mode: "auto_place",
+      minimum_confidence: 0.0,
+      minimum_corroboration: 1
+    })
+
+    knowledge =
+      propose_direct!(
+        actor,
+        "/governance/default-consent",
+        "scope",
+        "Avery's medical appointment is scheduled for next Thursday."
+      )
+
+    # Regression guard: without consent_mode: "auto" or the unattended flag,
+    # a personal scope-level item must still defer, exactly as before this
+    # feature existed, even though the matrix cell alone would auto-accept.
+    assert knowledge.state in ["provisional", "held"]
+
+    consent =
+      DataLayer.with_actor(actor, fn account, current_actor ->
+        Cartulary.Governance.Consent
+        |> Ash.Query.filter(knowledge_id == ^knowledge.id)
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read_one!(actor: pipeline_actor(current_actor))
+      end)
+
+    refute is_nil(consent)
+    assert consent.status == "pending"
+  end
+
   test "inline peer validation is rate-limited, transcript-verified, and correction text cannot mint" do
     %{actor: actor} = bootstrap_human!("inline")
 
@@ -748,6 +900,55 @@ defmodule Cartulary.F4RealGateABGovernanceTest do
     message["knowledge"] |> hd() |> Map.fetch!("id") |> knowledge_for!(actor)
   end
 
+  # Proposes a personal item directly at the given target level, the way real structured
+  # extraction can, without ever calling request_promotion/3. The test-only deterministic model
+  # provider (lib/cartulary/model/providers/deterministic.ex) always proposes at peer level, so
+  # ordinary ingest! cannot reach this path; this bypasses extraction and calls
+  # Engine.evaluate_proposal/3 the same way Cartulary.Memory's real call site does — with no
+  # target_scope_id opt — which is exactly the case that had no route to a consent request at
+  # all before this change.
+  defp propose_direct!(actor, scope_path, target_level, statement) do
+    # Bootstraps the scope through an ordinary, non-personal ingest, since scopes are otherwise
+    # created on demand only by that path.
+    ingest!(actor, "propose-direct-bootstrap-#{scope_path}", scope_path, "The team uses Elixir.")
+
+    pipeline = pipeline_actor(actor)
+
+    # Reads with scope_ids: :all, not just the local pipeline_actor!/1 elevation:
+    # bootstrap_human!'s actor resolved its scope_ids once, before this scope existed, and role
+    # grants are not re-resolved per query (Cartulary.Actor's own moduledoc). Scope's read
+    # policy goes through Cartulary.Policy.ScopeAccess, which only bypasses on scope_ids: :all
+    # (it does not look at pipeline? at all — see lib/cartulary/resource.ex:154), so an
+    # unelevated read of a scope created moments ago by this same test would come back empty.
+    scope =
+      DataLayer.with_actor(actor, fn account, _current_actor ->
+        Cartulary.Topology.Scope
+        |> Ash.Query.filter(path == ^scope_path)
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read_one!(actor: %{pipeline | scope_ids: :all})
+      end)
+
+    knowledge =
+      KnowledgeItem
+      |> Ash.Changeset.new()
+      |> Ash.Changeset.set_tenant(actor.account_id)
+      |> Ash.Changeset.for_create(:create_from_pipeline, %{
+        scope_id: scope.id,
+        subject_peer_id: actor.peer_id,
+        statement: statement,
+        kind: "fact",
+        confidence: 1.0,
+        sensitivity: "personal",
+        state: "proposed",
+        target_level: target_level,
+        extracting_model: "test:direct-propose",
+        pipeline_version: "f5-1"
+      })
+      |> Ash.create!(actor: pipeline)
+
+    Engine.evaluate_proposal(knowledge, pipeline)
+  end
+
   # Accepts its two arguments in either order so it can be used both directly and at the end of
   # a pipeline; the binary is always the knowledge id.
   defp knowledge_for!(id, actor) when is_binary(id), do: knowledge_for!(actor, id)
@@ -795,6 +996,16 @@ defmodule Cartulary.F4RealGateABGovernanceTest do
       |> Ash.Changeset.set_tenant(account.id)
       |> Ash.Changeset.for_create(:create, attrs)
       |> Ash.create!(actor: current_actor)
+    end)
+  end
+
+  # Flips consent_mode as the account administrator, through the ordinary authorized action
+  # rather than by writing the row directly.
+  defp set_consent_mode!(actor, mode) do
+    DataLayer.with_actor(actor, fn account, current_actor ->
+      account
+      |> Ash.Changeset.for_update(:configure_governance, %{consent_mode: mode})
+      |> Ash.update!(actor: current_actor)
     end)
   end
 
