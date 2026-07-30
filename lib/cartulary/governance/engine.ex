@@ -1184,9 +1184,18 @@ defmodule Cartulary.Governance.Engine do
   # makes the condition true for every personal item regardless: a matrix cell can never
   # switch off a subject's say over their own personal information. Removing that seemingly
   # redundant clause would hand that power to whoever edits the matrix.
+  #
+  # "About someone" presupposes a peer: FR-GOV-12 requires "the peer's consent", and Consent
+  # itself has no representation for a subject that is not a peer (subject_peer_id is
+  # non-nullable). A subject_type: "scope" item has no peer subject at all — subject_peer_id is
+  # nil — regardless of what sensitivity the extractor proposed for it, so there is no peer
+  # whose consent could ever be requested. Such an item still passes through the ordinary
+  # confidence/sensitivity matrix; it just cannot owe a peer-consent decision that has no peer
+  # to make it.
   defp consent_required?(knowledge, rule, target_level),
     do:
-      target_level != "peer" && knowledge.sensitivity == "personal" &&
+      not is_nil(knowledge.subject_peer_id) && target_level != "peer" &&
+        knowledge.sensitivity == "personal" &&
         (rule.requires_consent || knowledge.sensitivity == "personal")
 
   # Central point where every consent decision in this module gets made. Returns :not_required
