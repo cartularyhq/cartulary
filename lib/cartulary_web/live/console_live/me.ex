@@ -147,14 +147,34 @@ defmodule CartularyWeb.ConsoleLive.Me do
             <span class="muted">{scope_path(@self.scope_paths, item.scope_id)}</span>
           </div>
           <div class="button-row">
-            <button type="button" class="primary" phx-click="verdict" phx-value-id={item.id} phx-value-verdict="confirm">
-              Confirm
+            <button
+              type="button"
+              class="primary"
+              phx-click="verdict"
+              phx-value-id={item.id}
+              phx-value-verdict="confirm"
+              title="Confirm this is true. Makes it active at full confidence — the strongest evidence, since it comes from you."
+            >
+              Confirm — this is true
             </button>
-            <button type="button" phx-click="verdict" phx-value-id={item.id} phx-value-verdict="contest">
-              Contest
+            <button
+              type="button"
+              phx-click="verdict"
+              phx-value-id={item.id}
+              phx-value-verdict="contest"
+              title="Dispute this without removing it. Marks it disputed and sends it to a curator for review within 24 hours."
+            >
+              Contest — dispute this
             </button>
-            <button type="button" class="danger" phx-click="verdict" phx-value-id={item.id} phx-value-verdict="redact">
-              Redact
+            <button
+              type="button"
+              class="danger"
+              phx-click="verdict"
+              phx-value-id={item.id}
+              phx-value-verdict="redact"
+              title="Withdraw this statement outright. Different from Erasure below: this retracts one statement, Erasure removes underlying data."
+            >
+              Redact — withdraw this
             </button>
             <.link navigate={~p"/console/knowledge/#{item.id}"} class="ghost-link">
               Full record
