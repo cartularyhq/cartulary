@@ -165,6 +165,18 @@ defmodule Cartulary.F10PortabilityPackagingOperationsTest do
     assert map_size(result.checks.model_roles.configured) == 4
   end
 
+  test "readiness discloses whether this deployment is unattended" do
+    previous = Application.get_env(:cartulary, :governance, [])
+
+    Application.put_env(:cartulary, :governance, Keyword.put(previous, :unattended, true))
+    assert Health.readiness().governance.unattended == true
+
+    Application.put_env(:cartulary, :governance, Keyword.put(previous, :unattended, false))
+    assert Health.readiness().governance.unattended == false
+
+    Application.put_env(:cartulary, :governance, previous)
+  end
+
   test "exact API metering feeds self-host cost and budget visibility" do
     account_key = "f10-metering-#{System.unique_integer([:positive])}"
 

@@ -744,6 +744,26 @@ else
   config :opentelemetry, traces_exporter: :none
 end
 
+# Declares this process has no human governance participant, so
+# Cartulary.Governance.Engine auto-grants the subject-consent step it would
+# otherwise block on for personal knowledge aimed above peer level, for every
+# Account in this process. Off by default; the per-Account
+# consent_mode: "auto" attribute is the narrower alternative when only some
+# Accounts in a shared deployment are synthetic.
+unattended? = env_true?.("CARTULARY_GOVERNANCE_UNATTENDED")
+config :cartulary, :governance, unattended: unattended?
+
+if unattended? do
+  require Logger
+
+  Logger.warning(
+    "CARTULARY_GOVERNANCE_UNATTENDED=true: every Account in this process will have " <>
+      "subject consent auto-granted for personal knowledge above peer level. This " <>
+      "removes a real privacy protection and is intended only for benchmark, " <>
+      "evaluation, or synthetic-data deployments."
+  )
+end
+
 if config_env() == :prod do
   # Phoenix's own signing/encryption key for cookies and sessions. It falls back
   # to the authentication signing secret only so a minimal deployment can boot

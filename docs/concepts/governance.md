@@ -76,6 +76,31 @@ Consent is:
 A *denial* is accepted through any channel, because withdrawing exposure should
 never be harder than granting it.
 
+### Declaring an Account or deployment has no real subject
+
+The rule above assumes a real person can eventually be asked. That does not
+hold for a benchmark, evaluation, or imported historical corpus about people
+who never hold an account in the system — there, personal knowledge above
+peer level would otherwise stay permanently stuck, with no supported way to
+ever satisfy consent.
+
+Two switches exist for exactly that case, both off by default:
+
+- **Account-level:** an account administrator sets that Account's
+  `consent_mode` to `auto`. Every other role, including curator and any
+  machine credential, is refused.
+- **Deployment-level:** `CARTULARY_GOVERNANCE_UNATTENDED=true` (see
+  [Configuration](../reference/configuration.md#governance)) covers every
+  Account in that process, for a deployment that may never have a console
+  session at all.
+
+When either is active, consent for an affected item is auto-granted rather
+than silently skipped: a real consent record is written, in the same shape a
+subject's own grant would take, so the change is auditable rather than a
+hidden bypass. `GateRule`'s own settings are unaffected either way — the
+matrix still governs Gate A/B automation exactly as before, and cannot itself
+waive a subject's consent.
+
 ## Who may decide
 
 ```mermaid

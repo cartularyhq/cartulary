@@ -64,11 +64,14 @@ defmodule Cartulary.Operations.Health do
   @doc """
   Runs every component check and returns the aggregate readiness payload.
 
-  The result is `%{status:, app:, version:, checks:}`, where `checks` maps each
-  component name to its own map carrying an `"ok"` or `"error"` status, plus an
-  error class when it failed and queue depths or model identities when it did
-  not. Overall status is `"ready"` only when every component is `"ok"`; one
-  failure makes it `"not_ready"`.
+  The result is `%{status:, app:, version:, checks:, governance:}`, where
+  `checks` maps each component name to its own map carrying an `"ok"` or
+  `"error"` status, plus an error class when it failed and queue depths or
+  model identities when it did not. Overall status is `"ready"` only when
+  every component is `"ok"`; one failure makes it `"not_ready"`. `governance`
+  is disclosure rather than a check — it never affects `status` — and today
+  carries only `unattended`, whether this process has
+  `CARTULARY_GOVERNANCE_UNATTENDED` set.
 
   Never raises, and never blocks indefinitely: the database-backed checks carry
   their own timeouts so a hung connection surfaces as an error instead of
@@ -88,7 +91,16 @@ defmodule Cartulary.Operations.Health do
         do: "ready",
         else: "not_ready"
 
-    %{status: status, app: "cartulary", version: "f10-1", checks: checks}
+    %{
+      status: status,
+      app: "cartulary",
+      version: "f10-1",
+      checks: checks,
+      # Not a pass/fail check like the others above: this is disclosure, not a readiness
+      # gate, so it never affects `status`. An operator or auditor can tell whether subject
+      # consent is being auto-granted for this whole process without reading source.
+      governance: %{unattended: Cartulary.Governance.UnattendedMode.enabled?()}
+    }
   end
 
   @doc """

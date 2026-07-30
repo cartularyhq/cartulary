@@ -137,8 +137,8 @@ defmodule Cartulary.Governance.Engine do
     # fallback allows 168 h = 7 days). Only the deferred branch uses it.
     due_at = DateTime.add(Clock.utc_now(), rule.pending_max_age_hours, :hour)
 
-    case proposal_outcome(knowledge, rule, target_level) do
-      :reject ->
+    case proposal_outcome(knowledge, rule, target_level, target_scope_id, actor) do
+      {:reject, _consent} ->
         knowledge
         |> transition!(actor, %{state: "rejected", verification: "auto_rejected"},
           reason: "f4_gate_a_auto_reject",
@@ -160,7 +160,7 @@ defmodule Cartulary.Governance.Engine do
           )
         end)
 
-      :accept ->
+      {:accept, _consent} ->
         knowledge
         |> transition!(
           actor,
@@ -204,7 +204,7 @@ defmodule Cartulary.Governance.Engine do
           )
         end)
 
-      :defer ->
+      {:defer, _consent} ->
         # A peer-level item may be shown back to its own subject while it waits, so it becomes
         # provisional. Anything aimed above peer level is held at its source scope and stays
         # invisible to retrieval until a human decides; that is what stops an unreviewed claim
@@ -241,12 +241,11 @@ defmodule Cartulary.Governance.Engine do
           PeerQueue.enqueue!(updated, validation, "confirm", actor)
         end
 
-        # Open the consent request now rather than at approval time, so the subject has the
-        # whole review window to answer. Without a target scope there is nothing to consent
-        # to, so the request is skipped and approval will demand consent later.
-        if consent_required?(updated, rule, target_level) && is_binary(target_scope_id) do
-          request_consent!(updated, target_scope_id, actor)
-        end
+        # Consent, if this item owes any, was already resolved by proposal_outcome/5 above —
+        # either a real subject's request is now pending, or (for a declared-auto Account or an
+        # unattended deployment) a real granted row was already written on the subject's
+        # behalf. Resolving it there rather than here means it happens exactly once per
+        # proposal regardless of which branch of this case is taken.
 
         record_decision!(
           actor,
@@ -390,7 +389,23 @@ defmodule Cartulary.Governance.Engine do
 
       result =
         if held.sensitivity == "personal" && is_binary(held.subject_peer_id) do
-          consent = request_consent!(held, target_scope_id, pipeline_actor(current_actor))
+          # request_promotion/3 always widens by definition, so matching_rule/3 here only
+          # satisfies resolve_consent/5's signature — consent_required?/3 never actually
+          # consults rule.requires_consent (see its own comment), so which rule is passed has
+          # no bearing on the outcome.
+          consent =
+            case resolve_consent(
+                   held,
+                   matching_rule(held, "scope", current_actor),
+                   "scope",
+                   target_scope_id,
+                   current_actor
+                 ) do
+              {:granted, consent} -> consent
+              {:pending, consent} -> consent
+              :not_required -> nil
+            end
+
           PeerQueue.enqueue!(held, validation, "consent_upward", pipeline_actor(current_actor))
           %{knowledge: held, validation: validation, consent: consent}
         else
@@ -1127,21 +1142,42 @@ defmodule Cartulary.Governance.Engine do
       rule.gate_b_mode == "auto_place" &&
         knowledge.corroboration_count >= rule.minimum_corroboration
 
-  # An auto-reject cell short-circuits everything else, including confidence.
-  defp proposal_outcome(_knowledge, %{gate_a_mode: "auto_reject"}, _target_level),
-    do: :reject
+  # Returns {outcome, consent}, where consent is the resolve_consent/5 result — reused by
+  # evaluate_proposal/3's :defer branch so the same proposal never resolves (and, for the auto
+  # path, writes) consent twice. consent is nil on the auto-reject fast path, which short-
+  # circuits before ever needing it: an item Gate A is about to discard has nothing to consent
+  # to.
+  defp proposal_outcome(
+         _knowledge,
+         %{gate_a_mode: "auto_reject"},
+         _target_level,
+         _target_scope_id,
+         _actor
+       ),
+       do: {:reject, nil}
 
-  # Automatic acceptance needs all three: both gates satisfied and no consent owed. Any single
-  # failure defers to a human rather than downgrading the outcome silently.
-  defp proposal_outcome(knowledge, rule, target_level) do
-    if auto_gate_a?(knowledge, rule) && auto_gate_b?(knowledge, rule, target_level) &&
-         consent_not_required?(knowledge, rule, target_level),
-       do: :accept,
-       else: :defer
+  # Automatic acceptance needs all three: both gates satisfied and consent settled in the
+  # auto-accept item's favor. :not_required and :granted both count — :granted means an
+  # Account/deployment declaration already auto-wrote a real consent row for this item.
+  # :pending always defers, same as today: a curator or the subject still has to act.
+  defp proposal_outcome(knowledge, rule, target_level, target_scope_id, actor) do
+    consent = resolve_consent(knowledge, rule, target_level, target_scope_id, actor)
+
+    consent_ok? =
+      case consent do
+        :not_required -> true
+        {:granted, _consent} -> true
+        {:pending, _consent} -> false
+      end
+
+    outcome =
+      if auto_gate_a?(knowledge, rule) && auto_gate_b?(knowledge, rule, target_level) &&
+           consent_ok?,
+         do: :accept,
+         else: :defer
+
+    {outcome, consent}
   end
-
-  defp consent_not_required?(knowledge, rule, target_level),
-    do: !consent_required?(knowledge, rule, target_level)
 
   # Consent is owed whenever personal knowledge about someone is aimed above their own peer
   # level. The rule's `requires_consent` flag is consulted, but the trailing sensitivity check
@@ -1152,6 +1188,84 @@ defmodule Cartulary.Governance.Engine do
     do:
       target_level != "peer" && knowledge.sensitivity == "personal" &&
         (rule.requires_consent || knowledge.sensitivity == "personal")
+
+  # Central point where every consent decision in this module gets made. Returns :not_required
+  # when the item is not personal/above-peer; {:granted, consent} when the Account or deployment
+  # has declared no real subject exists, in which case a real granted Consent row was just
+  # written on the subject's behalf; or {:pending, consent} for the ordinary path, where the row
+  # is opened and a real subject still has to answer it.
+  #
+  # `target_scope_id` falls back to the item's own scope when the caller has none more specific
+  # (the direct-proposal path never has one): widening a personal item that is not going
+  # through an explicit promotion means becoming visible to everyone who already has access to
+  # the scope it lives in, which is exactly what consenting to that scope means.
+  defp resolve_consent(knowledge, rule, target_level, target_scope_id, actor) do
+    effective_target_scope_id = target_scope_id || knowledge.scope_id
+
+    cond do
+      not consent_required?(knowledge, rule, target_level) ->
+        :not_required
+
+      auto_consent?(knowledge.account_id, actor) ->
+        {:granted, auto_grant_consent!(knowledge, effective_target_scope_id, actor)}
+
+      true ->
+        # Elevated the same way the pre-existing request_promotion/3 call site already did:
+        # Consent's :request action is pipeline-only, and unlike evaluate_proposal's defer
+        # branch (whose actor is already the pipeline actor of the ingest run),
+        # request_promotion/3 calls this with a human curator actor.
+        {:pending, request_consent!(knowledge, effective_target_scope_id, pipeline_actor(actor))}
+    end
+  end
+
+  # True when this Account or this deployment process has declared it has no real human
+  # subject. Checked fresh every call rather than cached: Account rows change rarely enough that
+  # a point read is cheap, and caching a governance-weakening flag risks serving a stale "false"
+  # or "true" across a config change.
+  defp auto_consent?(account_id, actor) do
+    Cartulary.Governance.UnattendedMode.enabled?() ||
+      account!(account_id, actor).consent_mode == "auto"
+  end
+
+  # Writes exactly the shape a real subject's grant would: status "granted", verified true,
+  # decided_by_peer_id nil because no peer decided anything. `channel` is the only field that
+  # tells the two apart, which is what makes this auditable instead of a silent bypass — every
+  # existing reader of Consent (approve!/4, the console, history) needs no special case for it.
+  defp auto_grant_consent!(knowledge, target_scope_id, actor) do
+    pipeline = pipeline_actor(actor)
+
+    knowledge
+    |> request_consent!(target_scope_id, pipeline)
+    |> Ash.Changeset.for_update(:decide, %{
+      status: "granted",
+      channel: auto_consent_channel(knowledge.account_id, actor),
+      verified: true,
+      decided_by_peer_id: nil,
+      decided_at: Clock.utc_now()
+    })
+    |> Ash.Changeset.set_tenant(knowledge.account_id)
+    |> Ash.update!(actor: pipeline)
+  end
+
+  defp auto_consent_channel(_account_id, _actor) do
+    if Cartulary.Governance.UnattendedMode.enabled?(),
+      do: "auto:unattended_deployment",
+      else: "auto:account_mode"
+  end
+
+  # Point read of the Account row, elevated to the pipeline actor the same way scope!/3 and
+  # knowledge!/3 already do: the engine has to be able to look this up regardless of what the
+  # calling actor can itself read. No set_tenant call: Account is not multitenant — it IS the
+  # tenant — the same reason Cartulary.DataLayer.with_actor/2 reads it without one.
+  defp account!(account_id, actor) do
+    Cartulary.Accounts.Account
+    |> Ash.Query.filter(id == ^account_id)
+    |> Ash.read_one!(actor: pipeline_actor(actor))
+    |> case do
+      nil -> raise Ash.Error.Query.NotFound, resource: Cartulary.Accounts.Account
+      account -> account
+    end
+  end
 
   # Puts an item on the human review queue. The entry is an upsert keyed by knowledge item and
   # kind, so re-evaluating the same item does not stack up duplicate queue rows; the existing

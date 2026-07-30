@@ -87,6 +87,45 @@ defmodule Cartulary.Accounts.Account do
     update :update do
       accept [:name]
     end
+
+    # The only way `consent_mode` changes. Deliberately its own action, not
+    # folded into `:update`, and restricted below to account_admin (not
+    # curator): this is a bigger privacy trade-off than anything else an
+    # admin or curator can otherwise do, so it gets its own name in the audit
+    # log and its own, narrower policy rather than riding along on a change
+    # that also lets someone rename the Account.
+    update :configure_governance do
+      accept [:consent_mode]
+
+      # Atomic updates are off because the audit append runs in Elixir after
+      # the write, the same reason GateRule's :update turns it off.
+      require_atomic? false
+
+      # Mirrors Cartulary.Governance.Changes.AuditResource's own after_action
+      # shape, but calls Audit.append! with result.id rather than
+      # result.account_id: Account is not multitenant — it IS the tenant, so
+      # it has no account_id attribute, and reusing that change verbatim
+      # would raise KeyError at runtime. Reads the actor from the changeset's
+      # own private context rather than the builtin after_action callback's
+      # third (Ash.Resource.Change.Context) argument, whose `actor` field is
+      # not populated for this DSL form in the Ash version this app pins.
+      change after_action(fn changeset, result, _context ->
+               actor = get_in(changeset.context, [:private, :actor])
+
+               Cartulary.Governance.Audit.append!(actor, result.id, %{
+                 actor_peer_id: Map.get(actor, :peer_id),
+                 category: "configuration",
+                 action: "account.consent_mode_changed",
+                 resource_type: "account",
+                 resource_id: result.id,
+                 content_hash:
+                   Cartulary.Governance.Audit.content_hash(%{consent_mode: result.consent_mode}),
+                 metadata: %{}
+               })
+
+               {:ok, result}
+             end)
+    end
   end
 
   policies do
@@ -104,6 +143,17 @@ defmodule Cartulary.Accounts.Account do
       authorize_if expr(id == ^actor(:account_id))
       authorize_if expr(key == ^actor(:account_key) and ^actor(:role) == :system)
     end
+
+    # Narrower than every other Account write, and layered on top of the
+    # action_type([:read, :update]) policy above rather than replacing it:
+    # both must pass, so this still requires the row to be the caller's own
+    # Account *and* additionally requires a human account administrator. No
+    # curator, no machine credential, no :system bypass — a mistaken or
+    # malicious widening here removes a real privacy protection for every
+    # personal item that Account ever proposes above peer level.
+    policy action(:configure_governance) do
+      authorize_if {Cartulary.Policy.HumanRoleIn, roles: [:account_admin]}
+    end
   end
 
   attributes do
@@ -112,6 +162,18 @@ defmodule Cartulary.Accounts.Account do
     attribute :name, :string, allow_nil?: false, public?: true
     # Not public: the licensing slot is server-controlled, never client input.
     attribute :edition_slot, :string
+    # "subject_required" (default) demands a real subject's verified grant
+    # for every personal item aimed above peer level, exactly as before this
+    # attribute existed. "auto" declares this Account has no real human
+    # subject — a benchmark, eval, or imported corpus — and lets the
+    # pipeline grant consent on the subject's behalf instead. It never
+    # affects GateRule's own auto_keep/auto_place modes, only the separate
+    # consent check in Cartulary.Governance.Engine.
+    attribute :consent_mode, :string,
+      allow_nil?: false,
+      default: "subject_required",
+      public?: true
+
     create_timestamp :inserted_at
     update_timestamp :updated_at
   end

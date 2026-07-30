@@ -129,6 +129,26 @@ document semantics.
 
 Dream-time is throttled first when a limit bites.
 
+## Governance
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `CARTULARY_GOVERNANCE_UNATTENDED` | `false` | Declares this whole deployment process has no human governance participant |
+
+When true, personal knowledge aimed above its subject's peer level has its
+subject consent auto-granted instead of blocked pending a real subject —
+Cartulary otherwise requires the subject's own verified grant before a
+curator's approval can widen a personal item's exposure, and there is no
+GateRule setting that can waive it. This is a real privacy trade-off: only
+set it for a benchmark, evaluation, or synthetic-data deployment that has no
+real human subjects to ever grant that consent. It is logged at boot when
+active and reported on `GET /api/ready`.
+
+An individual Account can be marked the same way without touching the whole
+deployment — see [Governance](../concepts/governance.md) for the
+account-level `consent_mode` setting, which an account administrator
+controls from within that Account rather than from the environment.
+
 ## Observability
 
 | Variable | Default | Meaning |
