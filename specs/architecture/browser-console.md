@@ -37,6 +37,17 @@ four. The console's per-statement page offers the same decisions through the
 same operation-layer calls; the queue remains the place for working a backlog,
 including the bulk actions that only make sense there.
 
+"Its conflicts" above is literal: `CartularyWeb.GovernanceLive.Index` resolves
+a queue row's `conflict_knowledge_ids` to the conflicting statements
+themselves in one batch query and renders them on the card, rather than
+leaving a curator to chase bare ids to another page. Ids that don't resolve
+under the curator's own authorization are dropped rather than shown as dead
+links, matching the same rule the per-statement page's cross-references panel
+already follows. The queue's checkbox selection is itself
+`GovernanceLive.Index`-local render state (`@selected_ids`), not a database
+read — "select all"/"deselect all" only ever widens which already-visible rows
+a bulk decision targets.
+
 ## Layering
 
 | Module | Owns |

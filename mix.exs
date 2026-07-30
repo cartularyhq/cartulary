@@ -183,7 +183,10 @@ defmodule Cartulary.MixProject do
       # Generators for the property-based tests that cover invariants a fixed example set
       # cannot reach: cross-Account isolation, and downward role inheritance where any
       # applicable deny wins.
-      {:stream_data, "~> 1.2"}
+      {:stream_data, "~> 1.2"},
+      # HTML parser Phoenix.LiveViewTest requires to drive a socket-level test (live/2,
+      # render_click/2) rather than a plain HTTP response assertion.
+      {:lazy_html, ">= 0.1.0", only: :test}
     ]
   end
 
