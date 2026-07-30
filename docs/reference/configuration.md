@@ -53,6 +53,15 @@ External mode needs PostgreSQL 18 with pgvector available.
 | `CARTULARY_MODEL_DREAM` | — | Model for the dream-reasoner role |
 | `CARTULARY_MODEL_ASK` | — | Model for the dialectic-agent role |
 | `CARTULARY_MODEL_LOCAL_FALLBACK` | `true` in dev, off in prod | Deterministic local adapter |
+| `CARTULARY_MODEL_MAX_TOKENS` | `8192` | Output-token cap shared by all three generation roles |
+
+!!! warning "Reasoning models can blow the context window without a cap"
+    A reasoning model (the default `openai/gpt-oss-120b` included) can spend an
+    uncapped share of its context window on internal reasoning tokens before
+    ever emitting output. Without `CARTULARY_MODEL_MAX_TOKENS`, a single small
+    extraction can request as much output as the model's entire context length
+    and fail outright. Raise the default only if a chosen model genuinely needs
+    a larger budget to answer.
 
 There are exactly four Account-level model roles: `embedder`,
 `ingest_extractor`, `dream_reasoner`, and `dialectic_agent`. Only secret

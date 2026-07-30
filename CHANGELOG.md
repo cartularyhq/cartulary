@@ -9,6 +9,18 @@ changelog entry and contract-version transition.
 
 ## [Unreleased]
 
+### Fixed
+
+- Generation roles (`ingest_extractor`, `dream_reasoner`, `dialectic_agent`)
+  now default to an 8192 output-token cap, overridable with
+  `CARTULARY_MODEL_MAX_TOKENS`. Without it, a reasoning model such as the
+  default `openai/gpt-oss-120b` could spend an uncapped share of its context
+  window on internal reasoning tokens; observed in practice as a
+  single-sentence ingest extraction requesting roughly 131k output tokens and
+  failing once it exceeded the model's whole 131072-token context window. The
+  `max_tokens` request option already existed in
+  `Cartulary.Model.Providers.ReqLLM`; only the missing default was added.
+
 ### Added
 
 - A browser console at `/console`, open to every human role. It carries an

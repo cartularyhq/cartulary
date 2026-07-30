@@ -374,9 +374,19 @@ generation_version =
 # Note what is stored: the *name of the variable* holding the credential, not
 # the credential. Role configuration is durable and exportable, so a raw key
 # must never enter it.
+#
+# max_tokens caps the provider's output-token budget for every generation role.
+# Reasoning models (e.g. the default openai/gpt-oss-120b) spend an uncapped
+# share of the context window on internal reasoning tokens before ever emitting
+# the structured object; observed in practice as a single-sentence extraction
+# call requesting ~131k output tokens and failing once it exceeded the model's
+# whole context window. Bounding it here is what keeps a slow or verbose model
+# from turning one ingest call into a blown context window instead of a normal
+# response.
 generation_options = %{
   "api_key_ref" => "env:OPENROUTER_API_KEY",
-  "base_url" => env_get.("CARTULARY_OPENAI_COMPAT_BASE_URL", "https://openrouter.ai/api/v1")
+  "base_url" => env_get.("CARTULARY_OPENAI_COMPAT_BASE_URL", "https://openrouter.ai/api/v1"),
+  "max_tokens" => env_integer.("CARTULARY_MODEL_MAX_TOKENS", "8192")
 }
 
 # The four model roles. Any OpenAI-compatible endpoint, including a self-hosted
