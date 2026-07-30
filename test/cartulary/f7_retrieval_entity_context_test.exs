@@ -90,6 +90,81 @@ defmodule Cartulary.F7RetrievalEntityContextTest.Provider do
   defp record(call), do: Agent.update(__MODULE__, &[call | &1])
 end
 
+defmodule Cartulary.F7RetrievalEntityContextTest.VanishingProvider do
+  @moduledoc """
+  Test model provider that deletes a row as a side effect of answering, so the write phase
+  that follows either capability fails.
+
+  This is the only way to observe, from inside the SQL sandbox, whether a rebuild lane's
+  embedding and reasoning calls share a transaction with the write that follows them. Every
+  test already runs inside one sandbox transaction, so `Repo.in_transaction?/0` proves
+  nothing; what is observable is whether the usage row a call produces survives the write
+  phase's failure. It survives only if the two were written in separate transactions.
+
+  `embed/3` deletes the `knowledge_items` row whose statement exactly matches an embedded
+  text — a no-op unless the caller is `Indexer.rebuild_scope/2` embedding the scope's own
+  statements, which is the only place a full statement is ever embedded. `structured/4`
+  deletes the `entities` row named on the right-hand side of the adjudication prompt, which
+  is exactly the entity `EntityResolver.rebuild_scope/2` is about to fold a surface form
+  into. Both deletes are raw SQL because they run mid-call, from the provider, with no actor
+  and no Ash action available, and they rely on the Account's row-level-security setting
+  still being installed on the sandbox connection from the read phase.
+
+  Only the capability each test actually exercises is meaningful; `chat/3` and `rerank/4`
+  return an error so a test that reaches them fails loudly instead of receiving a fabricated
+  answer.
+  """
+
+  @behaviour Cartulary.Model.Provider
+
+  alias Cartulary.Model.Provider.Result
+  alias Cartulary.Repo
+
+  @impl true
+  def structured(_config, [%{content: content}], _schema, _opts) do
+    canonical_name = content |> String.split("right=") |> List.last()
+
+    Ecto.Adapters.SQL.query!(Repo, "DELETE FROM entities WHERE canonical_name = $1", [
+      canonical_name
+    ])
+
+    {:ok,
+     %Result{
+       value: %{"same_entity" => true},
+       usage: %{input_tokens: 11, output_tokens: 1},
+       metadata: %{}
+     }}
+  end
+
+  @impl true
+  def chat(_config, _messages, _opts), do: {:error, :not_supported}
+
+  @impl true
+  def embed(_config, texts, _opts) do
+    Enum.each(texts, fn text ->
+      Ecto.Adapters.SQL.query!(Repo, "DELETE FROM knowledge_items WHERE statement = $1", [
+        text
+      ])
+    end)
+
+    # A hand-picked pair rather than a real embedding: "Oryon" carries a vector at exactly
+    # cosine 0.8 from "Orion" — inside the ambiguous band the resolver hands to the
+    # reasoning model — so the entity-resolver test reaches `structured/4` deterministically.
+    # Anything else, including the joined alias text a successful fold re-embeds, gets an
+    # arbitrary vector of the same width; its value is never asserted on.
+    vectors =
+      Enum.map(texts, fn
+        "Oryon" -> [0.8, 0.6, 0.0]
+        _other -> [1.0, 0.0, 0.0]
+      end)
+
+    {:ok, %Result{value: vectors, usage: %{embedding_tokens: length(texts)}, metadata: %{}}}
+  end
+
+  @impl true
+  def rerank(_config, _query, _documents, _opts), do: {:error, :not_supported}
+end
+
 defmodule Cartulary.F7RetrievalEntityContextTest do
   @moduledoc """
   Pins the retrieval boundary, the internal-only entity cache, and context assembly.
@@ -404,6 +479,131 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     refute Enum.any?(CartularyWeb.Router.__routes__(), fn route ->
              String.contains?(route.path, "entit")
            end)
+  end
+
+  test "Indexer.rebuild_scope keeps a billed embedding call metered when the write phase fails" do
+    seeded = seed_active!("f7-index-vanish", "/f7/index-vanish", "Vanishing indexer statement.")
+
+    original_provider = Application.get_env(:cartulary, :model_provider)
+
+    on_exit(fn ->
+      if original_provider do
+        Application.put_env(:cartulary, :model_provider, original_provider)
+      else
+        Application.delete_env(:cartulary, :model_provider)
+      end
+    end)
+
+    Application.put_env(
+      :cartulary,
+      :model_provider,
+      Cartulary.F7RetrievalEntityContextTest.VanishingProvider
+    )
+
+    # The provider deletes the very knowledge item being indexed as a side effect of
+    # answering the embedding call, so the write phase's update has no row left to update.
+    # Ash reports this as forbidden rather than not-found: its policy check re-filters by
+    # tenant and existence together, and a row that no longer matches either is
+    # indistinguishable from one the actor was never allowed to see.
+    assert_raise Ash.Error.Forbidden, fn ->
+      Indexer.rebuild_scope(seeded.account.id, seeded.scope.id)
+    end
+
+    # The call was made and billed. Rolling its ledger row back with the failed write would
+    # understate real spend, so the usage write must not share a transaction with the vector
+    # write.
+    assert scalar!(
+             "SELECT count(*) FROM usage_events WHERE account_id = $1 AND model_role = 'embedder'",
+             [Ecto.UUID.dump!(seeded.account.id)]
+           ) == 1
+
+    # The item is really gone — the provider deleted it — which is exactly what confirms
+    # nothing else was half-written: the write phase raised before it touched any row.
+    assert scalar!(
+             "SELECT count(*) FROM knowledge_items WHERE id = $1",
+             [Ecto.UUID.dump!(seeded.knowledge.id)]
+           ) == 0
+  end
+
+  test "EntityResolver.rebuild_scope keeps billed calls metered and the prior index intact when the write phase fails" do
+    seeded =
+      seed_active!("f7-entity-vanish", "/f7/entity-vanish", "Oryon owns the launch checklist.")
+
+    # A pre-existing entity from an earlier rebuild, seeded directly rather than through
+    # `rebuild_scope/2` so its alias embedding is the exact vector the fixture provider's
+    # "Oryon" vector sits at cosine 0.8 from — inside the ambiguous band, so this run reaches
+    # the reasoning model rather than matching or rejecting on similarity alone.
+    entity =
+      DataLayer.with_account_key("f7-entity-vanish", fn account, actor ->
+        create!(
+          Entity,
+          :create_from_pipeline,
+          %{
+            canonical_name: "Orion",
+            kind: "person",
+            aliases: ["Orion"],
+            alias_embedding: [1.0, 0.0, 0.0],
+            embedding_provider: "fixture",
+            embedding_model: "f7-fixture",
+            embedding_version: "1",
+            embedding_dimensions: 3,
+            derived_from: []
+          },
+          account.id,
+          pipeline_actor(actor)
+        )
+      end)
+
+    original_provider = Application.get_env(:cartulary, :model_provider)
+
+    on_exit(fn ->
+      if original_provider do
+        Application.put_env(:cartulary, :model_provider, original_provider)
+      else
+        Application.delete_env(:cartulary, :model_provider)
+      end
+    end)
+
+    Application.put_env(
+      :cartulary,
+      :model_provider,
+      Cartulary.F7RetrievalEntityContextTest.VanishingProvider
+    )
+
+    # The provider deletes the adjudicated entity as a side effect of answering, so the write
+    # phase's re-read of it comes back empty.
+    assert_raise RuntimeError, ~r/vanished/, fn ->
+      EntityResolver.rebuild_scope(seeded.account.id, seeded.scope.id)
+    end
+
+    # Both billed embedding calls — the one that scored the ambiguous match and the one that
+    # re-embeds the widened alias set once the fold is decided — survive the later failure,
+    # along with the reasoner call that adjudicated the match, because metering commits in its
+    # own transaction rather than the rebuild's write transaction.
+    assert scalar!(
+             "SELECT count(*) FROM usage_events WHERE account_id = $1 AND model_role = 'embedder'",
+             [Ecto.UUID.dump!(seeded.account.id)]
+           ) == 2
+
+    assert scalar!(
+             "SELECT count(*) FROM usage_events WHERE account_id = $1 AND model_role = 'dream_reasoner'",
+             [Ecto.UUID.dump!(seeded.account.id)]
+           ) == 1
+
+    # The write transaction rolled back entirely: clearing this scope's mentions and folding
+    # the surface form into the entity happen in the same transaction as the re-read that
+    # failed, so no mention was left behind by a half-applied rebuild.
+    assert scalar!(
+             "SELECT count(*) FROM entity_mentions WHERE scope_id = $1",
+             [Ecto.UUID.dump!(seeded.scope.id)]
+           ) == 0
+
+    # The entity really is gone — the provider deleted it — which is what forced the write
+    # phase to fail in the first place, not evidence the transaction misbehaved.
+    assert scalar!(
+             "SELECT count(*) FROM entities WHERE id = $1",
+             [Ecto.UUID.dump!(entity.id)]
+           ) == 0
   end
 
   test "Account and authorized scope filters run before candidates leave retrieval" do
@@ -763,5 +963,12 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     |> Ash.Changeset.set_tenant(account_id)
     |> Ash.Changeset.for_create(action, attrs)
     |> Ash.create!(actor: actor)
+  end
+
+  # One-column, one-row raw query, for asserting on tables no Ash action reads back — the
+  # usage ledger and counts by id after a row has been deleted out from under a resource.
+  defp scalar!(sql, params) do
+    %{rows: [[value]]} = Ecto.Adapters.SQL.query!(Repo, sql, params)
+    value
   end
 end

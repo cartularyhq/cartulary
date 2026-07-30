@@ -36,12 +36,15 @@ defmodule Cartulary.Retrieval.Vector do
     else
       left_tensor = Nx.tensor(left, type: {:f, 32})
       right_tensor = Nx.tensor(right, type: {:f, 32})
-      denominator = Nx.LinAlg.norm(left_tensor) * Nx.LinAlg.norm(right_tensor)
+
+      # `Nx.Tensor` is a plain struct outside a `defn` block, so Kernel's `*` and `/` would
+      # raise on it rather than compute — the tensor ops below are not cosmetic.
+      denominator = Nx.multiply(Nx.LinAlg.norm(left_tensor), Nx.LinAlg.norm(right_tensor))
 
       if Nx.to_number(denominator) == 0.0 do
         0.0
       else
-        Nx.to_number(Nx.dot(left_tensor, right_tensor) / denominator)
+        Nx.to_number(Nx.divide(Nx.dot(left_tensor, right_tensor), denominator))
       end
     end
   end

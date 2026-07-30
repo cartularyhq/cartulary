@@ -100,6 +100,25 @@ vectors, resolves entities, and refreshes projections. Document import already
 re-enters ordinary document ingest, which rebuilds chunk vectors and causes
 governed knowledge to enqueue the same derived-cache jobs.
 
+`Cartulary.Retrieval.Indexer.rebuild_scope/2` and
+`Cartulary.Retrieval.EntityResolver.rebuild_scope/2` make the same "no
+transaction open across a model call" guarantee as the request path above, for
+the same reason: a transaction holds one pooled database connection for its
+whole duration, and both lanes can spend well beyond the connection's
+checkout-ownership timeout on provider calls before either one is otherwise
+done. Each reads in one short transaction, calls the model layer with none
+open — the model layer scoping its own configuration read and usage write
+exactly as it does on the request path — and writes everything durable in one
+final short transaction. The entity resolver resolves every statement's
+surface forms against an in-memory working set seeded from that first read,
+rather than re-reading the Account's entities per surface form, so an entity
+this run invented is still matchable by a later statement without a database
+round trip. Clearing a scope's stale mentions and writing its rebuilt ones stay
+in that one final transaction together, which is what keeps the existing
+failure guarantee intact: a failure anywhere, including inside the embedder or
+the reasoning model, leaves the previous index in place rather than half
+cleared.
+
 ## Entity resolution
 
 `Entity` and `EntityMention` remain pipeline-internal derived resources

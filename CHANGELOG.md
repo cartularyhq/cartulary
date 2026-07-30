@@ -11,6 +11,33 @@ changelog entry and contract-version transition.
 
 ### Fixed
 
+- The two background rebuild lanes left out of the previous fix now follow the
+  same rule: `Cartulary.Retrieval.Indexer.rebuild_scope/2` and
+  `Cartulary.Retrieval.EntityResolver.rebuild_scope/2` no longer hold an
+  Account database transaction across a model call. Both previously opened one
+  `Cartulary.DataLayer.with_account_id/3` transaction around the entire scope
+  rebuild with provider calls inside it — one batched embedding call for the
+  indexer, and for the entity resolver, one embedding call per unmatched
+  surface form plus one `dream_reasoner` structured-adjudication call per
+  ambiguous surface form, so a scope with any real number of proper nouns
+  comfortably exceeded DBConnection's 15 000 ms checkout-ownership timeout and
+  lost its connection mid-rebuild, discarding writes for provider calls that
+  had already run and already been billed. Each now reads in one short
+  transaction, resolves with no transaction open, and writes everything
+  durable in one final short transaction; the entity resolver resolves against
+  an in-memory working set seeded from that read rather than re-reading the
+  Account's entities per surface form, and keeps clearing a scope's stale
+  mentions and writing its rebuilt ones in that same final transaction, so a
+  failure anywhere still leaves the previous index in place rather than half
+  cleared. Fixes a latent bug in `Cartulary.Retrieval.Vector.cosine/2`
+  surfaced by the regression tests for this change: it multiplied and divided
+  `Nx.Tensor` values with Kernel operators instead of `Nx.multiply/2` and
+  `Nx.divide/2`, which always raised once an account actually had more than
+  one entity to compare a surface form's embedding against — the entity
+  resolver's fuzzy-match tier had never run successfully outside a fresh
+  scope's very first surface form. Rebuild ordering, upsert-on-conflict entity
+  convergence, mention-visibility inheritance, and the `f7-1` contract
+  identity are unchanged.
 - No external model call runs inside an Account database transaction any
   more. Extraction previously held one pooled PostgreSQL connection across the
   whole pipeline, including up to three sequential provider calls (one plus
