@@ -11,6 +11,37 @@ changelog entry and contract-version transition.
 
 ### Fixed
 
+- No external model call runs inside an Account database transaction any
+  more. Extraction previously held one pooled PostgreSQL connection across the
+  whole pipeline, including up to three sequential provider calls (one plus
+  two bounded repairs) at up to `CARTULARY_MODEL_RECEIVE_TIMEOUT_MS` — 120
+  seconds — each. DBConnection closes a connection whose checkout exceeds its
+  ownership timeout, 15 000 ms by default and not overridden for
+  `Cartulary.Repo`, so any extraction whose cumulative provider time crossed
+  roughly 15 seconds lost its connection mid-transaction. The write recording
+  an already-completed, already-billed call was discarded and the job retried,
+  charging the Account a second time; observed at scale as roughly one in 25
+  first attempts against a reasoning model. Raising `POOL_SIZE` does not help,
+  because the failure is one connection held too long rather than too few
+  connections. Three call sites are affected:
+  `Cartulary.Memory.extract_message/2` and
+  `Cartulary.Memory.extract_message_for_account/2`,
+  `Cartulary.Documents.Service.process_version_for_account/2` (whose
+  transaction also spanned the blob fetch, the parse, and the embedding call),
+  and both provider calls on the `/api/ask` request path — the rerank step in
+  `Cartulary.Retrieval.Engine` and grounded answer generation in
+  `Cartulary.Memory`, each of which wrapped its call in a transaction that
+  existed only to scope the model layer. Each now reads in one short
+  transaction, calls the model holding no connection, and writes in a second
+  short transaction where it writes at all.
+  `Cartulary.Model.Config` and `Cartulary.Model.Usage` scope their own
+  Account-scoped reads and writes through the new
+  `Cartulary.DataLayer.in_account_transaction/2`, since role resolution and
+  usage metering both run during a provider call. A consequence: a usage record
+  now commits independently, so a caller whose own write fails afterwards no
+  longer rolls back the ledger row for a call that really was billed.
+  Extraction ordering, idempotency, advisory locking, gate outcomes, provenance,
+  and the `f5-1`, `f7-1`, and `poc-0` contract identities are unchanged.
 - A job that failed once and was scheduled for a delayed retry (state
   `retryable`) stayed in that state permanently instead of running again once
   its backoff elapsed. `config :cartulary, Oban` sets `plugins: false`, and

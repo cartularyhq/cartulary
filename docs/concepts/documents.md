@@ -29,6 +29,23 @@ Original bytes go to a content-addressed blob store — a local directory by
 default, or any S3-compatible bucket by configuration. The blob adapter is a
 runtime infrastructure choice and changes nothing about document semantics.
 
+## Processing holds no database connection while it works
+
+Fetching the bytes, parsing them, embedding the chunks, and extracting
+knowledge all happen between two short database transactions rather than inside
+one long one — the same shape the
+[ingest pipeline](ingest-pipeline.md#the-model-call-holds-no-database-connection)
+uses for messages, and for the same reason. Processing a large PDF can take
+minutes across the blob store, the parser, and two model calls; a transaction
+held open across all of it would outlast what the connection pool allows and
+lose the writes at the end.
+
+So one transaction reads the version and what surrounds it, the derivation runs
+holding nothing, and a second transaction writes the chunks, the knowledge, the
+supersession, and the version's processing status together. A version is marked
+complete only when that second transaction commits, so an interrupted run is
+retried rather than left half-applied.
+
 ## Supersession and deletion do not silently retract knowledge
 
 When a document version is superseded, or a remote document is deleted, the old

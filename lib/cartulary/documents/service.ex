@@ -59,6 +59,7 @@ defmodule Cartulary.Documents.Service do
   alias Cartulary.Observations.Document
   alias Cartulary.Observations.DocumentVersion
   alias Cartulary.Pipeline
+  alias Cartulary.Pipeline.Extractor
   alias Cartulary.Pipeline.Idempotency
   alias Cartulary.Topology.Scope
 
@@ -107,8 +108,15 @@ defmodule Cartulary.Documents.Service do
   Runs the full derivation for one durable document version: parse, chunk, embed, extract.
 
   Called from the queued extraction job rather than by a caller, which is why it takes an
-  Account id instead of an actor: it opens its own transaction under a system actor with
+  Account id instead of an actor: it opens its own transactions under a system actor with
   pipeline privileges, the only identity allowed to write chunks or mark a version processed.
+
+  Runs in three phases, and the shape is deliberate. A short transaction reads the version and
+  everything the derivation needs to know. The derivation itself — blob fetch, parse, embed,
+  extract — then runs holding no database connection, because those steps talk to storage and
+  to a model and can take minutes; a transaction spanning them would exceed the connection
+  pool's checkout-ownership timeout and lose the writes that record work already done and
+  already billed. A second short transaction commits everything the derivation produced.
 
   Returns `{:ok, version}` with processing bookkeeping recorded, or `{:error, reason}`. On
   failure the version is marked failed with an error *class* and the raw version, its blob, its
@@ -117,13 +125,40 @@ defmodule Cartulary.Documents.Service do
   def process_version_for_account(version_id, account_id)
       when is_binary(version_id) and is_binary(account_id) do
     Observability.with_span(:documents, "cartulary.documents.process_version", fn ->
-      DataLayer.with_account_id(
-        account_id,
-        [role: :system, pipeline?: true],
-        fn _account, actor ->
-          process_version(version_id, account_id, actor)
-        end
-      )
+      # The actor comes back from the read phase and is reused by the derivation. It is a
+      # plain struct naming the Account and the authorization role, so it stays valid after
+      # the transaction that produced it ends.
+      {actor, version, document, owner, scope} =
+        DataLayer.with_account_id(
+          account_id,
+          [role: :system, pipeline?: true],
+          fn _account, actor ->
+            {version, document, owner, scope} =
+              read_version_for_processing(version_id, account_id, actor)
+
+            {actor, version, document, owner, scope}
+          end
+        )
+
+      case derive_version(version, document, owner, scope, account_id, actor) do
+        {:ok, derived} ->
+          DataLayer.with_account_id(
+            account_id,
+            [role: :system, pipeline?: true],
+            fn _account, write_actor ->
+              persist_derivation!(derived, version, document, account_id, write_actor)
+            end
+          )
+
+        {:error, error} ->
+          DataLayer.with_account_id(
+            account_id,
+            [role: :system, pipeline?: true],
+            fn _account, write_actor -> mark_version_failed!(version, write_actor, error) end
+          )
+
+          {:error, error}
+      end
     end)
   end
 
@@ -375,55 +410,97 @@ defmodule Cartulary.Documents.Service do
     end
   end
 
-  # The derivation chain. Every step is rebuildable from the version's bytes, and every step
-  # can fail without costing anything durable, which is why the whole thing is one `with` that
-  # falls through to marking the version failed.
+  # Everything the derivation needs to know before it can start: the version row, its
+  # document, and the extractor input built from them. One short transaction, all reads.
   #
-  # Order is forced by data dependencies: bytes, then text, then chunks (which need the text
-  # and the format the parser reported), then persisted chunks, then extracted knowledge, then
-  # supersession — supersession has to know which knowledge the *new* version supports before
-  # it can decide what the old version uniquely supported.
-  defp process_version(version_id, account_id, actor) do
+  # The extractor input is assembled here rather than later because listing the Account's peer
+  # keys — which bounds who a statement may be about — is itself a database read.
+  defp read_version_for_processing(version_id, account_id, actor) do
     version = read_one!(DocumentVersion, version_id, account_id, actor)
     document = read_one!(Document, version.document_id, account_id, actor)
+    owner = read_one!(Cartulary.Accounts.Peer, document.owner_peer_id, account_id, actor)
+    scope = read_one!(Scope, document.scope_id, account_id, actor)
+
+    {version, document, owner, scope}
+  end
+
+  # The parts of the derivation that talk to something outside PostgreSQL: the blob store, the
+  # parser, the embedding model, and the extraction model. Runs with no transaction open.
+  #
+  # That is the whole point of the three-phase shape. A transaction owns a pooled database
+  # connection for its entire duration, and these four steps can take minutes — the extractor
+  # alone may make several provider calls. Holding a connection across them exceeds
+  # DBConnection's checkout-ownership timeout, which closes the connection mid-transaction and
+  # discards writes recording work that already happened and was already paid for.
+  #
+  # Order is forced by data dependencies: bytes, then text, then chunks (which need the text
+  # and the format the parser reported), then extracted candidates.
+  defp derive_version(version, document, owner, scope, account_id, actor) do
+    context = %{account_id: account_id, scope_id: version.scope_id, actor: actor}
 
     with {:ok, bytes} <- load_version_bytes(version),
          {:ok, parsed} <- Parser.extract(bytes, version.media_type),
-         context <- %{account_id: account_id, scope_id: version.scope_id, actor: actor},
-         {:ok, chunks} <- Chunker.chunk_and_embed(parsed.text, parsed.format, context),
-         :ok <- persist_chunks(version, chunks, actor),
-         {:ok, knowledge} <-
-           extract_document_knowledge(account_id, actor, document, version, parsed.text),
-         :ok <- supersede_prior_derivations(document, version, knowledge, actor) do
-      processed =
-        version
-        |> Ash.Changeset.for_update(:mark_processed, %{
-          extracted_text: parsed.text,
-          extraction_metadata: parsed.metadata,
-          chunk_count: length(chunks),
-          embedded_chunk_count: Enum.count(chunks, &(not is_nil(&1.embedding))),
-          processing_status: "complete",
-          extraction_completed_at: Clock.utc_now()
+         {:ok, chunks} <- Chunker.chunk_and_embed(parsed.text, parsed.format, context) do
+      # The document's owner is recorded as the observing peer while the version id is carried
+      # as provenance, which keeps "who supplied this" separate from "who the statement is
+      # about". Documents earn no shortcut: what this produces still enters the ordinary
+      # governance lifecycle as a proposal, through the same extractor a chat message uses.
+      {observation, extract_context} =
+        Memory.document_observation(account_id, actor, %{
+          id: version.id,
+          scope_id: document.scope_id,
+          peer_id: owner.id,
+          peer_key: owner.key,
+          scope_path: scope.path,
+          role: "document",
+          content: parsed.text
         })
-        |> Ash.Changeset.set_tenant(account_id)
-        |> Ash.update!(actor: actor)
 
-      # Content-safe tracing: ids, sizes, counts, and the parser's name. Never the bytes, the
-      # extracted text, the statements, or the source metadata.
-      Observability.set_attributes(:documents, %{
-        "cartulary.document.version_id" => version.id,
-        "cartulary.document.byte_size" => version.byte_size,
-        "cartulary.document.chunk_count" => length(chunks),
-        "cartulary.document.knowledge_count" => length(knowledge),
-        "cartulary.document.parser" => Map.get(parsed.metadata, "parser", "unknown")
-      })
-
-      {:ok, processed}
-    else
-      {:error, error} ->
-        mark_version_failed!(version, actor, error)
-        {:error, error}
+      with {:ok, items} <- Extractor.extract(observation, extract_context) do
+        {:ok, %{parsed: parsed, chunks: chunks, observation: observation, items: items}}
+      end
     end
+  end
+
+  # Everything the derivation produced, committed together in one short transaction: the chunk
+  # cache, the knowledge the version supports, the retirement of what only older versions
+  # supported, and the version's own processing bookkeeping.
+  #
+  # Supersession runs last because it has to know which knowledge the *new* version supports
+  # before it can decide what an older version uniquely supported.
+  defp persist_derivation!(derived, version, document, account_id, actor) do
+    %{parsed: parsed, chunks: chunks, observation: observation, items: items} = derived
+
+    :ok = persist_chunks(version, chunks, actor)
+
+    knowledge = Memory.persist_document_knowledge!(account_id, actor, observation, items)
+
+    :ok = supersede_prior_derivations(document, version, knowledge, actor)
+
+    processed =
+      version
+      |> Ash.Changeset.for_update(:mark_processed, %{
+        extracted_text: parsed.text,
+        extraction_metadata: parsed.metadata,
+        chunk_count: length(chunks),
+        embedded_chunk_count: Enum.count(chunks, &(not is_nil(&1.embedding))),
+        processing_status: "complete",
+        extraction_completed_at: Clock.utc_now()
+      })
+      |> Ash.Changeset.set_tenant(account_id)
+      |> Ash.update!(actor: actor)
+
+    # Content-safe tracing: ids, sizes, counts, and the parser's name. Never the bytes, the
+    # extracted text, the statements, or the source metadata.
+    Observability.set_attributes(:documents, %{
+      "cartulary.document.version_id" => version.id,
+      "cartulary.document.byte_size" => version.byte_size,
+      "cartulary.document.chunk_count" => length(chunks),
+      "cartulary.document.knowledge_count" => length(knowledge),
+      "cartulary.document.parser" => Map.get(parsed.metadata, "parser", "unknown")
+    })
+
+    {:ok, processed}
   end
 
   # Writes the derived chunk cache through an upsert keyed on (version, position), so a retried
@@ -445,27 +522,6 @@ defmodule Cartulary.Documents.Service do
     end)
 
     :ok
-  end
-
-  # Hands the parsed text to the same structured extractor that handles chat messages, so a
-  # document earns no shortcut: everything it produces enters the ordinary governance lifecycle
-  # in the proposed state and is invisible to retrieval until the gates let it through.
-  #
-  # The document's owner is recorded as the observing peer while the version id is carried as
-  # provenance, which keeps "who supplied this" separate from "who the statement is about".
-  defp extract_document_knowledge(account_id, actor, document, version, text) do
-    owner = read_one!(Cartulary.Accounts.Peer, document.owner_peer_id, account_id, actor)
-    scope = read_one!(Scope, document.scope_id, account_id, actor)
-
-    Memory.extract_document_text(account_id, actor, %{
-      id: version.id,
-      scope_id: document.scope_id,
-      peer_id: owner.id,
-      peer_key: owner.key,
-      scope_path: scope.path,
-      role: "document",
-      content: text
-    })
   end
 
   # Retires what the previous versions of this document supported, now that a newer version has

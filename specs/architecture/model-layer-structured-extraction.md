@@ -24,6 +24,15 @@ Per-scope role overrides remain deliberately deferred. Configuration persists
 secret references such as `env:OPENROUTER_API_KEY`, never raw credentials; the
 Ash actions reject raw secret keys in role options.
 
+Resolution reads that record in a transaction of its own, through
+`Cartulary.DataLayer.in_account_transaction/2`. It has to: resolution runs on
+every provider call, including each repair attempt, and provider calls are made
+with no transaction open so an external call never holds a pooled database
+connection. Without the Account setting installed, row-level security matches
+no row and resolution falls back to the compiled runtime defaults — a silent
+wrong answer rather than an error, since everything the call produced would
+then carry provenance naming a provider and model that never ran.
+
 Every capability uses `Cartulary.Model.Provider`. `Gateway` is the sole caller
 of provider callbacks and selects the injected test adapter, the explicit
 deterministic local adapter, the local Ortex adapter, or the ReqLLM adapter.
@@ -92,6 +101,13 @@ counts, duration, status, timestamp, and a content-safe metadata allowlist.
 OpenTelemetry mirrors safe timings and counts but is not the exact ledger.
 Prompts, answers, observations, credentials, and secrets never enter usage
 metadata, spans, audit records, or Oban arguments.
+
+Each `UsageEvent` commits in its own short Account-scoped transaction rather
+than joining whichever transaction the caller holds. That follows from provider
+calls being made with no transaction open, and it has a second effect worth
+stating: a caller whose own write fails afterwards cannot roll the ledger row
+back with it. The call happened and was billed regardless of what the caller
+did with its result, so forgetting it would understate real spend.
 
 Raw observation, audit, `PipelineRun`, and AshOban enqueue still commit before
 any provider call. A provider error leaves the raw message and queued job

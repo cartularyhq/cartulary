@@ -32,8 +32,12 @@ Each source list has its own cutoff and cap. Weighted reciprocal-rank fusion
 uses only within-strategy rank (`k = 60`), so pgvector similarity, FTS rank,
 time relevance, salience, and mention confidence are never treated as
 comparable scores. The `:thorough` profile optionally reranks only the fused
-head through `Cartulary.Model.Gateway`. A hard remaining-time budget wraps both
-strategy tasks and reranking. Timeouts are dropped, not retried, and every
+head through `Cartulary.Model.Gateway`. That call is made with no transaction
+open, as is grounded answer generation on the same request: the model layer
+scopes its own configuration read and usage write, so wrapping either would
+hold a pooled database connection across a provider call on a request that has
+already finished reading. A hard remaining-time budget wraps both strategy
+tasks and reranking. Timeouts are dropped, not retried, and every
 response reports contributed and dropped strategies plus pre-fusion
 cross-strategy disagreement.
 

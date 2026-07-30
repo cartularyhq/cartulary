@@ -34,6 +34,50 @@ queued job later executes.
 request the same work repeatedly. Oban remains the single execution engine in
 both deployment modes.
 
+## No external call inside an Account transaction
+
+A transaction owns a pooled PostgreSQL connection for its whole duration, and
+DBConnection closes a connection whose checkout exceeds its ownership timeout —
+15 000 ms by default, which nothing overrides for `Cartulary.Repo`. An
+extraction can spend far longer than that in a model provider: the structured
+generator allows two repair attempts beyond the first call, and
+`CARTULARY_MODEL_RECEIVE_TIMEOUT_MS` defaults to 120 000 ms per call. A
+transaction spanning those calls is therefore not slow but wrong — the
+connection is closed mid-transaction and the write recording an
+already-completed, already-billed call is discarded, so the job retries and the
+Account pays twice.
+
+Work that mixes durable writes with an external call is therefore split into
+three phases: a short transaction that reads everything the call needs, the
+call itself holding no connection, and a second short transaction that commits
+what the call produced. `Cartulary.Memory.extract_message/2`,
+`Cartulary.Memory.extract_message_for_account/2`, and
+`Cartulary.Documents.Service.process_version_for_account/2` all have this
+shape; the document lane's external phase also covers the blob fetch, the
+parse, and the embedding call.
+
+Two database touches happen *during* a provider call and cannot be lifted out
+of it: resolving the Account's stored `ModelRoleConfig`, and appending the
+`UsageEvent` for the call. Both scope themselves through
+`Cartulary.DataLayer.in_account_transaction/2`, which installs the Account
+setting the row-level-security policies read without resolving an Account row
+or building an actor. Nesting is deliberate: it always opens a transaction
+rather than branching on `Repo.in_transaction?/0`, because under the SQL
+sandbox every test already runs inside one, so a branch would make the
+production path the one no test exercises.
+
+A consequence worth stating: a usage record commits independently of whatever
+the caller does next. A caller whose own write fails afterwards no longer takes
+the ledger row down with it, which is correct — the call happened and was
+billed regardless.
+
+Ordering, idempotency, and locking are unchanged by the split. The duplicate
+check and the transaction-scoped advisory lock already sat after the model
+call, so both stay together in the write phase and still serialize concurrent
+writers. Neither the observation nor the version is stamped as processed until
+its write phase commits, so an interrupted extraction is found again by the
+reconciler rather than silently lost.
+
 ## Job and Reactor map
 
 | Lane | Queue | Orchestration |

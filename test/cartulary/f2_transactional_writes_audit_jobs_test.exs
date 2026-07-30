@@ -1,5 +1,90 @@
 # SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
 
+defmodule VanishingSubjectProvider do
+  @moduledoc """
+  Test model provider that makes the write following its answer fail, on purpose.
+
+  It answers one structured extraction with a schema-valid candidate about the peer named
+  `avery-key`, and, as a side effect of answering, renames that peer. The extractor built its
+  prompt and its list of nameable peers before the call, so the candidate still validates;
+  subject resolution then finds no such peer and raises rather than re-attributing the
+  statement to whoever spoke.
+
+  That is the only way to observe, from inside the SQL sandbox, whether the model call shares
+  a transaction with the write that follows it. Every test already runs inside one sandbox
+  transaction, so `Repo.in_transaction?/0` is useless here; what is observable is whether the
+  usage row this call produces survives the failure. It survives only if the two were written
+  in separate transactions.
+
+  The rename is raw SQL because it has to happen mid-call, from the provider, with no actor
+  and no Ash action available. It relies on the Account's row-level-security setting still
+  being installed on the sandbox connection, which it is: the extraction's read phase
+  installed it just before this call.
+
+  Only `structured/4` is meaningful. The other three capabilities exist because the behaviour
+  requires them and return an error, so a test that reaches them fails loudly instead of
+  receiving a fabricated answer.
+  """
+
+  @behaviour Cartulary.Model.Provider
+
+  alias Cartulary.Model.Provider.Result
+  alias Cartulary.Repo
+
+  # The peer key `ingest_attrs/3` derives for the Account key `f2-metered-failure`, and the
+  # name it is moved to. Both are literals rather than parameters because the provider
+  # behaviour gives a provider no way to receive test-specific configuration.
+  @subject_key "f2-metered-failure-peer"
+  @moved_key "f2-metered-failure-peer-moved"
+
+  @doc """
+  Answers one extraction and renames its subject peer, so the write that follows raises.
+
+  Returns a `Result` whose value is a single schema-valid candidate, with token counts set so
+  the usage row this call produces is recognisable.
+  """
+  @impl true
+  def structured(_config, _messages, _schema, _opts) do
+    Ecto.Adapters.SQL.query!(Repo, "UPDATE peers SET key = $1 WHERE key = $2", [
+      @moved_key,
+      @subject_key
+    ])
+
+    {:ok,
+     %Result{
+       value: %{
+         "items" => [
+           %{
+             "statement" => "Avery prefers concise weekly release summaries.",
+             "kind" => "preference",
+             "subject_type" => "peer",
+             "subject_ref" => @subject_key,
+             "confidence" => 0.9,
+             "sensitivity" => "internal",
+             "target_level" => "peer",
+             "update_operation" => "add",
+             "hearsay" => false
+           }
+         ]
+       },
+       usage: %{input_tokens: 11, output_tokens: 4},
+       metadata: %{}
+     }}
+  end
+
+  @doc "Unused capability; returns an error so an unexpected call fails the test."
+  @impl true
+  def chat(_config, _messages, _opts), do: {:error, :not_implemented}
+
+  @doc "Unused capability; returns an error so an unexpected call fails the test."
+  @impl true
+  def embed(_config, _texts, _opts), do: {:error, :not_implemented}
+
+  @doc "Unused capability; returns an error so an unexpected call fails the test."
+  @impl true
+  def rerank(_config, _query, _documents, _opts), do: {:error, :not_implemented}
+end
+
 defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
   @moduledoc """
   Pins the coupling between a durable write, its audit entry, its processing record, and its
@@ -405,6 +490,55 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
              Enum.sort(
                ~w(attribution configuration deletion gate governance lifecycle observation)
              )
+  end
+
+  test "a billed model call stays metered when the write that follows it fails" do
+    assert {:ok, message} =
+             Memory.ingest_message(
+               ingest_attrs("f2-metered-failure", "metered-failure-session", sync_extract: false)
+             )
+
+    account_id = account_id!("f2-metered-failure")
+
+    original_provider = Application.get_env(:cartulary, :model_provider)
+
+    on_exit(fn ->
+      if original_provider do
+        Application.put_env(:cartulary, :model_provider, original_provider)
+      else
+        Application.delete_env(:cartulary, :model_provider)
+      end
+    end)
+
+    Application.put_env(:cartulary, :model_provider, VanishingSubjectProvider)
+
+    # The provider renames the subject peer as a side effect of answering, so the candidate it
+    # returns names a peer key that existed when the prompt was built and no longer exists
+    # when the write runs. Subject resolution refuses to re-attribute the statement to the
+    # speaker and raises instead, which is the failure this test needs.
+    assert_raise ArgumentError, ~r/unknown peer/, fn ->
+      Memory.extract_message_for_account(message["id"], account_id)
+    end
+
+    # The call was made and billed. Rolling its ledger row back with the failed write would
+    # understate real spend and hide a vendor charge the operator still owes, so the usage
+    # write must not share a transaction with the knowledge write.
+    assert scalar!(
+             """
+             SELECT count(*) FROM usage_events
+             WHERE account_id = $1 AND model_role = 'ingest_extractor'
+             """,
+             [Ecto.UUID.dump!(account_id)]
+           ) == 1
+
+    # The failure still left nothing half-written and nothing claimed as processed, so the
+    # durable job retries the whole extraction.
+    assert knowledge_counts(account_id) == {0, 0, 0, 0, 1}
+
+    assert scalar!(
+             "SELECT count(*) FROM messages WHERE id = $1 AND extraction_completed_at IS NULL",
+             [Ecto.UUID.dump!(message["id"])]
+           ) == 1
   end
 
   test "F2 Oban configuration lets this node hold peer leadership so retryable jobs are staged" do

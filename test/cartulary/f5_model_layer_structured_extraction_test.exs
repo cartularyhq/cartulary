@@ -360,6 +360,76 @@ defmodule Cartulary.F5ModelLayerStructuredExtractionTest do
              )
   end
 
+  test "the model layer scopes its own configuration read and usage write to the Account" do
+    _message = seed_raw!("f5-self-scoping", "avery", "Avery prefers weekly summaries.")
+    account_id = account_id!("f5-self-scoping")
+
+    put_role!(account_id, :ingest_extractor,
+      provider: "openrouter",
+      model: "openai/gpt-oss-120b",
+      model_version: "2026-07",
+      prompt_version: "extract-1",
+      pipeline_version: "f5-1"
+    )
+
+    # An actor is a plain struct naming the Account and the authorization role. It stays
+    # valid after the transaction that produced it ends, which is what lets a caller resolve
+    # a role and meter a call from outside one.
+    actor =
+      DataLayer.with_account_id(
+        account_id,
+        [role: :system, pipeline?: true],
+        fn _account, actor -> actor end
+      )
+
+    # Both reads below happen with no Account transaction open, which is where the model
+    # layer runs once the extraction pipeline stops holding one across the provider call.
+    clear_account_settings!()
+
+    config = Model.Config.resolve(:ingest_extractor, %{account_id: account_id, actor: actor})
+
+    assert config.provider == "openrouter"
+    assert config.model_version == "2026-07"
+
+    # The Account setting the row-level-security policies read is back, and resolution is the
+    # only thing that could have installed it: it opened its own Account transaction, whose
+    # transaction-local setting outlives it under the sandbox.
+    #
+    # Asserting the setting rather than an empty result is deliberate. This suite connects as
+    # a PostgreSQL superuser, and superusers are exempt from row-level security even where it
+    # is forced, so an unscoped read here would return rows anyway and prove nothing. In
+    # production the same unscoped read silently returns no row and resolution falls back to
+    # the compiled defaults, stamping provenance with a provider and model that never ran.
+    assert account_setting!() == account_id
+
+    clear_account_settings!()
+
+    assert :ok ==
+             Cartulary.Model.Usage.emit(
+               %{account_id: account_id, actor: actor},
+               config,
+               %{
+                 operation: :structured,
+                 status: :ok,
+                 duration_ms: 12,
+                 usage: %{input_tokens: 7, output_tokens: 3},
+                 metadata: %{repair_attempt: 0}
+               }
+             )
+
+    assert account_setting!() == account_id
+
+    # Seeding used `sync_extract: false`, so the emitted row is the only extractor-role call
+    # in this Account.
+    assert scalar!(
+             """
+             SELECT count(*) FROM usage_events
+             WHERE account_id = $1 AND model_role = 'ingest_extractor'
+             """,
+             [Ecto.UUID.dump!(account_id)]
+           ) == 1
+  end
+
   # Creates the account, scope, peer, session, and raw message in one call. `sync_extract`
   # is false so the message lands durably without running extraction, letting each test arm
   # its own recorded provider script before the model is ever consulted.
@@ -417,4 +487,31 @@ defmodule Cartulary.F5ModelLayerStructuredExtractionTest do
     %{rows: [[value]]} = Ecto.Adapters.SQL.query!(Repo, sql, params)
     value
   end
+
+  # Blanks both transaction-local settings the row-level-security policies read, reproducing
+  # the state a caller is in with no Account transaction open. The policies compare against
+  # `NULLIF(current_setting(...), '')`, so a blank setting matches nothing rather than raising
+  # a cast error.
+  #
+  # Necessary because the SQL sandbox wraps each test in one transaction: a scoped block that
+  # has already run leaves its setting installed for the rest of the test, which would mask
+  # the condition the test above exists to reproduce.
+  defp clear_account_settings! do
+    Ecto.Adapters.SQL.query!(
+      Repo,
+      """
+      SELECT set_config('cartulary.account_id', '', true),
+             set_config('cartulary.account_key', '', true)
+      """,
+      []
+    )
+
+    :ok
+  end
+
+  # The Account currently installed for row-level security, or an empty string when none is.
+  # Reading it back is how a test observes that a function opened an Account transaction of
+  # its own, since the setting is transaction-local and the sandbox keeps the enclosing
+  # transaction open for the whole test.
+  defp account_setting!, do: scalar!("SELECT current_setting('cartulary.account_id', true)", [])
 end

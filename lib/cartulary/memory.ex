@@ -235,14 +235,20 @@ defmodule Cartulary.Memory do
       Observability.set_attribute(:memory, "cartulary.message.id", message_id)
       account_key = account_key || DataLayer.message_account_key!(message_id)
 
-      result =
+      # The Account is resolved by key only in this first, short transaction; everything
+      # after it addresses the Account by id, so the upsert that key resolution performs runs
+      # exactly once per extraction.
+      {account_id, message, context} =
         DataLayer.with_account_key(
           account_key,
           [role: :system, pipeline?: true],
-          &extract_in_account(&1, &2, message_id)
+          fn account, actor ->
+            message = fetch_message!(account, actor, message_id)
+            {account.id, message, message_context(account, actor, message)}
+          end
         )
 
-      record_extraction_result(result)
+      record_extraction_result(extract_then_write(account_id, message_id, message, context))
     end)
   end
 
@@ -258,35 +264,38 @@ defmodule Cartulary.Memory do
     Observability.with_span(:memory, "cartulary.memory.extract_message", fn ->
       Observability.set_attribute(:memory, "cartulary.message.id", message_id)
 
-      result =
+      {message, context} =
         DataLayer.with_account_id(
           account_id,
           [role: :system, pipeline?: true],
-          &extract_in_account(&1, &2, message_id)
+          fn account, actor ->
+            message = fetch_message!(account, actor, message_id)
+            {message, message_context(account, actor, message)}
+          end
         )
 
-      record_extraction_result(result)
+      record_extraction_result(extract_then_write(account_id, message_id, message, context))
     end)
   end
 
-  # Extracts knowledge from the parsed text of one document version.
+  # Builds the extractor input for the parsed text of one document version.
   #
-  # Deliberately kept out of the public surface: the document service calls it
-  # after it has already opened an Account-scoped transaction and holds an actor
-  # allowed to write knowledge, and it supplies the facts this function cannot
-  # derive on its own. `attrs` must carry "id" (the document version id, which
-  # becomes the provenance target), "scope_id", "peer_id", "peer_key",
+  # This is the read half of document extraction, and it must run inside an Account-scoped
+  # transaction: listing the Account's peer keys is a database read. It writes nothing.
+  #
+  # Deliberately kept out of the public surface: only the document service calls it, and only
+  # it can supply the facts this function cannot derive. `attrs` must carry "id" (the document
+  # version id, which becomes the provenance target), "scope_id", "peer_id", "peer_key",
   # "scope_path", and "content".
   #
-  # Marking the observation document-sourced keeps message provenance out of the
-  # result: the knowledge item's source message list stays empty and its
-  # provenance row points at the document version instead. Extracted document
-  # knowledge still enters as a proposal and still passes the governance gate.
+  # Marking the observation document-sourced keeps message provenance out of the result: the
+  # knowledge item's source message list stays empty and its provenance row points at the
+  # document version instead.
   #
-  # Returns {:ok, knowledge} or the extractor's {:error, error}, so a provider
-  # failure leaves the stored document version intact and the job retryable.
+  # Returns {observation, context} to be handed, in that order, to `Extractor.extract/2` and
+  # then to `persist_document_knowledge!/4`.
   @doc false
-  def extract_document_text(account_id, actor, attrs)
+  def document_observation(account_id, actor, attrs)
       when is_binary(account_id) and is_map(actor) and is_map(attrs) do
     observation =
       attrs
@@ -303,10 +312,22 @@ defmodule Cartulary.Memory do
       actor: actor
     }
 
-    with {:ok, items} <- Extractor.extract(observation, context) do
-      knowledge = Enum.map(items, &insert_knowledge!(account_id, actor, observation, &1))
-      {:ok, knowledge}
-    end
+    {observation, context}
+  end
+
+  # Writes the candidates a document extraction produced, one knowledge item each.
+  #
+  # The write half, and the counterpart to `document_observation/3`. It must run inside an
+  # Account-scoped transaction holding an actor allowed to write knowledge — a different,
+  # later transaction than the read half, because the model call between them must not hold a
+  # database connection.
+  #
+  # Extracted document knowledge still enters as a proposal and still passes the governance
+  # gate; nothing here can activate a statement.
+  @doc false
+  def persist_document_knowledge!(account_id, actor, observation, items)
+      when is_binary(account_id) and is_map(actor) and is_map(observation) and is_list(items) do
+    Enum.map(items, &insert_knowledge!(account_id, actor, observation, &1))
   end
 
   @doc """
@@ -736,12 +757,14 @@ defmodule Cartulary.Memory do
     })
   end
 
-  defp extract_in_account(account, actor, message_id) do
-    message = fetch_message!(account, actor, message_id)
-
-    # `source_peer_id` is who spoke. Who each extracted statement is *about* is
-    # resolved separately per item, because a peer may speak about someone else.
-    context = %{
+  # The surrounding identifiers the extractor needs for validation and provenance. Built in
+  # the read phase and carried across the model call, so nothing downstream has to go back to
+  # the database to learn who spoke or where.
+  #
+  # `source_peer_id` is who spoke. Who each extracted statement is *about* is resolved
+  # separately per item in the write phase, because a peer may speak about someone else.
+  defp message_context(account, actor, message) do
+    %{
       account_id: account.id,
       scope_id: message["scope_id"],
       peer_id: message["peer_id"],
@@ -749,15 +772,36 @@ defmodule Cartulary.Memory do
       message_id: message["id"],
       actor: actor
     }
+  end
 
-    # A provider failure short-circuits here without stamping the message, so the
-    # reconciler will find it again. Stamping happens only after every knowledge
-    # row is written, so a crash mid-way re-runs the work instead of losing it.
+  # The model call and the write that follows it, with no transaction spanning both.
+  #
+  # This split is not stylistic. A transaction owns a pooled database connection for its whole
+  # duration, and an extraction can spend minutes in the provider across repair attempts.
+  # Holding a connection that long exceeds DBConnection's checkout-ownership timeout, which
+  # closes the connection mid-transaction and discards the write that would have recorded a
+  # call that already happened and was already billed. So the caller reads in one short
+  # transaction, this function calls the model holding nothing, and the write opens a second
+  # short transaction. Do not reunite them.
+  #
+  # A provider failure short-circuits without stamping the message, so the reconciler finds it
+  # again. Stamping happens only after every knowledge row is written, so a crash part-way
+  # re-runs the work rather than losing it. The duplicate check and the advisory lock live in
+  # the write phase and still serialize concurrent writers, exactly as they did when all of
+  # this shared one transaction.
+  defp extract_then_write(account_id, message_id, message, context) do
     with {:ok, items} <- Extractor.extract(message, context) do
       Observability.set_attribute(:memory, "cartulary.extract.item_count", length(items))
-      knowledge = Enum.map(items, &insert_knowledge!(account.id, actor, message, &1))
-      mark_message_extracted!(account.id, actor, message_id)
-      {:ok, knowledge}
+
+      DataLayer.with_account_id(
+        account_id,
+        [role: :system, pipeline?: true],
+        fn account, actor ->
+          knowledge = Enum.map(items, &insert_knowledge!(account.id, actor, message, &1))
+          mark_message_extracted!(account.id, actor, message_id)
+          {:ok, knowledge}
+        end
+      )
     end
   end
 
@@ -1232,30 +1276,35 @@ defmodule Cartulary.Memory do
   defp answer_question(_attrs, question, []), do: {fallback_answer(question, []), false}
 
   defp answer_question(attrs, question, candidates) do
-    with_account(attrs, fn account, actor ->
-      # The answering model role is resolved against a scope, so the top-ranked
-      # candidate's scope stands in for "where this question is being asked".
-      context = %{
-        account_id: account.id,
-        scope_id: candidates |> List.first() |> Map.get("scope_id"),
-        peer_id: actor.peer_id,
-        actor: actor
-      }
+    # Only the identity resolution and the role lookup need a transaction. The answering call
+    # itself is made outside it: generating a grounded answer is the slowest model call in a
+    # request, and a transaction spanning it would hold a pooled database connection past what
+    # the pool allows, on a request that has already finished reading.
+    {context, config} =
+      with_account(attrs, fn account, actor ->
+        # The answering model role is resolved against a scope, so the top-ranked
+        # candidate's scope stands in for "where this question is being asked".
+        context = %{
+          account_id: account.id,
+          scope_id: candidates |> List.first() |> Map.get("scope_id"),
+          peer_id: actor.peer_id,
+          actor: actor
+        }
 
-      config = Cartulary.Model.role_config(:dialectic_agent, context)
+        {context, Cartulary.Model.role_config(:dialectic_agent, context)}
+      end)
 
-      provider = Cartulary.Model.Gateway.provider_module(config, context)
+    provider = Cartulary.Model.Gateway.provider_module(config, context)
 
-      # A deployment whose answering role is still the built-in deterministic
-      # provider, with no real provider injected, answers from the retrieved
-      # statements instead of pretending to reason.
-      if Cartulary.Model.Config.local_fallback?(config) and
-           is_nil(provider_override(provider)) do
-        {fallback_answer(question, candidates), false}
-      else
-        {model_answer(question, candidates, context), true}
-      end
-    end)
+    # A deployment whose answering role is still the built-in deterministic
+    # provider, with no real provider injected, answers from the retrieved
+    # statements instead of pretending to reason.
+    if Cartulary.Model.Config.local_fallback?(config) and
+         is_nil(provider_override(provider)) do
+      {fallback_answer(question, candidates), false}
+    else
+      {model_answer(question, candidates, context), true}
+    end
   end
 
   # Builds the grounded question prompt and validates what comes back.

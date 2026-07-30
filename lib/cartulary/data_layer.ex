@@ -289,6 +289,51 @@ defmodule Cartulary.DataLayer do
     end
   end
 
+  @doc """
+  Runs `fun` in a transaction carrying nothing but this Account's database settings.
+
+  The other helpers here resolve an Account row and build an actor because their callers are
+  about to perform domain work. This one exists for the opposite case: a caller that already
+  holds an actor and needs only the transaction-local settings the row-level-security policies
+  read. Two places in the model layer use it — resolving a role's stored configuration, and
+  appending a usage record — because both run during a provider call, and a provider call must
+  not happen inside somebody else's transaction.
+
+  ## Why external calls must not hold a transaction
+
+  A transaction owns a pooled database connection for its whole duration. A model call can run
+  for minutes across repair attempts, and holding a connection for that long exceeds
+  DBConnection's checkout-ownership timeout: the connection is forcibly closed mid-transaction
+  and every write in it is lost, including the record of a provider call that already happened
+  and was already billed. So the pipeline opens a short transaction to read, closes it, calls
+  the model, then opens another short transaction to write — and the two database touches
+  inside the model call scope themselves through here.
+
+  ## Nesting
+
+  A transaction is opened unconditionally rather than only when none is already open. Nested,
+  it becomes a savepoint and re-installs the same Account, which changes nothing. Branching on
+  `Repo.in_transaction?/0` would be cheaper and worse: under the SQL sandbox every test already
+  runs inside a transaction, so the branch taken in production would be the one never
+  exercised by a test.
+
+  `account_id` must be the Account already in force whenever a transaction is open, since the
+  setting installed here survives to the end of the enclosing transaction.
+
+  `fun` takes no arguments and its return value is returned. Raises when the transaction rolls
+  back, matching the other helpers here.
+  """
+  def in_account_transaction(account_id, fun)
+      when is_binary(account_id) and is_function(fun, 0) do
+    case Repo.transaction(fn ->
+           set_account_id!(account_id)
+           fun.()
+         end) do
+      {:ok, result} -> result
+      {:error, error} -> raise "Account-scoped transaction failed: #{inspect(error)}"
+    end
+  end
+
   # Restores a verified archive into a fresh Account, in one transaction.
   #
   # Kept out of the public documentation because nothing outside the archive

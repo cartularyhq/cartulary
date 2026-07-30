@@ -58,6 +58,33 @@ sequenceDiagram
     J->>IDX: embed, index, mark projections dirty
 ```
 
+### The model call holds no database connection
+
+Extraction touches the database in two short bursts with the model call
+in between, never in one long transaction:
+
+```mermaid
+flowchart LR
+    R["read the message<br/>(short transaction)"] --> M["call the model<br/>(no transaction)"]
+    M --> W["write the knowledge<br/>(short transaction)"]
+```
+
+A transaction holds one connection from the pool for as long as it is open. A
+reasoning model can take a minute or more to answer, and may be asked to repair
+its output up to twice, so a transaction wrapped around the call would hold a
+connection long past the point where the pool gives up and closes it — losing
+the write that records a call you have already been charged for.
+
+Splitting it this way means an extraction that takes three minutes in the model
+still occupies a connection for only the few milliseconds either side. It also
+means the record of what you spent survives even if the write that follows it
+fails.
+
+Nothing about correctness changes. The message is marked extracted only after
+its knowledge is written, so an interrupted extraction is picked up again
+rather than lost, and concurrent extractions of the same statement are still
+serialised.
+
 ### Structured extraction, not free text
 
 Candidates are generated against a schema derived from the Ash resources that
