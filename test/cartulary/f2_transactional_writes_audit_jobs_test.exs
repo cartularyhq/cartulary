@@ -407,6 +407,31 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
              )
   end
 
+  test "F2 Oban configuration lets this node hold peer leadership so retryable jobs are staged" do
+    # Oban's stager (core infrastructure in this Oban version, not a plugin) only promotes
+    # `scheduled`/`retryable` jobs past their `scheduled_at` time while this node holds peer
+    # leadership. `AshOban.config/2` forces `peer: false` onto the base config whenever
+    # `:plugins` is not already a non-empty list, and Oban folds a literal `peer: false` into
+    # `{Oban.Peers.Isolated, [leader?: false]}` — leadership this node can never win. A job
+    # that fails once and is scheduled for backoff retry then never runs again: nothing
+    # promotes it back to `available`, and nothing raises, so the stall is silent.
+    # `Cartulary.Application.oban_config/0` is what the supervision tree actually starts
+    # Oban with, so this pins the fixed value rather than the raw `AshOban.config/2` merge.
+    merged = Cartulary.Application.oban_config()
+
+    refute merged[:peer] == false
+
+    # `config/test.exs` merges `testing: :manual` into `:cartulary, Oban`, and Oban's own
+    # config normalization deliberately forces an unelectable peer whenever `testing` is
+    # `:manual`/`:inline` — correct test isolation, not the bug this test guards. Forcing
+    # `testing: :disabled` here simulates how the merged config resolves in production,
+    # independent of that ambient test-env override.
+    production_config = Oban.Config.new(Keyword.put(merged, :testing, :disabled))
+
+    refute match?({Oban.Peers.Isolated, [leader?: false]}, production_config.peer)
+    assert match?({Oban.Peers.Database, _}, production_config.peer)
+  end
+
   # Builds one ingest payload. Every test uses its own Account key so the count assertions are
   # not disturbed by rows another test in this file created. Overrides are given as a keyword
   # list purely for readability at the call sites and are converted to the string keys the
