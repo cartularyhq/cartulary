@@ -64,11 +64,7 @@ defmodule Cartulary.Application do
           # Queues run on the Postgres engine in every deployment mode, driven by
           # the triggers declared on the Ash domains. There is no second broker
           # and no separate worker fleet to keep in sync.
-          {Oban,
-           AshOban.config(
-             Application.fetch_env!(:cartulary, :ash_domains),
-             Application.fetch_env!(:cartulary, Oban)
-           )},
+          {Oban, oban_config()},
           {DNSCluster, query: Application.get_env(:cartulary, :dns_cluster_query) || :ignore},
           {Phoenix.PubSub, name: Cartulary.PubSub},
           Cartulary.Context.Cache,
@@ -99,5 +95,36 @@ defmodule Cartulary.Application do
     end
 
     state
+  end
+
+  @doc """
+  Builds the Oban configuration this node starts its Oban supervisor with.
+
+  `AshOban.config/2` forces `peer: false` onto the base Oban config whenever `:plugins`
+  is not already a non-empty list — which it deliberately is not, per the comment on
+  `config :cartulary, Oban`. Oban then folds that literal `false` into
+  `{Oban.Peers.Isolated, [leader?: false]}`: a peer that can never win leadership, on any
+  node, ever. Oban's stager is core supervision infrastructure in this Oban version (not
+  a plugin, so the empty plugin list does not remove it), but it still only promotes
+  `scheduled`/`retryable` jobs past their `scheduled_at` time while its node holds
+  leadership. Without a winnable leadership, a job that fails once and is scheduled for
+  backoff retry never gets a second attempt — nothing raises, it simply never comes back.
+  Restoring the ordinary database-backed peer here, after `AshOban.config/2` has already
+  run, keeps every other consequence of the empty plugin list (no Cron, no Pruner) while
+  letting this node actually become leader and stage its own delayed jobs.
+
+  Public so regression tests can assert on the merged config without starting a
+  supervision tree.
+  """
+  @spec oban_config() :: keyword()
+  def oban_config do
+    Keyword.put(
+      AshOban.config(
+        Application.fetch_env!(:cartulary, :ash_domains),
+        Application.fetch_env!(:cartulary, Oban)
+      ),
+      :peer,
+      Oban.Peers.Database
+    )
   end
 end

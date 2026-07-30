@@ -11,6 +11,19 @@ changelog entry and contract-version transition.
 
 ### Fixed
 
+- A job that failed once and was scheduled for a delayed retry (state
+  `retryable`) stayed in that state permanently instead of running again once
+  its backoff elapsed. `config :cartulary, Oban` sets `plugins: false`, and
+  `AshOban.config/2` treats any `:plugins` value that is not already a
+  non-empty list as "also disable peer leadership entirely" by forcing
+  `peer: false`, which Oban resolves to a peer that can never become leader.
+  Oban's job stager only promotes delayed `scheduled`/`retryable` jobs back to
+  `available` while its node holds leadership, so every node was permanently
+  unable to stage its own retries — silently, with no exception raised.
+  `Cartulary.Application.oban_config/0` now restores the ordinary
+  database-backed peer after `AshOban.config/2` runs, so this node can win
+  leadership again; every other consequence of the empty plugin list (no
+  Cron, no Pruner) is unchanged.
 - Generation roles (`ingest_extractor`, `dream_reasoner`, `dialectic_agent`)
   now default to a bounded reasoning-token spend, an 8192 output-token cap,
   and a 120-second request timeout, overridable with
