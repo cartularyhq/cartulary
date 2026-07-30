@@ -27,7 +27,11 @@ changelog entry and contract-version transition.
   o-series, gpt-5, and codex families), which `gpt-oss-120b` does not match.
   `max_tokens` and `receive_timeout` request options already existed in
   `Cartulary.Model.Providers.ReqLLM`; `reasoning_effort` was added to its
-  allowlist, and all three now have a default.
+  allowlist, and all three now have a default. Role options are always
+  string-valued, but req_llm validates `reasoning_effort` against a fixed
+  atom enum and rejects a string outright — every extraction call failed
+  immediately on this option until `Cartulary.Model.Providers.ReqLLM` started
+  converting it to the atom the schema requires.
 
 ### Added
 

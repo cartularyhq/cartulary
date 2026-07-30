@@ -183,7 +183,7 @@ defmodule Cartulary.Model.Providers.ReqLLM do
       |> Enum.reduce([], fn key, acc ->
         case Map.get(options, Atom.to_string(key)) do
           nil -> acc
-          value -> [{key, value} | acc]
+          value -> [{key, normalize_option_value(key, value)} | acc]
         end
       end)
 
@@ -191,6 +191,20 @@ defmodule Cartulary.Model.Providers.ReqLLM do
     |> maybe_put(:api_key, resolve_api_key(options))
     |> Keyword.merge(Keyword.take(overrides, @request_option_keys))
   end
+
+  # Role options are always string-valued so they stay printable/exportable
+  # regardless of source (see `Cartulary.Model.Config.Role`), but req_llm's
+  # NimbleOptions schema validates `reasoning_effort` against a fixed atom
+  # enum and rejects a string outright — every provider request would fail
+  # this validation before making any call. Only some of req_llm's own
+  # provider adapters (e.g. its OpenAI adapter, but not OpenRouter) tolerate a
+  # string here, so the conversion must happen for every provider, not rely on
+  # the adapter reached.
+  defp normalize_option_value(:reasoning_effort, value) when is_binary(value) do
+    String.to_existing_atom(value)
+  end
+
+  defp normalize_option_value(_key, value), do: value
 
   # Reads the credential at call time from the environment variable that the
   # role's `api_key_ref` names. Only the reference is ever persisted; the key
