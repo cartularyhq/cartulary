@@ -361,6 +361,18 @@ defmodule Cartulary.F4RealGateABGovernanceTest do
     assert hd(events).resource_id == updated.id
   end
 
+  test "UnattendedMode reads the governance.unattended application config" do
+    previous = Application.get_env(:cartulary, :governance, [])
+
+    Application.put_env(:cartulary, :governance, Keyword.put(previous, :unattended, true))
+    assert Cartulary.Governance.UnattendedMode.enabled?()
+
+    Application.put_env(:cartulary, :governance, Keyword.put(previous, :unattended, false))
+    refute Cartulary.Governance.UnattendedMode.enabled?()
+
+    Application.put_env(:cartulary, :governance, previous)
+  end
+
   test "inline peer validation is rate-limited, transcript-verified, and correction text cannot mint" do
     %{actor: actor} = bootstrap_human!("inline")
 
