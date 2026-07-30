@@ -91,6 +91,21 @@ accuracy and can never move information across a scope or Account boundary.
 Erasure and archive import recompute entities from surviving governed
 statements.
 
+### Rebuilding a scope holds no database connection while it works
+
+Re-embedding a scope's statements and re-resolving its entities both use the
+same [read, call the model, write](ingest-pipeline.md#the-model-call-holds-no-database-connection)
+shape as the ingest pipeline, and for the same reason: a rebuild reads
+everything it needs in one short transaction, calls the embedder — and, for an
+ambiguous entity match, the reasoning model — with no transaction open, then
+writes everything it derived in one final short transaction. A scope with many
+distinct names can mean many provider calls in a row; wrapping them in one
+transaction would hold a connection well past what the pool allows and lose
+the record of calls you had already been charged for. Clearing a scope's stale
+entity mentions and writing its rebuilt ones happen in that same final
+transaction, so a rebuild that fails partway leaves the previous index in
+place rather than emptied out.
+
 ## Cross-scope expansion is authorised twice
 
 Scope relations and shared-entity edges can expand retrieval into a linked
