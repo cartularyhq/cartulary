@@ -207,12 +207,19 @@ defmodule Cartulary.Model.Config do
   # Account's rows.
   defp persisted(role, %{account_id: account_id, actor: actor})
        when is_binary(account_id) and not is_nil(actor) do
-    ModelRoleConfig
-    |> Ash.Query.filter(role == ^Atom.to_string(role) and active == true and is_nil(scope_id))
-    |> Ash.Query.sort(version: :desc)
-    |> Ash.Query.limit(1)
-    |> Ash.Query.set_tenant(account_id)
-    |> Ash.read_one!(actor: actor)
+    # Scoped here rather than by the caller because resolution runs during a provider call,
+    # which is deliberately made with no transaction open. Without the Account setting this
+    # read matches nothing and resolution falls back to the compiled defaults — a silently
+    # wrong answer, since everything the call produces would then be stamped with a provider
+    # and model that never ran.
+    Cartulary.DataLayer.in_account_transaction(account_id, fn ->
+      ModelRoleConfig
+      |> Ash.Query.filter(role == ^Atom.to_string(role) and active == true and is_nil(scope_id))
+      |> Ash.Query.sort(version: :desc)
+      |> Ash.Query.limit(1)
+      |> Ash.Query.set_tenant(account_id)
+      |> Ash.read_one!(actor: actor)
+    end)
   end
 
   # No Account or no actor means there is nobody to read rows on behalf of, so

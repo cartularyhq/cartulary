@@ -71,6 +71,17 @@ from the document source, provenance links the resulting item to
 `document_version_id`, and every new item enters the unchanged Gate A/B
 lifecycle. Agents and connectors therefore submit raw observations only.
 
+Processing runs in three phases so that no step reaching outside PostgreSQL
+holds a database connection. A short transaction reads the version, its
+document, the owning Peer, the Scope, and the Account's Peer keys. The blob
+fetch, the parse, the embedding call, and the extraction call then run holding
+nothing. A second short transaction writes the chunks, the knowledge, the
+supersession of what only older versions supported, and the version's own
+processing bookkeeping; marking a version failed likewise takes its own short
+transaction. A single transaction across all of it would exceed the connection
+pool's checkout-ownership timeout and lose writes recording work that already
+happened and was already billed.
+
 Processing records counts, parser name, byte size, and IDs in telemetry. It
 never copies bytes, extracted text, statements, source metadata, cursors, or
 secrets into spans, audit metadata, or Oban arguments. Provider/parser failure

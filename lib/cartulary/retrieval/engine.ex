@@ -265,11 +265,15 @@ defmodule Cartulary.Retrieval.Engine do
       {head, tail} = Enum.split(candidates, head_size)
       documents = Enum.map(head, & &1.record["statement"])
 
+      # No transaction around the call. The model layer scopes its own configuration read and
+      # its usage write to the Account, so nothing here needs one — and wrapping a model call
+      # in a transaction would hold a pooled database connection for the whole of a request
+      # that has already done all the reading it is going to do.
       call = fn ->
-        DataLayer.with_actor(query.actor, fn _account, actor ->
-          context = %{account_id: query.account_id, actor: actor}
-          Gateway.rerank(query.text, documents, context)
-        end)
+        Gateway.rerank(query.text, documents, %{
+          account_id: query.account_id,
+          actor: query.actor
+        })
       end
 
       case deadline_call(call, remaining, concurrent?) do

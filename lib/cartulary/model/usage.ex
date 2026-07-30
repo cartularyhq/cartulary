@@ -19,6 +19,15 @@ defmodule Cartulary.Model.Usage do
   embedding token counts, wall-clock duration, an `ok`/`error` status, a
   timestamp, and a small metadata map.
 
+  ## A row commits on its own
+
+  The row is written in its own short Account-scoped transaction rather than joining whatever
+  transaction the caller happens to hold. Metering runs during a provider call, and a provider
+  call is made with no transaction open so that a minutes-long external call never holds a
+  pooled database connection. The second effect is the one that matters for the ledger: a
+  caller whose own write fails afterwards cannot take this row down with it. The call happened
+  and was billed regardless of what the caller did with its result.
+
   ## Content safety is enforced here, not by convention
 
   Metadata is filtered through a fixed allowlist of keys. A caller can pass any
@@ -74,29 +83,37 @@ defmodule Cartulary.Model.Usage do
     metadata = attrs |> Map.get(:metadata, %{}) |> safe_metadata()
     provenance = Config.provenance(config)
 
-    UsageEvent
-    |> Ash.Changeset.new()
-    |> Ash.Changeset.set_tenant(account_id)
-    |> Ash.Changeset.for_create(:record, %{
-      call_id: Ecto.UUID.generate(),
-      scope_id: Map.get(context, :scope_id),
-      peer_id: Map.get(context, :peer_id),
-      operation: to_string(Map.fetch!(attrs, :operation)),
-      model_role: Atom.to_string(config.role),
-      provider: provenance.provider,
-      model_name: provenance.model,
-      model_version: provenance.model_version,
-      prompt_version: provenance.prompt_version,
-      pipeline_version: provenance.pipeline_version,
-      input_tokens: Map.get(usage, :input_tokens, 0),
-      output_tokens: Map.get(usage, :output_tokens, 0),
-      embedding_tokens: Map.get(usage, :embedding_tokens, 0),
-      duration_ms: Map.fetch!(attrs, :duration_ms),
-      status: to_string(Map.fetch!(attrs, :status)),
-      metadata: metadata,
-      occurred_at: Clock.utc_now()
-    })
-    |> Ash.create!(actor: pipeline_actor(actor))
+    # The row gets its own short Account-scoped transaction. Two reasons, both load-bearing.
+    # It has to be scoped at all because metering runs during a provider call, which is made
+    # with no transaction open so that an external call never holds a database connection. And
+    # it has to be its own transaction so that a caller whose later write fails cannot roll
+    # this row back with it: the call really happened and was really billed, and a ledger that
+    # forgets it understates what the Account owes.
+    Cartulary.DataLayer.in_account_transaction(account_id, fn ->
+      UsageEvent
+      |> Ash.Changeset.new()
+      |> Ash.Changeset.set_tenant(account_id)
+      |> Ash.Changeset.for_create(:record, %{
+        call_id: Ecto.UUID.generate(),
+        scope_id: Map.get(context, :scope_id),
+        peer_id: Map.get(context, :peer_id),
+        operation: to_string(Map.fetch!(attrs, :operation)),
+        model_role: Atom.to_string(config.role),
+        provider: provenance.provider,
+        model_name: provenance.model,
+        model_version: provenance.model_version,
+        prompt_version: provenance.prompt_version,
+        pipeline_version: provenance.pipeline_version,
+        input_tokens: Map.get(usage, :input_tokens, 0),
+        output_tokens: Map.get(usage, :output_tokens, 0),
+        embedding_tokens: Map.get(usage, :embedding_tokens, 0),
+        duration_ms: Map.fetch!(attrs, :duration_ms),
+        status: to_string(Map.fetch!(attrs, :status)),
+        metadata: metadata,
+        occurred_at: Clock.utc_now()
+      })
+      |> Ash.create!(actor: pipeline_actor(actor))
+    end)
 
     # In-memory budget counters are a rebuildable cache derived from these rows;
     # they are updated after the durable write so the cache can never claim
