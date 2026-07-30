@@ -316,6 +316,51 @@ defmodule Cartulary.F4RealGateABGovernanceTest do
     assert final_approval.knowledge.held_scope_id == nil
   end
 
+  test "only a human account admin may set consent_mode, and the change is audited" do
+    %{actor: actor} = bootstrap_human!("consent-mode-rbac")
+
+    agent =
+      Identity.provision_agent(actor, %{
+        key: "machine-consent-mode",
+        name: "Machine Consent Mode",
+        scope_path: "/",
+        role: "curator"
+      })
+
+    assert {:ok, machine_actor} = Identity.authenticate_bearer(agent.api_key)
+
+    # A machine credential holding the curator role must not be able to widen an Account's
+    # privacy posture, exactly as it cannot approve, edit, reject, merge, or defer knowledge.
+    assert_raise Ash.Error.Forbidden, fn ->
+      DataLayer.with_actor(machine_actor, fn account, current_actor ->
+        account
+        |> Ash.Changeset.for_update(:configure_governance, %{consent_mode: "auto"})
+        |> Ash.update!(actor: current_actor)
+      end)
+    end
+
+    updated =
+      DataLayer.with_actor(actor, fn account, current_actor ->
+        account
+        |> Ash.Changeset.for_update(:configure_governance, %{consent_mode: "auto"})
+        |> Ash.update!(actor: current_actor)
+      end)
+
+    assert updated.consent_mode == "auto"
+
+    events =
+      DataLayer.with_actor(actor, fn account, current_actor ->
+        Cartulary.Governance.AuditEvent
+        |> Ash.Query.filter(action == "account.consent_mode_changed")
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read!(actor: pipeline_actor(current_actor))
+      end)
+
+    assert length(events) == 1
+    assert hd(events).category == "configuration"
+    assert hd(events).resource_id == updated.id
+  end
+
   test "inline peer validation is rate-limited, transcript-verified, and correction text cannot mint" do
     %{actor: actor} = bootstrap_human!("inline")
 
