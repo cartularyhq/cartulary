@@ -16,7 +16,9 @@ navigation — both doors write the same session.
 Individual decisions can also be taken from a statement's own page in the
 console, where the evidence and history sit alongside the controls. The queue
 is the place for working through everything that is waiting, including bulk
-approve, reject, and defer. See
+approve, reject, and defer — **Select all** and **Deselect all** check or
+clear every row's box in one click, and a bulk run still applies one row at a
+time as described below. See
 [Exploring memory in the web console](web-console.md).
 
 ## Signing in
@@ -51,6 +53,16 @@ flowchart LR
 
 Each decision takes a transaction-scoped advisory lock on the queue entry, so
 two curators cannot decide the same item concurrently.
+
+Every decision — single or bulk — leaves a message naming what actually
+happened. That matters most on approve: it distinguishes an ordinary
+activation from a personal item that recorded the approval but stayed exactly
+where it was because subject consent is still missing (see below). Without
+that message the two look identical on screen.
+
+A card that conflicts with existing knowledge shows the statements it
+conflicts with directly, not just their ids, so a curator can judge the
+disagreement without leaving the card.
 
 ### Edit does not mean "type over it"
 

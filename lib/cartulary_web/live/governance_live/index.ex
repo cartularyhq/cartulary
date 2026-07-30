@@ -81,14 +81,18 @@ defmodule CartularyWeb.GovernanceLive.Index do
   redirects to sign-in rather than letting an unauthorized socket reach this
   callback. Do not add a fallback that tolerates a missing `current_actor` —
   that would turn a hard authentication failure into a silent partial page.
+
+  `:selected_ids` starts empty rather than being computed from the queue: a
+  freshly opened socket has nothing checked, and only the checkbox and
+  select-all/deselect-all events ever change it afterward.
   """
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, load_queue(socket)}
+    {:ok, socket |> assign(:selected_ids, MapSet.new()) |> load_queue()}
   end
 
   @doc """
-  Handles the three curator gestures available on this page.
+  Handles the curator gestures available on this page.
 
   ## `"decide"` — one human decision on one queued item
 
@@ -114,9 +118,22 @@ defmodule CartularyWeb.GovernanceLive.Index do
     supersedes this item so the combined evidence survives on one row.
 
   Each of them writes an immutable decision record, a content-safe hash-chain
-  audit event, and a lifecycle event wherever a state actually changed.
+  audit event, and a lifecycle event wherever a state actually changed. The
+  success path leaves a flash naming the actual outcome — in particular,
+  approving personal knowledge still awaiting subject consent is a real,
+  recorded decision that nonetheless leaves the item exactly where it was, and
+  the flash says so rather than leaving the curator to guess why the card
+  didn't move.
 
   ## `"bulk"` — the same decision applied to every checked row
+
+  ## `"select_all"`, `"deselect_all"`, `"toggle_select"` — the checkbox selection
+
+  These only ever change which already-rendered rows `"bulk"` will act on; they
+  write nothing. `@selected_ids` is what makes each row's checkbox a
+  server-controlled input rather than a bare uncontrolled one — the only way
+  "select all" can force every box to tick without a line of client-side
+  script, which this page's browser policy forbids.
 
   ## `"publish_skill_card"` — authors a new skill requirement card version
 
@@ -140,8 +157,14 @@ defmodule CartularyWeb.GovernanceLive.Index do
       |> Map.take(["statement", "merge_into_id", "defer_hours", "sensitivity"])
       |> Map.reject(fn {_key, value} -> value in [nil, ""] end)
 
-    Engine.decide(socket.assigns.current_actor, id, action, opts)
-    {:noreply, load_queue(socket)}
+    result = Engine.decide(socket.assigns.current_actor, id, action, opts)
+
+    socket =
+      socket
+      |> put_flash(:info, decide_flash(action, result))
+      |> load_queue()
+
+    {:noreply, socket}
   end
 
   # Two shapes reach the same decision. The per-item buttons send the queue row
@@ -168,11 +191,47 @@ defmodule CartularyWeb.GovernanceLive.Index do
   # transaction under its own advisory lock. There is no all-or-nothing bulk
   # semantic: a failure part-way through leaves the earlier decisions
   # committed, which is exactly why the queue is re-read afterwards instead of
-  # optimistically clearing the selected rows.
+  # optimistically clearing the selected rows. The flash summarizes what that
+  # re-read will show, so a batch that includes a consent-held item does not
+  # look like it silently dropped rows.
   def handle_event("bulk", %{"action" => action} = params, socket) do
     ids = params |> Map.get("ids", %{}) |> Map.keys()
-    Engine.bulk_decide(socket.assigns.current_actor, ids, action)
-    {:noreply, load_queue(socket)}
+    results = Engine.bulk_decide(socket.assigns.current_actor, ids, action)
+
+    socket =
+      socket
+      |> put_flash(:info, bulk_flash(action, results))
+      |> assign(:selected_ids, MapSet.new())
+      |> load_queue()
+
+    {:noreply, socket}
+  end
+
+  # Selects every row currently rendered. `@items` is already filtered to this
+  # Account and the open lifecycle states, so this can never reach into
+  # another Account or a settled decision — it only ever widens `"bulk"`'s
+  # target to rows the curator could already check one at a time.
+  def handle_event("select_all", _params, socket) do
+    {:noreply, assign(socket, :selected_ids, MapSet.new(Enum.map(socket.assigns.items, & &1.id)))}
+  end
+
+  # Clears the current selection without deciding anything.
+  def handle_event("deselect_all", _params, socket) do
+    {:noreply, assign(socket, :selected_ids, MapSet.new())}
+  end
+
+  # Flips one row's membership in the selection. Fired by each row's own
+  # checkbox instead of leaving the browser to own its checked state, which is
+  # what lets "select all"/"deselect all" force every box to a known value.
+  def handle_event("toggle_select", %{"id" => id}, socket) do
+    selected_ids =
+      if MapSet.member?(socket.assigns.selected_ids, id) do
+        MapSet.delete(socket.assigns.selected_ids, id)
+      else
+        MapSet.put(socket.assigns.selected_ids, id)
+      end
+
+    {:noreply, assign(socket, :selected_ids, selected_ids)}
   end
 
   # Skill requirement cards are authored configuration, not knowledge. A card
@@ -251,11 +310,21 @@ defmodule CartularyWeb.GovernanceLive.Index do
       Note the omissions: there is no bulk edit and no bulk merge. Both need a
       per-item value a curator must actually look at, and neither is safe to
       apply blindly across a selection.
+
+      Select all / deselect all are plain buttons, not part of the form: they
+      only change `@selected_ids`, which is what drives each row checkbox's
+      `checked` attribute. That server round-trip is what lets them force
+      every box to a known state without any client-side script.
       --%>
       <.panel
         title={"#{length(@items)} item(s) awaiting a decision"}
         description="Oldest due date first. Decisions apply one at a time, each in its own transaction, so a bulk run that fails part-way leaves the earlier decisions committed."
       >
+        <div class="button-row">
+          <button type="button" phx-click="select_all">Select all</button>
+          <button type="button" phx-click="deselect_all">Deselect all</button>
+        </div>
+
         <form id="bulk-form" phx-submit="bulk">
           <div class="button-row">
             <button class="primary" name="action" value="approve">Approve selected</button>
@@ -274,18 +343,32 @@ defmodule CartularyWeb.GovernanceLive.Index do
       decision actually turns on — how confident the extraction was, how
       sensitive the claim is, how far the item wants to travel, which raw
       observations produced it, and which existing knowledge it contradicts.
-      Provenance and conflict ids are rendered as opaque ids on purpose: they
-      let a curator go look, without pulling more content onto the page.
+      Provenance stays an opaque id list: it lets a curator go look without
+      pulling more content onto the page. Conflicts are resolved to the
+      statements they name instead, because a curator judging a proposal needs
+      to see what it disagrees with immediately, not after a detour to another
+      page — that is the whole reason `load_queue/1` batch-fetches them.
       --%>
       <section :for={item <- @items} class="statement-card">
         <div class="record-head">
           <%!--
           Bound to the bulk toolbar above by form id. The name makes the
           browser submit the selection as a map keyed by queue row id, so the
-          handler gets exactly the checked ids and nothing else.
+          handler gets exactly the checked ids and nothing else. `checked` is
+          driven by `@selected_ids` rather than left to the browser, and
+          `phx-click` keeps that assign in sync with a manual click — together
+          this is what makes "select all" able to force every box to tick.
           --%>
           <label class="muted">
-            <input type="checkbox" form="bulk-form" name={"ids[#{item.id}]"} value="true" />
+            <input
+              type="checkbox"
+              form="bulk-form"
+              name={"ids[#{item.id}]"}
+              value="true"
+              checked={MapSet.member?(@selected_ids, item.id)}
+              phx-click="toggle_select"
+              phx-value-id={item.id}
+            />
             select
           </label>
           <.link navigate={~p"/console/knowledge/#{item.knowledge.id}"} class="ghost-link">
@@ -308,9 +391,23 @@ defmodule CartularyWeb.GovernanceLive.Index do
           <dd>{item.due_at}</dd>
           <dt>Provenance</dt>
           <dd>{Enum.join(item.provenance_ids, ", ")}</dd>
-          <dt>Conflicts</dt>
-          <dd>{Enum.join(item.conflict_knowledge_ids, ", ")}</dd>
         </dl>
+
+        <%!--
+        Ids that didn't resolve — wrong scope for this actor, since retracted,
+        whatever — are silently absent from `item.conflicts` rather than
+        listed as dead ids; see `load_queue/1`. Nothing renders when there are
+        no conflicts, rather than an empty "Conflicts" row a curator has to
+        parse as "none".
+        --%>
+        <div :if={item.conflicts != []} class="chain">
+          <h3>Conflicts with</h3>
+          <p :for={conflict <- item.conflicts}>
+            <.link navigate={~p"/console/knowledge/#{conflict.id}"}>
+              {truncate(conflict.statement, 140)}
+            </.link>
+          </p>
+        </div>
 
         <%!--
         Approve, reject, and defer need no extra input, so they are direct
@@ -470,7 +567,7 @@ defmodule CartularyWeb.GovernanceLive.Index do
   # mutation, because nothing here is patched in memory: the rendered page is
   # always committed state.
   #
-  # All four queries run inside one Account-scoped transaction. That wrapper is
+  # Every query runs inside one Account-scoped transaction. That wrapper is
   # what sets the Account the database's row-level security checks, so a
   # curator physically cannot read another Account's rows even if a filter were
   # dropped. Never move a query out of it, and never rely on a template filter
@@ -511,6 +608,34 @@ defmodule CartularyWeb.GovernanceLive.Index do
             Map.put(item, :knowledge, knowledge)
           end)
 
+        # One batch fetch for every conflict id across the whole queue, rather
+        # than one query per row per conflict: the same shape as the scope
+        # lookup below. An id that doesn't come back — wrong scope for this
+        # actor, since retracted, whatever — is simply absent from the map, and
+        # `:conflicts` below drops it rather than rendering a dead id.
+        conflict_ids = items |> Enum.flat_map(& &1.conflict_knowledge_ids) |> Enum.uniq()
+
+        conflicts_by_id =
+          if conflict_ids == [] do
+            %{}
+          else
+            KnowledgeItem
+            |> Ash.Query.filter(id in ^conflict_ids)
+            |> Ash.Query.set_tenant(account.id)
+            |> Ash.read!(actor: actor)
+            |> Map.new(&{&1.id, &1})
+          end
+
+        items =
+          Enum.map(items, fn item ->
+            conflicts =
+              item.conflict_knowledge_ids
+              |> Enum.map(&Map.get(conflicts_by_id, &1))
+              |> Enum.reject(&is_nil/1)
+
+            Map.put(item, :conflicts, conflicts)
+          end)
+
         # Cards store a scope id, but a human recognises the path. Build the
         # lookup from the scopes this actor may read, so the same authorization
         # that hid a scope also keeps its path off the page.
@@ -542,6 +667,50 @@ defmodule CartularyWeb.GovernanceLive.Index do
     |> assign(:items, items)
     |> assign(:skill_cards, skill_cards)
   end
+
+  # Names what a single "decide" actually did. `Engine.decide/4`'s return shape
+  # is per-action (see its own @doc), and the one case worth calling out by
+  # itself is `consent_required: true`: the decision was recorded, but the
+  # item is exactly where it was because only the subject can grant the
+  # consent a curator approval cannot substitute for. Without this, that case
+  # is indistinguishable on screen from the button doing nothing at all.
+  defp decide_flash("approve", %{consent_required: true}) do
+    "Approval recorded, but this personal statement still needs the subject's verified " <>
+      "consent before it can move — it stays in the queue."
+  end
+
+  defp decide_flash("approve", %{consent_required: false}), do: "Approved."
+  defp decide_flash("reject", _result), do: "Rejected."
+  defp decide_flash("defer", _result), do: "Deferred to a later due date."
+
+  defp decide_flash("edit", _result),
+    do: "Replacement submitted. It re-enters the gate from proposed."
+
+  defp decide_flash("merge", _result), do: "Merged into the target statement."
+
+  # Summarizes a `bulk_decide/4` run rather than repeating `decide_flash/2` per
+  # row: a curator who just applied one action to twenty items wants a count,
+  # not twenty lines. Approve is the one action where that count is not the
+  # whole story, because some of those decisions may have landed on
+  # `consent_required: true` rows that never moved.
+  defp bulk_flash("approve", results) do
+    total = length(results)
+    held = Enum.count(results, fn {_id, result} -> result.consent_required end)
+
+    case held do
+      0 ->
+        "Applied 'approve' to #{total} item(s)."
+
+      ^total ->
+        "Applied 'approve' to #{total} item(s): all still need the subject's consent."
+
+      _ ->
+        "Applied 'approve' to #{total} item(s): #{total - held} approved, " <>
+          "#{held} still need the subject's consent."
+    end
+  end
+
+  defp bulk_flash(action, results), do: "Applied '#{action}' to #{length(results)} item(s)."
 
   # Seeds the authoring textarea with one valid requirement so a curator can
   # see the shape of the selector language instead of guessing it. This is a
