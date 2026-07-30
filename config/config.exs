@@ -149,6 +149,14 @@ config :cartulary, Oban,
   # polling scheduler is needed; a Cron plugin would add a second,
   # non-transactional way to start work. One consequence to know about: without
   # a Pruner plugin, nothing deletes rows from the `oban_jobs` table.
+  #
+  # This value also has a side effect that has nothing to do with plugins: AshOban reads
+  # a `:plugins` value that is not a non-empty list as "disable peer leadership entirely",
+  # and Oban's stager (core infrastructure, not a plugin, in the pinned Oban version) only
+  # promotes delayed `scheduled`/`retryable` jobs back to `available` while its node holds
+  # leadership. `Cartulary.Application.oban_config/0` restores the ordinary database-backed
+  # peer after AshOban's merge for exactly this reason — see the comment there before
+  # changing this value.
   plugins: false
 
 config :ash_oban,
