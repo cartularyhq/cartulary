@@ -121,6 +121,15 @@ renders:
   identities only;
 - **password hashes, API key hashes, connector secrets, blob bytes.**
 
+Reader projection does not create an exception for entities. Deriving a label
+only from visible statements would avoid returning stored aliases, but grouping
+those statements would still disclose the resolver's conclusion that they
+share a referent. It would also turn a pipeline-only resource into an
+actor-specific live query whose safety depends on every policy and resolver
+change. Curator investigations therefore remain statement-shaped: scoped
+retrieval followed by the visible provenance, supersession, and relations on a
+statement page.
+
 Rendered text never enters logs, telemetry, audit entries, or job arguments.
 
 ## Graph rendering
