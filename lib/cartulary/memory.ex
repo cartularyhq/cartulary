@@ -372,11 +372,17 @@ defmodule Cartulary.Memory do
 
   Returns a string-keyed map holding `"query"`, `"profile"`,
   `"profile_version"`, `"deadline"`, `"latency_ms"`,
-  `"contributed_strategies"`, `"dropped_strategies"`, `"disagreement"`, and
-  `"candidates"`. A strategy that ran out of deadline lands in
-  `"dropped_strategies"` instead of failing the call, so a partial result is
-  normal: read that list before treating a thin result as an absence of
-  knowledge.
+  `"contributed_strategies"`, `"empty_strategies"`, `"dropped_strategies"`,
+  `"disagreement"`, and `"candidates"`. A strategy that ran out of deadline
+  lands in `"dropped_strategies"` instead of failing the call, so a partial
+  result is normal: read that list before treating a thin result as an absence
+  of knowledge.
+
+  A strategy that ran and matched nothing lands in `"empty_strategies"`. When
+  the text-reading strategies are all in there,
+  `"disagreement"["query_dependent_empty"]` is true and the candidates rank the
+  scope rather than the query — the same shape as a good result, so check the
+  flag rather than the shape.
 
   Raises when no Account can be derived from the caller.
   """
@@ -433,6 +439,10 @@ defmodule Cartulary.Memory do
         "cartulary.retrieval.profile" => retrieval.profile,
         "cartulary.retrieval.profile_version" => retrieval.profile_version,
         "cartulary.retrieval.strategy_count" => length(retrieval.contributed_strategies),
+        # Counts only; a degraded run is otherwise indistinguishable from a good one in traces.
+        "cartulary.retrieval.empty_strategy_count" => length(retrieval.empty_strategies),
+        "cartulary.retrieval.query_dependent_empty" =>
+          retrieval.disagreement["query_dependent_empty"],
         "cartulary.query.limit" => limit,
         "cartulary.query.text_length" => String.length(query),
         "cartulary.query.scope_count" => scope_count

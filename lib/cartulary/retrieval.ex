@@ -47,8 +47,8 @@ defmodule Cartulary.Retrieval do
   `:internal?`, and `:strategies` to name strategies explicitly.
 
   Returns a map with the query text, the profile name and version, the measured
-  latency, the strategies that contributed, the strategies that were dropped,
-  a pre-fusion disagreement summary, and the ranked candidates.
+  latency, the strategies that contributed, ran empty, and were dropped, a
+  pre-fusion disagreement summary, and the ranked candidates.
 
   Raises `ArgumentError` when the profile name is unknown, or when
   `:strategies` is supplied without `internal?: true` — hand-picked strategy

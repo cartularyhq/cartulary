@@ -140,7 +140,13 @@ All fields optional.
 | `deadline` | profile default | `"disabled"` removes the budget; offline only |
 
 Returns `{"data": result}` with the profile name, `profile_version` (`"f7-1"`),
-the fused `candidates`, and which strategies contributed or were dropped.
+the fused `candidates`, and three per-strategy outcomes:
+`contributed_strategies` (returned candidates), `empty_strategies` (ran, matched
+nothing), and `dropped_strategies` (disabled, timed out, or failed).
+
+`disagreement.query_dependent_empty` is `true` when no strategy that reads the
+query text produced a candidate. The remaining candidates then rank the scope,
+not the question, in a response otherwise shaped like any other.
 
 Account, authorised-scope, lifecycle, and source filtering happen **inside**
 retrieval. A raw `strategies` override is refused for external callers.

@@ -145,8 +145,9 @@ Details: `specs/architecture/documents-connectors-sync.md`.
   computed before fusion and optional reranking of the fused head.
 - Named versioned profiles that inherit nearest-wins from scope configuration,
   honour deployment strategy constraints, enforce a hard deadline, and report
-  contributed and dropped strategies. `search` defaults to `:balanced`; `ask`
-  defaults to `:thorough`.
+  contributed, empty, and dropped strategies separately, plus a
+  `query_dependent_empty` flag for a run no query-reading strategy answered.
+  `search` defaults to `:balanced`; `ask` defaults to `:thorough`.
 - Account, authorized scope, lifecycle, provisional subject, and source filters
   are applied before any candidate leaves retrieval internals.
 - Knowledge and document chunks use PostgreSQL `vector` values with pinned

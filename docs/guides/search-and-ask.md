@@ -40,7 +40,9 @@ curl -fsS -X POST http://127.0.0.1:4000/api/v1/search \
     "profile_version": "f7-1",
     "candidates": [ ... ],
     "contributed_strategies": ["semantic", "lexical", "entity_match"],
-    "dropped_strategies": ["temporal"]
+    "empty_strategies": [],
+    "dropped_strategies": ["temporal"],
+    "disagreement": { "query_dependent_empty": false }
   }
 }
 ```
@@ -50,6 +52,17 @@ curl -fsS -X POST http://127.0.0.1:4000/api/v1/search \
   degrades results.
 - `dropped_strategies` lists strategies that missed the deadline. Frequent
   drops mean the profile's budget is too tight for your data size.
+- `empty_strategies` lists strategies that ran and matched nothing. That is a
+  result, not a failure — but a strategy in this list did not vote on the order.
+
+!!! warning "A full page is not proof the query was understood"
+    `temporal` and `salience_recency` never read your query text. When
+    `disagreement.query_dependent_empty` is `true`, none of the strategies that
+    do read it produced a candidate, so what came back is the scope in recency
+    order — the same shape, the same field count, the same `latency_ms`, for
+    every question you could have asked. Check the flag before treating the
+    result as an answer. A run in that state usually means embeddings or entity
+    mentions have not been rebuilt for the scope yet.
 - Account, scope authorisation, and lifecycle filtering already happened inside
   retrieval. You do not need to post-filter.
 

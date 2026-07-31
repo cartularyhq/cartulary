@@ -85,6 +85,8 @@ defmodule Cartulary.Retrieval.Strategies.Semantic do
   def cost_class, do: :moderate
   @impl true
   def stage, do: :seed
+  @impl true
+  def query_dependent?, do: true
 
   @doc """
   True only for a non-blank query string.
@@ -139,6 +141,8 @@ defmodule Cartulary.Retrieval.Strategies.Lexical do
   def cost_class, do: :cheap
   @impl true
   def stage, do: :seed
+  @impl true
+  def query_dependent?, do: true
 
   @doc "True only for a non-blank query string; there are no terms to match otherwise."
   @impl true
@@ -175,6 +179,8 @@ defmodule Cartulary.Retrieval.Strategies.Temporal do
   def cost_class, do: :cheap
   @impl true
   def stage, do: :seed
+  @impl true
+  def query_dependent?, do: false
 
   @doc """
   True whenever the query wants governed statements.
@@ -214,6 +220,8 @@ defmodule Cartulary.Retrieval.Strategies.SalienceRecency do
   def cost_class, do: :cheap
   @impl true
   def stage, do: :seed
+  @impl true
+  def query_dependent?, do: false
 
   @doc """
   True for governed statements; chunks lack its scoring metadata.
@@ -251,6 +259,8 @@ defmodule Cartulary.Retrieval.Strategies.EntityMatch do
   def cost_class, do: :cheap
   @impl true
   def stage, do: :seed
+  @impl true
+  def query_dependent?, do: true
 
   @doc """
   True for governed statements with non-empty text; whitespace tokenizes to no candidates.
@@ -288,6 +298,16 @@ defmodule Cartulary.Retrieval.Strategies.RelationExpand do
   def cost_class, do: :moderate
   @impl true
   def stage, do: :expand
+
+  @doc """
+  False: expansion never reads the query text.
+
+  It walks outward from whatever the seed phase produced, so it is only as
+  query-relevant as those seeds were. Claiming otherwise would let a hop from a
+  recency dump pass for evidence that the question was understood.
+  """
+  @impl true
+  def query_dependent?, do: false
 
   @doc """
   True only when the query wants governed statements and the seed phase
