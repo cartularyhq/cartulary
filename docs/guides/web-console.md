@@ -154,7 +154,10 @@ complete.
   whose rows span every scope that ever mentioned a name. Showing them would
   carry names across the boundary the scope tree exists to keep, so no
   canonical name, alias, surface form, or entity identifier appears anywhere in
-  the console — including the graph.
+  the console — including the graph. To investigate a subject's visible
+  footprint, use scoped retrieval in the knowledge explorer, then inspect each
+  statement's provenance, supersession chain, and visible relations. The
+  console never groups those results by a resolved entity.
 - **Embedding vectors and document chunks.** Rebuildable derived caches with no
   meaning to a reader. Chunk counts are shown; chunk contents are not.
 - **Credentials.** Password hashes, API key hashes, and connector secrets are
