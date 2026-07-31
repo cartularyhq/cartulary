@@ -133,6 +133,20 @@ defmodule CartularyWeb.ConsoleLiveTest do
       assert html =~ "Role grants"
     end
 
+    test "the scope directory shows index coverage for a scope whose refresh never ran", %{
+      conn: conn,
+      admin_token: token
+    } do
+      html = conn |> sign_in(token) |> get("/console/scopes") |> html_response(200)
+
+      # The world is seeded by ingestion alone, so its statements exist and its vectors do
+      # not — the state a cancelled projection refresh leaves behind. Without this column the
+      # page is identical to a fully indexed Account.
+      assert html =~ "Indexed"
+      assert html =~ "Mentions"
+      assert html =~ "coverage-gap"
+    end
+
     test "the graph renders SVG nodes and no entity data", %{conn: conn, admin_token: token} do
       html = conn |> sign_in(token) |> get("/console/graph") |> html_response(200)
 

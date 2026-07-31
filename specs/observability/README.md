@@ -137,7 +137,7 @@ quality but destroys latency, abstention, or cost visibility is not done.
 | Ingest | message content length, sync vs async extraction, extraction item count, raw write latency, provider failure behavior |
 | Documents | version byte count, parser, chunk/knowledge counts, hash no-op count, tombstones, connector page duration, retry behavior |
 | Pipeline | Oban queue latency, retries, job duration, dream-time budget use, revalidation/expiry sweeps once implemented |
-| Retrieval | profile, profile version, strategy count, candidate count, latency, contributed strategies, dropped strategies |
+| Retrieval | profile, profile version, strategy count, candidate count, latency, contributed strategies, dropped strategies, per-scope index coverage on projection refresh |
 | Context | knowledge count, projection/cache hit, fast-fallback flag, no reasoning-model spans under normal `get_context` |
 | Ask | candidate count, model used, abstention flag, citation correctness from eval report, latency |
 | Model | operation, role, provider/model/version, prompt/pipeline version, input/output/embedding tokens, duration, error rate, repair attempt, retry behavior |

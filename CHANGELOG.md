@@ -184,6 +184,20 @@ changelog entry and contract-version transition.
 
 ### Added
 
+- Scope index coverage, so a scope that holds every governed statement and no
+  embeddings is finally visible. Embeddings and entity mentions are written by
+  the projection refresh alone; a refresh that was cancelled or never enqueued
+  left semantic and entity recall permanently empty while full-text search kept
+  answering — its index is a generated column no queue failure can lose — and
+  nothing anywhere reported the gap. `Cartulary.Retrieval.index_coverage/3`
+  returns per-scope statement, embedded, and entity-mention counts plus the
+  embedding identities in use, filtered by Account and authorized scopes and
+  narrowing provisional statements to their subject like every other retrieval
+  query. Mentions are reported as a count, so the entity cache stays internal.
+  `/console/scopes` shows the counts and highlights a shortfall, and every
+  completed refresh emits `[:cartulary, :retrieval, :projection_refresh]` with
+  `indexed`, `statements`, `embedded`, `mentions`, and `coverage` so an
+  operator can alert on the ratio. No new table, route, or contract identity.
 - Two off-by-default switches let an operator declare an Account or a whole
   deployment has no real human governance participant, and auto-grant the
   subject-consent step `Cartulary.Governance.Engine` otherwise blocks on for
@@ -243,6 +257,16 @@ changelog entry and contract-version transition.
 
 ### Changed
 
+- A retrieval strategy that could not run is now reported in
+  `dropped_strategies` rather than as a contributing strategy that found
+  nothing. `search` with a failed embedder previously returned an empty
+  `semantic` result, which reads identically to a query with no near
+  neighbours; the two call for opposite responses. Strategies may now return
+  `{:error, reason}` from `candidates/2`, which the engine reports as
+  degradation — matching how it already treats a deadline kill and a reranker
+  failure. Response fields are unchanged; `semantic` simply now appears in
+  `dropped_strategies` where it previously appeared in
+  `contributed_strategies`.
 - The curator queue at `/governance` now renders inside the shared console
   frame and takes its appearance from `priv/static/assets/console.css` instead
   of inline styles. Its route, module, events, decisions, and rendered heading
