@@ -295,9 +295,14 @@ defmodule Cartulary.DataLayer do
   The other helpers here resolve an Account row and build an actor because their callers are
   about to perform domain work. This one exists for the opposite case: a caller that already
   holds an actor and needs only the transaction-local settings the row-level-security policies
-  read. Two places in the model layer use it — resolving a role's stored configuration, and
-  appending a usage record — because both run during a provider call, and a provider call must
-  not happen inside somebody else's transaction.
+  read.
+
+  Two kinds of caller need exactly that. The model layer uses it to resolve a role's stored
+  configuration and to append a usage record, because both run during a provider call and a
+  provider call must not happen inside somebody else's transaction. Edge metering uses it
+  because it runs *after* the request's transactions have already ended — in a before-send
+  callback, or on an operator page — so the connection it lands on has no Account declared
+  and every policy would deny.
 
   ## Why external calls must not hold a transaction
 
