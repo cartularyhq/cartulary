@@ -56,7 +56,10 @@ defmodule Cartulary.PocContractTest do
     # "f5-1" is the version identity of the extraction-and-pipeline contract; changing it is a
     # deliberate transition that also changes what the health endpoint reports.
     assert message["content"] == "Avery prefers concise weekly release summaries."
-    assert [knowledge] = message["knowledge"]
+
+    assert {:ok, [knowledge]} =
+             Memory.extract_message(message["id"], "contract-persistence")
+
     assert knowledge["statement"] == "Avery prefers concise weekly release summaries."
     assert knowledge["extracting_provider"] == "deterministic"
     assert knowledge["extracting_model"] == "local-structured-fallback"
@@ -131,8 +134,14 @@ defmodule Cartulary.PocContractTest do
                "content" => "The project release review happens every Friday."
              })
 
-    parent_knowledge_id = parent_message["knowledge"] |> hd() |> Map.fetch!("id")
-    child_knowledge_id = child_message["knowledge"] |> hd() |> Map.fetch!("id")
+    assert {:ok, [parent_knowledge]} =
+             Memory.extract_message(parent_message["id"], "contract-inheritance")
+
+    assert {:ok, [child_knowledge]} =
+             Memory.extract_message(child_message["id"], "contract-inheritance")
+
+    parent_knowledge_id = Map.fetch!(parent_knowledge, "id")
+    child_knowledge_id = Map.fetch!(child_knowledge, "id")
 
     descendant_ids =
       "contract-inheritance"

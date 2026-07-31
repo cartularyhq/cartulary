@@ -72,7 +72,19 @@ config :cartulary, dev_routes: true
 # be correlated with collector traces.
 config :logger, :default_formatter,
   format: "[$level] $metadata$message\n",
-  metadata: [:request_id, :trace_id, :span_id]
+  metadata: [
+    :request_id,
+    :trace_id,
+    :span_id,
+    :account_id,
+    :scope_id,
+    :pipeline_run_id,
+    :target_type,
+    :target_id,
+    :message_id,
+    :attempt_count,
+    :error_class
+  ]
 
 # Set a higher stacktrace during development. Avoid configuring such
 # in production as building large stacktraces may be expensive.

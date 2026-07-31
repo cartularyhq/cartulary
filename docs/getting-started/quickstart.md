@@ -88,11 +88,20 @@ curl -fsS -X POST http://127.0.0.1:4000/api/v1/ingest \
       }'
 ```
 
-Missing scopes, sessions, and links are created on demand.
+Missing scopes, sessions, and links are created on demand. The response is
+**202 Accepted** with a `message_id`; extraction runs in the durable job lane
+and never blocks this request.
 
-The response is the stored message. Because extraction runs inline by default,
-it also carries a `knowledge` list of the statements the pipeline just proposed
-— pipeline output, not your input. Nothing in your request body can mint
+Poll until extraction completes before searching for the new observation:
+
+```bash
+export MESSAGE_ID='<message_id from the response>'
+curl -fsS http://127.0.0.1:4000/api/v1/ingest/$MESSAGE_ID \
+  -H "authorization: Bearer $TOKEN"
+```
+
+The status response moves from `pending` to `completed` and then includes the
+governed knowledge visible to you. Nothing in your request body can mint
 knowledge.
 
 ## 4. Read it back

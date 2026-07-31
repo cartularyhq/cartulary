@@ -328,15 +328,17 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest do
     # A second, independent source for the "Cross-source" sentence. This is the control for
     # the whole test: knowledge with provenance outside this document must survive both the
     # document's supersession and its later deletion.
-    assert {:ok, _message} =
+    assert {:ok, message} =
              Memory.ingest_message(%{
                "account_key" => account.key,
                "session_id" => "f6-shared-provenance",
                "scope_path" => scope.path,
                "peer_key" => peer.key,
-               "content" => "Cross-source guidance remains authoritative.",
-               "sync_extract" => true
+               "content" => "Cross-source guidance remains authoritative."
              })
+
+    assert {:ok, [_knowledge]} =
+             Memory.extract_message_for_account(message["id"], account.id)
 
     # Revision two of the *same* external id: Friday becomes Monday, the "stable" sentence
     # is repeated verbatim, and the "Cross-source" sentence is gone from the document.
@@ -523,8 +525,7 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest do
                "session_id" => "#{account_key}-setup",
                "scope_path" => "/f6/#{account_key}",
                "peer_key" => "#{account_key}-owner",
-               "content" => "F6 setup observation is durable.",
-               "sync_extract" => false
+               "content" => "F6 setup observation is durable."
              })
 
     DataLayer.with_account_key(account_key, fn account, system_actor ->

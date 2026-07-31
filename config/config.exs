@@ -389,11 +389,24 @@ config :cartulary, CartularyWeb.Endpoint,
 # Configure Elixir's Logger
 #
 # The metadata allowlist is deliberate and content-safe: request and trace
-# correlation ids only. Adding a key here that can carry message text, prompts,
-# answers, or credentials would put content into logs.
+# correlation and durable pipeline identifiers only. Adding a key here that can
+# carry message text, prompts, answers, or credentials would put content into
+# logs.
 config :logger, :default_formatter,
   format: "$time $metadata[$level] $message\n",
-  metadata: [:request_id, :trace_id, :span_id]
+  metadata: [
+    :request_id,
+    :trace_id,
+    :span_id,
+    :account_id,
+    :scope_id,
+    :pipeline_run_id,
+    :target_type,
+    :target_id,
+    :message_id,
+    :attempt_count,
+    :error_class
+  ]
 
 # Tracing is off unless a deployment explicitly enables the OTLP exporter at
 # runtime. A build must never export spans by default.

@@ -4,8 +4,8 @@ defmodule Cartulary.Governance.Actions.McpIngest do
   @moduledoc """
   Implementation behind the `ingest` tool: records one raw observation from a machine caller.
 
-  The caller writes only a message; extraction produces governed proposals. Actor and Account
-  come from the credential, never arguments.
+  The caller writes only a message; the durable pipeline later produces governed
+  proposals. Actor and Account come from the credential, never arguments.
   """
   use Ash.Resource.Actions.Implementation
 
@@ -16,21 +16,21 @@ defmodule Cartulary.Governance.Actions.McpIngest do
   string keys because the memory facade works in the same string-keyed shape as the HTTP body.
   `context.actor` supplies the Account and calling peer.
 
-  Returns `{:ok, message}` where `message` is the stored message as a string-keyed map. Because
-  the tool declares no `"sync_extract"` argument, the facade's inline-extraction default applies
-  and the map also carries a `"knowledge"` list — whatever the gates made of the extracted
-  items, which for a governed Account is usually a proposal rather than activated memory. The
-  facade signals failure by raising, not by returning an error tuple: a missing required
-  argument, an unauthorized write, or a failed extraction raises and the generic-action runner
-  turns that into a tool error.
+  Returns `{:ok, %{"message_id" => id, "status" => "accepted"}}` after the
+  observation and queued extraction are durable. Model calls never run in the
+  tool process. The facade signals durable-write failures by raising, and the
+  generic-action runner turns them into tool errors.
   """
   @impl true
   def run(input, _opts, context) do
     attrs = stringify(input.arguments)
 
     case Cartulary.Memory.ingest_message(attrs, context.actor) do
-      {:ok, message} -> {:ok, message}
-      {:error, error} -> {:error, error}
+      {:ok, message} ->
+        {:ok, %{"message_id" => message["id"], "status" => "accepted"}}
+
+      {:error, error} ->
+        {:error, error}
     end
   end
 
