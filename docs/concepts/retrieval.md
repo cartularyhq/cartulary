@@ -153,8 +153,12 @@ and PubSub/ETS invalidation. A model call does not belong on this read path.
 
 `ask` retrieves with the `thorough` profile, restricts retrieval to knowledge
 items so that citations are governed statements, and answers over what it
-found. When nothing supports the question it sets `abstained` and returns no
-answer.
+found. It may set `abstained` while retaining a qualified answer and citations:
+that means the evidence supports what the answer says but does not establish a
+conclusion. When nothing supports the question it returns `not known`, an empty
+citation list, and `abstained == true`.
 
 Treat `abstained == true` as an ordinary outcome. An answer invented from an
-empty candidate set would be worse than silence.
+empty candidate set would be worse than silence. Every model citation is
+intersected with the retrieved candidate ids before the response leaves the
+server, and no surviving citation means the empty abstention wins.

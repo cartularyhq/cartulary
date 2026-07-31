@@ -2,7 +2,7 @@
 
 # Implementation Status
 
-Application version: `0.2.0` (community beta).
+Application version: `0.3.0` (community beta).
 Last verified: 2026-07-28.
 
 Current behavior, evidence, and real limitations. Target architecture:
@@ -53,6 +53,10 @@ Details: `specs/architecture/ash-domain-backbone.md`.
   processed.
 - The raw write and the job commit before any model call, so a provider outage
   delays freshness rather than losing observations.
+- HTTP and MCP ingest return an accepted message id without running extraction.
+  The HTTP status read reports pending, failed, or completed state through the
+  Message's Account and scope policies. Account administrators can enqueue the
+  reconciler without creating another observation.
 
 Details: `specs/architecture/transactional-writes-audit-jobs.md`.
 
@@ -223,10 +227,12 @@ Details: `specs/architecture/evaluation-ci-release-readiness.md` and
 
 - `GET /api/health`, `GET /api/ready`
 - `POST /api/v1/ingest`, `/search`, `/ask`, `/context`, `/readiness`
+- `GET /api/v1/ingest/:message_id`
 - `GET /api/v1/knowledge`
 - `POST /api/auth/password`
 - `/api/v1/self/*` peer self-service, human credentials only
-- `/api/v1/operations/costs`, account-admin only
+- `/api/v1/operations/costs` and `POST /api/v1/operations/reconcile`,
+  account-admin only
 - `/mcp` AshAi MCP endpoint
 
 ### Browser surface

@@ -9,6 +9,8 @@ changelog entry and contract-version transition.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-31
+
 ### Fixed
 
 - Lexical retrieval returned nothing for a question. `websearch_to_tsquery`
@@ -25,6 +27,25 @@ changelog entry and contract-version transition.
   no reindex is needed. Retrieval stays inside the `f7-1` contract: no route,
   parameter, response field, or fusion weight changes, and Account, scope, and
   lifecycle filtering is untouched.
+- `ask` no longer discards grounded answer text and validated citations when
+  the dialectic model marks its conclusion inconclusive. A response may now
+  combine `abstained: true` with non-empty `citations`: the cited statements
+  support the qualified text but do not establish a conclusion. Responses with
+  no surviving retrieved citation still return the empty `not known`
+  abstention, so invented citation ids cannot make unsupported prose public.
+  This changes the response shape that API and MCP consumers may observe without
+  changing its fields or the `f7-1` retrieval/context contract identity.
+- Made observation ingest strictly asynchronous. HTTP and MCP now acknowledge
+  with the durable message id before any model call, and the removed
+  `sync_extract` option can no longer run extraction in the request. HTTP
+  callers can poll the Account- and scope-authorised ingest-status route for
+  pending, failed, or completed work and visible governed knowledge. Operators
+  can enqueue reconciliation independently of ingest. Evaluation and smoke
+  commands invoke their direct extraction entrypoint explicitly. Extraction
+  failure logs retain only ids, attempt count, and error class. This is the
+  intentional pre-1.0 ingest response-contract transition tracked by issue
+  #65; the `f5-1` pipeline identity is unchanged because its governed extraction
+  semantics did not change.
 - A failed extraction reported `:missing_structured_object` no matter why the
   model call produced nothing, which left an operator reading a trace unable to
   tell a transient upstream blip from a failure that will repeat on every

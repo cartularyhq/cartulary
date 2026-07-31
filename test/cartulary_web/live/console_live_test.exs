@@ -259,7 +259,8 @@ defmodule CartularyWeb.ConsoleLiveTest do
         admin
       )
 
-    knowledge = message |> Map.fetch!("knowledge") |> hd()
+    {:ok, [knowledge]} =
+      Memory.extract_message_for_account(message["id"], admin.account_id)
 
     member_token = create_member!(admin)
 

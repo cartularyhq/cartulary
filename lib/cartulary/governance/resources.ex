@@ -1051,9 +1051,9 @@ defmodule Cartulary.Governance.McpTools do
 
   actions do
     # `scope_path` names where the observation belongs; the Account is taken from the caller's
-    # credential and can never be chosen by an argument. The tool call records a message and
-    # then runs extraction inline, but everything extraction produces enters as a proposal and
-    # is placed by the gates, not by the caller.
+    # credential and can never be chosen by an argument. The tool call returns
+    # after the message and extraction job commit; the pipeline later creates
+    # proposals and the gates place them.
     action :ingest, :map do
       description "Submit a raw observation. This never writes knowledge directly."
       argument :session_id, :string, allow_nil?: false, public?: true
