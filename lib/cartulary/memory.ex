@@ -457,8 +457,10 @@ defmodule Cartulary.Memory do
   The answer is grounded twice over: the model sees nothing but the retrieved
   statements, and every citation it returns is dropped unless it matches an id
   that was actually retrieved for this question. An answer whose citations all
-  fail that check is replaced by an abstention, so a caller may rely on every
-  id in `"citations"` being real and retrieved.
+  fail that check is replaced by an empty abstention, so a caller may rely on
+  every id in `"citations"` being real and retrieved. A cited answer may also
+  carry `"abstained" => true`; that combination means the statements support
+  the returned qualification or inference but do not establish a conclusion.
 
   When the deployment has no real model configured, and when a configured
   provider errors, the reply falls back to concatenating the top retrieved
@@ -1329,7 +1331,9 @@ defmodule Cartulary.Memory do
     prompt = """
     Answer the question using only the cited Cartulary memory statements.
     Return JSON: {"answer":"...", "citations":["knowledge-id"], "abstained":false}.
-    If the statements do not answer the question, return {"answer":"not known", "citations":[], "abstained":true}.
+    If the statements support a conclusion but do not establish it, return one sentence: {"answer":"The recorded statements do not establish this, but <what they do support>.", "citations":["knowledge-id"], "abstained":true}.
+    Keep the qualifier and supported inference in that one sentence, and cite every statement the inference rests on.
+    If no statement bears on the question, return {"answer":"not known", "citations":[], "abstained":true}.
 
     Question: #{question}
 
@@ -1357,15 +1361,18 @@ defmodule Cartulary.Memory do
         cited_ids = candidates |> MapSet.new(& &1["id"])
         citations = Enum.filter(decoded.citations, &MapSet.member?(cited_ids, &1))
 
-        # An answer with no surviving citation is unsupported prose, so it is
-        # replaced by an abstention rather than returned uncited.
-        if decoded.abstained or citations == [] do
+        # An answer with no surviving citation is unsupported prose, whatever
+        # the model claimed about certainty, so it is replaced rather than
+        # returned uncited. With grounding intact, abstention remains an
+        # independent admission that the evidence supports the qualified text
+        # without establishing a conclusion.
+        if citations == [] do
           fallback_answer(question, [])
         else
           %{
             "answer" => decoded.answer,
             "citations" => citations,
-            "abstained" => false
+            "abstained" => decoded.abstained
           }
         end
 

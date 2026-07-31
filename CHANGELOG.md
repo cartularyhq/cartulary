@@ -13,6 +13,14 @@ changelog entry and contract-version transition.
 
 ### Fixed
 
+- `ask` no longer discards grounded answer text and validated citations when
+  the dialectic model marks its conclusion inconclusive. A response may now
+  combine `abstained: true` with non-empty `citations`: the cited statements
+  support the qualified text but do not establish a conclusion. Responses with
+  no surviving retrieved citation still return the empty `not known`
+  abstention, so invented citation ids cannot make unsupported prose public.
+  This changes the response shape that API and MCP consumers may observe without
+  changing its fields or the `f7-1` retrieval/context contract identity.
 - Made observation ingest strictly asynchronous. HTTP and MCP now acknowledge
   with the durable message id before any model call, and the removed
   `sync_extract` option can no longer run extraction in the request. HTTP

@@ -15,6 +15,7 @@ defmodule CartularyWeb.MemoryControllerTest do
   alias Cartulary.Governance.McpTools
   alias Cartulary.Identity
   alias Cartulary.Memory
+  alias Cartulary.Model.GroundedAnswerProvider
   alias Cartulary.Repo
 
   setup do
@@ -26,11 +27,14 @@ defmodule CartularyWeb.MemoryControllerTest do
     # machine it expected.
     original_api_key = System.get_env("OPENROUTER_API_KEY")
     original_models = Application.fetch_env!(:cartulary, :models)
+    original_provider = Application.get_env(:cartulary, :model_provider)
 
     System.delete_env("OPENROUTER_API_KEY")
     Application.put_env(:cartulary, :models, Keyword.put(original_models, :api_key, nil))
 
     on_exit(fn ->
+      GroundedAnswerProvider.stop()
+
       if original_api_key do
         System.put_env("OPENROUTER_API_KEY", original_api_key)
       else
@@ -38,6 +42,12 @@ defmodule CartularyWeb.MemoryControllerTest do
       end
 
       Application.put_env(:cartulary, :models, original_models)
+
+      if original_provider do
+        Application.put_env(:cartulary, :model_provider, original_provider)
+      else
+        Application.delete_env(:cartulary, :model_provider)
+      end
     end)
 
     # Creates the single community Account, its root scope, an administrator
@@ -273,6 +283,41 @@ defmodule CartularyWeb.MemoryControllerTest do
            } = json_response(conn, 200)
 
     assert answer =~ "concise weekly release summaries"
+    assert_trace_id(conn)
+  end
+
+  # A cited abstention is distinct from the empty fallback above: the evidence
+  # supports a qualified inference, but does not establish a conclusion. This
+  # is a public response-shape contract because clients must not assume that an
+  # abstained response always has an empty citation list.
+  test "POST /api/v1/ask preserves a grounded inconclusive answer", %{
+    conn: conn,
+    actor: actor,
+    token: token
+  } do
+    seed_memory!(actor, "http-ask-inconclusive", "/contract/http/ask-inconclusive")
+    GroundedAnswerProvider.start!(:grounded_abstention)
+    Application.put_env(:cartulary, :model_provider, GroundedAnswerProvider)
+
+    conn =
+      conn
+      |> with_identity(token)
+      |> post(~p"/api/v1/ask", %{
+        "scope_path" => "/contract/http/ask-inconclusive",
+        "question" =>
+          "Does the record establish that Avery prefers concise weekly release summaries?",
+        "profile" => "balanced"
+      })
+
+    assert %{
+             "data" => %{
+               "answer" =>
+                 "The recorded statements do not establish this, but they support a preference for concise weekly release summaries.",
+               "abstained" => true,
+               "citations" => [_ | _]
+             }
+           } = json_response(conn, 200)
+
     assert_trace_id(conn)
   end
 
