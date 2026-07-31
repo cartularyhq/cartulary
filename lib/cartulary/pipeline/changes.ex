@@ -11,20 +11,22 @@ defmodule Cartulary.Pipeline.Changes.ExecuteRun do
 
   ## Ordering
 
-  The workflow is invoked in `before_action`, so it runs before this row's
+  The workflow is invoked in `before_transaction`, so it runs before this row's
   update is issued and its outcome decides what that update contains. Success
   stamps `completed`, the processing time, and a bumped attempt count, and
   clears any previous error class. Failure adds the error to the changeset,
   which aborts the update and lets the job runner's failure path record the
   attempt instead.
 
-  The enclosing action deliberately does not wrap the workflow in a transaction:
+  `before_transaction` rather than `before_action` is what keeps the workflow
+  out of the enclosing action's transaction, and that placement is load-bearing:
   lanes open and commit their own transactions — raw writes, governance
-  decisions, cache rebuilds — and holding one long transaction across all of
-  them would keep locks for the entire duration of the work. The consequence to
-  remember is that a lane's own commits survive even if this row's status update
-  later fails; that is safe only because every lane is replay-safe under its
-  deterministic key.
+  decisions, cache rebuilds — and holding one transaction across all of them
+  would keep locks for the entire duration of the work. Moving this hook to
+  `before_action` would put it back inside. The consequence to remember is that
+  a lane's own commits survive even if this row's status update later fails;
+  that is safe only because every lane is replay-safe under its deterministic
+  key.
 
   The attempt count is incremented from the row as it was read, not with a
   database-side increment, which is accurate because a run only ever has one
@@ -39,13 +41,13 @@ defmodule Cartulary.Pipeline.Changes.ExecuteRun do
   @doc """
   Attaches the execute-then-record behaviour to the changeset.
 
-  Returns the changeset with a `before_action` hook. The hook returns an updated
-  changeset on success, or a changeset carrying the workflow's error on failure,
-  which prevents the row from being marked completed.
+  Returns the changeset with a `before_transaction` hook. The hook returns an
+  updated changeset on success, or a changeset carrying the workflow's error on
+  failure, which prevents the row from being marked completed.
   """
   @impl true
   def change(changeset, _opts, _context) do
-    Ash.Changeset.before_action(changeset, fn changeset ->
+    Ash.Changeset.before_transaction(changeset, fn changeset ->
       run = changeset.data
 
       case Pipeline.execute(run) do

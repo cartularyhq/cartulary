@@ -11,6 +11,27 @@ changelog entry and contract-version transition.
 
 ### Fixed
 
+- Nothing ingested through `POST /api/v1/ingest` was ever extracted on a fresh
+  install once the database role became one that row-level security actually
+  applies to. The request returned `200` and the observation was stored, but the
+  extraction job it queued cancelled itself milliseconds later with
+  `{:cancel, :trigger_no_longer_applies}`, so no knowledge was proposed and no
+  search could find anything. A background job runs with no request behind it,
+  so the pooled connection its first query lands on has no Account declared to
+  the database, and the row-level security policy on `pipeline_runs` hides every
+  row until one is. The job runner reads its own run row back before any
+  Cartulary code runs; finding nothing, it concluded its trigger no longer
+  applied and cancelled cleanly while the work stayed outstanding. The same gap
+  sat on the write side, where an undeclared status update matched no row and
+  surfaced as a stale record. This affected all eleven lanes — extraction,
+  dream-time, revalidation, expiry, projection refresh, connector sync, import
+  rebuild, reconciliation, entity resolution, validation continuation, and
+  answer correlation — not extraction alone. Every trigger now reads through the
+  new transactional `Cartulary.Operations.PipelineRun.for_trigger` action, and
+  `execute` and `mark_failed` declare the run's own Account inside their
+  transaction; the lane's own work still runs outside that transaction, so no
+  job holds a database connection across its workflow. No route, parameter,
+  response field, or contract identity changes.
 - Every authenticated API request returned `500 Internal Server Error` once the
   database role became one that row-level security actually applies to.
   `Cartulary.Operations.Metering.record_api/2` writes the edge usage-ledger row

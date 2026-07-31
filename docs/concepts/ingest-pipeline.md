@@ -85,6 +85,22 @@ its knowledge is written, so an interrupted extraction is picked up again
 rather than lost, and concurrent extractions of the same statement are still
 serialised.
 
+### A background job names its own Account
+
+Cartulary connects to PostgreSQL as a role that row-level security applies to,
+and the policies on every Account-owned table compare each row against an
+Account the current transaction has declared. A request declares one from the
+credential it authenticated with. A background job has no request behind it, so
+it declares one itself, from the queue row it was started for, before it reads
+or writes anything.
+
+You do not configure this and there is nothing to tune. It is worth knowing only
+because it explains what an undeclared job would look like from the outside: not
+an error, but a job that finds no work to do. The queue row exists, the job runs,
+and it concludes there is nothing to process — so ingest would answer `200`,
+extraction would never happen, and a later search would return nothing rather
+than report a fault.
+
 ### Structured extraction, not free text
 
 Candidates are generated against a schema derived from the Ash resources that

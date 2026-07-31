@@ -251,6 +251,27 @@ defmodule Cartulary.Operations.PipelineRun do
       end
     end
 
+    # The read every background job performs on itself, and the only read that
+    # runs with nothing upstream having declared an Account to the database.
+    #
+    # A job starts by reading its own run row back to confirm the work is still
+    # outstanding. That read lands on a pooled connection no request ever
+    # touched, and this table's row-level security policy hides every row until
+    # a transaction declares which Account is acting. Undeclared, the read
+    # returns nothing, the job runner reads that as its trigger no longer
+    # applying, and it cancels itself while the work stays undone and invisible.
+    #
+    # The transaction and the preparation are one mechanism: the preparation
+    # declares the Account, and the transaction is what makes that declaration
+    # last beyond the statement that installs it. Every trigger points its
+    # worker at this action rather than at the primary read, which stays as it
+    # was for callers that already hold an Account-scoped transaction.
+    read :for_trigger do
+      transaction? true
+
+      prepare Cartulary.Pipeline.Preparations.DeclareAccount
+    end
+
     # One enqueue action per lane. They are identical apart from the lane name
     # they stamp and the trigger they fire, and each one follows the same
     # pattern: upsert on the deterministic replay key, rewrite nothing but that
@@ -359,22 +380,36 @@ defmodule Cartulary.Operations.PipelineRun do
     end
 
     # The job body. It runs the lane's workflow and then records the outcome on
-    # this row. `transaction? false` is required, not incidental: the workflow
-    # opens and commits its own transactions (raw writes, governance decisions,
-    # projection rebuilds), and wrapping all of that in one long-lived
-    # transaction would hold locks for the entire duration of the work.
+    # this row.
+    #
+    # The workflow must not run inside this transaction: lanes open and commit
+    # their own (raw writes, governance decisions, projection rebuilds), and
+    # holding one long-lived transaction across all of them would keep locks for
+    # the entire duration of the work. That separation is now enforced by *when*
+    # the workflow runs rather than by having no transaction at all — the change
+    # below runs it in a before-transaction hook, leaving this transaction to
+    # cover only the short status write.
+    #
+    # That transaction is required. The write lands on a connection with no
+    # Account declared, and the row-level security policy on this table refuses
+    # a write it cannot match; PostgreSQL then reports zero rows changed and Ash
+    # raises a stale-record error, which the job runner reads as the trigger no
+    # longer applying. Completed work would be recorded as never having run.
     update :execute do
-      transaction? false
       require_atomic? false
+      change Cartulary.Pipeline.Changes.DeclareAccount
       change Cartulary.Pipeline.Changes.ExecuteRun
     end
 
     # Failure path invoked when the job errors. It stores only a classification
     # of the error and bumps the attempt count, leaving the row eligible for a
-    # later retry or reconciliation sweep.
+    # later retry or reconciliation sweep. It carries the same Account
+    # declaration as `:execute`, and for the same reason: it runs from the job
+    # runner's error handler, where nothing has declared one.
     update :mark_failed do
       argument :error, :term, allow_nil?: false
       require_atomic? false
+      change Cartulary.Pipeline.Changes.DeclareAccount
       change Cartulary.Pipeline.Changes.MarkRunFailed
     end
   end
@@ -420,6 +455,12 @@ defmodule Cartulary.Operations.PipelineRun do
     #
     #   * `where` claims only rows of its own lane that are pending or failed,
     #     so a completed run is never re-executed.
+    #   * `worker_read_action(:for_trigger)` is what lets the job find its own
+    #     row at all. The job runner reads that row before any Cartulary code
+    #     runs, on a connection with no Account declared, and this table's
+    #     row-level security policy hides every row until one is. Left on the
+    #     primary read, the job would see nothing, decide its trigger no longer
+    #     applies, and cancel itself with the work undone.
     #   * `scheduler_cron(false)` means no polling scheduler; work is inserted
     #     by the enqueue action, in the caller's transaction.
     #   * `trigger_once?(true)` adds completed to the job's uniqueness states,
@@ -435,6 +476,7 @@ defmodule Cartulary.Operations.PipelineRun do
       trigger :extraction do
         action :execute
         where expr(kind == "extraction" and status in ["pending", "failed"])
+        worker_read_action(:for_trigger)
         queue(:ingest)
         scheduler_cron(false)
         max_attempts(5)
@@ -448,6 +490,7 @@ defmodule Cartulary.Operations.PipelineRun do
       trigger :dream_time do
         action :execute
         where expr(kind == "dream_time" and status in ["pending", "failed"])
+        worker_read_action(:for_trigger)
         queue(:dream)
         scheduler_cron(false)
         max_attempts(5)
@@ -461,6 +504,7 @@ defmodule Cartulary.Operations.PipelineRun do
       trigger :revalidation do
         action :execute
         where expr(kind == "revalidation" and status in ["pending", "failed"])
+        worker_read_action(:for_trigger)
         queue(:lifecycle)
         scheduler_cron(false)
         max_attempts(5)
@@ -474,6 +518,7 @@ defmodule Cartulary.Operations.PipelineRun do
       trigger :expiry do
         action :execute
         where expr(kind == "expiry" and status in ["pending", "failed"])
+        worker_read_action(:for_trigger)
         queue(:lifecycle)
         scheduler_cron(false)
         max_attempts(5)
@@ -487,6 +532,7 @@ defmodule Cartulary.Operations.PipelineRun do
       trigger :projection_refresh do
         action :execute
         where expr(kind == "projection_refresh" and status in ["pending", "failed"])
+        worker_read_action(:for_trigger)
         queue(:projection)
         scheduler_cron(false)
         max_attempts(5)
@@ -500,6 +546,7 @@ defmodule Cartulary.Operations.PipelineRun do
       trigger :connector_sync do
         action :execute
         where expr(kind == "connector_sync" and status in ["pending", "failed"])
+        worker_read_action(:for_trigger)
         queue(:connector)
         scheduler_cron(false)
         max_attempts(5)
@@ -513,6 +560,7 @@ defmodule Cartulary.Operations.PipelineRun do
       trigger :import_rebuild do
         action :execute
         where expr(kind == "import_rebuild" and status in ["pending", "failed"])
+        worker_read_action(:for_trigger)
         queue(:portability)
         scheduler_cron(false)
         max_attempts(5)
@@ -526,6 +574,7 @@ defmodule Cartulary.Operations.PipelineRun do
       trigger :reconciler do
         action :execute
         where expr(kind == "reconciler" and status in ["pending", "failed"])
+        worker_read_action(:for_trigger)
         queue(:reconciler)
         scheduler_cron(false)
         max_attempts(5)
@@ -539,6 +588,7 @@ defmodule Cartulary.Operations.PipelineRun do
       trigger :entity_resolution do
         action :execute
         where expr(kind == "entity_resolution" and status in ["pending", "failed"])
+        worker_read_action(:for_trigger)
         queue(:projection)
         scheduler_cron(false)
         max_attempts(5)
@@ -552,6 +602,7 @@ defmodule Cartulary.Operations.PipelineRun do
       trigger :validation_continuation do
         action :execute
         where expr(kind == "validation_continuation" and status in ["pending", "failed"])
+        worker_read_action(:for_trigger)
         queue(:governance)
         scheduler_cron(false)
         max_attempts(5)
@@ -565,6 +616,7 @@ defmodule Cartulary.Operations.PipelineRun do
       trigger :answer_correlation do
         action :execute
         where expr(kind == "answer_correlation" and status in ["pending", "failed"])
+        worker_read_action(:for_trigger)
         queue(:governance)
         scheduler_cron(false)
         max_attempts(5)

@@ -25,6 +25,11 @@ defmodule Cartulary.DataLayer do
   session-level setting would silently hand the next checkout of that
   connection somebody else's Account.
 
+  One helper here breaks the "open a transaction" pattern on purpose:
+  `declare_account!/1` installs those settings into a transaction an Ash action
+  already opened. Background jobs need it, because nothing upstream of them has
+  declared an Account and the policies deny everything until something does.
+
   ## The Account is derived, never requested
 
   Every entry point takes its Account from an authenticated actor, from an
@@ -337,6 +342,53 @@ defmodule Cartulary.DataLayer do
       {:ok, result} -> result
       {:error, error} -> raise "Account-scoped transaction failed: #{inspect(error)}"
     end
+  end
+
+  @doc """
+  Declares an Account to the transaction that is already open on this connection.
+
+  The helpers above all *open* a transaction. This one does not: it is for code that finds
+  itself inside a transaction somebody else opened — an Ash action's own — and needs the
+  row-level-security settings installed into it before the statement is issued. Background
+  jobs are the case that forced this to exist. A job runs with no request behind it, so the
+  connection its first query lands on carries no Account at all, and every policy on a tenant
+  table then denies: a read comes back empty and a write is refused.
+
+  ## An existing declaration always wins
+
+  The value is only installed when none is present, which is what makes this safe to call
+  from an action that may or may not be nested inside an Account-scoped transaction. Calling
+  it can therefore never switch, widen, or reinstate tenancy: an outer Account stays in
+  force, and if this transaction's work belongs to a different Account, the policies refuse
+  it loudly instead of quietly serving the wrong tenant's rows.
+
+  The setting is transaction-local, so it is discarded when the enclosing transaction ends
+  and cannot follow a pooled connection to its next user.
+
+  Raises when no transaction is open, because `set_config` with the transaction-local flag
+  would otherwise apply to the implicit single-statement transaction of the call itself and
+  vanish before the caller's next query — a silent no-op that would look exactly like a
+  successful declaration.
+  """
+  def declare_account!(account_id) when is_binary(account_id) do
+    unless Repo.in_transaction?() do
+      raise "Cartulary.DataLayer.declare_account!/1 requires an open transaction: " <>
+              "a transaction-local setting installed outside one is discarded immediately"
+    end
+
+    Ecto.Adapters.SQL.query!(
+      Repo,
+      """
+      SELECT set_config(
+               'cartulary.account_id',
+               COALESCE(NULLIF(current_setting('cartulary.account_id', true), ''), $1),
+               true
+             )
+      """,
+      [account_id]
+    )
+
+    :ok
   end
 
   # Restores a verified archive into a fresh Account, in one transaction.
