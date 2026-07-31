@@ -24,7 +24,17 @@ defmodule Cartulary.F7RetrievalEntityContextTest.Provider do
   @impl true
   def chat(config, messages, opts) do
     record(:chat)
-    Deterministic.chat(config, messages, opts)
+
+    if Keyword.get(opts, :task) == :entity_card do
+      {:ok,
+       %Result{
+         value: "The billing service has three governed operational facts.",
+         usage: %{input_tokens: 12, output_tokens: 8},
+         metadata: %{fixture: true}
+       }}
+    else
+      Deterministic.chat(config, messages, opts)
+    end
   end
 
   # Interpretable dimensions make nearest-neighbor expectations explicit.
@@ -155,7 +165,15 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
   alias Cartulary.Context.Builder
   alias Cartulary.DataLayer
   alias Cartulary.Governance.Engine, as: GovernanceEngine
-  alias Cartulary.Knowledge.{Entity, EntityMention, KnowledgeItem, KnowledgeRelation}
+
+  alias Cartulary.Knowledge.{
+    Entity,
+    EntityMention,
+    KnowledgeItem,
+    KnowledgeRelation,
+    Projection
+  }
+
   alias Cartulary.Memory
   alias Cartulary.Retrieval.{EntityResolver, Indexer, Profile, Query}
   alias Cartulary.Retrieval.Strategies
@@ -729,6 +747,118 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     assert dirty["fast_fallback"] == true
   end
 
+  test "entity cards summarize three active sources without exposing the entity cache" do
+    first =
+      seed_active!(
+        "f7-entity-card",
+        "/f7/entity-card",
+        "The billing service owns invoice generation.",
+        "entity-card-1"
+      )
+
+    second =
+      seed_active!(
+        "f7-entity-card",
+        "/f7/entity-card",
+        "The billing service pages the finance on-call after failed settlement.",
+        "entity-card-2"
+      )
+
+    third =
+      seed_active!(
+        "f7-entity-card",
+        "/f7/entity-card",
+        "The billing service restricts salary export access.",
+        "entity-card-3"
+      )
+
+    DataLayer.with_account_key("f7-entity-card", fn account, actor ->
+      pipeline = pipeline_actor(actor)
+      source_ids = Enum.map([first, second, third], & &1.knowledge.id)
+
+      entity =
+        create!(
+          Entity,
+          :create_from_pipeline,
+          %{
+            canonical_name: "billing service",
+            kind: "system",
+            aliases: ["billing service"],
+            derived_from: source_ids
+          },
+          account.id,
+          pipeline
+        )
+
+      Enum.each([first, second, third], fn seeded ->
+        create!(
+          EntityMention,
+          :create_from_pipeline,
+          %{
+            knowledge_item_id: seeded.knowledge.id,
+            scope_id: seeded.scope.id,
+            entity_id: entity.id,
+            surface_form: "billing service",
+            confidence: 1.0
+          },
+          account.id,
+          pipeline
+        )
+      end)
+
+      assert {:ok, %{entity_cards: 1}} = Builder.refresh_scope(account.id, first.scope.id)
+
+      projection =
+        Projection
+        |> Ash.Query.filter(kind == "entity_card" and scope_id == ^first.scope.id)
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read_one!(actor: pipeline)
+
+      assert projection.entity_id == entity.id
+      assert projection.sensitivity == "personal"
+    end)
+
+    context =
+      Memory.get_context(
+        %{"scope_path" => first.scope.path, "budget_chars" => 50_000},
+        first.actor
+      )
+
+    assert [card] = context["entity_cards"]
+    assert card["summary"] == "The billing service has three governed operational facts."
+    assert card["summary_mode"] == "model"
+    assert card["sensitivity"] == "personal"
+    assert length(card["knowledge"]) == 3
+
+    for private_field <- ~w(entity_id canonical_name aliases surface_form) do
+      refute Map.has_key?(card, private_field)
+      refute Enum.any?(card["knowledge"], &Map.has_key?(&1, private_field))
+    end
+
+    # Dropping below the three-active-source threshold retires the old card. The mention cache
+    # may still contain the retracted statement until its own rebuild, so this also proves that
+    # card eligibility comes from governed lifecycle state rather than mention presence alone.
+    DataLayer.with_account_key("f7-entity-card", fn account, actor ->
+      GovernanceEngine.transition!(
+        third.knowledge,
+        pipeline_actor(actor),
+        %{state: "retracted"},
+        reason: "f7_entity_card_retracted",
+        channel: "pipeline"
+      )
+
+      assert {:ok, %{entity_cards: 0}} = Builder.refresh_scope(account.id, first.scope.id)
+    end)
+
+    refreshed =
+      Memory.get_context(
+        %{"scope_path" => first.scope.path, "budget_chars" => 50_000},
+        first.actor
+      )
+
+    assert refreshed["entity_cards"] == []
+  end
+
   # The index names below are frozen: they are what the hand-written migration DDL created,
   # and the query planner will not use an index that has been renamed or dropped. A missing
   # index does not fail any other test — retrieval still returns correct results, just by
@@ -749,7 +879,8 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
                    "document_chunks_embedding_hnsw_384_idx",
                    "entities_alias_embedding_hnsw_384_idx",
                    "knowledge_items_embedding_hnsw_384_idx",
-                   "knowledge_items_search_vector_idx"
+                   "knowledge_items_search_vector_idx",
+                   "projections_clean_entity_cards_index"
                  ]
                ]
              )
@@ -759,7 +890,8 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
              "document_chunks_search_vector_idx",
              "entities_alias_embedding_hnsw_384_idx",
              "knowledge_items_embedding_hnsw_384_idx",
-             "knowledge_items_search_vector_idx"
+             "knowledge_items_search_vector_idx",
+             "projections_clean_entity_cards_index"
            ]
   end
 

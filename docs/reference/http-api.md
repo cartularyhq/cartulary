@@ -169,8 +169,14 @@ A missing `question` raises rather than answering over an empty query.
 | `budget_chars` | unset |
 
 Returns `{"data": context}` with `knowledge`, `session_summary`, `scope_cards`,
-`peer_profile`, `profile_version`, and two diagnostics:
+`entity_cards`, `peer_profile`, `profile_version`, and two diagnostics:
 `projection_cache_hit` and `fast_fallback`.
+
+Each entity card contains a bounded `summary`, the strictest source
+`sensitivity`, `summary_mode`, `summary_provenance`, and its allowlisted
+governed `knowledge`. A card requires at least three active source statements
+in one scope. Entity ids, canonical names, aliases, and mention surface forms
+are never returned.
 
 No generation model is ever called on this path.
 

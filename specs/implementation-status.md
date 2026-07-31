@@ -152,10 +152,13 @@ Details: `specs/architecture/documents-connectors-sync.md`.
 - Knowledge and document chunks use PostgreSQL `vector` values with pinned
   provider/model/version/dimension identity, HNSW cosine indexes, and PG-FTS
   GIN indexes.
-- Entity and EntityMention rows are internal rebuildable caches. They are never
-  exposed through HTTP, MCP, SDK, LiveView, projections, or retrieval
-  responses.
-- Incremental peer profile, scope card, and session summary projections with
+- Entity and EntityMention rows are internal rebuildable caches. Their rows,
+  names, aliases, surface forms, and ids are never exposed through HTTP, MCP,
+  SDK, LiveView, projection payloads, or retrieval responses.
+- Scope-bounded entity cards summarize resolved entities with at least three
+  active governed sources. They carry the strictest source sensitivity and
+  expose no entity-cache field.
+- Incremental peer profile, scope card, entity card, and session summary projections with
   dirty marking, bounded delta compaction, and PubSub-backed ETS invalidation.
 - `get_context` assembles its budget from clean projections and stays
   reasoning-free; its only live retrieval work is the allowed `:fast` fallback

@@ -603,7 +603,7 @@ end
 
 defmodule Cartulary.Knowledge.Projection do
   @moduledoc """
-  A rebuildable scope, peer, or session context cache.
+  A rebuildable scope, peer, session, or entity context cache.
 
   Knowledge remains authoritative. Projections carry source ids, dirty state, and bounded deltas
   so invalidation or loss can be repaired without reasoning during ordinary context reads.
@@ -628,7 +628,9 @@ defmodule Cartulary.Knowledge.Projection do
         :scope_id,
         :peer_id,
         :session_id,
+        :entity_id,
         :kind,
+        :sensitivity,
         :version,
         :content,
         :source_ids,
@@ -642,6 +644,7 @@ defmodule Cartulary.Knowledge.Projection do
 
       upsert_fields [
         :version,
+        :sensitivity,
         :content,
         :source_ids,
         :dirty,
@@ -654,7 +657,7 @@ defmodule Cartulary.Knowledge.Projection do
     # The "mark dirty" path. It accepts the content fields as well, but every caller in this
     # codebase only flips the flag; full rewrites go through the upsert above.
     update :refresh_from_pipeline do
-      accept [:version, :content, :source_ids, :dirty, :watermark, :delta_count]
+      accept [:sensitivity, :version, :content, :source_ids, :dirty, :watermark, :delta_count]
     end
   end
 
@@ -685,10 +688,17 @@ defmodule Cartulary.Knowledge.Projection do
     attribute :cache_key, :string, allow_nil?: false
     attribute :scope_id, :uuid, allow_nil?: false
 
-    # Set only for the projection kinds that need them: peer profiles and session summaries.
+    # Set only for the projection kinds that need them: peer profiles, session summaries, and
+    # entity cards. Entity ids remain private cache coordinates and never enter context payloads.
     attribute :peer_id, :uuid, public?: true
     attribute :session_id, :uuid, public?: true
+    attribute :entity_id, :uuid
     attribute :kind, :string, allow_nil?: false, public?: true
+
+    # The strictest sensitivity among an entity card's sources. Core read authorization is still
+    # scope-based; retaining this classification prevents a synthesized card from losing the
+    # source set's blast-radius metadata and leaves a safe filter point for future field policy.
+    attribute :sensitivity, :string
 
     # Monotonic per projection; raised on every rebuild so a stale reader can detect drift.
     attribute :version, :integer, allow_nil?: false, default: 1, public?: true

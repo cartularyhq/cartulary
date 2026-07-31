@@ -15,6 +15,7 @@ settled by the blueprint specs.
 | `0006-entity-resolution.md` | Canonical referents resolved at dream-time, exposed through no public surface. |
 | `0007-unattended-governance-consent.md` | Declared-account/deployment auto-grant of subject consent, off by default. |
 | `0008-restricted-database-role-for-rls-enforcement.md` | A NOSUPERUSER NOBYPASSRLS role is what makes Postgres row-level security actually enforce. |
+| `0009-scope-bounded-entity-cards.md` | Per-scope entity summaries are projections over governed statements, never content on the entity cache. |
 
 Conventions for future ADRs:
 

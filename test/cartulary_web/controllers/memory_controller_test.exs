@@ -217,6 +217,7 @@ defmodule CartularyWeb.MemoryControllerTest do
                # background rebuild runs they are missing rather than wrong.
                "session_summary" => nil,
                "scope_cards" => [],
+               "entity_cards" => [],
                "peer_profile" => [],
                # Reports that the projection was missing and the fastest
                # retrieval profile filled the gap live. Callers need to tell a

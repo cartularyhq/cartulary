@@ -9,6 +9,15 @@ changelog entry and contract-version transition.
 
 ## [Unreleased]
 
+### Added
+
+- `get_context` now includes scope-bounded `entity_cards` for resolved entities
+  with at least three active governed source statements. Each background-built
+  card carries a bounded summary, its model provenance, the strictest source
+  sensitivity, and its governed statements without exposing entity-cache ids,
+  names, aliases, or mention text. The new member is additive; existing
+  retrieval behavior and the `f7-1` contract identity are unchanged.
+
 ### Fixed
 
 - A failed extraction reported `:missing_structured_object` no matter why the

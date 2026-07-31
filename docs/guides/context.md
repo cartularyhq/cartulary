@@ -30,6 +30,13 @@ curl -fsS -X POST http://127.0.0.1:4000/api/v1/context \
     "knowledge": [ ... ],
     "session_summary": { ... },
     "scope_cards": [ ... ],
+    "entity_cards": [
+      {
+        "summary": "The billing service owns invoice generation and pages finance after failed settlement.",
+        "sensitivity": "internal",
+        "knowledge": [ ... ]
+      }
+    ],
     "peer_profile": { ... },
     "profile_version": "f7-1",
     "projection_cache_hit": true,
@@ -41,6 +48,8 @@ curl -fsS -X POST http://127.0.0.1:4000/api/v1/context \
 - **`knowledge`** — governed statements in scope, within budget.
 - **`session_summary`** — a projection of this session so far.
 - **`scope_cards`** — what each ancestor scope contributes.
+- **`entity_cards`** — short per-entity briefs built from at least three active
+  governed statements in one scope. Cards expose no entity-cache metadata.
 - **`peer_profile`** — a projection about the calling peer.
 - **`projection_cache_hit`** — a stored projection was reused.
 - **`fast_fallback`** — the projection was missing, so the `fast` retrieval
@@ -48,8 +57,10 @@ curl -fsS -X POST http://127.0.0.1:4000/api/v1/context \
 
 ## Why this is not just a search
 
-Profiles, scope cards, and session summaries are cached **projections** of
-governed knowledge, not another durable store.
+Profiles, scope cards, entity cards, and session summaries are cached
+**projections** of governed knowledge, not another durable store. Entity-card
+summaries are generated during background refresh; no model runs during this
+request.
 
 ```mermaid
 flowchart LR

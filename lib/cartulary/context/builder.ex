@@ -7,6 +7,10 @@ defmodule Cartulary.Context.Builder do
   Background refresh may use the model-backed `:thorough` profile; request-time context assembly
   remains model-free. Projections are rebuildable caches written by the internal pipeline.
 
+  Refresh uses a short read transaction, performs ranking and summary calls without holding a
+  database connection, then writes every projection in one short transaction. A model failure
+  therefore leaves the prior projection set intact for job retry.
+
   `mark_dirty/3` must share the lifecycle-change transaction; otherwise stale content could remain
   readable. Both operations invalidate node-local copies cluster-wide. Incremental merges are
   capped and periodically compacted to bound growth and drift.
@@ -15,25 +19,47 @@ defmodule Cartulary.Context.Builder do
   alias Cartulary.Clock
   alias Cartulary.Context.Cache
   alias Cartulary.DataLayer
-  alias Cartulary.Knowledge.{KnowledgeItem, Projection}
+  alias Cartulary.Knowledge.{EntityMention, KnowledgeItem, Projection}
+  alias Cartulary.Model.Config
+  alias Cartulary.Model.Gateway
   alias Cartulary.Observations.Session
   alias Cartulary.Retrieval.Query
   alias Cartulary.Topology.Scope
 
   require Ash.Query
 
+  # Unit: distinct governed statements. Singleton and pair mentions do not justify a separate
+  # summary or its model cost; three sources are enough to form a minimally useful entity brief.
+  @entity_card_min_sources 3
+
+  # Unit: Unicode characters. Entity cards prime a turn rather than replace search, so one short
+  # paragraph leaves most of the context budget for governed statements and other projections.
+  @entity_card_summary_chars 600
+
   @doc """
   Rebuilds every projection belonging to one scope and clears their dirty flags.
 
-  Runs as the internal pipeline actor in one Account transaction. Includes active and provisional
-  statements, but not soft-deleted rows.
+  Runs as the internal pipeline actor. Scope, peer, and session projections include active and
+  provisional statements. Entity cards use active statements only because a card has no subject
+  Peer whose provisional visibility it could safely inherit.
 
-  Returns `{:ok, map}` with the scope card's id and the number of peer profile and session
-  summary projections written. Raises if the transaction fails or an underlying Ash call fails.
+  Returns `{:ok, map}` with the scope card's id and the number of entity card, peer profile, and
+  session summary projections written. Raises if the transaction fails, a required entity summary
+  model call fails, or an underlying Ash call fails.
 
   Replays are safe because projections are upserted by cache key.
   """
   def refresh_scope(account_id, scope_id) do
+    {scope, knowledge, mentions, actor} = read_scope!(account_id, scope_id)
+    knowledge = dream_rank(knowledge, scope, account_id, actor)
+    entity_attrs = build_entity_card_attrs!(scope, knowledge, mentions, account_id, actor)
+
+    write_projections!(account_id, scope, knowledge, entity_attrs)
+  end
+
+  # Phase one reads one consistent source snapshot and returns the plain actor for the model phase.
+  # The actor is immutable authorization data and remains valid after this transaction closes.
+  defp read_scope!(account_id, scope_id) do
     DataLayer.with_account_id(
       account_id,
       [role: :system, pipeline?: true],
@@ -50,18 +76,44 @@ defmodule Cartulary.Context.Builder do
           |> Ash.Query.set_tenant(account_id)
           |> Ash.read!(actor: actor)
 
-        knowledge = dream_rank(knowledge, scope, account_id, actor)
+        mentions =
+          EntityMention
+          |> Ash.Query.filter(scope_id == ^scope.id)
+          |> Ash.Query.set_tenant(account_id)
+          |> Ash.read!(actor: actor)
+
+        {scope, knowledge, mentions, actor}
+      end
+    )
+  end
+
+  # Phase three commits the projection set. No provider call may be added to this callback: a
+  # slow external request here would hold a pooled connection and could discard billed work.
+  defp write_projections!(account_id, scope, knowledge, entity_attrs) do
+    DataLayer.with_account_id(
+      account_id,
+      [role: :system, pipeline?: true],
+      fn _account, actor ->
+        entity_projections =
+          Enum.map(entity_attrs, &upsert_projection!(account_id, actor, &1))
+
+        retire_stale_entity_cards!(
+          account_id,
+          actor,
+          scope.id,
+          MapSet.new(entity_projections, & &1.entity_id)
+        )
 
         scope_projection =
           upsert_projection!(
             account_id,
             actor,
             %{
-              cache_key: "scope:#{scope_id}",
-              scope_id: scope_id,
+              cache_key: "scope:#{scope.id}",
+              scope_id: scope.id,
               kind: "scope_card",
               content: %{
-                "scope_id" => scope_id,
+                "scope_id" => scope.id,
                 "path" => scope.path,
                 "name" => scope.name,
                 "knowledge" => Enum.map(knowledge, &knowledge_map/1)
@@ -80,8 +132,8 @@ defmodule Cartulary.Context.Builder do
               account_id,
               actor,
               %{
-                cache_key: "peer:#{scope_id}:#{peer_id}",
-                scope_id: scope_id,
+                cache_key: "peer:#{scope.id}:#{peer_id}",
+                scope_id: scope.id,
                 peer_id: peer_id,
                 kind: "peer_profile",
                 content: %{"knowledge" => Enum.map(items, &knowledge_map/1)},
@@ -93,7 +145,7 @@ defmodule Cartulary.Context.Builder do
         # Session summaries are scope-level warm starts, not message-history summaries.
         session_projections =
           Session
-          |> Ash.Query.filter(scope_id == ^scope_id)
+          |> Ash.Query.filter(scope_id == ^scope.id)
           |> Ash.Query.set_tenant(account_id)
           |> Ash.read!(actor: actor)
           |> Enum.map(fn session ->
@@ -101,8 +153,8 @@ defmodule Cartulary.Context.Builder do
               account_id,
               actor,
               %{
-                cache_key: "session:#{scope_id}:#{session.id}",
-                scope_id: scope_id,
+                cache_key: "session:#{scope.id}:#{session.id}",
+                scope_id: scope.id,
                 peer_id: session.peer_id,
                 session_id: session.id,
                 kind: "session_summary",
@@ -117,17 +169,134 @@ defmodule Cartulary.Context.Builder do
           end)
 
         # Evict stale copies on every node.
-        Cache.invalidate_scope(account_id, scope_id)
+        Cache.invalidate_scope(account_id, scope.id)
 
         {:ok,
          %{
            scope_card: scope_projection.id,
+           entity_cards: length(entity_projections),
            peer_profiles: length(peer_projections),
            session_summaries: length(session_projections)
          }}
       end
     )
   end
+
+  # EntityMention is only an internal grouping index. The card stores the id as a private cache
+  # coordinate, while its visible content is built exclusively from governed statement fields.
+  defp build_entity_card_attrs!(scope, knowledge, mentions, account_id, actor) do
+    active_by_id =
+      knowledge
+      |> Enum.filter(&(&1.state == "active"))
+      |> Map.new(&{&1.id, &1})
+
+    mentions
+    |> Enum.group_by(& &1.entity_id)
+    |> Enum.flat_map(fn {entity_id, mentions} ->
+      items =
+        mentions
+        |> Enum.map(&Map.get(active_by_id, &1.knowledge_item_id))
+        |> Enum.reject(&is_nil/1)
+        |> Enum.uniq_by(& &1.id)
+
+      if length(items) < @entity_card_min_sources do
+        []
+      else
+        items = preserve_rank(items, knowledge)
+        sensitivity = strictest_sensitivity(items)
+        {summary, provenance, mode} = entity_summary!(items, account_id, actor)
+
+        [
+          %{
+            cache_key: "entity:#{scope.id}:#{entity_id}",
+            scope_id: scope.id,
+            entity_id: entity_id,
+            kind: "entity_card",
+            sensitivity: sensitivity,
+            content: %{
+              "scope_id" => scope.id,
+              "summary" => summary,
+              "summary_mode" => mode,
+              "summary_provenance" => stringify_keys(provenance),
+              "sensitivity" => sensitivity,
+              "knowledge" => Enum.map(items, &knowledge_map/1)
+            },
+            source_ids: Enum.map(items, & &1.id)
+          }
+        ]
+      end
+    end)
+  end
+
+  # A merge, split, retraction, or erasure can leave a formerly useful card below the source
+  # threshold. Keep the rebuildable row for replay, but make it unreadable until enough active
+  # sources exist again and a later upsert clears the flag.
+  defp retire_stale_entity_cards!(account_id, actor, scope_id, current_entity_ids) do
+    Projection
+    |> Ash.Query.filter(scope_id == ^scope_id and kind == "entity_card")
+    |> Ash.Query.set_tenant(account_id)
+    |> Ash.read!(actor: actor)
+    |> Enum.reject(&MapSet.member?(current_entity_ids, &1.entity_id))
+    |> Enum.each(fn projection ->
+      projection
+      |> Ash.Changeset.for_update(:refresh_from_pipeline, %{dirty: true})
+      |> Ash.Changeset.set_tenant(account_id)
+      |> Ash.update!(actor: actor, authorize?: false)
+    end)
+  end
+
+  defp entity_summary!(items, account_id, actor) do
+    context = %{account_id: account_id, actor: actor}
+    config = Cartulary.Model.role_config(:dream_reasoner, context)
+
+    if Gateway.provider_module(config, context) == Cartulary.Model.Providers.Deterministic do
+      {grounded_summary(items), Config.provenance(config), "source_extract"}
+    else
+      messages = [
+        %{
+          role: "system",
+          content:
+            "Summarize only the governed statements supplied by the user. " <>
+              "They concern one resolved referent. Preserve qualifications and disagreements, " <>
+              "make no new claims, and return one concise paragraph of at most " <>
+              "#{@entity_card_summary_chars} characters."
+        },
+        %{
+          role: "user",
+          content: Jason.encode!(%{"statements" => Enum.map(items, & &1.statement)})
+        }
+      ]
+
+      case Cartulary.Model.chat(:dream_reasoner, messages, context, task: :entity_card) do
+        {:ok, summary, provenance} when is_binary(summary) and summary != "" ->
+          {String.slice(String.trim(summary), 0, @entity_card_summary_chars), provenance, "model"}
+
+        {:ok, _summary, _provenance} ->
+          raise "entity card summary model returned empty text"
+
+        {:error, reason} ->
+          raise "entity card summary model failed: #{inspect(reason)}"
+      end
+    end
+  end
+
+  defp grounded_summary(items) do
+    items
+    |> Enum.map_join(" ", & &1.statement)
+    |> String.slice(0, @entity_card_summary_chars)
+  end
+
+  defp preserve_rank(items, ranked_knowledge) do
+    ids = MapSet.new(items, & &1.id)
+    Enum.filter(ranked_knowledge, &MapSet.member?(ids, &1.id))
+  end
+
+  defp strictest_sensitivity(items) do
+    rank = %{"public" => 0, "internal" => 1, "personal" => 2, "restricted" => 3}
+    items |> Enum.max_by(&Map.fetch!(rank, &1.sensitivity)) |> Map.fetch!(:sensitivity)
+  end
+
+  defp stringify_keys(map), do: Map.new(map, fn {key, value} -> {to_string(key), value} end)
 
   @doc """
   Marks every projection in a scope as unusable and evicts the in-memory copies.
@@ -225,8 +394,8 @@ defmodule Cartulary.Context.Builder do
     }
   end
 
-  # Background ranking has no deadline and stays serial inside one Account transaction. Append
-  # unranked statements so reranking never drops content.
+  # Background ranking has no deadline and stays serial outside the read and write transactions.
+  # Append unranked statements so reranking never drops content.
   defp dream_rank([], _scope, _account_id, _actor), do: []
 
   defp dream_rank(knowledge, scope, account_id, actor) do
