@@ -3,32 +3,12 @@
 defmodule CartularyWeb.Plugs.RequireHumanIdentity do
   @moduledoc """
   Restricts a route to a caller who signed in as a person, rejecting machine
-  credentials.
+    credentials.
 
-  Cartulary distinguishes two kinds of authenticated identity: a human who
-  authenticated with a password (`:password`) and an agent presenting a
-  long-lived API key (`:api_key`). Machine credentials are allowed to submit
-  raw observations, read governed memory, and answer questions addressed to
-  their own peer. They must never exercise the decisions that only a person may
-  make — approving, editing, rejecting, merging or deferring proposed
-  knowledge, administering gate rules, running bulk curator actions, or
-  exercising a data subject's own rights to contest, redact, or request
-  erasure. This plug is the HTTP-side enforcement of that split.
-
-  ## Ordering requirement
-
-  It reads `conn.assigns.current_actor` and therefore must run after the plug
-  that authenticates the bearer credential. It deliberately fails closed: if
-  the actor assign is missing — because the pipelines were reordered, or the
-  route was attached without authentication — the request is rejected rather
-  than allowed through unchecked.
-
-  ## What it does not check
-
-  Only the *kind* of identity. It says nothing about roles or scopes. A signed-in
-  reader passes this plug; whether that person may act on a particular piece of
-  knowledge is decided by the governance domain and by Ash policies, not here.
-  Do not treat passing this plug as authorization.
+    Cartulary distinguishes two kinds of authenticated identity: a human who
+    authenticated with a password (`:password`) and an agent presenting a long-lived API
+    key (`:api_key`). Machine credentials are allowed to submit raw observations, read
+    governed memory, and answer questions addressed to their own peer.
   """
 
   @behaviour Plug

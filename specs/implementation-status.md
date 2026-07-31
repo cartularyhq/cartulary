@@ -5,16 +5,13 @@
 Application version: `0.2.0` (community beta).
 Last verified: 2026-07-28.
 
-This document records what actually runs today, the evidence behind it, and the
-limitations that are real rather than aspirational. It is the honest inventory
-that sits between the target architecture in
-`specs/architecture/free-core-architecture.md` and the outstanding work in
+Current behavior, evidence, and real limitations. Target architecture:
+`specs/architecture/free-core-architecture.md`. Outstanding work:
 `specs/roadmap/beta-roadmap.md`.
 
-Cartulary is past its proof-of-concept stage. The memory engine, governance,
-retrieval, document handling, packaging, and release machinery are implemented
-and covered by tests. One capability — integration surfaces, gateway, and
-generated SDKs — is not implemented and is never described here as if it were.
+The memory engine, governance, retrieval, documents, packaging, and release
+machinery are implemented. Integration surfaces, gateway, and generated SDKs
+are not.
 
 ## What runs today
 
@@ -248,8 +245,8 @@ credential at all.
 
 ## Verification evidence
 
-Recorded from the 2026-07-28 verification of `0.2.0` against pg0-backed
-Postgres, stock external Postgres, and a configured OpenRouter key.
+Recorded on 2026-07-28 for `0.2.0` with pg0, stock external Postgres, and
+OpenRouter.
 
 - `mix deps.get`, `mix format --check-formatted`, and
   `mix compile --warnings-as-errors` passed.
@@ -287,13 +284,12 @@ Postgres, stock external Postgres, and a configured OpenRouter key.
 - The baseline eval fixtures still match the committed hash and normalization
   baseline in `test/fixtures/eval/poc-contract-baseline.json`.
 
-CI runs the same deterministic gate against external Postgres and packaged
-pg0, then builds the Mix release and production container.
+CI repeats the gate against external Postgres and packaged pg0, then builds the
+release and container.
 
 ## Known limitations
 
-These are real and currently true. Each has a tracked item in
-`specs/roadmap/beta-roadmap.md`.
+Each limitation is tracked in `specs/roadmap/beta-roadmap.md`.
 
 - **Integration surfaces are partial.** The Phoenix JSON controller, the
   governance LiveView, the MCP tool set, and the transport-neutral readiness

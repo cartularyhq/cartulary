@@ -2,62 +2,11 @@
 
 defmodule Cartulary.Database.AppRole do
   @moduledoc """
-  Makes the database half of cross-Account isolation actually enforce.
+  Creates and validates the restricted PostgreSQL role used by Cartulary.
 
-  Every tenant table carries a row-level security policy that compares each row
-  against the transaction-local Account settings the Account-scoped transaction
-  helper installs. Those policies are correct, and until this module existed
-  they were also inert: PostgreSQL exempts superusers from row-level security
-  unconditionally, `FORCE ROW LEVEL SECURITY` removes only the *table owner's*
-  exemption and never the superuser's, and every shipped deployment connected as
-  a superuser. A query that escaped the application-layer tenant filter would
-  have been answered in full.
-
-  This module closes that gap by making the *effective* role of every
-  application connection a role that cannot bypass row-level security:
-
-  * `provision!/1` creates that role and grants it the data-manipulation rights
-    the running system needs — no DDL, no ownership, and explicitly
-    `NOSUPERUSER NOBYPASSRLS`. It is idempotent and safe to run on every boot.
-  * `set_role/1` runs as each pooled connection is opened, switching the session
-    to that role. PostgreSQL evaluates the row-level-security exemption against
-    the *current* role, so after this the policies apply to every statement the
-    connection issues.
-  * `assert_enforced!/1` refuses to finish booting when the effective role can
-    still bypass row-level security, so a deployment cannot silently regress by
-    being pointed at a superuser.
-
-  ## Two supported shapes, one guarantee
-
-  An operator may instead point the release at a login role that is already
-  `NOSUPERUSER NOBYPASSRLS`. That is the stronger arrangement and it is what the
-  operations documentation recommends, because the connection then has no path
-  back to unrestricted access at all. In that shape `set_role/1` is a no-op that
-  cannot succeed (the login role need not be a member of the app role) and the
-  boot assertion passes on the login role's own attributes. Both shapes end at
-  the same guarantee, which is why the assertion checks the effective role
-  rather than how it was reached.
-
-  Where the connection *is* a superuser, `SET ROLE` is a real barrier against
-  the failure this defends against — an application-layer tenant filter that
-  was missed — but it is not a barrier against code that deliberately issues
-  `RESET ROLE`. Nothing in this codebase does, and no caller may add one.
-
-  ## Ordering, and why provisioning runs before the repository
-
-  The role must exist before the first pooled connection tries to switch to it,
-  so provisioning runs as its own supervision step ahead of the repository, over
-  a short-lived privileged connection of its own. Grants are re-applied after
-  migrations because a migration that creates a table creates it unreachable to
-  a role that was granted rights before it existed; the default-privilege rules
-  installed here cover tables created later by the same owner, and the explicit
-  grants cover everything that already exists.
-
-  Provisioning is best-effort by design: a deployment whose connection role
-  lacks `CREATEROLE` cannot create anything, and failing the boot there would
-  strand an operator who had already created a restricted role by hand. The
-  authoritative failure is `assert_enforced!/1`, which runs afterwards and
-  states exactly what is wrong.
+  Application connections must not be table owners, superusers, or BYPASSRLS roles; otherwise
+  forced row-level security cannot provide an independent Account boundary. Provisioning is
+  idempotent and keeps credentials out of logs and errors.
   """
 
   require Logger

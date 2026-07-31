@@ -2,34 +2,19 @@
 
 defmodule Cartulary.F6DocumentsConnectorsSyncTest.Provider do
   @moduledoc """
-  Deterministic stand-in model provider for the document ingest suite.
+  Deterministic document-ingest provider. It emits one candidate per sentence
+  of at least eight characters and a mechanical three-element embedding, making
+  revision and supersession expectations exact. Chat and rerank fail because
+  this path must not call them.
 
-  The document tests care about *which statements survive* across document revisions, not
-  about model quality, so this adapter turns an observation into knowledge candidates by a
-  rule a human can predict: split the text on sentence boundaries and newlines, drop
-  fragments shorter than 8 characters (they carry no assertable content), and emit one
-  candidate per remaining sentence. That makes supersession assertions exact — a test can
-  say "the Friday sentence disappeared from revision two, so its statement must become
-  superseded" without depending on a model's phrasing.
-
-  Embeddings are equally mechanical: a 3-element vector derived from text length. They
-  exist only so the chunk pipeline has a real vector to store and index; they are not
-  meaningful for similarity.
-
-  `chat/3` and `rerank/4` deliberately return an error. The document path must never reach
-  them, and an error here turns an accidental new call site into a visible failure rather
-  than a silently passing test.
-
-  Installed by replacing the `:model_provider` application environment key for the
-  duration of the suite, which is why the suite runs `async: false`.
+  The suite installs it in node-global configuration and runs synchronously.
   """
 
   @behaviour Cartulary.Model.Provider
 
   alias Cartulary.Model.Provider.Result
 
-  # One candidate per sentence of at least 8 characters. Confidence, sensitivity, and
-  # target level are fixed so the resulting items land in a predictable governance state.
+  # Fixed metadata gives each sentence a predictable governance state.
   @impl true
   def structured(_config, _messages, _schema, opts) do
     items =
@@ -83,20 +68,9 @@ end
 
 defmodule Cartulary.F6DocumentsConnectorsSyncTest.Connector do
   @moduledoc """
-  Scriptable fake remote source used to drive incremental connector sync.
-
-  A connector adapter implements one callback, `pull(config, cursor)`, returning a page of
-  raw items plus the cursor to persist afterwards. This fake keeps that page in an `Agent`
-  so a test can stage exactly what "the remote" returns next: an unchanged item, a changed
-  item, or a deletion marker. Each `put/1` replaces the whole page, so successive calls
-  model successive states of the remote system rather than accumulating.
-
-  The agent is registered under this module's name, so only one script exists per node and
-  the suite must run `async: false`. `start!/0` tolerates an already-running agent because
-  the suite's `setup` runs before every test.
-
-  This fake ignores the incoming cursor on purpose. Cursor *advancement* is the engine's
-  responsibility and is asserted from the persisted connector row, not simulated here.
+  Scriptable connector whose named Agent holds the next complete remote page.
+  `put/1` replaces rather than accumulates state. It ignores the incoming cursor
+  so tests verify cursor advancement from the persisted connector row.
   """
 
   @behaviour Cartulary.Documents.Connector
@@ -131,60 +105,19 @@ end
 
 defmodule Cartulary.F6DocumentsConnectorsSyncTest do
   @moduledoc """
-  Pins document ingest, connector sync, supersession, tombstoning, and document portability.
+  Pins document ingest, connector sync, immutable supersession, tombstones,
+  erasure, and portability.
 
-  A document is a raw observation, exactly like a chat message. Connectors and file uploads
-  may submit bytes; they may never write knowledge. Everything a document "says" still has
-  to go through structured extraction and the approval lifecycle before it can be retrieved.
-  This file is the regression floor for that path and for the durable-versus-rebuildable
-  split that makes documents portable.
+  The suite protects content-addressed external blobs, native parsing, dual
+  chunk/knowledge ingest, hash-driven no-ops and versions, provenance-aware
+  survival, post-commit cursor advancement, source-byte export with derived
+  cache exclusion, exclusive-blob erasure, and secret-reference-only connector
+  configuration. Documents remain raw observations; only the pipeline writes
+  governed knowledge.
 
-  ## What it pins
-
-  * **Blobs are content-addressed and out of the row.** A version stores a blob reference
-    and a hash, never inline bytes. Whether that blob lives on local disk or in object
-    storage is deployment configuration and must not change hashes, versioning, or gates.
-  * **Dual ingest.** One upload produces both retrievable document chunks (a rebuildable
-    cache: text, vector, pinned embedding identity) and governed knowledge items whose
-    provenance points at the document version rather than at a message.
-  * **Native parsing.** Markdown goes through the Markdown parser; other formats go through
-    the extraction NIF. The recorded parser name is asserted so a silent fallback to a
-    lossy path is caught.
-  * **Incremental sync is hash-driven.** An unchanged content hash is a no-op; a changed one
-    appends a new immutable version. History is never overwritten.
-  * **Supersession is provenance-aware.** A statement the new revision no longer makes
-    becomes `superseded`. A statement the new revision still makes survives. Critically, a
-    statement that *also* has independent provenance — someone said it in a chat message —
-    survives both supersession and the document's later deletion. Retracting it would
-    delete a fact the document never exclusively owned.
-  * **Deletion tombstones, it does not erase.** A remote delete marks the document and its
-    chunks tombstoned and leaves the version history in place.
-  * **Cursors advance only after the page is durably handled**, so an interrupted sync
-    re-reads rather than skips.
-  * **Export carries verified source bytes and excludes derived data.** Chunks and vectors
-    are omitted from the bundle and rebuilt by re-running ordinary ingest on import, under
-    whatever embedder the target account has configured.
-  * **Erasure removes the document row and the blob it exclusively owned.**
-  * **Connector configuration stores secret references only.** A literal credential in the
-    config map or in the secret-reference field is rejected outright.
-
-  ## Why it must not drift
-
-  These rules are what stop a document sync from becoming a destructive overwrite. The
-  dangerous refactors are the ones that look like cleanups: retracting knowledge when its
-  document disappears (destroys corroborated facts), updating a version row in place
-  (destroys history), advancing a cursor before the page commits (skips documents forever),
-  or including chunks in an export (locks the archive to one embedding model).
-
-  ## If this file fails
-
-  Read which of the bullets above stopped holding, and restore the behaviour. The one
-  assertion that is safe to update is a parser *name*, if the parser was deliberately
-  replaced. `f6-document-1` in the export manifest is a schema identity value: changing it
-  is a deliberate archive-format transition, not a cosmetic edit.
-
-  Runs `async: false`: it replaces node-global blob, chunking, connector-adapter, and
-  model-role application environment, and drives a singleton fake connector agent.
+  `f6-document-1` is the export schema identity and requires a deliberate
+  archive transition when changed. The suite runs synchronously because it
+  changes node-global adapters and uses one fake connector.
   """
 
   use Cartulary.DataCase, async: false

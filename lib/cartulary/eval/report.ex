@@ -2,53 +2,11 @@
 
 defmodule Cartulary.Eval.Report do
   @moduledoc """
-  Gatekeeper for evaluation reports: provenance validation and committed metric floors.
+  Validates evaluation provenance and committed release floors.
 
-  An evaluation number is only evidence if a reader can reconstruct what produced it. This
-  module is the single place that decides whether a report has said enough about itself to
-  be published, quoted, or used to gate a release. A report that omits any part of its
-  provenance is rejected outright — there is no partially-valid report.
-
-  ## What a report must state about itself
-
-    * The schema identity, the exact application semantic version, and an ISO 8601
-      generation timestamp.
-    * The benchmark, the retrieval profile by name, and exactly one profile version. A
-      report whose questions ran under differing profile versions is rejected, because it
-      is not a single measurement.
-    * The deadline setting, as one of enabled, disabled, or fixed. Latency bounds change
-      what retrieval returns, so a number is meaningless without knowing which applied.
-    * The strategy override: either null for an ordinary named-profile run, or a non-empty
-      list of strategy names. An empty list is rejected so that "no override" and
-      "overridden with nothing" cannot be confused.
-    * Run limits for cases, messages per case, and questions per case, each null or a
-      positive integer, so a truncated run is never mistaken for a complete one.
-    * The dataset's non-empty id, its lowercase 64-character SHA-256, and its split.
-    * Provider, model, model version, prompt version, and pipeline version for all four
-      model roles.
-    * The judge: a method for a deterministic one, and additionally provider, model, and
-      model version when a live model judged the answers.
-    * Numeric overall metrics. Abstention accuracy is the one value allowed to be null,
-      meaning no question in the run expected a refusal.
-
-  ## Contract identities
-
-  A single report carries `"f11-1"`; the envelope wrapping a matrix run carries
-  `"f11-suite-1"`, and its manifest declares suite version `"f11-1"`. These strings version
-  the evaluation-evidence format itself. Changing what a report contains means changing the
-  identity, and a maintainer who does owes a changelog entry, regenerated stored evidence,
-  and a note in the closest architecture document. Silently altering the shape under an
-  unchanged identity makes old and new reports incomparable without anyone noticing.
-
-  ## Thresholds
-
-  Only deterministic correctness and citation floors gate a release. Quality, latency,
-  token cost, and degradation measures are reported and watched, not enforced, because
-  their measurement can legitimately drift. Turning one of them into a gate is a reviewed
-  decision with an explicit threshold, not an incidental change here.
-
-  A benchmark and profile combination with no committed threshold is treated as a failure,
-  not as a pass: a run nobody wrote a floor for must not slip through a release check.
+  Deterministic correctness and citation floors are gates; quality, latency, token efficiency,
+  and degradation remain reported frontiers unless thresholds are deliberately changed. Report
+  identity is versioned independently from the application.
   """
 
   # The four Account-level model roles. All of them must be identified in a report, even

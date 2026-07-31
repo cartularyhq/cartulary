@@ -2,43 +2,14 @@
 
 defmodule CartularyWeb.ConsoleLive.Knowledge do
   @moduledoc """
-  The knowledge explorer at `/console/knowledge`: every governed statement the
-  reader may see, filtered, paged, and cross-linked.
+  `/console/knowledge` browsing and retrieval for authorized statements.
 
-  ## Two ways to look, and they are not the same thing
+  Browsing exhaustively filters stored rows; retrieval ranks candidates and
+  reports contributed and deadline-dropped strategies. Retrieval requires an
+  explicit scope. URL query parameters hold all filters and pagination.
 
-  **Browsing** applies plain attribute filters — scope subtree, lifecycle state,
-  kind, sensitivity, target level, subject — and pages through the result in a
-  stable order. It is exhaustive: what is not shown is either filtered out or
-  not visible to this reader, never merely ranked low.
-
-  **Retrieval** runs the same multi-strategy engine that answers an agent's
-  `search` call, and shows its working: which strategies contributed, which
-  were dropped against the deadline, how much they disagreed, and what each
-  candidate scored. It is *not* exhaustive and is not meant to be. Presenting
-  the two side by side is deliberate — it is the difference between "what is
-  stored" and "what would be found", and conflating them is how people come to
-  believe a retrieval miss means the memory is empty.
-
-  Retrieval needs a scope to search from, because context flows down the
-  containment tree: searching at `/team/project` also searches `/team` and the
-  root, and there is no "search everywhere" that would ignore that shape. When
-  no scope is chosen the search box says so rather than quietly guessing one.
-
-  ## Filters live in the URL
-
-  Every filter and the page number are query parameters, applied through
-  `handle_params/3`. A view is therefore linkable and survives a reload, and
-  the back button behaves the way a reader expects. Do not move a filter into
-  socket state only: it becomes invisible to the address bar and to anyone the
-  reader sends the link to.
-
-  ## Visibility
-
-  This module applies no access rule of its own. The lifecycle-state and
-  provisional rules are compiled into the query by the loader, and Ash policies
-  plus row-level security decide scope and Account. A filter here can only ever
-  narrow what those already allowed.
+  Loader visibility, Ash policies, and row-level security authorize results;
+  page filters may only narrow them.
   """
 
   use CartularyWeb, :live_view
@@ -49,16 +20,11 @@ defmodule CartularyWeb.ConsoleLive.Knowledge do
   alias CartularyWeb.Console.Access
   alias CartularyWeb.Console.Loader
 
-  # The filter keys this page understands. Anything else in the query string is
-  # ignored rather than passed through, so a hand-edited URL cannot smuggle an
-  # unexpected term into the query the loader builds.
+  # Allowlist query keys before building loader filters.
   @filter_keys ~w(scope state kind sensitivity target_level subject page q)
 
   @doc """
-  Mounts with no data. Everything is loaded in `handle_params/3`, which runs on
-  the initial render as well as on every subsequent patch, so the load path is
-  identical whether a reader arrives with filters in the URL or applies them
-  afterwards.
+  Mounts empty; `handle_params/3` loads initial and patched URLs identically.
   """
   @impl true
   def mount(_params, _session, socket) do
@@ -66,12 +32,7 @@ defmodule CartularyWeb.ConsoleLive.Knowledge do
   end
 
   @doc """
-  Reads the filters out of the URL and loads the matching page.
-
-  Runs a retrieval preview as well when the reader supplied both a query string
-  and a scope to search from. Retrieval is a separate call from the browse
-  listing on purpose: it ranks rather than enumerates, and its result is
-  displayed as its own panel so the two are never mistaken for each other.
+  Loads URL-filtered browsing results and an optional scoped retrieval preview.
   """
   @impl true
   def handle_params(params, _uri, socket) do
@@ -86,16 +47,7 @@ defmodule CartularyWeb.ConsoleLive.Knowledge do
   end
 
   @doc """
-  Handles the filter form and the search box.
-
-  Both push the reader to a new URL rather than mutating socket state, so the
-  address bar always describes what is on screen. Blank fields are dropped from
-  the URL instead of being sent as empty strings, which keeps a shared link
-  short and keeps "no filter" distinguishable from "filter for nothing".
-
-  Applying a filter resets to the first page. Keeping the old page number would
-  land a reader on page four of a two-page result and look like an empty
-  Account.
+  Writes non-blank filters to the URL and resets pagination.
   """
   @impl true
   def handle_event("filter", params, socket) do
@@ -313,10 +265,7 @@ defmodule CartularyWeb.ConsoleLive.Knowledge do
     """
   end
 
-  # Retrieval runs only when the reader gave both a query and a scope to search
-  # from. There is no default scope: picking one silently would make the result
-  # depend on a choice the reader never saw, and "no scope" is not the same as
-  # "the root" — the root's own path resolves to a historical default scope.
+  # Retrieval requires an explicit query and scope; no scope is not the root.
   defp retrieval_preview(actor, %{"q" => query, "scope" => scope})
        when is_binary(query) and query != "" and is_binary(scope) and scope != "" do
     Memory.search(%{"query" => query, "scope_path" => scope}, actor)
@@ -324,10 +273,7 @@ defmodule CartularyWeb.ConsoleLive.Knowledge do
 
   defp retrieval_preview(_actor, _filters), do: nil
 
-  # Names the dropped strategies rather than only counting them. A strategy
-  # that ran out of deadline is why a result looks thin, and a reader who
-  # cannot see which one was dropped has no way to tell a slow index from an
-  # empty one.
+  # Name dropped strategies so deadline loss is not mistaken for empty indexes.
   defp strategy_note(%{"dropped_strategies" => []}), do: "none dropped"
 
   defp strategy_note(%{"dropped_strategies" => dropped}) do

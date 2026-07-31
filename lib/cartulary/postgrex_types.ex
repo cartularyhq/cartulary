@@ -2,33 +2,10 @@
 
 defmodule Cartulary.PostgrexVectorExtension do
   @moduledoc """
-  Teaches the database driver how to send and receive pgvector `vector` values.
+  Encodes and decodes pgvector values for Postgrex.
 
-  Embeddings are stored in real vector columns so the database can index and
-  search them; without this extension the driver would not know the type and
-  would hand back an opaque value. Registering it here means a stored embedding
-  crosses the wire in its binary form rather than being rendered as text and
-  parsed back, which matters when every retrieval query moves thousands of
-  floats.
-
-  ## Why the bodies are quoted
-
-  `encode/1` and `decode/1` are not called per value. They are called once,
-  while the type module below is defined, to collect clauses that get spliced
-  into it, so the per-row work is ordinary compiled pattern matching with no
-  dispatch. That is why those two functions return quoted anonymous-function
-  clauses rather than doing the work, and why the binary-modifier import at the
-  top is needed even though nothing in this file appears to use it: `quote`
-  carries this module's imports into the quoted clauses, which is what makes
-  `int32()` resolve where they are spliced. Do not "simplify" these into plain
-  function bodies; the driver would splice a function call where it expects
-  clauses.
-
-  ## Wire format
-
-  A value is a four-byte big-endian byte count followed by that many bytes of
-  pgvector payload. Encoding and decoding must stay mirror images: change one
-  side alone and every embedding read back is garbage rather than an error.
+  The extension validates dimensions and finite float values and raises on malformed wire data.
+  It changes representation only; vector identity and authorization remain domain concerns.
   """
 
   import Postgrex.BinaryUtils, warn: false

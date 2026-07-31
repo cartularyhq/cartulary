@@ -2,59 +2,19 @@
 
 defmodule Cartulary.F5ModelLayerStructuredExtractionTest do
   @moduledoc """
-  Pins the provider-neutral model boundary and the structured-extraction contract.
+  Pins the provider-neutral gateway and structured-extraction contract.
 
-  Cartulary never calls a model vendor from pipeline, retrieval, web, or governance code.
-  Everything goes through one gateway that resolves exactly four account-level roles —
-  `embedder`, `ingest_extractor`, `dream_reasoner`, `dialectic_agent` — onto a single
-  provider behaviour with four capabilities (structured generation, chat, embed, rerank).
-  This file is the regression floor for that seam. It asserts, end to end:
+  The suite fixes four model roles and provider callbacks; offline embedder
+  behavior; secret-reference storage; bounded schema repair; independent
+  subject resolution; complete model provenance; exact usage emission;
+  explicit vector re-embedding; and retryable provider failure.
 
-  * the four roles exist in a fixed order and the behaviour exposes exactly the four
-    capability callbacks, so a new provider can be written against a stable contract;
-  * the local ONNX embedder refuses to invent a vector when its artifacts are absent
-    instead of downloading anything or reaching the network;
-  * role configuration rejects a raw credential in its options, because only opaque
-    secret *references* (for example an environment-variable name) may be persisted;
-  * malformed provider output is repaired a bounded number of times and, if still
-    invalid, becomes an error — it never becomes durable knowledge;
-  * an extracted item carries a subject the extractor resolved, not one inherited from
-    whoever sent the message;
-  * provider, model, model version, prompt version, and pipeline version are recorded on
-    both the knowledge provenance row and on every usage event;
-  * every provider call, including a repair attempt and a failed call, produces exactly
-    one durable usage event, because that ledger is the only exact record of spend;
-  * an embedding identity mismatch returns an explicit re-embed plan rather than reusing
-    or silently substituting vectors from a different vector space; and
-  * a provider outage leaves the raw observation durable, the extraction incomplete, and
-    the job retryable, so no user input is lost when a vendor is down.
+  `f5-1` identifies extraction and pipeline behavior in health, provenance,
+  usage, and re-embed plans. Changing it requires a changelog and new evidence.
+  Provider call-sequence changes must update the recorded cassette, not loosen
+  matching.
 
-  ## Why it must not drift
-
-  Each of these is a property a well-meaning refactor can quietly remove: caching a
-  vector across a model upgrade, swallowing a provider error to make a queue drain
-  cleanly, letting a partially valid extraction through "just this once", or logging a
-  credential into role options. The assertions here are deliberately concrete so that
-  such a change fails loudly at the boundary rather than corrupting stored knowledge.
-
-  ## The `f5-1` string
-
-  `f5-1` is the version identity of the extractor and pipeline contract. It is data, not
-  a label: it is written into knowledge provenance, into usage events, into the re-embed
-  plan, and it is what `GET /api/health` reports. Changing it is a deliberate contract
-  transition that requires a changelog entry and updated contract evidence — so if an
-  assertion on that string fails, the correct response is almost always to restore the
-  behaviour, not to edit the expected value.
-
-  ## If this file fails
-
-  Do not weaken an assertion to make it pass. Find which guarantee the change removed.
-  The recorded provider script this suite replays lives at
-  `test/fixtures/model/f5-provider-cassette.json`; if a legitimate change alters the
-  *sequence* of model calls, re-record that scenario rather than relaxing the matching.
-
-  Runs with `async: false` because it swaps the `:model_provider` and `:model_roles`
-  application environment entries, which are global to the node.
+  Runs synchronously because it changes node-global model configuration.
   """
 
   use Cartulary.DataCase, async: false

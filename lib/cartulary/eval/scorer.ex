@@ -2,77 +2,10 @@
 
 defmodule Cartulary.Eval.Scorer do
   @moduledoc """
-  Deterministic, reproducible scoring of one evaluation answer and of run aggregates.
+  Computes deterministic per-case and aggregate evaluation metrics.
 
-  Nothing here calls a model. Every number this module produces can be recomputed from the
-  same inputs on any machine, which is what makes it usable as a release gate: a threshold
-  can only block a release if the measurement behind it cannot drift. A live model judge
-  may run alongside these scores and add extra `model_`-prefixed fields, but it never
-  replaces them, and the deterministic values stay in the report.
-
-  ## Text normalization
-
-  Every comparison runs over the same normalization: downcase, replace each run of
-  non-alphanumeric characters with a space, collapse whitespace, trim. Tokens are the
-  space-separated pieces of that form. Casing, punctuation, and spacing therefore never
-  decide a match.
-
-  ## What counts as correct
-
-    * When the question expects a refusal, correct means the answer abstained.
-    * Otherwise correct means an exact normalized match, or the answer containing an
-      accepted gold string, or a token-F1 of at least 0.5 against the best gold variant.
-
-  Token-F1 is the harmonic mean of precision and recall over token multisets, so the 0.5
-  floor credits a free-form answer that carries the gold content while rejecting one that
-  merely shares a few common words. It is deliberately generous: this is a lexical stand-in
-  for a human judgement, and a stricter floor would fail correct-but-verbose answers.
-
-  An answer counts as abstained when the answer path set its abstention flag, or when the
-  normalized text contains one of a fixed list of refusal phrases.
-
-  ## Citations
-
-  A question's expected evidence references are the benchmark's own labels for the turns or
-  sessions that support the answer. The cited references passed in are the labels the run
-  actually cited, already translated out of durable database ids by the caller. Recall is
-  the share of expected labels that were cited; a hit is any overlap at all.
-
-  A question whose fixture carries no evidence labels scores no hit and zero recall, so it
-  can never earn citation credit. That is intended — an uncheckable citation is not
-  evidence — but it means a fixture with unlabelled questions drags the citation rates
-  down, and a committed citation floor has to be set with that in mind.
-
-  ## Lexical relevance triad and token efficiency
-
-  Groundedness, context relevance, and answer relevance are token-overlap approximations of
-  the three relevance checks a model judge would make: answer against retrieved context,
-  question against retrieved context, and question against answer. Each scored question
-  records the method identity `"deterministic-lexical-f11-1"` beside them. That string
-  versions this scoring method inside every report; if the formulas change, the identity
-  has to change with them, and a maintainer making that change owes a changelog entry,
-  regenerated stored evaluation evidence, and a note in the closest architecture document.
-  Without that, old and new reports silently stop being comparable.
-
-  These three are reported, never gated. They are a cheap reproducible signal, not a claim
-  of parity with a model judge.
-
-  Any answer classified as an abstention — whether or not the question expected one — is
-  scored as fully grounded and fully answer-relevant with zero context relevance: an answer
-  that asserts nothing cannot be unsupported, and it used no retrieved context. Whether the
-  refusal was the right response is captured by the correctness flag, not by the triad.
-
-  Token efficiency compares what the answer path actually consumed — retrieved context plus
-  the answer — against the size of stuffing the entire conversation into a prompt instead.
-  Lower is better. The ratio is 0.0 when the caller supplied no full-context size, which
-  means "not measured" rather than "perfectly efficient".
-
-  ## Aggregates
-
-  `summarize/1` rolls per-question results up overall, by category, by scale, and by scale
-  restricted to BEAM cases. Latency percentiles use the nearest-rank method over the sorted
-  samples rather than interpolation, so a reported percentile is always a value that was
-  actually observed.
+  Scoring uses normalized text and cited source ids without model calls. Metric definitions and
+  rounding must remain stable because committed reports and thresholds depend on them.
   """
 
   # Fixed refusal phrases. Matched as substrings of the normalized answer, so a model that
@@ -90,24 +23,11 @@ defmodule Cartulary.Eval.Scorer do
   @doc """
   Scores a single answer and returns every deterministic measure for it.
 
-  `question` is a normalized question with atom keys; `:expected`, `:abstention_expected`,
-  `:evidence_refs`, and `:question` are read, and each has a safe default, so a partially
-  populated question degrades to a lower score instead of raising.
+  Inputs are a normalized question, answer result, benchmark evidence labels, and optional
+  full-context token count. Citation labels must already be translated from durable ids.
 
-  `result` is the string-keyed answer map produced by the answer path. `"answer"`,
-  `"candidates"`, and `"abstained"` are read from it. `cited_refs` is the list of evidence
-  labels the run cited, already translated from durable ids into the benchmark's own
-  reference vocabulary — passing raw database ids here would silently score every citation
-  as a miss.
-
-  `opts` accepts `:full_context_tokens`, the token size of the whole conversation, used as
-  the denominator of the token-efficiency ratio. It defaults to 0, which reports the ratio
-  as 0.0.
-
-  Returns a string-keyed map holding the correctness flags (`"exact_match"`,
-  `"contains_expected"`, `"token_f1"`, `"abstained"`, `"correct"`), the citation measures,
-  the lexical relevance triad and its method identity, the token counts and efficiency
-  ratio, and the expected and cited reference lists that were compared. It does not raise.
+  Returns string-keyed correctness, citation, relevance, and token-efficiency metrics.
+  Missing fields lower scores through safe defaults; this function does not raise.
   """
   def score_question(question, result, cited_refs, opts \\ []) do
     expected = Map.get(question, :expected, [])

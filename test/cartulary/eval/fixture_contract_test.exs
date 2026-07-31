@@ -2,35 +2,12 @@
 
 defmodule Cartulary.Eval.FixtureContractTest do
   @moduledoc """
-  Freezes the evaluation inputs so benchmark numbers stay comparable over time.
+  Freezes evaluation source bytes and normalized shape for comparable results.
 
-  A published quality figure only means something if two things are stable: the
-  bytes that were measured, and the way those bytes are turned into cases,
-  messages, and questions. This file pins both. `poc-contract-baseline.json`
-  records, for each committed fixture, the file's SHA-256 digest and a summary
-  of what normalization produced from it; the test recomputes both and demands
-  an exact match.
-
-  A failure means one of two different things, and they are worth telling
-  apart:
-
-  - **Digest mismatch** — the fixture file itself was edited. Any score
-    measured before the edit is now measured over different data.
-  - **Summary mismatch** — the fixture is untouched but the normalizer changed
-    how it derives ids, formats, or case boundaries. Retrieval and scoring
-    behaviour then shifts even though neither of those modules changed.
-
-  Either way the correct response is a deliberate re-baseline with a changelog
-  entry, not a quiet update of the JSON to whatever the code now emits.
-
-  `"poc-0"` in the baseline file is a contract identity value. It names the
-  frozen behaviour baseline that regression evidence is measured against; it is
-  not the application's semantic version and does not move with releases.
-  Changing that string is a declared contract transition and obliges a
-  maintainer to update the changelog and the surrounding contract evidence.
-
-  This file is itself named as regression evidence elsewhere. Make it clearer
-  by improving this documentation, not by renaming the file or the module.
+  Digest failures mean fixture bytes changed; summary failures mean ids,
+  formats, or case boundaries changed. Either requires a deliberate re-baseline
+  and changelog entry. `poc-0` is the frozen behavior contract identity, not the
+  application version. This evidence file must keep its name.
   """
 
   use ExUnit.Case, async: true
@@ -49,15 +26,13 @@ defmodule Cartulary.Eval.FixtureContractTest do
       path = expected["path"]
       dataset = Adapter.load!(path, benchmark: expected["benchmark"])
 
-      # Digest first, then shape: if the source bytes changed, the shape
-      # comparison that follows is answering a question about different data.
+      # Confirm source bytes before comparing their normalized shape.
       assert sha256(path) == expected["sha256"]
       assert summarize(dataset) == expected["normalized"]
     end)
   end
 
-  # Lowercase hex of the raw file bytes — the same encoding recorded in the
-  # baseline, so the two are directly comparable strings.
+  # The baseline stores raw-byte SHA-256 as lowercase hex.
   defp sha256(path) do
     path
     |> File.read!()

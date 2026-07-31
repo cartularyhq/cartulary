@@ -2,20 +2,13 @@
 
 defmodule CartularyWeb.Console.GraphTest do
   @moduledoc """
-  Pins the graph layout's two load-bearing properties: it is a pure function of
-  its input, and it draws nothing it was not given.
+  Pins the graph layout's two load-bearing properties: it is a pure function of its
+    input, and it draws nothing it was not given.
 
-  Determinism matters because the picture is a navigation aid. A reader who
-  finds a statement in the lower left and comes back to it must find it in the
-  same place; a layout that moved on every render would make the graph
-  decorative rather than useful. It is also why the layout uses no randomness
-  and no wall clock — either would break resumability as well as this test.
-
-  The second property is a disclosure guard. The graph is built from scopes,
-  scope relations, statements, and statement relations, and from nothing else.
-  Entity rows in particular are a private recall cache whose rows span every
-  scope that mentioned a name, so a future change that added them as nodes
-  would carry names across the boundary the scope tree exists to keep.
+    Determinism matters because the picture is a navigation aid. A reader who finds a
+    statement in the lower left and comes back to it must find it in the same place; a
+    layout that moved on every render would make the graph decorative rather than
+    useful.
   """
 
   use ExUnit.Case, async: true

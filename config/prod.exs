@@ -2,30 +2,25 @@
 
 # Production build-time configuration.
 #
-# WHEN THIS FILE IS EVALUATED
-#   While the release is being built, immediately after `config/config.exs`
-#   (which imports it at its bottom) and only when MIX_ENV=prod. It is *not*
-#   re-read when the release starts, so nothing here can vary per deployment.
-#   Everything an operator must be able to change — host, port, secrets,
-#   database location, model roles, telemetry — lives in `config/runtime.exs`,
-#   which is evaluated on every boot of the built release.
-#
-# INPUTS   none. Reading the environment here would freeze one deployment's
-#          value into the artifact for all of them.
-# OUTPUTS  the `:cartulary` and `:logger` application environments.
+# WHEN THIS FILE IS EVALUATED While the release is being built, immediately after
+# `config/config.exs` (which imports it at its bottom) and only when MIX_ENV=prod. It is *not*
+# re-read when the release starts, so nothing here can vary per deployment. Everything an
+# operator must be able to change — host, port, secrets, database location, model roles,
+# telemetry — lives in `config/runtime.exs`, which is evaluated on every boot of the built
+# release.
 #
 # Only settings that genuinely cannot be deferred to boot belong in this file.
 
 import Config
 
-# Force using SSL in production. This also sets the "strict-security-transport" header,
-# known as HSTS. If you have a health check endpoint, you may want to exclude it below.
-# Note `:force_ssl` is required to be set at compile-time.
+# Force using SSL in production. This also sets the "strict-security-transport" header, known
+# as HSTS. If you have a health check endpoint, you may want to exclude it below. Note
+# `:force_ssl` is required to be set at compile-time.
 #
-# `rewrite_on: [:x_forwarded_proto]` makes the check trust the proxy's protocol
-# header, which is correct only behind a terminating proxy that sets it. The
-# loopback hosts are excluded so a local container or an on-host probe can reach
-# the app over plain HTTP without being redirected to a scheme it cannot use.
+# `rewrite_on: [:x_forwarded_proto]` makes the check trust the proxy's protocol header, which
+# is correct only behind a terminating proxy that sets it. The loopback hosts are excluded so
+# a local container or an on-host probe can reach the app over plain HTTP without being
+# redirected to a scheme it cannot use.
 config :cartulary, CartularyWeb.Endpoint,
   force_ssl: [
     rewrite_on: [:x_forwarded_proto],

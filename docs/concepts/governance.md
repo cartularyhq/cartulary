@@ -2,10 +2,8 @@
 
 # Governance gates
 
-Two gates sit between an observation and durable, visible memory. Gate A asks
-*is this worth keeping at all?* Gate B asks *how widely may it be exposed?*
-Both run in one pass over each proposal, and each can write its own decision
-record.
+Gate A decides whether a proposal is worth keeping. Gate B decides how widely
+it may be exposed. Each writes its own decision record.
 
 ```mermaid
 flowchart TD
@@ -29,15 +27,14 @@ flowchart TD
 
 ## The matrix
 
-A gate decision is a lookup in a matrix cell keyed by **target level** and
-**sensitivity**. Lookup order is:
+A gate decision uses a matrix cell keyed by **target level** and
+**sensitivity**, resolved in this order:
 
 1. the active rule attached to the item's own scope;
 2. the account-wide rule;
 3. a built-in cell that demands human review at both gates.
 
-A missing or misconfigured matrix therefore falls back to human judgment, never
-to auto-activation.
+A missing or invalid matrix falls back to human review, never auto-activation.
 
 Gate A modes are `auto_keep` (keep when confidence clears the cell's minimum),
 `auto_reject` (drop unconditionally), and anything else meaning human review.
@@ -46,13 +43,9 @@ and human review.
 
 ## Target levels and blast radius
 
-Target levels widen in the order **peer → scope → account**. The level is what
-the gates judge — how far the item is asking to travel. It is not itself a
-retrieval filter; what a reader actually sees follows the item's scope and
-lifecycle state.
-
-Because the matrix is keyed by level, the same confidence value can
-auto-activate a peer-level item and still queue a scope-level one for a human.
+Target levels widen **peer → scope → account**. They express requested blast
+radius, not retrieval visibility; visibility follows scope and lifecycle. One
+confidence value may activate a peer item but require human review at scope.
 
 | Requested level | Default outcome without an explicit rule |
 | --- | --- |
@@ -62,10 +55,9 @@ auto-activate a peer-level item and still queue a scope-level one for a human.
 
 ## Consent for personal knowledge
 
-Personal knowledge about a human does not reach a wider scope on a curator's
-say-so. Approving a scope-level review of a personal item without a granted,
-verified consent record parks the queue entry in `awaiting_consent` and leaves
-the knowledge exactly where it was.
+Curator approval cannot widen personal knowledge without verified subject
+consent. Lacking it, the item stays put and the queue entry becomes
+`awaiting_consent`.
 
 Consent is:
 
@@ -78,13 +70,8 @@ never be harder than granting it.
 
 ### Declaring an Account or deployment has no real subject
 
-The rule above assumes a real person can eventually be asked. That does not
-hold for a benchmark, evaluation, or imported historical corpus about people
-who never hold an account in the system — there, personal knowledge above
-peer level would otherwise stay permanently stuck, with no supported way to
-ever satisfy consent.
-
-Two switches exist for exactly that case, both off by default:
+Benchmarks, evaluations, and historical imports may have no reachable subject.
+Two off-by-default switches support that case:
 
 - **Account-level:** an account administrator sets that Account's
   `consent_mode` to `auto`. Every other role, including curator and any
@@ -94,12 +81,8 @@ Two switches exist for exactly that case, both off by default:
   Account in that process, for a deployment that may never have a console
   session at all.
 
-When either is active, consent for an affected item is auto-granted rather
-than silently skipped: a real consent record is written, in the same shape a
-subject's own grant would take, so the change is auditable rather than a
-hidden bypass. `GateRule`'s own settings are unaffected either way — the
-matrix still governs Gate A/B automation exactly as before, and cannot itself
-waive a subject's consent.
+Either switch writes a normal auditable consent record; it does not skip
+consent. `GateRule` still controls Gate A/B and cannot waive consent.
 
 ## Who may decide
 
@@ -120,11 +103,9 @@ flowchart LR
     Machine -. "never reaches" .-> Human
 ```
 
-Curator authority is not reachable over any machine-facing route. `decide` and
-`bulk_decide` accept a browser-session human holding an account-admin or
-curator role and refuse machine credentials. Each call takes a
-transaction-scoped advisory lock on the queue entry, so two curators cannot
-decide the same item concurrently.
+Only browser-session humans with curator or account-admin roles may call
+`decide` or `bulk_decide`. A transaction-scoped advisory lock prevents two
+curators deciding one entry concurrently.
 
 **Curators never write knowledge text directly.** An edit mints a replacement
 row through the pipeline-only create action, supersedes the original, and sends
@@ -133,14 +114,12 @@ same checks as extracted text.
 
 ## Peer inline validation
 
-A validation question can be attached to the result of a read tool an agent
-already called, letting a peer confirm or correct a statement inside the
-conversation they are already in rather than in a console they will never open.
+A read result may include a validation question so the peer can confirm or
+correct a statement in the current conversation.
 
-The selector is deadline-bounded and fails open: if it cannot pick a question
-in time, the read returns normally with no question attached. A machine
-credential may resolve only *its own peer's* frozen question, and may lower
-that peer's interruption limits — nothing else.
+The selector is deadline-bounded and fail-open: on timeout, the read returns
+without a question. A machine may resolve only its peer's frozen question and
+may only lower that peer's interruption limits.
 
 ## Contest, redact, and erase
 
@@ -155,10 +134,9 @@ surface:
 | Erase (proportionate) | Remove subject content and scrub shared provenance |
 | Erase (strict) | Remove all knowledge sourced only through the subject path |
 
-Both erasure modes recompute or dirty every affected projection and entity
-cache, and both retain content-safe audit evidence: the record that an erasure
-happened survives, the content does not. Knowledge with surviving independent
-provenance is not retracted just because one path to it disappeared.
+Both modes refresh affected projections and entity caches while retaining
+content-safe audit evidence. Knowledge with independent surviving provenance
+remains.
 
 An agent API key cannot reach these routes even when it belongs to the same
 peer — contesting, redacting, and erasing are personal decisions a machine may
@@ -166,7 +144,7 @@ not take on a person's behalf.
 
 ## Revalidation, decay, and expiry
 
-Governed knowledge is not permanent by default:
+Governed knowledge changes over time:
 
 - an accepted item gets a **revalidation date** from its matrix cell;
 - once that date passes, the item becomes `needs_revalidation` and stops
@@ -178,7 +156,7 @@ The sweeper in the `lifecycle` job lane makes those transitions durable.
 
 ## Every decision is evidence
 
-Each gate outcome writes, in the caller's transaction:
+Each gate outcome writes in the caller's transaction:
 
 - an immutable decision record naming the gate, the outcome, and the cell;
 - a lifecycle event;

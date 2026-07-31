@@ -2,8 +2,8 @@
 
 # Upgrades
 
-Migrations are forward operations. Plan the upgrade so that "go back" means
-restoring a snapshot, not running an old binary against a new schema.
+Migrations are forward-only. Roll back by restoring a snapshot, never by
+running old code against a new schema.
 
 ## Procedure
 
@@ -35,7 +35,7 @@ flowchart TD
 
 ## Rollback
 
-There is no "downgrade migration". Rollback is:
+Rollback is:
 
 1. stop the new release;
 2. restore the database **and** the blob snapshot from the same recovery point;
@@ -51,15 +51,13 @@ There is no "downgrade migration". Rollback is:
 | `CARTULARY_AUTO_MIGRATE=true` | Migrations run as a supervised startup step before traffic is accepted. |
 | `CARTULARY_AUTO_MIGRATE=false` | Run `bin/migrate` yourself before starting the release. |
 
-Use `false` where change control requires migration to be a separate, approved
-step.
+Use `false` when migrations require separate approval.
 
 ## After the upgrade
 
-Check that background work drains: watch queue depths on `/api/ready`. A new
-version may enqueue projection or index rebuild work, and `fast_fallback` on
-`/api/v1/context` will read `true` until those projections warm up. That is
-expected and self-correcting.
+Watch queue depths on `/api/ready`. A new version may enqueue projection or
+index rebuilds; `/api/v1/context` reports `fast_fallback: true` until
+projections warm up.
 
 ## Version alignment
 

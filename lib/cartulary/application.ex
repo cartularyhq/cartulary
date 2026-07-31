@@ -2,46 +2,10 @@
 
 defmodule Cartulary.Application do
   @moduledoc """
-  Boots the node: validates configuration, then starts the supervision tree in a fixed order.
+  Validates runtime configuration and starts Cartulary in dependency order.
 
-  Two things happen before any child starts, and both are deliberate. Runtime
-  configuration is validated so a misconfigured node fails immediately with a
-  message naming the offending setting, instead of half-starting and failing
-  later against a database it should never have touched. Instrumentation
-  handlers are attached next, so events from the repository, the queue, and the
-  endpoint are traced from the first one they emit.
-
-  ## The child order is a contract
-
-  `:one_for_one` restarts a crashed child in place, but the *initial* order
-  below encodes real dependencies:
-
-  1. The embedded PostgreSQL manager, when the node supervises its own
-     database. It must reach a listening server before the repository tries to
-     connect and before migrations run — that is the whole reason it is first.
-     In external-database mode this entry is simply absent; the release, the
-     schema, and every guarantee are otherwise identical, because where
-     Postgres lives is infrastructure, not behaviour.
-  2. Telemetry, then the step that creates the restricted database role, then
-     the repository. The role has to exist before the pool opens its first
-     connection, because each connection switches to it as it is established.
-  3. The migration step. When automatic migration is switched on it blocks in
-     its own `init/1` until the schema is current; when it is off the process
-     starts and does nothing. It sits after the repository (it needs a
-     connection) and before the web endpoint (no request may be served against
-     a stale schema).
-  4. The guard that refuses to continue when those connections could still
-     bypass row-level security. It runs after migrations because a fresh
-     database has no tables to grant rights over until they have run.
-  5. Authentication, the rebuildable spend counters, the job supervisor,
-     optional node discovery, and the PubSub and projection-cache processes the
-     request path expects to be alive.
-  6. The web endpoint last, so the node only accepts traffic once everything it
-     depends on is up.
-
-  Reordering these is not a cosmetic change: moving the endpoint earlier serves
-  requests against an unmigrated database, and moving the database manager
-  later leaves the repository connecting to nothing.
+  Supervised pg0, when enabled, starts before Repo; migrations finish before services use the
+  schema. Both database modes start the same application behavior.
   """
 
   use Application

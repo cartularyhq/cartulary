@@ -2,48 +2,10 @@
 
 defmodule Cartulary.F3IdentityTenancyBasicRbacTest do
   @moduledoc """
-  Pins how a caller becomes an authorized actor: who they are, which Account that puts them in,
-  and which scopes they may touch.
+  Pins how a caller becomes an authorized actor: who they are, which Account that puts
+    them in, and which scopes they may touch.
 
-  The file name and module name are frozen evidence identities and are not renamed. The rules
-  they guard are the ones an attacker would go after first.
-
-  **There are two credential paths and one actor shape.** A human signs in with a password and
-  receives a signed token; an agent presents an API key. Both resolve to the same actor value
-  carrying the Account, the Peer, how the identity was proved, an assurance level, the
-  effective role, and the set of authorized scopes. Every later authorization decision reads
-  that actor and nothing else — in particular, never a header, a parameter, or a body field
-  naming an Account.
-
-  **API keys are never stored in the clear.** A key is shown to its creator once and persisted
-  only as a hash, so a database disclosure does not hand out working credentials.
-
-  **The community build holds exactly one Account.** The single free edition slot is enforced
-  by a database constraint rather than application code, so no code path can create a second
-  one by accident.
-
-  **Authentication failures are indistinguishable.** A missing credential, a malformed one, and
-  a genuinely valid key belonging to another Account all produce the same status and the same
-  response bytes. A difference in either becomes an oracle an attacker can use to sort real
-  credentials from fake ones.
-
-  **Roles inherit down containment, and deny always wins.** The roles are account-admin,
-  curator, member, and reader. A grant may allow or deny, and may or may not propagate to
-  nested scopes. If any applicable grant denies, access is refused no matter how many allows
-  apply. Containment is what inherits; a cross-link between two scopes never grants anything,
-  and a link is visible only to someone already authorized for both of its endpoints.
-
-  The Account wall and the inheritance rule are each checked with a property test — over
-  generated Account keys and over generated containment chains — rather than with a handful of
-  examples, because the failure mode that matters is the shape nobody thought to write down.
-
-  ## If a test in this file fails
-
-  Treat it as a security defect. Do not widen an assertion, do not make one failure response
-  more informative than another to help debugging, and do not add a way for a caller to name
-  its own Account. If the role vocabulary or the inheritance rule genuinely changes, the
-  property tests' expected-set computation is the specification and must be rewritten
-  deliberately.
+    There are two credential paths and one actor shape.
   """
 
   use CartularyWeb.ConnCase, async: false

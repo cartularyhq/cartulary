@@ -2,8 +2,7 @@
 
 # Run from source
 
-Source mode is the development path. Unlike the packaged release, it downloads
-no infrastructure at boot: you supply PostgreSQL yourself.
+Source mode is for development. Supply PostgreSQL yourself.
 
 ## Prerequisites
 
@@ -18,15 +17,13 @@ mix deps.get
 mix ecto.migrate
 ```
 
-`.env.example` is the annotated, complete list of settings; copy it and edit
-what you need. The variables that matter most on a first run are
+`.env.example` lists every setting. Start with
 `DATABASE_URL`, `CARTULARY_AUTH_SIGNING_SECRET`, and the model settings
 described in [Configuration](../reference/configuration.md).
 
 ## Bootstrap the Account and first administrator
 
-Cartulary needs one human identity before anything else can happen. This task
-is idempotent and is the only supported way to create the first administrator.
+Use the idempotent bootstrap task to create the first administrator:
 
 ```bash
 CARTULARY_BOOTSTRAP_PASSWORD='replace-with-a-long-password' \
@@ -45,20 +42,18 @@ The application is at `http://localhost:4000`.
 
 ## Working offline
 
-If you have no model provider configured, an explicit deterministic local
-adapter keeps tests and smoke runs working:
+Without a model provider, use the deterministic adapter for tests and smoke
+runs:
 
 ```bash
 CARTULARY_MODEL_LOCAL_FALLBACK=true
 ```
 
-It is a development and test aid only. Production defaults it off and will
-never switch to it after a live provider fails — a silent downgrade from a real
-model to a deterministic stand-in would corrupt memory quality invisibly.
+Production defaults it off and never falls back to it after a provider error.
 
 ## Running the checks
 
-The standard gate, which every change must pass:
+Run the standard checks:
 
 ```bash
 mix deps.get

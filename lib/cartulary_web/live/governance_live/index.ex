@@ -3,59 +3,9 @@
 defmodule CartularyWeb.GovernanceLive.Index do
   @moduledoc """
   The curator's review surface at `/governance`: the open gate queue, the human
-  decisions taken on it, and skill-requirement-card authoring.
+    decisions taken on it, and skill-requirement-card authoring.
 
-  ## Every decision here is human-only, by construction
-
-  Nothing on this page may ever be driven by a machine credential. Three
-  independent barriers enforce that, and all three must stay in place:
-
-  1. **Session.** The route sits behind a browser password session. A curator
-     signs in at `/governance/sign-in`; the live-session mount hook then admits
-     the socket only when the authenticated actor is a password identity
-     holding the account-admin or curator role. An API key cannot establish
-     that session, so an agent cannot reach this LiveView at all.
-  2. **Operation layer.** The governance operation layer re-checks the actor
-     before it mutates anything and refuses a non-password or under-privileged
-     one. A socket that somehow mounted without a human identity would still be
-     rejected at the write.
-  3. **Absent surface.** The tool set published to agents deliberately has no
-     curator operations in it. Agents may submit raw observations, read
-     governed memory, resolve the calling peer's own frozen question, and lower
-     that peer's own interruption limits. Approve, edit, reject, merge, defer,
-     promotion, gate-rule administration, bulk decisions, and card authoring
-     are not exposed to them and must not be added.
-
-  ## What this module owns
-
-  Rendering and dispatch, nothing else. It contains no gate logic, computes no
-  lifecycle state, and performs no durable write of its own. Each event
-  forwards to the governance operation layer or to skill-card authoring, and
-  those own the transaction, the advisory lock, the immutable decision record,
-  the lifecycle event, and the hash-chained audit entry. Introducing a direct
-  `Ash.create!`/`Ash.update!` here would put a second writer behind the gate
-  and break the rule that reasoned knowledge is only ever written by the
-  pipeline — never do it.
-
-  ## Reading rules
-
-  All reads run inside one Account-scoped transaction that sets the tenant the
-  database's row-level security checks, so a curator can only ever load rows
-  belonging to their own Account. Do not add tenancy filtering in the template:
-  by the time data reaches the markup it is already filtered, and a
-  template-level guard would mask a query that had lost its tenant.
-
-  After every mutation the page re-reads the whole queue instead of patching
-  assigns in memory. That keeps the rendered state identical to committed state
-  and makes a bulk run that failed part-way immediately visible.
-
-  ## Content safety
-
-  This page renders knowledge statements on purpose: an authorized human has to
-  read a claim in order to judge it. That text is for the browser only. Never
-  copy a statement, an edited replacement, or card content into logs,
-  telemetry, audit metadata, or background-job arguments — those channels carry
-  ids, hashes, counts, states, and error classes only.
+    Nothing on this page may ever be driven by a machine credential.
   """
 
   use CartularyWeb, :live_view
@@ -74,17 +24,6 @@ defmodule CartularyWeb.GovernanceLive.Index do
 
   @doc """
   Loads the queue for the curator who just signed in.
-
-  There is no authorization check here on purpose. The live-session mount hook
-  has already verified the session token, the password identity kind, and the
-  account-admin/curator role, and has assigned the resulting actor; it
-  redirects to sign-in rather than letting an unauthorized socket reach this
-  callback. Do not add a fallback that tolerates a missing `current_actor` —
-  that would turn a hard authentication failure into a silent partial page.
-
-  `:selected_ids` starts empty rather than being computed from the queue: a
-  freshly opened socket has nothing checked, and only the checkbox and
-  select-all/deselect-all events ever change it afterward.
   """
   @impl true
   def mount(_params, _session, socket) do
@@ -94,55 +33,10 @@ defmodule CartularyWeb.GovernanceLive.Index do
   @doc """
   Handles the curator gestures available on this page.
 
-  ## `"decide"` — one human decision on one queued item
-
-  Requires the queue row id and an `action` of `approve`, `reject`, `defer`,
-  `edit`, or `merge`. What each one changes downstream:
-
-  - `approve` marks the knowledge `active` with a curator-approved
-    verification, and when the queue row targets a wider scope the knowledge
-    row is relocated to that scope. One case does not activate: personal
-    knowledge being promoted to a scope parks at `awaiting_consent` and neither
-    activates nor moves, because only the subject of that knowledge can grant
-    target-specific consent. A curator approval is never a substitute for it.
-  - `reject` moves the knowledge to `rejected`.
-  - `defer` only pushes the queue row's due date out (24 hours unless
-    `defer_hours` overrides it). The knowledge state is untouched.
-  - `edit` does **not** rewrite the statement in place. It mints a new
-    pipeline-owned knowledge row carrying the corrected `statement`, supersedes
-    the original, and sends the replacement back through the gate from
-    `proposed`. That keeps the pipeline the only writer of knowledge and leaves
-    the original intact for audit.
-  - `merge` folds this item's confidence, corroboration count, and source
-    message ids into the knowledge row named by `merge_into_id`, then
-    supersedes this item so the combined evidence survives on one row.
-
-  Each of them writes an immutable decision record, a content-safe hash-chain
-  audit event, and a lifecycle event wherever a state actually changed. The
-  success path leaves a flash naming the actual outcome — in particular,
-  approving personal knowledge still awaiting subject consent is a real,
-  recorded decision that nonetheless leaves the item exactly where it was, and
-  the flash says so rather than leaving the curator to guess why the card
-  didn't move.
-
-  ## `"bulk"` — the same decision applied to every checked row
-
-  ## `"select_all"`, `"deselect_all"`, `"toggle_select"` — the checkbox selection
-
-  These only ever change which already-rendered rows `"bulk"` will act on; they
-  write nothing. `@selected_ids` is what makes each row's checkbox a
-  server-controlled input rather than a bare uncontrolled one — the only way
-  "select all" can force every box to tick without a line of client-side
-  script, which this page's browser policy forbids.
-
-  ## `"publish_skill_card"` — authors a new skill requirement card version
-
-  Failure handling differs between the two families. Decisions raise rather
-  than return on a forbidden actor, an unknown id, a blank edited statement, or
-  a missing merge target; nothing is rescued here, so the LiveView process
-  crashes and the client remounts onto freshly read state. Card publishing
-  reports its errors as flash messages instead, because they are ordinary
-  mistakes in a hand-edited form.
+    Failure handling differs between the two families. Decisions raise rather than
+    return on a forbidden actor, an unknown id, a blank edited statement, or a missing
+    merge target; nothing is rescued here, so the LiveView process crashes and the
+    client remounts onto freshly read state.
   """
   @impl true
   def handle_event("decide", %{"id" => id, "action" => action} = params, socket) do

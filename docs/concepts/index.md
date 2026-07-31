@@ -57,24 +57,16 @@ flowchart TB
     PIPE --> BLOB
 ```
 
-## The four rules that shape everything
+## Four rules
 
-**1. Context flows down freely; knowledge flows up only through a gate.**
-A scope inherits everything its ancestors know. Nothing travels the other way
-without an explicit decision.
-
-**2. Agents submit raw observations; the pipeline is the sole writer of
-knowledge.** There is no HTTP route, no MCP tool, and no SDK call that writes a
-statement into memory. A compromised or confused agent can record misleading
-*observations*, but it cannot edit memory.
-
-**3. Blast radius scales the bar.** The wider the audience for a statement, the
-higher the confidence required, the stricter the sensitivity handling, and the
-more consent needed.
-
-**4. Knowledge is the only atom.** Profiles, scope cards, and session summaries
-are projections recomputed from knowledge. They can be thrown away and rebuilt;
-knowledge cannot.
+1. **Context flows down; knowledge moves up only through a gate.** Scopes
+   inherit from ancestors, never descendants or siblings.
+2. **Agents submit observations; only the pipeline writes knowledge.** No API,
+   MCP tool, or SDK writes statements directly.
+3. **A wider audience requires a higher bar.** Confidence, sensitivity, and
+   consent requirements rise with blast radius.
+4. **Knowledge is the durable atom.** Profiles, scope cards, and summaries are
+   rebuildable projections.
 
 ## The shortest path through the system
 
@@ -109,14 +101,12 @@ sequenceDiagram
     G->>O: embed, index, mark projections dirty
 ```
 
-Either all four writes in the transaction commit or none do, so a crash can
-never leave an audit gap or an orphaned job. A provider outage stops extraction,
-not the observation: the raw message is durable and the job retries.
+All four writes commit or roll back together. Provider outages delay extraction;
+the durable message remains and the job retries.
 
 ## Durable versus rebuildable
 
-This distinction decides what a backup must contain and what an erasure must
-recompute.
+Backups preserve the left column; erasure and recovery may rebuild the right.
 
 | Durable — the system of record | Rebuildable — derived caches |
 | --- | --- |
@@ -126,8 +116,6 @@ recompute.
 | The hash-chain audit log | Vector and full-text indexes |
 | Usage ledger entries | HNSW state, ETS counters |
 
-Anything in the right column may be deleted and recomputed. Nothing in the left
-column may.
 
 ## Where to go next
 

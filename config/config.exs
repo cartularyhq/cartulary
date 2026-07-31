@@ -2,30 +2,15 @@
 
 # Compile-time (build-time) configuration for the whole application.
 #
-# WHEN THIS FILE IS EVALUATED
-#   Once, by Mix, before any dependency is compiled and long before the
-#   application boots. Everything set here is frozen into the compiled artifact
-#   and into a `mix release` tarball. `config/runtime.exs` is evaluated again on
-#   every boot of that artifact and overrides most of these values from the
-#   process environment.
+# WHEN THIS FILE IS EVALUATED Once, by Mix, before any dependency is compiled and long before
+# the application boots. Everything set here is frozen into the compiled artifact and into a
+# `mix release` tarball. `config/runtime.exs` is evaluated again on every boot of that
+# artifact and overrides most of these values from the process environment.
 #
-# WHAT BELONGS HERE
-#   1. Settings that must exist before or during compilation: the JSON library
-#      and the Postgrex type module Postgrex builds while compiling.
-#   2. Credential-free defaults for everything `config/runtime.exs` may later
-#      replace, so `mix test`, `iex -S mix`, and one-off Mix tasks can start
-#      with no environment file present.
-#
-#   A deployment-tunable value placed here instead of in `config/runtime.exs`
-#   becomes impossible to change without rebuilding. Never put a secret here:
-#   it would be baked into every copy of the artifact.
-#
-# INPUTS   no environment variables. The only host lookup is `System.tmp_dir!/0`
-#          for local scratch paths.
-# OUTPUTS  the `:cartulary`, `:ash`, `:ash_oban`, `:phoenix`, `:logger`,
-#          `:opentelemetry`, and `:ex_aws` application environments.
-# ORDER    this file -> `config/<MIX_ENV>.exs` (imported at the very bottom)
-#          -> `config/runtime.exs` at boot.
+# WHAT BELONGS HERE 1. Settings that must exist before or during compilation: the JSON library
+# and the Postgrex type module Postgrex builds while compiling. 2. Credential-free defaults
+# for everything `config/runtime.exs` may later replace, so `mix test`, `iex -S mix`, and
+# one-off Mix tasks can start with no environment file present.
 
 # General application configuration
 import Config
@@ -149,19 +134,18 @@ config :cartulary, Oban,
     # reconciliation of durable records whose job never ran
     reconciler: 1
   ],
-  # No Oban plugins run. Every trigger declares `scheduler_cron(false)`, so work
-  # is inserted by the enqueue action inside the caller's transaction and no
-  # polling scheduler is needed; a Cron plugin would add a second,
-  # non-transactional way to start work. One consequence to know about: without
-  # a Pruner plugin, nothing deletes rows from the `oban_jobs` table.
+  # No Oban plugins run. Every trigger declares `scheduler_cron(false)`, so work is inserted
+  # by the enqueue action inside the caller's transaction and no polling scheduler is needed;
+  # a Cron plugin would add a second, non-transactional way to start work. One consequence to
+  # know about: without a Pruner plugin, nothing deletes rows from the `oban_jobs` table.
   #
-  # This value also has a side effect that has nothing to do with plugins: AshOban reads
-  # a `:plugins` value that is not a non-empty list as "disable peer leadership entirely",
-  # and Oban's stager (core infrastructure, not a plugin, in the pinned Oban version) only
+  # This value also has a side effect that has nothing to do with plugins: AshOban reads a
+  # `:plugins` value that is not a non-empty list as "disable peer leadership entirely", and
+  # Oban's stager (core infrastructure, not a plugin, in the pinned Oban version) only
   # promotes delayed `scheduled`/`retryable` jobs back to `available` while its node holds
   # leadership. `Cartulary.Application.oban_config/0` restores the ordinary database-backed
-  # peer after AshOban's merge for exactly this reason — see the comment there before
-  # changing this value.
+  # peer after AshOban's merge for exactly this reason — see the comment there before changing
+  # this value.
   plugins: false
 
 config :ash_oban,
@@ -170,26 +154,20 @@ config :ash_oban,
   authorize?: true,
   shared_context: [:job]
 
-# Retrieval profiles. A profile is a named bundle of candidate strategies, their
-# fusion weights, whether the fused head is reranked, and a wall-clock deadline.
-# `search` defaults to `:balanced`, `ask` to `:thorough`, and `:fast` is the only
-# profile allowed to run live when assembling context finds no cached projection.
+# Retrieval profiles. A profile is a named bundle of candidate strategies, their fusion
+# weights, whether the fused head is reranked, and a wall-clock deadline. `search` defaults to
+# `:balanced`, `ask` to `:thorough`, and `:fast` is the only profile allowed to run live when
+# assembling context finds no cached projection.
 #
-# `version` is a contract identity value reported to callers alongside results.
-# "f7-1" versions the retrieval-and-context profile contract. Changing that
-# string is a deliberate contract transition: it obliges a maintainer to add a
-# changelog entry and update the contract regression evidence. It is not a phase
-# name and must not be edited for cosmetic reasons.
+# `version` is a contract identity value reported to callers alongside results. "f7-1"
+# versions the retrieval-and-context profile contract. Changing that string is a deliberate
+# contract transition: it obliges a maintainer to add a changelog entry and update the
+# contract regression evidence. It is not a phase name and must not be edited for cosmetic
+# reasons.
 #
-# `deadline_ms` is a hard wall-clock ceiling in milliseconds covering strategy
-# execution and any reranking. Strategies that miss it are dropped from the
-# result, never retried, and the response reports them as dropped. Raising a
-# deadline trades tail latency for recall.
-#
-# `weights` are per-strategy multipliers used only inside rank fusion. They are
-# not score multipliers: raw strategy scores (cosine distance, full-text rank,
-# time relevance, salience, mention confidence) are on incomparable scales and
-# are never compared directly.
+# `deadline_ms` is a hard wall-clock ceiling in milliseconds covering strategy execution and
+# any reranking. Strategies that miss it are dropped from the result, never retried, and the
+# response reports them as dropped. Raising a deadline trades tail latency for recall.
 config :cartulary, :retrieval_profiles,
   fast: %{
     version: "f7-1",
@@ -332,23 +310,18 @@ config :cartulary, :documents,
   # Connector adapters are registered per deployment; none ship enabled.
   connector_adapters: %{}
 
-# The four Account-level model roles. Every model call in the system is made on
-# behalf of exactly one of them, through the single model gateway; no pipeline,
-# retrieval, web, or governance module talks to a provider directly.
+# The four Account-level model roles. Every model call in the system is made on behalf of
+# exactly one of them, through the single model gateway; no pipeline, retrieval, web, or
+# governance module talks to a provider directly.
 #
-# The tuple provider + model + model_version (+ embedding_dimensions for the
-# embedder) is the recorded identity of everything the role produces. For
-# embeddings it is stored on each vector: a mismatch takes the explicit re-embed
-# path, and a vector is never silently reused across identities.
+# The tuple provider + model + model_version (+ embedding_dimensions for the embedder) is the
+# recorded identity of everything the role produces. For embeddings it is stored on each
+# vector: a mismatch takes the explicit re-embed path, and a vector is never silently reused
+# across identities.
 #
-# `pipeline_version` is a contract identity value. "f5-1" versions the extractor
-# and pipeline identity that `GET /api/health` reports; changing it obliges a
-# maintainer to add a changelog entry and update the contract regression
-# evidence. `prompt_version` is provenance for the prompt template a role uses.
-#
-# The `deterministic` provider is a local, offline, test-and-development
-# fallback. Production must not select it, and must never fall back to it after
-# a live provider fails, because its output is not a real model answer.
+# The `deterministic` provider is a local, offline, test-and-development fallback. Production
+# must not select it, and must never fall back to it after a live provider fails, because its
+# output is not a real model answer.
 config :cartulary, :model_roles,
   embedder: %{
     # Ortex runs an ONNX model from operator-supplied files on this machine.

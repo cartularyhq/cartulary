@@ -2,28 +2,10 @@
 
 defmodule VanishingSubjectProvider do
   @moduledoc """
-  Test model provider that makes the write following its answer fail, on purpose.
+  Test model provider that deliberately invalidates the write following its answer.
 
-  It answers one structured extraction with a schema-valid candidate about the peer named
-  `avery-key`, and, as a side effect of answering, renames that peer. The extractor built its
-  prompt and its list of nameable peers before the call, so the candidate still validates;
-  subject resolution then finds no such peer and raises rather than re-attributing the
-  statement to whoever spoke.
-
-  That is the only way to observe, from inside the SQL sandbox, whether the model call shares
-  a transaction with the write that follows it. Every test already runs inside one sandbox
-  transaction, so `Repo.in_transaction?/0` is useless here; what is observable is whether the
-  usage row this call produces survives the failure. It survives only if the two were written
-  in separate transactions.
-
-  The rename is raw SQL because it has to happen mid-call, from the provider, with no actor
-  and no Ash action available. It relies on the Account's row-level-security setting still
-  being installed on the sandbox connection, which it is: the extraction's read phase
-  installed it just before this call.
-
-  Only `structured/4` is meaningful. The other three capabilities exist because the behaviour
-  requires them and return an error, so a test that reaches them fails loudly instead of
-  receiving a fabricated answer.
+  The failure reveals whether the model call incorrectly shares the subsequent database
+  transaction. It is test-only and mutates the fixture peer solely to force that write error.
   """
 
   @behaviour Cartulary.Model.Provider
@@ -87,49 +69,10 @@ end
 
 defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
   @moduledoc """
-  Pins the coupling between a durable write, its audit entry, its processing record, and its
-  background job: either all four exist or none of them do.
+  Pins the coupling between a durable write, its audit entry, its processing record,
+    and its background job: either all four exist or none of them do.
 
-  The file name and module name are frozen evidence identities and are not renamed. What they
-  guard is the property that makes the rest of the system trustworthy — there is no window in
-  which an observation is stored but unaudited, audited but unqueued, or queued for work that
-  was rolled back. Five things are pinned here.
-
-  **One transaction, four effects.** Accepting a raw observation writes the observation row,
-  appends an audit event, creates (or reuses) a durable processing record, and inserts the
-  background job in the same database transaction. A failure at any point after the enqueue
-  unwinds all of them, so a job can never reference a row that does not exist and a stored row
-  can never be left with nobody scheduled to process it.
-
-  **Audit is content-safe.** An audit event records a SHA-256 digest of the content and
-  content-free metadata such as a role and a session identifier. Raw text never enters audit
-  metadata, job arguments, or telemetry, because those travel to places the content itself is
-  not allowed to go.
-
-  **The audit trail is a per-Account hash chain.** Each event stores the hash of the previous
-  event for its Account and its own hash over a fixed payload. Recomputing the chain from the
-  stored fields must reproduce every hash, which is what turns "we have logs" into "the logs
-  have not been altered". The chain head starts empty for a new Account, so the first event
-  links to nothing.
-
-  **Work is replay-safe.** Every job lane derives a deterministic idempotency key from its
-  inputs. The same inputs must produce the same key, so a retry, a reconciler sweep, and an
-  inline run all converge on one unit of work; different inputs or different lanes must
-  produce different keys, so unrelated work is never mistaken for a duplicate and silently
-  dropped. Re-running extraction merges into the existing knowledge instead of minting a
-  second copy or appending a second creation lifecycle event.
-
-  **Extraction is not a precondition for durability.** An observation ingested without an
-  inline extraction still commits with its processing record; it stays marked unprocessed so
-  the reconciler will come back to it.
-
-  ## If a test in this file fails
-
-  Treat it as a durability or integrity defect rather than a flaky test. Splitting one of the
-  four writes out of the transaction, moving the enqueue after commit, copying content into
-  audit metadata or job arguments, or changing the fields that feed the event hash will each
-  break a specific test here. The last one also invalidates every previously stored chain, so
-  it needs a migration plan, not just a new expected value.
+    One transaction, four effects.
   """
 
   use Cartulary.DataCase, async: false

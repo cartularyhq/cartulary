@@ -2,24 +2,7 @@
 
 defmodule CartularyWeb.Console.AccessTest do
   @moduledoc """
-  Pins the two visibility rules and the action gates the browser console runs
-  on.
-
-  These are pure functions over an actor, so they are tested without a database
-  on purpose: the rules are small, they are consulted from nine pages, and a
-  regression in them is a disclosure rather than a broken layout. A test that
-  needed a fixture to state them would make it harder to see what the rule
-  actually is.
-
-  What this file protects:
-
-  * a member or reader never sees `proposed`, `held`, `rejected`, `contested`,
-    or `redacted` statements that are not about them;
-  * a `provisional` statement is visible only to its subject, for every role
-    including account admin;
-  * a statement about the viewer is visible whatever its state;
-  * every state-changing gesture requires a password identity, so a machine
-    credential holding a curator role is still refused.
+  Pins the two visibility rules and the action gates the browser console runs on.
   """
 
   use ExUnit.Case, async: true

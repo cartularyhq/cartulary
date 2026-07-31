@@ -4,41 +4,11 @@ defmodule CartularyWeb.Console.Graph do
   @moduledoc """
   Turns the console's graph data into positioned nodes and edges for inline SVG.
 
-  ## Why the layout is computed on the server
-
-  The browser pages are served under a Content-Security-Policy that permits
-  scripts only from this origin and forbids inline script, and the project has
-  no bundler — the whole client build is one small ES module that starts the
-  LiveView socket. Pulling in a graph-drawing library would mean adding both a
-  build step and a script exception. Instead the geometry is computed here, in
-  Elixir, and the page renders plain SVG elements that LiveView can patch and
-  attach `phx-click` to. Selecting a node is a server round-trip, which is also
-  what lets the side panel show authorized detail without shipping the whole
-  corpus to the browser.
-
-  ## Why the layout is radial rather than force-directed
-
-  A force simulation needs either randomness or many iterations over every pair
-  of nodes; the first makes the picture jump on every re-render, and the second
-  makes a page load slow on a large Account. This layout is a deterministic
-  function of its input: the same scopes and statements always produce the same
-  picture, so a reader can return to the graph and find things where they left
-  them, and a test can assert on coordinates.
-
-  The shape mirrors what the data means. Scopes sit on concentric rings by
-  their depth in the containment tree, so distance from the centre *is* depth.
-  Each scope's statements fan out in small orbits around it, so a dense scope
-  is visibly dense. Lateral scope relations and statement-to-statement
-  relations are drawn as chords across the rings, which is what makes a
-  cross-reference stand out from mere containment.
-
-  ## Content safety
-
-  Nodes carry a label and a tooltip built from data the caller already had
-  authorization to read. This module performs no queries of its own and must
-  never gain any: it cannot re-check authorization, so anything it renders had
-  to be filtered before it arrived. In particular there are no entity nodes,
-  because entity rows are a private recall cache that spans scope boundaries.
+    The browser pages are served under a Content-Security-Policy that permits scripts
+    only from this origin and forbids inline script, and the project has no bundler —
+    the whole client build is one small ES module that starts the LiveView socket.
+    Pulling in a graph-drawing library would mean adding both a build step and a script
+    exception.
   """
 
   # The SVG coordinate space. Nothing renders outside it, so every computed
@@ -65,18 +35,9 @@ defmodule CartularyWeb.Console.Graph do
   @doc """
   Positions every scope and statement and returns the drawable model.
 
-  `data` is the map produced by `CartularyWeb.Console.Loader.graph/2`.
-
-  Returns `%{width:, height:, nodes:, edges:}`. Each node is
-  `%{id:, kind:, x:, y:, r:, label:, title:, class:, scope_id:}` where `kind` is
-  `:scope` or `:knowledge` and `class` is the CSS class naming its lifecycle
-  state or scope depth. Each edge is `%{kind:, x1:, y1:, x2:, y2:}` with `kind`
-  one of `:containment`, `:membership`, `:scope_relation`, or
-  `:knowledge_relation`.
-
-  Edges whose endpoints are not both present are dropped. The loader already
-  filters them, and this second drop exists so a future caller cannot produce a
-  line to nowhere — which would disclose that an unseen node exists.
+    Returns `%{width:, height:, nodes:, edges:}`. Each node is `%{id:, kind:, x:, y:,
+    r:, label:, title:, class:, scope_id:}` where `kind` is `:scope` or `:knowledge` and
+    `class` is the CSS class naming its lifecycle state or scope depth.
   """
   def build(data) do
     scope_positions = place_scopes(data.scopes)

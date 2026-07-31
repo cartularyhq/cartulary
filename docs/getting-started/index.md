@@ -2,9 +2,8 @@
 
 # Getting started
 
-There are three ways to run Cartulary. All three run the *same* release with
-the same guarantees — they differ only in where PostgreSQL comes from and how
-the process is supervised.
+Choose an install path. Each runs the same release and differs only in how
+PostgreSQL and the application are supervised.
 
 ```mermaid
 flowchart TD
@@ -23,11 +22,9 @@ flowchart TD
 | Docker Compose | Container hosts, existing infrastructure | Stock PostgreSQL container | [Run with Docker](install-docker.md) |
 | Source | Development and contribution | Your own local server | [Run from source](install-source.md) |
 
-Whichever you choose, follow the [Quickstart tutorial](quickstart.md)
-afterwards to bootstrap an administrator, record your first observation, and
-read it back.
+Then follow the [Quickstart](quickstart.md).
 
-## What you need before you start
+## Prerequisites
 
 - **A generation model, or an offline fallback.** Extraction and `ask` call a
   language model through a provider-neutral gateway. Any ReqLLM-supported or
@@ -41,12 +38,10 @@ read it back.
 - **Somewhere durable for blobs**, if you plan to ingest documents. A local
   directory by default; any S3-compatible bucket by configuration.
 
-All of it is set through environment variables — see
+Configure these with environment variables; see
 [Configuration](../reference/configuration.md).
 
-## What you get
-
-Once running, Cartulary serves:
+## Surfaces
 
 - a JSON API at `/api/v1` for ingest, search, ask, context, and readiness;
 - an MCP endpoint at `/mcp` for agent tooling;

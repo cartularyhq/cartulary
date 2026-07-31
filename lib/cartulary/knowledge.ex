@@ -2,47 +2,11 @@
 
 defmodule Cartulary.Knowledge do
   @moduledoc """
-  Ash domain for governed knowledge statements, their provenance, and their lifecycle state.
+  Ash domain for governed statements, provenance, lifecycle evidence, and derived views.
 
-  A knowledge statement is the only durable atom in Cartulary. Everything a caller sees as a
-  scope card, a peer profile, or a session summary is a projection built from statements, and
-  every entity row is a rebuildable cache derived from them. Nothing here is a second store of
-  truth: delete the projections, entities, and vectors and the system can rebuild all of them
-  from the statements, their provenance, and their lifecycle history.
-
-  ## What this domain owns
-
-  * `KnowledgeItem` — one governed natural-language statement plus its state machine.
-  * `Attribution` — who or which scope a statement is *about*, and whether the subject said it.
-  * `Provenance` — which raw observation and which extracting model produced it.
-  * `KnowledgeRelation` — typed edges between statements; `supersedes` is the only kind written
-    by code in this repository.
-  * `LifecycleEvent` — the append-only record of every state change.
-  * `Projection` — the rebuildable context caches (scope card, peer profile, session summary).
-  * `Entity` and `EntityMention` — rebuildable, pipeline-internal resolution caches.
-
-  ## Invariants this domain enforces
-
-  * Agents and connectors submit raw observations only. Knowledge is minted exclusively by the
-    extraction pipeline, so every write action here is gated on a pipeline actor (or, for state
-    transitions, on an authenticated human curator).
-  * Statement text is immutable. A correction mints a replacement statement and supersedes the
-    original; it never rewrites history.
-  * Provenance and lifecycle rows are append-only, so the reason a statement exists and the path
-    it took through governance stay auditable.
-  * Every resource is tenanted on `account_id`. Resources that carry a scope column additionally
-    filter reads by the caller's authorized scopes; `Entity` and `EntityMention` instead restrict
-    reads to the pipeline actor, so they have no caller-facing surface at all.
-
-  ## Mistakes to avoid
-
-  * Do not add a durable write path that bypasses these actions — direct SQL writes defeat the
-    tenancy filters, the audit chain, and the governance gate at once.
-  * Do not treat a projection or entity row as authoritative. They lag, they can be marked dirty,
-    and erasure recomputes them from the surviving statements.
-  * Do not assume a read here is safe to show a caller verbatim: the policies filter by Account
-    and scope, but lifecycle filtering (excluding held, proposed, or rejected statements) is the
-    caller's responsibility and lives in the retrieval layer.
+  Only the internal pipeline creates knowledge. New statements enter governance before retrieval;
+  subject and source remain distinct. Projections and entity rows are rebuildable caches, not
+  durable knowledge or public API data.
   """
 
   use Ash.Domain
@@ -61,54 +25,11 @@ end
 
 defmodule Cartulary.Knowledge.KnowledgeItem do
   @moduledoc """
-  One governed natural-language statement: the durable atom of Cartulary memory.
+  One governed statement, the durable atom of Cartulary memory.
 
-  A row is a single claim ("Ana prefers async standups"), the scope it lives in, who or what it
-  is *about*, how confident and how sensitive it is, and where it currently sits in the
-  governance lifecycle. The statement text and its hash never change after creation. A curator
-  edit mints a replacement row and marks the original `superseded`; a merge folds one row's
-  corroboration into another and marks the absorbed row `superseded`. Either way the retired row
-  keeps its text, its provenance, and its history, so what the system once believed stays
-  readable.
-
-  ## Independent axes
-
-  Four pairs of fields are deliberately independent and must not be collapsed:
-
-  * *Subject* (`subject_peer_id` / `subject_scope_id`) is who the claim is about. *Source*
-    (`source_message_ids` and the `Provenance` rows) is where the claim came from. A peer
-    talking about a colleague produces a statement whose subject is the colleague.
-  * *Belief time* (`inserted_at`, `revalidate_after`, `expires_at`) is when the system holds the
-    claim. *Valid time* (`relevant_from`, `relevant_until`) is when the claim is true in the
-    world. A fact can be freshly learned and long expired, or old and still true.
-  * `confidence` (how sure) and `sensitivity` (how exposed it may be) never substitute for one
-    another. High confidence does not license wider sharing.
-  * `state` is the governance lifecycle; `verification` records *why* the last transition
-    happened (for example an automatic gate keep, a curator approval, or a subject dispute).
-
-  ## Lifecycle
-
-  Every extracted statement starts as `proposed` — the create action refuses any other state.
-  The governance layer then moves it to `active` (retrievable), `provisional` (visible only to
-  the peer it came from while a human decision is pending), `held` (a scope or account level
-  proposal parked at its source scope and excluded from retrieval), `rejected`, `contested`,
-  `needs_revalidation`, `expired`, `superseded`, `redacted`, `stale`, or `retracted`. Only the
-  `transition` action may change state, and it always writes a `LifecycleEvent` and an audit
-  entry in the same transaction.
-
-  ## Mistakes to avoid
-
-  * Do not write knowledge from web, retrieval, or connector code. `create_from_pipeline` and
-    `merge_from_pipeline` require a pipeline actor precisely so that raw observations remain the
-    only thing an agent can submit.
-  * Do not update state with a plain `Ash.update` on the attributes — bypassing `transition`
-    would silently skip the lifecycle event and the audit chain.
-  * Do not treat a successful read as "safe to answer with". The policies filter Account and
-    scope; they do not filter lifecycle state, so a caller that ignores `state` can leak held or
-    rejected content.
-  * Do not reuse an embedding whose provider, model, version, and dimensions do not match the
-    currently configured embedder. Vectors are only comparable within one pinned identity; a
-    mismatch has to be re-embedded, never silently substituted.
+  Pipeline-only creation records belief time, valid time, salience, confidence, sensitivity,
+  subject, and source independently. Lifecycle actions preserve history; callers must not bypass
+  governance or expose held and unauthorized provisional rows.
   """
 
   use Cartulary.Resource, domain: Cartulary.Knowledge, table: "knowledge_items"
@@ -384,19 +305,10 @@ end
 
 defmodule Cartulary.Knowledge.Attribution do
   @moduledoc """
-  Records who or what a knowledge statement is about, and how directly it was learned.
+  Records what a statement is about and how directly it was learned.
 
-  One row ties a statement to one target — a peer or a scope — at one `level`. The level is
-  the part that matters for trust: `self` means the speaker was talking about themselves,
-  `hearsay` means the claim is about somebody other than the speaker (or the extractor flagged
-  it second-hand), and `scope` means the claim characterises a scope rather than a person.
-  Extraction already discounts a hearsay claim's confidence before it reaches governance; this
-  row is the durable record of which kind it was, so collapsing the distinction would leave
-  second-hand claims indistinguishable from first-hand ones.
-
-  Rows are created only by the extraction pipeline and removed only by erasure. Nothing here is
-  editable: an attribution is a fact about how a statement was obtained, and rewriting it would
-  falsify the provenance trail.
+  Subject and source are independent. Hearsay and direct attribution remain explicit so
+  governance can discount or require consent correctly.
   """
 
   use Cartulary.Resource, domain: Cartulary.Knowledge, table: "attributions"
@@ -474,20 +386,10 @@ end
 
 defmodule Cartulary.Knowledge.Provenance do
   @moduledoc """
-  Append-only record of one source that supports a knowledge statement.
+  Append-only evidence linking a statement to one source.
 
-  Each row answers "where did this claim come from": the raw observation (`message_id` for a
-  conversation turn, `document_version_id` for an ingested document version), the model and
-  prompt versions that extracted it, and when the source event occurred. A statement supported
-  by three observations has three provenance rows.
-
-  This is what makes proportionate erasure possible. Removing one subject's contribution deletes
-  or scrubs that subject's provenance rows; a statement that still has surviving provenance
-  keeps living, and only a statement whose last supporting row disappears is retracted.
-
-  Rows are written by the extraction pipeline and never updated — there is no update action.
-  Correcting provenance means erasing and re-deriving it, so the source trail cannot be quietly
-  rewritten after the fact.
+  Independent provenance keeps knowledge alive when one source is superseded or erased. Content
+  is referenced by ids and hashes rather than copied into audit-facing metadata.
   """
 
   use Cartulary.Resource, domain: Cartulary.Knowledge, table: "provenances"
@@ -576,22 +478,10 @@ end
 
 defmodule Cartulary.Knowledge.KnowledgeRelation do
   @moduledoc """
-  A typed, directed edge between two knowledge statements.
+  A typed directed edge between governed statements.
 
-  `kind` is an unconstrained string. The only kind written by code in this repository is
-  `supersedes`, which document sync creates when a new version replaces a claim: the replacement
-  points at the statement it retires. Because the old row survives in a `superseded` state, the
-  pair records both what the system believes now and what it believed before, without deleting
-  anything. The governance engine additionally *reads* `conflict` edges, so that a reviewer sees
-  a contradiction bundled with the proposal.
-
-  Relations are also a retrieval expansion path: after seed candidates are found, expansion
-  walks these edges (in either direction) to pull in neighbouring statements. The `confidence`
-  on the edge becomes that neighbour's edge score, so a weak link contributes weakly.
-
-  Rows are create-only and pipeline-only. There is no update and no destroy action here — an
-  edge that turned out to be wrong is superseded by the lifecycle of the statements it joins,
-  not rewritten in place.
+  Relations are Account-scoped and readable only when both statement scopes are authorized. An
+  edge may aid retrieval but never grants access.
   """
 
   use Cartulary.Resource,
@@ -649,19 +539,10 @@ end
 
 defmodule Cartulary.Knowledge.LifecycleEvent do
   @moduledoc """
-  The append-only history of every knowledge state change.
+  Append-only evidence of one knowledge lifecycle transition.
 
-  One row per state change: which statement moved, from which state to which state, the reason
-  code supplied by whoever made the decision, and when it happened. Together with the audit
-  chain, this is the answer to "why is this claim active?" or "who rejected this and when?".
-
-  Transition rows are written by the statement's `transition` action inside the same transaction
-  as the state change, so history can never diverge from the current state. The extraction
-  pipeline also records one event when it first proposes a statement; that row has no
-  `from_state`, because there is no earlier state to leave.
-
-  There is no update and no destroy action. If a transition was wrong, the correction is another
-  transition, which appends another event — the record of the mistake stays.
+  Events are written in the same transaction as the state change and retain content-safe actor,
+  reason, channel, and timing data.
   """
 
   use Cartulary.Resource,
@@ -722,34 +603,10 @@ end
 
 defmodule Cartulary.Knowledge.Projection do
   @moduledoc """
-  A rebuildable context cache: a scope card, a peer profile slice, or a session summary.
+  A rebuildable scope, peer, or session context cache.
 
-  Projections exist so that assembling context for a request is a cheap read instead of a live
-  retrieval pass. They are derived entirely from governed knowledge statements. Losing this
-  table costs latency, never truth — the background refresh job recreates every row from the
-  statements that survive.
-
-  ## Keys and kinds
-
-  `cache_key` is the identity of one projection within an Account, and its shape encodes the
-  kind: a scope card keys on the scope id, a peer profile on scope plus peer, a session summary
-  on scope plus session. The uniqueness index is Account-scoped, so two Accounts may hold the
-  same key without colliding.
-
-  ## Freshness
-
-  `watermark` is when the content was last rebuilt; `source_ids` lists the statements it was
-  built from; `delta_count` counts incremental merges since the last full compaction. When a
-  statement's lifecycle changes, affected projections are marked `dirty` in the same transaction
-  as the state change, and the cached copy held in memory is invalidated across nodes. Readers
-  must treat `dirty` rows as unusable and fall back to live retrieval.
-
-  ## Mistakes to avoid
-
-  * Never treat a projection as a system of record; never write content into one that is not
-    derived from statements the caller could already retrieve.
-  * Never bypass the dirty flag to serve a stale card. A dirty projection may contain text from
-    a statement that has since been rejected, redacted, or erased.
+  Knowledge remains authoritative. Projections carry source ids, dirty state, and bounded deltas
+  so invalidation or loss can be repaired without reasoning during ordinary context reads.
   """
 
   use Cartulary.Resource, domain: Cartulary.Knowledge, table: "projections"
@@ -868,31 +725,10 @@ end
 
 defmodule Cartulary.Knowledge.Entity do
   @moduledoc """
-  A rebuildable, pipeline-internal cache row for one resolved real-world entity.
+  Pipeline-internal rebuildable cache for one resolved entity.
 
-  Background resolution scans active statements for candidate surface forms, folds the ones that
-  refer to the same thing onto a single row, and remembers every spelling it has seen in
-  `aliases`. Retrieval uses these rows to expand a search: two statements that mention the same
-  entity become neighbours even when they share no words.
-
-  ## This cache is invisible to callers
-
-  Entity rows, canonical names, aliases, surface forms, and entity ids must never reach an HTTP
-  response, an MCP tool result, a projection payload, or a retrieval result. Entity-based
-  expansion returns *statements*, never the entity that linked them. The read action is
-  restricted to the pipeline actor for exactly this reason — an ordinary authorized reader
-  cannot list these rows at all, which is unusual for this codebase and deliberate.
-
-  ## Rebuildability
-
-  Nothing here is a system of record. `derived_from` records the statements that produced the
-  row, resolution reruns from active statements, and rows that lose all their mentions are
-  pruned. Erasure and logical import both recompute the cache rather than transporting it, so a
-  restored Account regenerates entities under its own embedder identity.
-
-  Unresolved or wrong entities degrade retrieval recall. They never block ingest, never change
-  what a statement says, and never widen who may see it: a mention inherits visibility from its
-  statement and nothing else.
+  Entity rows support retrieval only. Names, aliases, and ids must never appear in external,
+  console, SDK, projection, or retrieval payloads.
   """
 
   use Cartulary.Resource, domain: Cartulary.Knowledge, table: "entities"
@@ -1014,20 +850,10 @@ end
 
 defmodule Cartulary.Knowledge.EntityMention do
   @moduledoc """
-  A rebuildable link saying "this statement mentions this entity, spelled this way".
+  Rebuildable link between a statement and an entity mention.
 
-  Mentions are the join table that lets retrieval expand from one statement to other statements
-  about the same entity. Like the entity rows themselves they are a pipeline-internal cache:
-  resolution clears a scope's mentions and re-derives them from active statements, and no
-  surface — HTTP, MCP, LiveView, projections, retrieval payloads — may expose the surface form
-  or the entity id.
-
-  A mention carries `scope_id` so a rebuild can work one scope at a time, but it grants no
-  visibility of its own. Whoever may read the statement may learn what the statement says;
-  sharing an entity with a statement in another scope never widens access to that statement.
-
-  Rows are create-or-erase only. A changed statement produces a fresh set of mentions rather
-  than an edited one, which keeps the cache consistent with the text it was derived from.
+  It is pipeline-internal retrieval data. Erasure and import recompute it from surviving governed
+  statements, and no external surface may expose it.
   """
 
   use Cartulary.Resource, domain: Cartulary.Knowledge, table: "entity_mentions"

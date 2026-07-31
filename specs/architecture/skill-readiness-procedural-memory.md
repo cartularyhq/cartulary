@@ -4,21 +4,17 @@
 
 Status: implemented
 
-Skill readiness completes Cartulary's authored procedural-memory layer: a
-versioned `SkillRequirementCard` says what governed knowledge must be present
-before an agent runs a skill, and `check_readiness(skill, peer, scope)` produces
-a reasoning-free gap report. It implements `FR-SK-1` through `FR-SK-7`,
+Versioned `SkillRequirementCard` records define knowledge prerequisites;
+`check_readiness(skill, peer, scope)` returns a reasoning-free gap report. This
+implements `FR-SK-1` through `FR-SK-7`,
 `FR-API-9`, `FR-API-15`, `AINV-2`, `AINV-6`, `AD-DATA-4`, and the
 `check_readiness` NFR target.
 
 ## Authored card boundary
 
-`Cartulary.Skills.SkillRequirementCard` remains one of the 38 authoritative Ash
-Resources introduced from the Ash domain backbone through retrieval, entity
-resolution, and context. Skill readiness adds a human-readable description and
-the pinned `requirement_schema_version`, currently `f9-1`; it does not add
-another durable type. That `f9-1` prefix is a historical version tag and no
-longer names a roadmap phase.
+`SkillRequirementCard` remains one of 38 authoritative Ash Resources. Readiness
+adds a description and pinned `requirement_schema_version` (`f9-1`), not a new
+durable type. `f9-1` is a historical contract tag.
 
 Cards are authored configuration, not reasoned knowledge:
 
@@ -116,16 +112,14 @@ The same readiness implementation is available through:
 - the AshAi MCP `check_readiness` tool; and
 - `Cartulary.Skills.check_readiness/2` for internal callers.
 
-The existing password-session governance LiveView lists active cards and
-publishes normalized new versions from reviewed `f9-1` JSON. Machine
-credentials have no card-authoring MCP tool.
+The password-session governance LiveView lists cards and publishes normalized
+versions from reviewed `f9-1` JSON. Machine credentials cannot author cards.
 
 `sdk/typescript/src/skill-readiness.ts` and
 `sdk/python/cartulary/skill_readiness.py` consume the report, preserve warnings,
 build elicitation prompts, and throw when required gaps block. They are
-transport-neutral helper modules; the integration-surfaces work owns generation
-and packaging of the complete TypeScript/Python clients (still to be
-implemented; tracked in specs/roadmap/beta-roadmap.md).
+transport-neutral helpers, not the complete generated clients still tracked in
+`specs/roadmap/beta-roadmap.md`.
 
 Readiness telemetry records only report identity, counts, and the final boolean.
 It does not record skill names, card descriptions/selectors, statements,
@@ -133,10 +127,9 @@ elicitation prompts, or matched content.
 
 ## Migration and evidence
 
-The manually reviewed additive migration is
+Migration:
 `priv/repo/migrations/20260728101329_f9_skill_readiness_procedural_memory.exs`.
-It adds only `description` and the non-null `f9-1` schema identity. The matching
-AshPostgres snapshot is under
+It adds `description` and the non-null `f9-1` identity. Snapshot:
 `priv/resource_snapshots/repo/skill_requirement_cards/`.
 
 Deterministic evidence is in

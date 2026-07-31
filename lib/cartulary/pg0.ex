@@ -2,48 +2,11 @@
 
 defmodule Cartulary.Pg0 do
   @moduledoc """
-  Starts and stops the PostgreSQL server that the no-container install supervises itself.
+  Supervises the embedded PostgreSQL process for no-container installs.
 
-  Cartulary can run against a database an operator manages, or it can bring its
-  own. This process is the "bring its own" half: a small launcher around a
-  pinned helper executable that installs and daemonises a real PostgreSQL
-  server. Which of the two an install uses is an infrastructure choice. It
-  changes where the database lives and nothing else — same release, same
-  migrations, same behaviour — so no product code may branch on it.
-
-  ## Position in the boot order is the point
-
-  This is the first child in the supervision tree when self-supervised mode is
-  on. It must reach a database that accepts connections before the repository
-  starts and before migrations run, and it achieves that by doing all its work
-  in `init/1`: a blocking `init/1` holds up its supervisor, which is exactly the
-  ordering guarantee wanted. Moving it later leaves the repository connecting to
-  a port with nothing behind it.
-
-  ## What is pinned, and where
-
-  The helper executable, its PostgreSQL version, and the vector extension it
-  bundles are pinned by the packaging step, which downloads the platform's asset
-  and refuses it unless its SHA-256 matches a reviewed digest committed in the
-  repository. Nothing is fetched at boot. This module only *runs* the pinned
-  binary, passing the configured version through; the guarantee that every
-  install gets byte-identical PostgreSQL is made upstream of it. Startup
-  validation elsewhere refuses to boot when the configured path is not a real
-  readable, executable file.
-
-  ## Lifecycle details worth knowing before changing anything
-
-  * The database daemonises itself. This process holds no port and no OS child;
-    it is a controller, not a parent. Killing it does not stop the server.
-  * A leftover `postmaster.pid` whose process is gone is *moved aside*, never
-    deleted, so an operator can still inspect it after a crash.
-  * When a live pid file is present the launcher attaches to the running
-    instance instead of starting a second one.
-  * If the configured port is already taken by something else, boot fails
-    loudly rather than silently pointing the release at a stranger's database.
-  * The process does not trap exits, so a supervisor shutdown will not run
-    `terminate/2`. Application shutdown therefore calls `stop_database/0`
-    explicitly before the tree comes down.
+  The binary version and platform checksum are pinned, data stays under the private release root,
+  and pg0 becomes ready before Repo and migrations start. External-Postgres mode skips only this
+  infrastructure process; application behavior and guarantees stay identical.
   """
 
   use GenServer

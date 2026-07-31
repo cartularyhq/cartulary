@@ -2,26 +2,22 @@
 
 # SDK helpers
 
-Two small, transport-neutral modules interpret one Cartulary response — the
-skill-readiness report — and turn it into a decision a program can act on: run
-the skill, or stop and ask the peer first.
+Two transport-neutral modules turn a skill-readiness report into a run-or-stop
+decision:
 
 - [`sdk/typescript/src/skill-readiness.ts`](https://github.com/cartularyhq/cartulary/blob/main/sdk/typescript/src/skill-readiness.ts)
 - [`sdk/python/cartulary/skill_readiness.py`](https://github.com/cartularyhq/cartulary/blob/main/sdk/python/cartulary/skill_readiness.py)
 
 !!! warning "These are not generated SDKs"
-    There is no HTTP client, no MCP client, no authentication handling, no
-    retry policy, no request builder, and no pagination. There is no
-    `package.json` and no `pyproject.toml`, because nothing is published to npm
-    or PyPI. Copy or vendor the file you need into your own project.
+    These files provide no HTTP/MCP client, authentication, retries, request
+    building, or pagination. Nothing is published to npm or PyPI; copy or
+    vendor the needed file.
 
     Generated clients and a published OpenAPI description of the HTTP surface
     do not exist in this release — see [Limitations](../reference/limitations.md).
 
-The modules perform no I/O at all: no network, no filesystem, no model calls.
-You fetch the report yourself and pass the parsed object in. That is what makes
-them safe on a hot path, inside a retry loop, or in a unit test with a literal
-fixture.
+The modules perform no network, filesystem, or model I/O. Fetch and parse the
+report, then pass the inner object to the helper.
 
 ## Getting a report
 
@@ -31,9 +27,8 @@ Two surfaces produce the identical report:
   object, not the `{"data": ...}` envelope;
 - the MCP tool `check_readiness`, which returns the report directly.
 
-`report_version` is currently `"f9-1"`. It versions the requirement selector
-language together with the gap-report shape. Clients may and should reject a
-value they do not recognise.
+`report_version` is `"f9-1"` and versions both the selector language and report
+shape. Reject unknown versions.
 
 ## Fields the helpers read
 
@@ -50,16 +45,11 @@ value they do not recognise.
 
 ## What the helpers do
 
-- Refuse to continue when `blocked` is true, by raising a blocked error.
-- Keep preferred gaps as non-blocking warnings, so a caller can note degraded
-  input rather than silently losing the signal.
-- Turn `ask-peer` and `either` gaps that carry an authored prompt into
-  elicitation prompts, flagged as blocking when the underlying requirement is
-  required.
-- Separate out required gaps that no question can close — `from-memory`
-  requirements, and the blocker raised when no active card is visible at all —
-  as hard blockers, so a caller does not present an unanswerable situation to
-  the peer as an interview.
+- Raise a blocked error when `blocked` is true.
+- Preserve preferred gaps as non-blocking warnings.
+- Convert prompted `ask-peer` and `either` gaps into elicitation prompts.
+- Keep `from-memory` gaps and missing-card blockers as hard blockers that
+  cannot be resolved by questioning the peer.
 
 ## TypeScript
 

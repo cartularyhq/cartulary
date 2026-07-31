@@ -2,32 +2,13 @@
 
 defmodule Cartulary.Eval.ScorerTest do
   @moduledoc """
-  Unit tests for the deterministic, model-free benchmark scorer.
+  Pins deterministic, model-free correctness, citation, and lexical grounding
+  scores.
 
-  The scorer answers three separate questions about one system response, and
-  the tests below keep them separate:
-
-  1. **Was it right?** Exact match, substring containment, or a token-overlap
-     F-measure at or above 0.5 all count as correct. For a question whose
-     expected behaviour is to decline, correctness means having abstained —
-     text overlap is irrelevant and would reward a confident wrong answer.
-  2. **Did it cite the right support?** Measured against the evidence the
-     benchmark labelled, independently of whether the prose was right. A
-     lucky-guess answer with no supporting citation is visible here.
-  3. **How grounded was it?** A lexical stand-in for the retrieval-quality
-     triad: answer-versus-context, question-versus-context, and
-     question-versus-answer overlap.
-
-  Everything is computed with string arithmetic and no model call. That is the
-  point: these are the reproducible numbers a release is checked against, so
-  they must give the same result on any machine, offline, at no cost, and
-  without a judge model's run-to-run variation. A model-graded judge may be
-  reported alongside them under its own separately identified fields, but must
-  never replace them.
-
-  The summary side is equally load-bearing. Results are aggregated overall, by
-  category, and by context-length bucket, and the last of those is how quality
-  loss at longer context is tracked.
+  Abstention replaces text matching for unanswerable questions. Citation
+  recall remains independent of answer correctness. Summaries preserve overall,
+  category, and context-length buckets so degradation remains visible. Model
+  judging may supplement but never replace these offline release metrics.
   """
 
   use ExUnit.Case, async: true
@@ -44,19 +25,14 @@ defmodule Cartulary.Eval.ScorerTest do
 
     result = %{"answer" => "Alice prefers concise status updates.", "abstained" => false}
 
-    # Third argument is what the system actually cited: one of the two labelled
-    # evidence turns.
+    # The system cited one of two labelled evidence turns.
     score = Scorer.score_question(question, result, ["D2:4"])
 
-    # The answer is a full sentence, so it is not an exact match; it wins on
-    # containment of the expected phrase instead.
+    # Full-sentence correctness comes from expected-phrase containment.
     assert score["correct"]
     assert score["contains_expected"]
 
-    # Hit means "at least one labelled reference was cited". Recall is the
-    # fraction of *labelled* references that were cited: one of two, so 0.5.
-    # Dividing by the count of cited refs instead would report a perfect 1.0
-    # here and hide the missed second piece of evidence entirely.
+    # Recall divides by labelled references: one of two is 0.5.
     assert score["citation_hit"]
     assert score["citation_recall"] == 0.5
 

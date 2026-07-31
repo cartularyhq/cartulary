@@ -3,49 +3,13 @@
 defmodule Mix.Tasks.Cartulary.Portability.Export do
   @moduledoc """
   Writes the configured community Account out as a self-contained, checksum-verified
-  archive.
+    archive.
 
-  The archive is what moves an installation between machines, deployment modes, or blob
-  storage adapters: a gzip-compressed tar holding a manifest, one JSON-lines file per
-  durable resource, and content-addressed original document blobs. It is read inside a
-  single Account-scoped database transaction, so the snapshot is internally consistent.
-
-      mix cartulary.portability.export
-      mix cartulary.portability.export --output /secure/path/cartulary-account.tar.gz
-
-  ## Switches
-
-    * `--output PATH`, `-o` — destination file. Default:
-      `cartulary-export-YYYY-MM-DD.tar.gz` in the current working directory, dated with
-      today's UTC date. An existing file at that path is overwritten.
-
-  ## What is and is not inside
-
-  Included: the durable system of record — the Account, scopes, peers, raw observations,
-  governed knowledge, lifecycle and audit history, document version metadata, and the
-  original document blobs, each covered by a SHA-256 in the manifest.
-
-  Excluded on purpose: password hashes, API keys, and every other secret value; and all
-  rebuildable derived state — embedding vectors, document chunks, projections, entities and
-  entity mentions, and extracted-text caches. Derived data is recomputed at the destination,
-  which is also why the destination's embedding identity matters: vectors are never carried
-  across and silently reused in a different vector space.
-
-  Because credentials are absent, this is not an operational backup and cannot serve as
-  point-in-time recovery. Treat the file itself as sensitive user data regardless — it holds
-  the full content of one Account.
-
-  ## Output and failure behaviour
-
-  On success the task prints one line with the exported Account id and the absolute archive
-  path. If the community Account does not exist yet, or a read or write fails, the task
-  raises and exits non-zero; the temporary staging directory it builds the archive in is
-  removed either way. The tar is written to a `<output>.tmp-N` sibling and renamed into place
-  only after it is complete, so a failure leaves that sibling behind rather than a truncated
-  file at the destination path.
-
-  Validate the result before and after transferring it with
-  `mix cartulary.portability.import --input PATH --validate-only`.
+    The archive is what moves an installation between machines, deployment modes, or
+    blob storage adapters: a gzip-compressed tar holding a manifest, one JSON-lines file
+    per durable resource, and content-addressed original document blobs. It is read
+    inside a single Account-scoped database transaction, so the snapshot is internally
+    consistent.
   """
 
   use Mix.Task

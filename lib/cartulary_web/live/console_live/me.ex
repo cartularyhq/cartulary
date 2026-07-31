@@ -2,48 +2,15 @@
 
 defmodule CartularyWeb.ConsoleLive.Me do
   @moduledoc """
-  Subject self-governance at `/console/me`: everything the system says about
-  the signed-in person, and what they can do about it.
+  `/console/me` self-governance for the signed-in subject.
 
-  ## Why this page ignores the scope tree
+  It shows all statements about that person, even outside their role scopes.
+  Subjects may confirm, contest, redact, answer target-specific consent, or
+  request proportionate or strict erasure. Curators cannot act for them.
 
-  Every other console page shows what the reader's role grants reach. This one
-  additionally shows every statement whose subject is the reader, wherever it
-  lives — including scopes they hold no role on. A person may read what is
-  recorded about them even when they cannot read the scope it sits in, and that
-  exemption is what makes contesting, redacting, and erasure meaningful rather
-  than theoretical. The exemption lives in the governance operation layer, not
-  here.
-
-  ## Three kinds of authority, all personal
-
-  - **Verdicts.** Confirm makes a statement active at full confidence, because
-    first-hand confirmation by its subject is the strongest evidence available.
-    Contest marks it disputed and queues it for a curator within 24 hours.
-    Redact withdraws it. None of these is a curator power, and a curator cannot
-    exercise them on someone's behalf.
-  - **Consent.** Personal knowledge being promoted to a wider scope waits for
-    the subject's own target-specific consent. A curator approval is never a
-    substitute for it. A grant is accepted only over a channel whose speaker
-    was actually authenticated — a password browser session is one — while a
-    refusal is recorded regardless, because it must never be harder to refuse
-    exposure than to allow it.
-  - **Erasure.** Proportionate erasure removes the subject's content and
-    scrubs shared provenance. Strict erasure additionally removes knowledge
-    that was only ever sourced through the subject. Both retain content-safe
-    audit evidence: what was removed leaves a trace that records no removed
-    content.
-
-  ## Erasure is confirmed, not one-clicked
-
-  Erasure runs immediately and cannot be undone. The page therefore requires
-  the reader to choose a mode and type the word `erase` before the control does
-  anything. That is a deliberate friction, not an oversight — do not replace it
-  with a single button.
-
-  This module writes nothing directly. Every action forwards to the governance
-  operation layer, which owns the transaction, the lifecycle event, and the
-  hash-chained audit entry.
+  Irreversible erasure requires the typed `erase` confirmation. This module
+  writes only through governance and erasure operations, which enforce authority
+  and own transactions, lifecycle events, and content-safe audit records.
   """
 
   use CartularyWeb, :live_view
@@ -56,13 +23,9 @@ defmodule CartularyWeb.ConsoleLive.Me do
   alias CartularyWeb.Console.Loader
 
   @doc """
-  Loads the statements about this person, their consent requests, and their
-  erasure history.
+  Loads the subject's statements, consent requests, and erasure history.
 
-  An actor with no peer id cannot reach this page in a meaningful sense — there
-  is no "me" to show — so it renders an explanation instead. The console mount
-  hook admits only password identities, which always carry a peer, so this is a
-  defensive branch for a case that should not arise rather than a routine one.
+  Actors without a peer id receive an empty explanatory state.
   """
   @impl true
   def mount(_params, _session, socket) do
@@ -70,16 +33,9 @@ defmodule CartularyWeb.ConsoleLive.Me do
   end
 
   @doc """
-  Applies one subject verdict, one consent answer, or one erasure request.
+  Delegates subject verdicts, verified browser consent, and erasure requests.
 
-  Refusals from the operation layer become a flash rather than crashing the
-  socket. The message is deliberately generic: a reader must not be able to use
-  the error text to learn which statement ids or consent rows exist.
-
-  Consent grants are submitted as verified because a password browser session
-  authenticated the person answering. Do not pass `true` from a channel where
-  that is not true — an unverified grant is refused by the operation layer, and
-  lying to it here would defeat the check.
+  Refusals use a generic flash so errors cannot reveal resource ids.
   """
   @impl true
   def handle_event("verdict", %{"id" => id, "verdict" => verdict}, socket) do
@@ -291,10 +247,7 @@ defmodule CartularyWeb.ConsoleLive.Me do
     """
   end
 
-  # Re-reads everything after every action, so the page is committed state
-  # rather than an optimistic guess. An erasure in particular changes rows this
-  # page is listing, and patching assigns in memory would leave removed
-  # statements on screen.
+  # Reload committed state after actions, especially erasure.
   defp load(socket) do
     actor = socket.assigns.current_actor
 
@@ -309,9 +262,7 @@ defmodule CartularyWeb.ConsoleLive.Me do
     end
   end
 
-  # See the note on the same helper in the statement detail page: refusals and
-  # bad input are ordinary here, and the message is identical for both so the
-  # error text cannot be used to probe for ids.
+  # Use one message for bad input and refusals to prevent id probing.
   defp guard(socket, success_message, fun) do
     socket =
       try do
@@ -330,8 +281,7 @@ defmodule CartularyWeb.ConsoleLive.Me do
     {:noreply, load(socket)}
   end
 
-  # Affected counts are a free-form map written by the erasure run. Rendering
-  # them generically means a count added later shows up without a code change.
+  # Render new affected-count keys without page changes.
   defp format_counts(counts) when map_size(counts) == 0, do: "—"
 
   defp format_counts(counts) do

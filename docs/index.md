@@ -3,9 +3,9 @@
 # Cartulary
 
 Cartulary is a **governed memory system for agents**. Agents submit raw
-observations; a pipeline is the only writer of knowledge; two governance gates
-decide what is retained, who it is attributed to, and how widely it may be
-seen. Reads are scope-anchored, inherited downward, cited, and able to abstain.
+observations; the pipeline writes knowledge; governance decides what is kept
+and who may see it. Reads are scoped, inherited downward, cited, and able to
+abstain.
 
 It runs as one Elixir release on the BEAM, backed by PostgreSQL with pgvector
 and full-text search. It supervises its own PostgreSQL for a no-dependency
@@ -18,18 +18,11 @@ between the two.
     surfaces — generated OpenAPI, complete generated SDKs, and the gateway
     proxy — are not. See [Limitations](reference/limitations.md).
 
-## What it is for
+## Purpose
 
-An agent that talks to a person over weeks accumulates facts. Most systems
-either throw them away at the end of a session, or write them all into a vector
-store where nothing distinguishes a guess from a verified fact, nothing stops
-one team's private note from surfacing in another team's answer, and nothing
-ever expires.
-
-Cartulary treats each remembered fact as a governed record with its own
-confidence, sensitivity, subject, provenance, and lifecycle state — and makes
-the path from "an agent heard something" to "everyone can see it" an explicit,
-auditable decision rather than a side effect of writing to a database.
+Each remembered fact has its own confidence, sensitivity, subject, provenance,
+and lifecycle. Moving an observation into shared memory is explicit and
+auditable.
 
 ```mermaid
 flowchart LR
@@ -67,7 +60,7 @@ flowchart LR
 
 </div>
 
-## The nine ideas everything else assumes
+## Core terms
 
 | Term | Meaning |
 | --- | --- |
@@ -81,7 +74,7 @@ flowchart LR
 | **Lifecycle state** | `proposed` → `provisional` / `active` / `held`, and later `superseded`, `expired`, `retracted`, and more. Retrieval filters on it. |
 | **Projection / index / cache** | Derived, rebuildable data. Raw messages, governed knowledge, and the audit log are the system of record; everything else can be deleted and recomputed. |
 
-Two independence rules cut across all of it:
+Keep these dimensions separate:
 
 - **Belief-time, valid-time, and salience are three different clocks.** When we
   learned something, when it was true, and how much it matters now are not the
@@ -91,12 +84,10 @@ Two independence rules cut across all of it:
 
 Full definitions are in the [Glossary](reference/glossary.md).
 
-## Where the rest of the documentation lives
+## Documentation
 
-This site is the **user documentation**: how to install Cartulary, how to use
-it, and how it behaves.
-
-Design material — the product blueprint, functional requirements,
+This site covers installation, usage, and operations. Design material — the
+product blueprint, functional requirements,
 architecture and non-functional requirements, architecture decision records,
 the roadmap, and evaluation evidence — is not published here. It lives in the
 [`specs/` directory](https://github.com/cartularyhq/cartulary/tree/main/specs)

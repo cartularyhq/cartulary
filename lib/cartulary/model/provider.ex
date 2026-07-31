@@ -5,10 +5,8 @@ defmodule Cartulary.Model.Provider do
   The behaviour every model backend implements — the single seam between
   Cartulary and anything that runs a model.
 
-  Four capabilities, one behaviour. Because extraction, reasoning, dialectic
-  answers, embeddings, and reranking all arrive through these four callbacks, a
-  test that swaps in one module controls all of them at once, and a deployment
-  that changes provider changes nothing else.
+  Four callbacks cover structured output, chat, embedding, and reranking. Replacing one module
+  therefore swaps the whole provider boundary.
 
   ## Implementing one
 
@@ -25,16 +23,15 @@ defmodule Cartulary.Model.Provider do
 
   ## Calling one
 
-  Don't. Only `Cartulary.Model.Gateway` invokes these callbacks. Calling a
-  provider directly skips role resolution, tracing, and the usage ledger, and
-  the ledger stops being exact the moment that happens.
+  Only `Cartulary.Model.Gateway` may invoke callbacks. Direct calls skip role resolution, tracing,
+  and metering.
   """
 
   alias Cartulary.Model.Config.Role
 
   defmodule Result do
     @moduledoc """
-    What a provider hands back: the value, what it cost, and safe metadata.
+    Provider value, usage, and content-safe metadata.
 
     `:value` is capability-specific — a decoded object for structured
     generation, a string for chat, a list of vectors for embedding, a ranked

@@ -2,9 +2,8 @@
 
 # Mix tasks
 
-Operator and maintainer commands available from a source checkout. A packaged
-release contains no Mix tasks; the release equivalents are noted where they
-exist.
+These commands require a source checkout. Packaged-release equivalents are
+listed where available.
 
 | Task | Purpose |
 | --- | --- |
@@ -21,10 +20,8 @@ exist.
 
 ## `cartulary.identity.bootstrap`
 
-Turns a migrated but empty database into a usable installation: provisions the
-community Account, registers a human peer with a password identity, grants the
-administrator role on the root scope with downward propagation, and prints a
-bearer token valid for 12 hours.
+Provisions the community Account, first password identity, root administrator
+grant with downward propagation, and a 12-hour bearer token.
 
 ```bash
 CARTULARY_BOOTSTRAP_PASSWORD='a long password' \
@@ -73,9 +70,8 @@ mix cartulary.portability.import --input /secure/path/account.tar.gz
 mix cartulary.portability.import --input /secure/path/account.tar.gz --validate-only
 ```
 
-Verification always happens first: manifest hash, every per-resource file hash,
-every blob hash, and the entire audit hash chain — all before any durable
-write.
+Before writing, import verifies the manifest, every resource and blob hash, and
+the complete audit hash chain.
 
 Import requires a **fresh target**: migrated, with no Account holding the
 archived id or occupying the community slot. It refuses rather than blending
@@ -134,10 +130,9 @@ mix cartulary.eval.release \
   --output /private/tmp/cartulary-release-eval.json
 ```
 
-Runs the versioned release matrix. The matrix definition lives in the
-repository at `specs/eval/release-suite.json` and the floors at
-`specs/eval/deterministic-thresholds.json`. Only runs explicitly flagged as
-release guardrails can block; the rest are ablations that inform.
+Runs `specs/eval/release-suite.json` against floors in
+`specs/eval/deterministic-thresholds.json`. Only release guardrails block;
+ablations inform.
 
 ---
 
@@ -163,9 +158,8 @@ mix cartulary.release.check --eval-report /private/tmp/cartulary-release-eval.js
 mix cartulary.release.check --tag v0.2.0 --eval-report /private/tmp/...
 ```
 
-The last gate before tagging. Fails unless the version in `mix.exs`, the
-changelog, the shipped documentation, the git tag, and the recorded evaluation
-evidence all describe the same release. There is no partial or warning outcome.
+Fails unless `mix.exs`, changelog, documentation, git tag, and evaluation
+evidence describe one release. There is no warning-only outcome.
 
 `--allow-missing-eval` exists for metadata-only lanes; a real release must
 supply the report.

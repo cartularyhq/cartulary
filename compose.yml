@@ -1,59 +1,25 @@
 # SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
 #
-# Container deployment of Cartulary against an operator-run PostgreSQL.
-#
-# Purpose
-#   Bring up the production image next to a stock PostgreSQL that has the pgvector
-#   extension, with durable volumes for both the database and document blobs. This is the
-#   containerised deployment mode; the other mode is the unpacked release, which starts a
-#   private PostgreSQL of its own. Both run the same code and offer the same guarantees.
-#
-# Inputs (all optional, all with defaults)
-#   POSTGRES_PASSWORD             database password, shared by both services
-#   CARTULARY_POSTGRES_PORT       host port exposing PostgreSQL (default 5433)
-#   CARTULARY_PORT                host port exposing the application (default 4000)
-#   CARTULARY_AUTH_SIGNING_SECRET signing secret; MUST be replaced outside development
-#   CARTULARY_OTEL_ENABLED        turn on trace and metric export
-#
-# Outputs
-#   The application on the chosen host port, PostgreSQL on its own host port, and two
-#   named volumes holding all durable state.
-#
-# Assumptions
-#   The defaults below are for a local machine only. The password and the signing secret
-#   are checked into this file in plain text on purpose, so a first run needs no setup;
-#   both must be supplied from the environment for anything reachable by anyone else.
-#
-# Usage
-#   docker compose up                              application and database
-#   docker compose --profile observability up      plus the local tracing stack
+# Local container deployment with external PostgreSQL and durable database/blob volumes.
+# Defaults are development-only: set POSTGRES_PASSWORD and CARTULARY_AUTH_SIGNING_SECRET
+# before exposing the stack. Add `--profile observability` for local tracing and metrics.
 
 services:
   postgres:
-    # Stock upstream PostgreSQL with pgvector already built in. Vector similarity and
-    # full-text search both run inside this database, so a plain postgres image will not
-    # work. The image is not built here: nothing about the database is Cartulary-specific.
+    # pgvector is required for vector columns and indexes.
     image: pgvector/pgvector:pg18-bookworm
     environment:
       POSTGRES_DB: cartulary
-      # `initdb --username` (which this image runs with POSTGRES_USER) always creates a
-      # superuser, and PostgreSQL exempts superusers from row-level security unconditionally.
-      # That is not a gap here: the application provisions its own restricted, NOSUPERUSER
-      # NOBYPASSRLS role on boot using this superuser's CREATEROLE privilege, and every pooled
-      # connection switches to it before serving traffic (Cartulary.Database.AppRole, ADR-0008).
-      # This role only ever migrates the schema and provisions that restricted role.
+      # This bootstrap superuser migrates and provisions the restricted application role;
+      # pooled traffic runs as NOSUPERUSER NOBYPASSRLS so RLS remains effective.
       POSTGRES_USER: cartulary
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cartulary-local-only}
     volumes:
       - cartulary-postgres:/var/lib/postgresql
-    # Published on a non-default host port so this stack does not collide with a
-    # PostgreSQL the developer already runs on 5432. Inside the network the port is still
-    # the standard one, which is why the application's connection string has no port.
+    # Host port 5433 avoids a typical local PostgreSQL on 5432.
     ports:
       - "${CARTULARY_POSTGRES_PORT:-5433}:5432"
-    # The application waits on this, so it must report ready only when the server actually
-    # accepts connections. Up to 20 attempts 5 seconds apart, which covers the one-off
-    # cluster initialisation on the very first start.
+    # Allow up to 20 attempts, 5 seconds apart, for first-run cluster initialization.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U cartulary -d cartulary"]
       interval: 5s
@@ -62,53 +28,34 @@ services:
 
   cartulary:
     build: .
-    # Not merely "started": the application applies migrations at boot in this stack, and
-    # doing that against a database still initialising fails the whole start.
+    # Migrations require PostgreSQL to accept connections, not merely start.
     depends_on:
       postgres:
         condition: service_healthy
     environment:
       PHX_SERVER: "true"
       PORT: "4000"
-      # Host name `postgres` is the service name above, resolved on the Compose network.
       DATABASE_URL: ecto://cartulary:${POSTGRES_PASSWORD:-cartulary-local-only}@postgres/cartulary
       CARTULARY_DATABASE_MODE: external
-      # Overrides the image default of not migrating on boot. Safe here because this stack
-      # runs exactly one application replica against its own database; with several
-      # replicas they would race each other.
+      # Safe only for this single application replica.
       CARTULARY_AUTO_MIGRATE: "true"
-      # Development placeholder. The application requires at least 64 bytes and refuses to
-      # start on a shorter value, but it cannot tell that this one is public. Replace it
-      # for any deployment that is not a throwaway local one: it signs the tokens that
-      # separate one Account's data from another's.
+      # Public development placeholder; replace with at least 64 random bytes.
       CARTULARY_AUTH_SIGNING_SECRET: ${CARTULARY_AUTH_SIGNING_SECRET:-replace-this-compose-secret-with-at-least-64-random-bytes-development-only}
-      # Document blobs go to a directory on the volume below rather than to object
-      # storage, so this stack needs no cloud account. Switching to the S3-compatible
-      # adapter is a runtime setting and changes nothing about document behaviour.
+      # Original document blobs are durable and use the local volume.
       CARTULARY_BLOB_ADAPTER: local
       CARTULARY_BLOB_ROOT: /var/lib/cartulary/blobs
-      # Off by default: with no collector running, export attempts are just noise. Turning
-      # it on is only useful together with the observability profile below.
+      # Enable only with an OTLP collector.
       CARTULARY_OTEL_ENABLED: ${CARTULARY_OTEL_ENABLED:-false}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
     ports:
       - "${CARTULARY_PORT:-4000}:4000"
-    # Original document bytes are durable state, not a cache: they cannot be regenerated,
-    # and losing them breaks checksum-verified export. This volume must survive a
-    # `docker compose down` just as the database volume must.
+    # Original blobs are durable and required for checksum-verified export.
     volumes:
       - cartulary-blobs:/var/lib/cartulary/blobs
 
-  # The three services below only start under `--profile observability`. They are an
-  # inspection aid, not part of the deployment: nothing in the application depends on them
-  # and none of them stores anything durably. Their data is lost on restart by design.
-  #
-  # None of them redacts anything. That is acceptable only because the application emits
-  # content-safe spans in the first place — ids, counts, names, timings, and error classes,
-  # never message text, prompts, answers, or keys.
+  # Optional, ephemeral tooling. It assumes the application emits content-safe telemetry.
 
-  # Receives traces and metrics from the application and fans them out to the two
-  # back ends below. Configuration is bind-mounted read-only from the repository.
+  # Receives OTLP and forwards traces and metrics.
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.128.0
     profiles: [observability]
@@ -116,23 +63,18 @@ services:
     volumes:
       - ./dev/observability/otel-collector.yml:/etc/otelcol/config.yml:ro
     ports:
-      # 4318 is the OTLP-over-HTTP intake the application sends to. 8889 re-exports the
-      # forwarded application metrics for scraping. Both are published to the host only so
-      # a developer can point their own tools at them; inside the network the metrics
-      # scraper reaches the collector by service name.
+      # OTLP/HTTP intake and Prometheus-exported metrics.
       - "4318:4318"
       - "8889:8889"
 
-  # Trace viewer. Browse to port 16686 to follow one request across HTTP, the database,
-  # the pipeline, and background jobs.
+  # Trace viewer on port 16686.
   jaeger:
     image: jaegertracing/all-in-one:1.68.0
     profiles: [observability]
     ports:
       - "16686:16686"
 
-  # Metrics store and query interface on port 9090. Scrapes the collector rather than the
-  # application directly, so the application needs no second exposed port.
+  # Metrics UI on port 9090; scrapes the collector.
   prometheus:
     image: prom/prometheus:v3.4.1
     profiles: [observability]
@@ -142,11 +84,7 @@ services:
     ports:
       - "9090:9090"
 
-# Named volumes rather than bind mounts, so state survives container replacement and stays
-# under the container runtime's ownership. These two hold everything that cannot be
-# rebuilt: the durable records and the original document bytes. Vectors, chunks, search
-# indexes, and projections live in the database too, but those are derived and would be
-# recomputed. Removing these volumes destroys the installation's data.
+# Removing these volumes destroys durable records and original document bytes.
 volumes:
   cartulary-postgres:
   cartulary-blobs:

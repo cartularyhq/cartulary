@@ -2,44 +2,12 @@
 
 defmodule CartularyWeb.ConsoleLive.Graph do
   @moduledoc """
-  The graph view at `/console/graph`: the shape of the memory, drawn as scopes,
-  the statements inside them, and the links between both.
+  Read-only `/console/graph` view of authorized scopes, statements, and their
+  relations.
 
-  ## What the picture means
-
-  Distance from the centre is depth in the containment tree, so the root sits
-  in the middle and a nested scope sits further out. Each scope's statements
-  orbit it, so a dense scope is visibly dense. Two kinds of line cross the
-  rings rather than following them: a scope relation, which links scopes that
-  are not in a parent-child line, and a knowledge relation, which links two
-  statements. Those crossings are the interesting part — containment is
-  predictable, cross-references are not.
-
-  ## Why there are no entity nodes
-
-  A tempting third node type would be the resolved entities behind the
-  statements. They are deliberately absent. Entity rows are a private recall
-  cache whose rows span every scope that ever mentioned a name, so drawing them
-  would carry names across scope boundaries that the scope tree exists to keep
-  apart. Their read action is pipeline-only, so an attempt to add them fails
-  loudly; do not work around that by elevating the actor.
-
-  ## Why the drawing is server-side SVG
-
-  The browser pages are served under a Content-Security-Policy that forbids
-  inline script and permits only same-origin modules, and the project has no
-  bundler. The geometry is therefore computed in Elixir and rendered as plain
-  SVG elements, which LiveView can patch and bind `phx-click` to. Selecting a
-  node is a server round-trip — which is also what lets the detail panel show
-  authorized information without shipping the whole corpus to the browser.
-
-  ## Truncation is stated, never silent
-
-  A graph with hundreds of statement nodes is unreadable, so the number drawn
-  is capped. When the cap drops rows the page says so. A partial picture
-  presented as a complete one is worse than no picture.
-
-  This page performs no writes.
+  Entity caches, names, aliases, surface forms, and ids must never appear.
+  Geometry is deterministic server-side SVG: no inline scripts, randomness, or
+  wall clock. The page reports when statement limits truncate the graph.
   """
 
   use CartularyWeb, :live_view
@@ -50,9 +18,7 @@ defmodule CartularyWeb.ConsoleLive.Graph do
   alias CartularyWeb.Console.Loader
 
   @doc """
-  Mounts with nothing selected. The data itself is loaded in
-  `handle_params/3`, so the scope filter can live in the URL and a particular
-  view of the graph can be linked to.
+  Mounts with no selected node; `handle_params/3` loads the URL-filtered graph.
   """
   @impl true
   def mount(_params, _session, socket) do
@@ -60,8 +26,7 @@ defmodule CartularyWeb.ConsoleLive.Graph do
   end
 
   @doc """
-  Loads the graph for the scope named in the URL, or for everything the reader
-  can see when none is named, and lays it out.
+  Loads and lays out the selected scope or all authorized scopes.
   """
   @impl true
   def handle_params(params, _uri, socket) do
@@ -72,22 +37,15 @@ defmodule CartularyWeb.ConsoleLive.Graph do
      socket
      |> assign(:scope, scope)
      |> assign(:data, data)
-     # Named `:diagram` rather than the more obvious `:layout`, which Phoenix
-     # reserves for the rendering layout. Assigning to it makes the controller
-     # try to render this map as a template.
+     # Phoenix reserves the `:layout` assign.
      |> assign(:diagram, Graph.build(data))
      |> assign(:selected, nil)}
   end
 
   @doc """
-  Handles the scope filter and node selection.
+  Handles scope filters and selects only nodes in the authorized loaded set.
 
-  Selecting a node looks the node up in the data already loaded rather than
-  querying again. That is safe because the loaded set was filtered by the
-  reader's authority when it was fetched — but it is also why nothing here may
-  take an id from the client and query with it: an id that is not in the
-  current view resolves to `nil` and selects nothing, which is the correct
-  answer for a forged event.
+  Unknown client-supplied ids select nothing; never query them directly.
   """
   @impl true
   def handle_event("filter", params, socket) do

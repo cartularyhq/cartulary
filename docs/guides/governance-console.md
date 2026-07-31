@@ -2,9 +2,8 @@
 
 # Curating memory
 
-The governance queue at `/governance` is where humans decide what the
-organisation believes. It is part of the web console, but reachable only by a
-human password session holding the `curator` or `account-admin` role.
+`/governance` is the human review queue, available only to password sessions
+with `curator` or `account-admin`.
 
 ```bash
 open http://127.0.0.1:4000/governance/sign-in
@@ -13,12 +12,10 @@ open http://127.0.0.1:4000/governance/sign-in
 If you are already signed in at `/sign-in`, the queue appears in the console
 navigation — both doors write the same session.
 
-Individual decisions can also be taken from a statement's own page in the
-console, where the evidence and history sit alongside the controls. The queue
-is the place for working through everything that is waiting, including bulk
-approve, reject, and defer — **Select all** and **Deselect all** check or
-clear every row's box in one click, and a bulk run still applies one row at a
-time as described below. See
+Statement pages also offer individual decisions beside evidence and history.
+The queue supports bulk approve, reject, and defer. **Select all** and
+**Deselect all** toggle every row; bulk operations still process one row at a
+time. See
 [Exploring memory in the web console](web-console.md).
 
 ## Signing in
@@ -27,10 +24,8 @@ Sign-in stores a short-lived token in a signed session cookie. A valid `member`
 credential cannot open the console — the controller admits only account-admin
 and curator password identities.
 
-The session token, the identity kind, and the role are re-verified on the
-initial render **and on every socket reconnect**. Holding the cookie is never
-treated as authorisation on its own, because a token can expire or be revoked
-while a tab stays open.
+Initial render and every socket reconnect re-check the token, identity kind,
+and role. A cookie alone is not authorization.
 
 There is no machine route into this console. Approve, edit, reject, merge,
 defer, promotion, gate-rule administration, and bulk actions exist here and
@@ -54,11 +49,8 @@ flowchart LR
 Each decision takes a transaction-scoped advisory lock on the queue entry, so
 two curators cannot decide the same item concurrently.
 
-Every decision — single or bulk — leaves a message naming what actually
-happened. That matters most on approve: it distinguishes an ordinary
-activation from a personal item that recorded the approval but stayed exactly
-where it was because subject consent is still missing (see below). Without
-that message the two look identical on screen.
+Every single or bulk decision reports its actual result, distinguishing
+activation from approval that remains blocked on subject consent.
 
 A card that conflicts with existing knowledge shows the statements it
 conflicts with directly, not just their ids, so a curator can judge the
@@ -96,8 +88,7 @@ built-in cell that demands human review at both gates. **A missing rule falls
 back to human judgment, never to auto-activation** — so an empty matrix is
 safe, merely laborious.
 
-Start strict. Loosening a cell after watching a week of decisions is easy;
-recalling knowledge that auto-activated too eagerly is not.
+Start strict; loosen cells only after reviewing real decisions.
 
 ## Skill requirement cards
 

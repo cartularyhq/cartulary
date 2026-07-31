@@ -2,9 +2,8 @@
 
 # Contract versions
 
-Several Cartulary responses carry a version string of their own, separate from
-the application's semantic version. They tell a client **which behaviour it is
-talking to**, so a client can pin or reject a shape it does not understand.
+Contract strings version behavior independently of the application's semantic
+version, allowing clients to pin or reject unsupported shapes.
 
 The `f`-prefixed strings are historical version tags. They do not name a
 release phase, and they are not cosmetic — changing one is a deliberate
@@ -32,22 +31,18 @@ contract transition.
 - **Contract version** — answers "which behaviour does this build implement for
   this surface?"
 
-They move independently. A patch release changes the application version and
-nothing else; a change to the gap-report shape moves `f9-1` and also needs a
-release.
+They move independently. A patch may change only the application version; a
+gap-report shape change moves `f9-1` and also requires a release.
 
 ## What a client should do
 
-**Pin what you parse.** If your client depends on the shape of a readiness
-report, check `report_version` and refuse a value you do not recognise. Failing
-loudly on an unknown contract is better than silently misreading a field.
+**Pin what you parse.** Check `report_version` and reject unknown values.
 
 **Do not treat a contract identity as an ordering.** `f9-1` is not "newer than"
 `f7-1`; they version different things.
 
-**Expect these strings to be stable.** A transition requires a changelog entry,
-updated contract evidence, and a note in the closest architecture document. It
-is not something that happens quietly between patch releases.
+**Expect stability.** Transitions require a changelog entry, updated contract
+evidence, and the closest architecture note.
 
 ## Related
 

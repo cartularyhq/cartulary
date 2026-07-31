@@ -4,23 +4,13 @@ defmodule Cartulary.Pipeline.Workflows.IngestExtraction do
   @moduledoc """
   The workflow that turns one committed raw observation into proposed knowledge.
 
-  This is the ingest lane's body, invoked by the background job for a durable
-  pipeline run. The step dispatches on what the run targets and calls the same
-  Account-scoped extraction entry point that an inline ingest calls
-  (`Cartulary.Memory.extract_message_for_account/2` or
-  `Cartulary.Documents.process_version_for_account/2`) — so this lane is not the
-  only way extraction is started, but it is the durable one that guarantees an
-  accepted observation is eventually extracted. Everything it produces enters
-  governance as a proposal rather than becoming active knowledge directly.
+  The durable ingest lane dispatches to the same Account-scoped entry points as inline ingest.
+  Its output enters governance as proposals.
 
-  The step reads the target by id rather than receiving content, because job
-  arguments and run payloads deliberately carry no observation text.
+  The step reads content by target id; jobs and runs carry no observation text.
 
-  Re-running is expected and safe. The run's replay key is derived from the
-  target's id and content hash, so a retry after a crash or a provider outage
-  re-enters the same extraction and merges into the knowledge already written
-  instead of duplicating it. Never make this lane's steps depend on state that
-  only exists on a first attempt.
+  Retry is safe because target id and content hash form the replay key. Steps must not depend on
+  first-attempt-only state.
 
   A run whose `target_type` is neither a message nor a document version makes
   the step raise a `CaseClauseError`, which Reactor turns into an error result

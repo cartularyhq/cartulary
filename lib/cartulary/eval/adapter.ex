@@ -2,50 +2,11 @@
 
 defmodule Cartulary.Eval.Adapter do
   @moduledoc """
-  Rewrites public memory-benchmark fixtures into one internal evaluation case shape.
+  Normalizes supported benchmark fixtures into one internal evaluation case shape.
 
-  Every supported source layout — LoCoMo, LongMemEval, ConvoMem, BEAM, and Cartulary's
-  own smoke shape — is translated into the same structure, so that ingestion, answering,
-  and scoring never branch on which benchmark produced the data. This module is the only
-  place that knows upstream field names; everything downstream sees the normalized shape.
-
-  ## Normalized shape
-
-  `normalize/2` and `load!/2` return a map holding:
-
-    * `:benchmark` — the normalized benchmark name.
-    * `:source_format` — the concrete upstream layout that was parsed.
-    * `:cases` — a list of independent conversation cases.
-
-  Each case carries `:id`, `:scope_path`, `:category`, `:scale`, `:metadata`, `:messages`,
-  and `:questions`. Each message carries `:id`, `:session_id`, `:scope_path`, `:peer_key`,
-  `:role`, `:content`, `:occurred_at`, and `:metadata`. Each question carries `:id`,
-  `:scope_path`, `:question`, `:expected` (always a list of strings), `:category`,
-  `:evidence_refs`, `:evidence_granularity`, `:abstention_expected`, and `:metadata`.
-
-  ## Identifiers are part of the scoring contract
-
-  A message's `:id` is the benchmark's own turn reference — LoCoMo's dialogue id such as
-  `D1:3`, LongMemEval's session id plus turn index, and so on — never a database id.
-  Citation scoring translates the durable ids an answer cites back into these references
-  and compares them with a question's `:evidence_refs`, so the two vocabularies must
-  match. Where a fixture supplies no id, a synthetic one is built — from the record's
-  content hash in the Cartulary layout, and from the session and turn position in the
-  others. Neither uses a clock or a random value, so replaying the same fixture produces
-  the same ids.
-
-  `:evidence_granularity` selects how a citation is matched: `"turn"` compares against
-  individual message references, `"session"` compares against the session a message
-  belonged to, which is the granularity LongMemEval labels its answers with.
-
-  ## What this module deliberately does not decide
-
-  The `:scope_path` values produced here are advisory. The runner builds its own path from
-  the benchmark, the run id, and the case id, and writes every message under that instead;
-  a message's normalized `:scope_path` is not read at all. Do not assume it is the path an
-  evaluation actually wrote to.
-
-  Nothing here calls a model, touches the database, or scores an answer.
+  Adapters preserve source ids, expected evidence, dataset identity, and split while rejecting
+  malformed inputs. Normalization must be deterministic and must not leak expected answers into
+  the memory query.
   """
 
   # The canonical names accepted by `--benchmark` and used to tag a normalized dataset.

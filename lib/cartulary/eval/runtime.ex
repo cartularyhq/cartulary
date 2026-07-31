@@ -2,41 +2,20 @@
 
 defmodule Cartulary.Eval.Runtime do
   @moduledoc """
-  Switches the node into offline, deterministic mode for reproducible evaluation runs.
+  Enables deterministic, offline evaluation configuration.
 
-  A run that is meant to gate a release must produce the same numbers every time and must
-  not depend on a network, a provider account, or a background queue's timing. This module
-  makes that true by rewriting application environment before the supervision tree boots.
-
-  It is a Mix-task helper, not a library: it mutates global application environment and the
-  OS environment of the whole node, which is acceptable for a one-shot command and would be
-  actively harmful in a running server.
+  It replaces live model roles and volatile settings only for the evaluation run, then restores
+  the prior runtime state.
   """
 
   @doc """
   Repoints the node at local deterministic models and disables queue-driven job execution.
 
-  Four things change:
+  It makes jobs manual, removes live credentials, and replaces generation roles with local
+  fallbacks. The local embedder remains unchanged so vector identity stays valid.
 
-    * Background job execution switches to manual, so nothing is dequeued behind the run's
-      back. Evaluation ingests with inline extraction instead, keeping the work ordered and
-      finished before questions are asked.
-    * The provider credential in application configuration is cleared, and the environment
-      variable it is read from is deleted, so nothing left in the environment can rebuild
-      it and reach a live provider by accident.
-    * The extraction, reasoning, and answering roles are repointed at the local structured
-      fallback so no request leaves the machine.
-    * The embedding role is deliberately left untouched. Retrieval still needs real vectors
-      whose provider, model, version, and dimension identity match the installed vector
-      indexes; substituting a stub there would not make the run deterministic, it would
-      make retrieval wrong. The default embedder already runs locally with no network call.
-
-  Call this **before** the application starts. The supervision tree reads this environment
-  once at boot, so invoking it afterwards leaves a running system still pointed at whatever
-  it was configured with — the run would then quietly use a live provider.
-
-  Always returns `:ok`. Raises `ArgumentError` when the job-queue or model-role
-  configuration is absent, which means the node was never configured to run Cartulary.
+  Call before application startup. Returns `:ok`; missing queue or role configuration
+  raises `ArgumentError`.
   """
   def use_deterministic_models do
     oban = Application.fetch_env!(:cartulary, Oban)

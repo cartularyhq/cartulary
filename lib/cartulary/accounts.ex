@@ -2,24 +2,10 @@
 
 defmodule Cartulary.Accounts do
   @moduledoc """
-  Ash domain holding the Account isolation boundary and the identities inside it.
+  Ash domain for Account tenancy and authenticated identities.
 
-  Four resources live here:
-
-  - `Cartulary.Accounts.Account` — the tenant. Every other durable row in the
-    system carries its id, and cross-Account reads are impossible by
-    construction rather than by convention.
-  - `Cartulary.Accounts.Peer` — a human or agent that acts within one Account.
-  - `Cartulary.Accounts.ExternalIdentity` — the link between a Peer and one
-    proven credential (a password login, an issued API key), carrying how
-    strongly that proof is trusted.
-  - `Cartulary.Accounts.ApiKey` — a machine credential, stored only as a hash.
-
-  The rule this domain exists to enforce: the Account a request operates in is
-  derived from the credential presented, never from anything the caller can
-  type. Actions here do accept an Account key or id as input, but the only
-  callers that supply one are `Cartulary.DataLayer` and `Cartulary.Identity`,
-  which take it from a verified credential or from deployment configuration.
+  The Account is always derived from a verified credential or trusted internal configuration,
+  never request input. All identity resources remain inside that Account boundary.
   """
 
   use Ash.Domain
@@ -34,25 +20,10 @@ end
 
 defmodule Cartulary.Accounts.Account do
   @moduledoc """
-  One tenant. A row here is the hard isolation wall that all other data sits behind.
+  One tenant and the isolation root for all durable data.
 
-  Every Peer, scope, message, and piece of knowledge belongs to exactly one
-  Account, and nothing crosses between them. The Account is not a multitenant
-  resource itself — it *is* the tenant — so instead of an `account_id` filter it
-  is protected by policies that compare the row against the acting actor's
-  resolved Account, backed by a database row-level-security policy that matches
-  the id or key pinned into the transaction by the infrastructure layer.
-
-  `key` is the stable human-chosen handle (for example the value an operator
-  configures for the local deployment); `id` is the internal identifier used
-  everywhere else. `edition_slot` marks which licensed slot the Account
-  occupies; the community build allows exactly one Account to hold the value
-  `"community-free"`, enforced by a partial unique index in the database, so a
-  second free tenant cannot be provisioned by any code path.
-
-  Callers should not create Accounts directly. The infrastructure transaction
-  helpers do it as part of opening an Account-scoped transaction, because the
-  transaction-local database settings must be pinned before the row is touched.
+  Policies and database row-level security restrict access to the actor's Account. Infrastructure
+  helpers provision Accounts; callers must not create request-selected tenants.
   """
 
   use Cartulary.Resource, domain: Cartulary.Accounts, table: "accounts"
@@ -187,30 +158,10 @@ end
 
 defmodule Cartulary.Accounts.Peer do
   @moduledoc """
-  A human or agent that acts inside exactly one Account.
+  A human or agent identity inside one Account.
 
-  A Peer row is the "who" behind every message, observation, curator decision,
-  and API call. It is the subject that authentication resolves to and the target
-  that role grants are attached to. Peers never span Accounts: the resource is
-  multitenant on `account_id`, and the database additionally enforces the same
-  wall with row-level security, so a Peer key that exists in one Account is
-  invisible from another.
-
-  `kind` is descriptive metadata (`"human"` or `"agent"`) written at
-  provisioning time. Nothing authorizes on it: the human-only rule for curator
-  decisions is enforced on the *credential* instead, by
-  `Cartulary.Policy.HumanRoleIn`, which passes only for a password-backed
-  session. `default_scope_id` likewise records the scope a Peer was provisioned
-  into; it is not an authorization grant and no read path currently falls back
-  to it. What a Peer may reach comes from role grants and, for API keys, from
-  the key's optional scope restriction.
-
-  ## Credentials
-
-  Humans sign in with an email and password; only a hash of the password is
-  stored. Agents present an API key, which is likewise only ever stored hashed.
-  Both paths produce the same authorization context: an actor whose Account came
-  from the verified credential.
+  A Peer is durable identity, not a credential: passwords, API keys, and external proofs attach
+  separately. Its stable key is unique only within the Account.
   """
 
   use Cartulary.Resource,
@@ -390,31 +341,10 @@ end
 
 defmodule Cartulary.Accounts.ExternalIdentity do
   @moduledoc """
-  The link between a Peer and one credential it can prove itself with.
+  Links one Peer to a verified external credential.
 
-  One row says: "this Peer is reachable through this provider under this
-  subject, and we trust that proof this much." A human who signs in with a
-  password has a row with provider `"password"` and the lowercased email as
-  subject; an agent issued an API key has a row with provider `"apikey"` and the
-  key's opaque id as subject. A Peer may hold several rows if it can
-  authenticate more than one way.
-
-  ## Why assurance lives here and not on the Peer
-
-  Trust is a property of the credential, not of the person. A password login and
-  a machine key for the same Peer can warrant different confidence, so assurance
-  (`"low"`, `"medium"`, or `"high"`) is recorded per identity and copied into the
-  request's authorization context at authentication time. No policy or gate
-  branches on it yet — it is carried and recorded, not enforced.
-
-  `active` is the revocation switch — authentication looks up the identity with
-  `active == true`, so flipping it to false stops that credential being usable
-  without deleting the audit trail of it having existed.
-
-  Rows are created by the identity layer as part of registering a human or
-  provisioning an agent. Do not create them by hand to grant a Peer a
-  credential it cannot actually present; the row records a proof, it does not
-  constitute one.
+  The row records identity kind, provider reference, and assurance—not a reusable secret.
+  Credential resolution must still derive the same Account and Peer.
   """
 
   use Cartulary.Resource, domain: Cartulary.Accounts, table: "external_identities"
@@ -504,31 +434,10 @@ end
 
 defmodule Cartulary.Accounts.ApiKey do
   @moduledoc """
-  A machine credential bound to one Peer in one Account, stored only as a hash.
+  A machine credential bound to one Peer and Account.
 
-  The plaintext key exists exactly once, in the result of the create action, and
-  is never persisted. Only `api_key_hash` reaches the database, so a database
-  dump does not yield usable credentials and a lost key cannot be recovered —
-  it can only be destroyed and reissued.
-
-  ## Shape of a key and why it matters
-
-  A generated key is `cartulary_<body>_<checksum>`, where the body base62-encodes
-  32 random bytes followed by this row's 16-byte id. Two consequences follow.
-  First, the transport layer can tell an API key from a session token by its
-  prefix alone. Second, the row id can be recovered from the key without
-  consulting any secret, which is what lets the system find the owning Account
-  before it can apply Account filtering — the hash is still verified afterwards,
-  inside that Account, so recovering the id proves nothing on its own.
-
-  ## Restriction and expiry
-
-  `scope_id`, when set, restricts the key to one scope subtree. It can only
-  narrow: role resolution intersects the Peer's granted scopes with that
-  subtree, so a restricted key never reaches further than its Peer already
-  could. `expires_at` is enforced at lookup time by the filtered relationship on
-  the Peer resource, so an expired key stops working immediately without any
-  background job needing to run.
+  Only the hash is stored; plaintext exists only when the key is issued. Authentication derives
+  the Account from the opaque key id before verifying the secret inside that tenant.
   """
 
   use Cartulary.Resource, domain: Cartulary.Accounts, table: "api_keys"

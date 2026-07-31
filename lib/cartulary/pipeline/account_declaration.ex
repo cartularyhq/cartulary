@@ -4,26 +4,14 @@ defmodule Cartulary.Pipeline.Preparations.DeclareAccount do
   @moduledoc """
   Declares the queried Account to the database before a pipeline run is read.
 
-  Every background lane begins the same way: the job runner takes a pipeline run's id out of
-  the job's arguments and reads that row back to confirm the work still needs doing. That read
-  happens before any Cartulary code gets control, on a pooled connection that no request ever
-  touched, so nothing has told the database which Account is acting.
+  Job runners read a pipeline run before application code can declare its Account on the pooled
+  connection. Without a declaration, RLS hides the row and the runner cancels valid work.
 
-  The `pipeline_runs` table carries a row-level security policy comparing every row against
-  exactly that declaration. Undeclared, the comparison is never true, the read returns no rows,
-  and the job runner reads the empty result as "this record no longer matches the trigger" and
-  cancels itself. The row is intact and the work is genuinely outstanding; the job simply
-  cannot see it. Ingest looks like it succeeded and nothing is ever extracted.
-
-  Attaching this preparation to the read action closes that gap: the declaration is installed
-  inside the action's own transaction, immediately before the query runs, so the policy has
-  something to compare against.
+  This preparation installs the declaration in the read action's transaction before the query.
 
   ## Requirements on the action
 
-  The action must declare `transaction? true`. The setting is transaction-local, so without a
-  transaction it would be discarded before the query it exists to admit. The declaration
-  helper raises rather than letting that pass silently.
+  The action must set `transaction? true`; otherwise the transaction-local declaration is lost.
 
   Reads that already run inside an Account-scoped transaction — the browser console's queue
   page, for example — are unaffected: an existing declaration is never overwritten.
@@ -59,16 +47,10 @@ defmodule Cartulary.Pipeline.Changes.DeclareAccount do
   @moduledoc """
   Declares the run's own Account to the database before a pipeline run is written.
 
-  The counterpart to the read-side preparation, for the same reason and against the same
-  policy. A background job that has finished its work — or failed it — writes the outcome back
-  onto the run row, and that write lands on a connection with no Account declared unless
-  something declares one. The `pipeline_runs` policy checks the written row against the
-  declaration just as it checks read rows, so an undeclared update matches nothing: PostgreSQL
-  reports zero rows changed, Ash raises a stale-record error, and the job runner treats that as
-  the record no longer applying and cancels. The work was done and its outcome is lost.
+  Background outcome writes also arrive without an Account declaration. RLS then matches no row,
+  producing a stale-record error and losing the outcome.
 
-  The Account comes from the row being updated rather than from the changeset's tenant, since
-  that is the exact value the policy compares and it is already loaded.
+  The declaration uses the loaded row's Account, which is the value RLS compares.
 
   ## Requirements on the action
 

@@ -4,15 +4,10 @@ defmodule Cartulary.Pipeline.Lock do
   @moduledoc """
   Transaction-scoped mutual exclusion for pipeline writes that must not race.
 
-  Idempotency keys stop the *same* unit of work from being scheduled twice, but
-  they cannot stop two different units of work from concurrently discovering
-  that a statement does not exist yet and both writing it. This lock closes that
-  window: a merge takes the lock, then does its "does this already exist?" check
-  and its write, so the second caller waits and sees the first caller's row.
+  Idempotency does not prevent distinct runs from racing through a read-then-write. This lock
+  serializes the check and write so later callers see the first result.
 
-  The lock name is derived from the Account plus a caller-chosen key, so it
-  serialises exactly one logical operation — two Accounts, or two unrelated
-  operations in one Account, never block each other.
+  Account plus caller key identifies the locked operation; unrelated work does not block.
 
   The same primitive protects anything with a read-then-write window: appending
   to an Account's audit chain (where two concurrent appends could otherwise read
@@ -27,10 +22,8 @@ defmodule Cartulary.Pipeline.Lock do
     Locking after the read reintroduces exactly the race it exists to prevent.
   - Keep the work under it short. It is held for the rest of the transaction.
 
-  This module writes nothing durable. It is one of the few places allowed to
-  issue SQL directly, because a transaction-scoped advisory lock has no
-  equivalent in the resource layer; the query is parameterised, and all durable
-  state still goes through resource actions.
+  This module writes nothing. It uses parameterized SQL because Ash has no transaction-scoped
+  advisory-lock equivalent; durable state still uses resource actions.
   """
 
   alias Cartulary.Repo

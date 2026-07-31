@@ -2,50 +2,12 @@
 
 defmodule CartularyWeb.Plugs.MeterUsage do
   @moduledoc """
-  Records one usage-ledger entry per authenticated API request.
+  Records one content-safe usage entry per authenticated API request.
 
-  The ledger it feeds is the append-only record of what an Account actually
-  consumed: it backs per-Account request and ingest counts, the daily budget
-  counters, and the self-host cost view. Because operators bill or budget
-  against it, the entry must be written for failed requests too, not only for
-  successful ones.
-
-  ## Why the work happens in a before-send callback
-
-  The final HTTP status is not known until the controller has run and the
-  response is about to be sent, and the entry records that status. Registering
-  a before-send callback is therefore not an optimisation — writing at the
-  front of the plug would record every request as if it had succeeded.
-
-  Deferring to send time also means a request that a later plug or the
-  controller rejects is still recorded, carrying the rejection status. That is
-  intended: a rejected call consumed capacity. Only a `5xx` is classified as
-  `error`; everything below it is `ok`, so a client error counts as ordinary
-  consumed usage rather than as a server fault.
-
-  The consequence to remember is that by the time this callback runs, every
-  transaction the request opened has ended, so the connection it lands on has no
-  Account declared to the database. The metering module opens its own
-  Account-scoped transaction for exactly that reason; do not assume here that
-  any database context survives from the controller.
-
-  ## Content safety is mandatory
-
-  Only three things travel from the request into the ledger entry: a coarse
-  operation name derived from the route, the numeric HTTP status, and an
-  `ok`/`error` class. Request and response bodies, parameters, statements,
-  prompts, questions, answers, document text, and the presented credential must
-  never be added here. The ledger is readable by operators and is exported in
-  operational summaries, so anything written to it is effectively disclosed
-  outside the governed memory boundary.
-
-  ## Ordering requirement
-
-  It reads `conn.assigns.current_actor` and so must run after authentication.
-  Anonymous requests are not metered: there is no Account to attribute them to,
-  and attributing them to a guessed Account would corrupt another tenant's
-  totals. The actor check is what keeps that true if the pipeline is ever
-  reordered.
+  The before-send callback captures final status, including rejections and failures; only `5xx` is
+  classed as error. Metering opens its own Account transaction after controller work. Store only a
+  coarse operation, numeric status, and status class—never bodies, parameters, content, ids, or
+  credentials. This plug must run after authentication; anonymous requests are skipped.
   """
 
   @behaviour Plug
@@ -69,8 +31,7 @@ defmodule CartularyWeb.Plugs.MeterUsage do
     register_before_send(conn, fn response ->
       actor = response.assigns[:current_actor]
 
-      # No actor means the request never authenticated, so there is no Account
-      # the usage can honestly be charged to. Skip rather than guess.
+      # Never guess an Account for unauthenticated usage.
       if actor do
         Cartulary.Operations.Metering.record_api(actor, %{
           operation: operation(response),
@@ -83,16 +44,10 @@ defmodule CartularyWeb.Plugs.MeterUsage do
     end)
   end
 
-  # Ingest is pinned to its literal operation name because the ingest budget
-  # counter keys on exactly this string. Letting it fall through to the generic
-  # derivation below would make a future route change silently stop counting
-  # ingests instead of failing visibly.
+  # The ingest budget keys on this exact operation identity.
   defp operation(%{method: "POST", request_path: "/api/v1/ingest"}), do: "api.ingest"
 
-  # Everything else is named after the last path segment only. Dropping the
-  # earlier segments keeps the ledger's operation cardinality bounded and, more
-  # importantly, keeps record ids embedded in a path (as in a per-item
-  # governance action) out of the durable usage entry.
+  # Last-segment names bound cardinality and exclude record ids from durable usage.
   defp operation(%{request_path: path}),
     do: "api." <> (path |> Path.basename() |> String.downcase())
 end

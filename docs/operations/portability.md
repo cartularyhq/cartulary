@@ -2,9 +2,8 @@
 
 # Logical Export And Import
 
-Logical archives move one complete community Account between deployment modes
-and blob adapters. They are not a substitute for point-in-time operational
-backups.
+Logical archives move one community Account between deployments and blob
+adapters. They do not replace point-in-time backups.
 
 Export from a running unpacked release:
 
@@ -37,10 +36,9 @@ From source, use
 `mix cartulary.portability.import --input /secure/path/cartulary-account.tar.gz`
 and add `--validate-only` for validation.
 
-The command verifies manifest/resource/blob SHA-256 values and the entire audit
-graph before durable writes. Import is Account-scoped and writes through
-private Ash actions in one database transaction. It then enqueues ordinary,
-replay-keyed document and scope rebuild jobs.
+Before writing, import verifies all manifest, resource, and blob SHA-256 values
+and the full audit graph. It writes in one Account-scoped transaction, then
+enqueues replay-keyed document and scope rebuilds.
 
 After import:
 

@@ -2,54 +2,12 @@
 
 defmodule CartularyWeb.Console.Access do
   @moduledoc """
-  What a signed-in person may see and do in the browser console.
+  Centralizes lifecycle visibility and UI action checks for the browser console.
 
-  Ash policies already decide two things before this module is consulted: which
-  Account a row belongs to, and whether the caller's resolved role grants reach
-  the scope the row lives in. Neither of those is re-implemented here. What Ash
-  cannot express — because it is a property of the governance lifecycle rather
-  than of tenancy — is which *lifecycle states* a given viewer should be shown,
-  and which curator or subject gestures should be offered to them. That is what
-  this module owns, and it owns it in one place so no page can quietly widen it.
-
-  ## The two visibility rules
-
-  1. **The provisional rule.** A `provisional` statement is visible only to the
-     peer it is about. This applies to every viewer, including account
-     administrators: `provisional` means "usable by one peer while a human
-     decision is pending", not "nearly approved". The condition is
-     `state != "provisional" or subject_peer_id == <viewer>`, which is exactly
-     the condition the retrieval layer applies to every candidate query. The
-     two must stay identical — if retrieval and the console disagree about
-     provisional visibility, one of them is leaking.
-
-  2. **The governance-state rule.** Curators and account administrators see
-     every lifecycle state, because deciding what happens to `proposed`, `held`,
-     and `contested` items is their job. Members and readers see only states
-     that represent settled belief, plus anything at all whose subject is
-     themselves — a person may always read what the system says about them, and
-     that self-view is what makes contesting, redacting, and erasure possible.
-
-  Both rules are *narrowing*. Neither can grant access to a scope the actor's
-  role grants do not already reach.
-
-  ## Action gating
-
-  `can?/2` answers whether an actor may perform a console gesture. Every answer
-  here is advisory: it decides whether a control is rendered, and nothing more.
-  The operation layer re-checks the same authority before it writes, so a
-  forged event from a hand-crafted client is refused there rather than here.
-  Never treat a `true` from this module as authorization on its own, and never
-  remove the operation-layer check because this module already ran.
-
-  ## Mistakes to avoid
-
-  Do not add a state to the settled list because a page looked empty in
-  testing; an empty console for a reader with no active knowledge is the
-  correct result. Do not special-case an actor's `role` without also checking
-  `identity_kind` for any gesture that changes stored state — curator authority
-  is human-only, and a machine credential holding a curator role must still be
-  refused.
+  Ash still owns Account and scope authorization. Provisional knowledge is visible only
+  to its subject, including for administrators; curators see every other lifecycle state,
+  while other roles see settled states plus their own subject knowledge. UI checks only
+  control rendering—the operation layer must authorize every write again.
   """
 
   alias Cartulary.Actor
@@ -95,22 +53,10 @@ defmodule CartularyWeb.Console.Access do
   def all_states, do: @all_states
 
   @doc """
-  The two ingredients a knowledge query needs in order to be filtered correctly.
+  Returns `{visible_states, peer_id}` for a correctly narrowed knowledge query.
 
-  Returns `{states, peer_id}`, where `states` is the list from
-  `visible_states/1` and `peer_id` is the viewer's own peer id or `nil`.
-
-  Callers must combine them as:
-
-      state in states or subject_peer_id == peer_id     # governance-state rule
-      and (state != "provisional" or subject_peer_id == peer_id)   # provisional rule
-
-  A `nil` peer id means the subject branches must be dropped entirely rather
-  than compared against `nil`. Comparing `subject_peer_id` to `nil` in SQL
-  becomes `IS NULL`, which would match every statement that is about nobody —
-  the opposite of narrowing. Console actors always carry a peer id because the
-  mount hook admits only password identities, but the `nil` case is stated here
-  so a future caller outside that hook cannot get it wrong by accident.
+  When `peer_id` is `nil`, omit subject clauses; comparing a subject column to `nil`
+  would match unrelated subjectless rows.
   """
   def knowledge_filter_terms(%Actor{} = actor), do: {visible_states(actor), actor.peer_id}
 
@@ -132,23 +78,9 @@ defmodule CartularyWeb.Console.Access do
   end
 
   @doc """
-  Whether `actor` may perform console gesture `action`.
+  Reports whether the UI should render a console action for this actor.
 
-  Recognised actions:
-
-  - `:curate` — decide on a queued gate item (approve, reject, defer, edit as
-    replacement, merge) and author skill requirement cards.
-  - `:promote` — ask to move a statement up to a wider scope.
-  - `:administer` — read the operations page: readiness, queue depth, usage and
-    cost, gate rules, retrieval profiles.
-  - `:self_govern` — confirm, contest, or redact a statement about oneself,
-    answer a consent request, or request erasure.
-
-  Every state-changing action additionally requires a password identity. A
-  machine API key that somehow reached a console socket holds no curator
-  authority no matter which role it resolved to, because approving knowledge is
-  a decision a person takes. An unrecognised action returns `false` rather than
-  raising, so a typo in a template hides a control instead of crashing a page.
+  State-changing actions require a password identity. Unknown actions return `false`.
   """
   def can?(%Actor{} = actor, :curate),
     do: human?(actor) and actor.role in @governing_roles

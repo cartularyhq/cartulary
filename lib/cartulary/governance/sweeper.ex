@@ -5,11 +5,8 @@ defmodule Cartulary.Governance.Sweeper do
   Background lifecycle sweeps for one Account: revalidation, expiry, queue
   aging, and confidence decay.
 
-  Knowledge in this system ages. An item that was true when it was captured
-  becomes doubtful, then wrong, and nobody necessarily notices. A validation
-  question sent to a curator or to the subject may never be answered. These
-  sweeps are what turn that silence into an explicit, recorded state instead of
-  letting stale memory quietly stay `active`.
+  Sweeps turn due dates and unanswered review into explicit lifecycle states instead of leaving
+  stale memory active.
 
   ## The four sweeps
 
@@ -27,22 +24,14 @@ defmodule Cartulary.Governance.Sweeper do
 
   ## Guarantees and constraints
 
-  Every sweep runs inside a single Account-scoped database transaction with a
-  system pipeline actor, because lifecycle transitions and validation-queue
-  writes are pipeline-only operations with no human behind them. Every helper
-  raises on failure, so any error aborts the whole sweep and leaves the
-  Account exactly as it was; the next scheduled run retries from the same
-  durable state.
+  Each sweep is one Account transaction under a system-pipeline actor. Helpers raise, so failure
+  rolls back the sweep and the next run retries the same durable state.
 
-  Sweeps are safe to run repeatedly. Selection is driven purely by due
-  timestamps and current state, so an item already transitioned no longer
-  matches, and the queue and peer-question rows are upserted on
-  knowledge-plus-kind identity rather than duplicated.
+  Due timestamp and state make sweeps repeatable; queue and peer questions upsert by
+  knowledge-plus-kind.
 
-  Nothing here writes content anywhere: transitions carry a short stable reason
-  code and a channel name, and the queue rows carry hashes and ids. Statement
-  text reaches only the peer-question row that must quote it back to its
-  subject.
+  Transitions and queues store only reason codes, channel, hashes, and ids. Statement text appears
+  only in the peer question that quotes it to its subject.
 
   Each transition additionally enqueues derived-cache refresh work (projection
   rebuild, entity re-resolution) through the governance engine, so a large

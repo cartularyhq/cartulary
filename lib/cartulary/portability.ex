@@ -2,35 +2,12 @@
 
 defmodule Cartulary.Portability do
   @moduledoc """
-  The public entry point for moving a whole Account between installations.
+  Exports and imports one logical Account archive.
 
-  Portability is what makes "you own your data" concrete: an operator can lift
-  an entire Account out of one deployment as a single file and restore it into
-  another, with no proprietary service in the path. This module is the boundary
-  callers (operator tasks and tooling) should use; the archive format and its
-  verification live behind it.
-
-  Three operations: write an archive, check one without touching the database,
-  and restore one.
-
-  What travels and what does not:
-
-  - **Travels:** the Account and its scopes, peers, sessions, raw observations,
-    documents and their immutable version history, governed knowledge with its
-    provenance, attributions, lifecycle history and governance decisions, usage
-    events, pipeline run identities, and the complete audit chain — plus the
-    original document blobs, each verified against its checksum.
-  - **Never travels:** credentials, password hashes, and secret values, because
-    an archive is a file that gets copied around; and vectors, document chunks,
-    projections, entities, and entity mentions, because those are rebuildable
-    caches that would only be stale copies of something the target can recompute.
-
-  Restoring is not a merge. An import must target a fresh Account and is
-  rejected outright if one already exists, so an archive can never silently
-  overwrite or interleave with live data. Before anything durable is written the
-  entire archive is verified — schema, per-file checksums, row counts, blob
-  hashes, and the full audit chain — so a tampered or truncated archive fails
-  before it can be half-applied.
+  Export includes durable rows and checksum-verified original blobs but excludes credentials,
+  secrets, vectors, chunks, projections, and entity caches. Import requires a fresh target,
+  verifies the complete archive and audit chain before writing, restores through private Ash
+  actions in one Account transaction, then schedules ordinary rebuild work.
   """
 
   @doc """

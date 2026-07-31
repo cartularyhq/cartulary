@@ -5,27 +5,17 @@ defmodule Cartulary.Model.Providers.ReqLLM do
   The HTTP model adapter: one module serving every hosted, self-hosted, and
   OpenAI-compatible endpoint.
 
-  There is deliberately no per-vendor module. Anything reachable over HTTP —
-  a hosted aggregator, a vendor API, a locally run OpenAI-compatible server — is
-  configured by naming a provider and a model on the role, optionally with a
-  base URL. That is what keeps the deployment free of vendor lock-in without a
-  matrix of adapters to maintain.
+  Hosted, vendor, and self-hosted OpenAI-compatible endpoints use role provider, model, and
+  optional base URL; no per-vendor modules are needed.
 
   ## Credentials
 
-  A role's options carry a *reference* to a credential, spelled `"env:NAME"`,
-  and this module resolves it from the environment at call time. The credential
-  itself is never stored in role configuration, never written to a usage record,
-  and never placed in a span. The one place a raw key could still be configured
-  is the legacy `config :cartulary, :models, api_key:` entry, which ships as
-  `nil` and is read ahead of the reference when set.
+  Role options store `"env:NAME"` references resolved at call time. Credentials are never stored,
+  metered, or traced. Legacy `config :cartulary, :models, api_key:` takes precedence when set.
 
   ## Request options
 
-  Only a fixed set of request knobs is honoured: base URL, max tokens, max
-  retries, receive timeout, temperature, and top-p. Per-call options override
-  configured ones. The allowlist is deliberate — arbitrary keys from stored
-  configuration must not be able to reshape an outbound request.
+  Only allowlisted request options are forwarded; per-call values override configuration.
 
   ## Failure behaviour
 

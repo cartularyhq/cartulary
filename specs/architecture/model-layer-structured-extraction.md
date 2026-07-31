@@ -2,9 +2,8 @@
 
 # Model Layer And Structured Extraction
 
-The model layer and structured extraction replace the earlier direct
-OpenRouter extractor with one provider-neutral, metered model boundary. They
-implement `FR-KN-5`, `FR-KN-6`, `FR-KN-10`, `FR-KN-11`, `FR-FORM-13` through
+A provider-neutral, metered model boundary replaces the direct OpenRouter
+extractor. It implements `FR-KN-5`, `FR-KN-6`, `FR-KN-10`, `FR-KN-11`, `FR-FORM-13` through
 `FR-FORM-16`, `AD-MODEL-1` through `AD-MODEL-6`, `AD-OBS-4`, `AD-EVAL-1`, and
 the model-outage portion of `NFR-8`.
 
@@ -24,18 +23,13 @@ Per-scope role overrides remain deliberately deferred. Configuration persists
 secret references such as `env:OPENROUTER_API_KEY`, never raw credentials; the
 Ash actions reject raw secret keys in role options.
 
-Resolution reads that record in a transaction of its own, through
-`Cartulary.DataLayer.in_account_transaction/2`. It has to: resolution runs on
-every provider call, including each repair attempt, and provider calls are made
-with no transaction open so an external call never holds a pooled database
-connection. Without the Account setting installed, row-level security matches
-no row and resolution falls back to the compiled runtime defaults — a silent
-wrong answer rather than an error, since everything the call produced would
-then carry provenance naming a provider and model that never ran.
+Every provider call and repair resolves configuration through
+`Cartulary.DataLayer.in_account_transaction/2`. Provider calls hold no
+transaction. Without the Account setting, RLS would hide the row and silently
+select runtime defaults, producing false provider/model provenance.
 
-Every capability uses `Cartulary.Model.Provider`. `Gateway` is the sole caller
-of provider callbacks and selects the injected test adapter, the explicit
-deterministic local adapter, the local Ortex adapter, or the ReqLLM adapter.
+Every capability uses `Cartulary.Model.Provider`; `Gateway` alone invokes
+callbacks and selects the test, deterministic local, Ortex, or ReqLLM adapter.
 ReqLLM supplies OpenRouter, OpenAI-compatible, and self-hosted provider support
 without a second engine runtime. There is no in-engine provider cascade:
 operators can place an OpenAI-compatible proxy in front of a role when they
@@ -57,13 +51,12 @@ candidate is validated against `create_from_pipeline`. Each candidate includes:
 - hearsay classification with a confidence discount; and
 - expiry, revalidation, and valid-time bounds.
 
-Only known Peers and the current scope can be selected as subjects. New items
-still enter `proposed` and pass the Gate A/B governance engine. The reasoning
+Subjects are limited to known Peers or the current scope. New items enter
+`proposed` and pass Gate A/B. The reasoning
 schema reuses the same candidate shape and adds typed
-`supports`/`contradicts`/`derived_from` relations. The transactional dream job
-lane remains the durable retry and budget boundary; applying full higher-order
-reasoning results and building projections stay with the later
-pipeline/projection work.
+`supports`/`contradicts`/`derived_from` relations. The dream lane owns durable
+retries and budgets; higher-order result application and projections remain
+separate pipeline work.
 
 The dialectic response schema requires answer text, retrieved knowledge IDs,
 and an explicit abstention flag. `Memory.ask` verifies that every returned
@@ -102,12 +95,8 @@ OpenTelemetry mirrors safe timings and counts but is not the exact ledger.
 Prompts, answers, observations, credentials, and secrets never enter usage
 metadata, spans, audit records, or Oban arguments.
 
-Each `UsageEvent` commits in its own short Account-scoped transaction rather
-than joining whichever transaction the caller holds. That follows from provider
-calls being made with no transaction open, and it has a second effect worth
-stating: a caller whose own write fails afterwards cannot roll the ledger row
-back with it. The call happened and was billed regardless of what the caller
-did with its result, so forgetting it would understate real spend.
+Each `UsageEvent` commits in its own short Account transaction. A later caller
+failure cannot roll back a call that already happened and was billed.
 
 Raw observation, audit, `PipelineRun`, and AshOban enqueue still commit before
 any provider call. A provider error leaves the raw message and queued job
@@ -122,14 +111,13 @@ and never switches to deterministic output after a live provider fails.
 
 ## `f5-1` transition
 
-Baseline-contract response shapes, identity-derived tenancy, downward
-inheritance, pipeline-only writes, raw-message durability, Gate A/B governance,
-and normalized eval fixtures remain regression floors. Extraction provenance
-and pipeline identity advance from `poc-0` to `f5-1`, and health now reports
+Response shapes, identity-derived tenancy, downward inheritance, pipeline-only
+writes, raw durability, Gate A/B, and normalized fixtures remain regression
+floors. Extraction provenance and pipeline identity advance from `poc-0` to
+`f5-1`, and health now reports
 `f5-1`. Retrieval, entity resolution, and context subsequently advance
 retrieval/context profile identity to `f7-1` without changing the
-message/extractor identity. These prefixes are historical version tags and no
-longer name roadmap phases.
+message/extractor identity. These are historical contract tags, not roadmap phases.
 
 ## Evidence
 

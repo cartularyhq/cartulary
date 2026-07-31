@@ -2,35 +2,10 @@
 
 defmodule Cartulary.Observability.JSONFormatter do
   @moduledoc """
-  Production log formatter: one JSON object per line, with credentials redacted
-  and metadata reduced to a reviewed allowlist.
+  Formats production logs as one content-safe JSON object per line.
 
-  Logs are shipped off the node and retained, often into systems with looser
-  access control than the database they describe. This formatter is the last
-  place a secret or a piece of stored content can be stopped, so it works by
-  exclusion: metadata is dropped unless it is explicitly allowed, and message
-  text is scrubbed for credential-shaped substrings on the way out.
-
-  ## Two independent defences
-
-  The allowlist handles structured metadata — a library that helpfully attaches
-  a query, a parameter map, or an actor struct contributes nothing, because its
-  key is not on the list. Redaction handles free text, where a credential can
-  appear inside a message nobody intended to log. Neither is sufficient alone,
-  and neither should be relaxed to make a debugging session easier.
-
-  Adding a key to the allowlist is a disclosure decision. Ids, correlation
-  handles, and code locations are safe; anything that can carry a value from a
-  request, a document, or a model is not.
-
-  ## Never breaks logging
-
-  A formatter that raises takes the whole logging handler down with it and, in
-  the worst case, silences the system exactly when something is going wrong.
-  Any failure while formatting is therefore caught and replaced with a fixed
-  marker line. That line contains no part of the original message, since the
-  content that broke formatting is precisely the content that must not be
-  emitted unscrubbed.
+  Only reviewed metadata keys survive and credential-shaped fields are redacted. Message text,
+  prompts, answers, keys, and secrets must never be added to the allowlist.
   """
 
   # Correlation handles and code locations only. Everything else a library

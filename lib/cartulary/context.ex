@@ -4,30 +4,20 @@ defmodule Cartulary.Context do
   @moduledoc """
   Assembles the context payload an agent reads at the start of a turn, without calling a model.
 
-  This is the read side of the projection caches. It stitches together, for the caller's
-  authorized scopes, a session summary, per-scope cards, the caller's own peer profile slice,
-  and a slice of governed knowledge, then trims the whole thing to a character budget.
+  For authorized scopes, it combines session summary, scope cards, the caller's peer-profile
+  slice, and governed knowledge within a character budget.
 
   ## Reasoning-free by construction
 
-  Normal assembly performs no generation, no reranking, and no adjudication. It reads
-  precomputed projections and returns them. This is not an optimization detail — it is the
-  contract: this call sits on the latency path of every agent turn, and anything that reaches
-  for a model here turns a cheap read into a provider round trip. The one concession is a live
-  fallback when the projections carry no knowledge, and even that runs the cheapest retrieval
-  profile (`:fast`, which as shipped runs the semantic and salience/recency strategies and no
-  rerank) and reports itself in the result as `"fast_fallback" => true` rather than pretending
-  the answer came from cache.
+  Normal assembly performs no generation, reranking, or adjudication. When projections contain
+  no knowledge, it may run the `:fast` retrieval profile without reranking and reports
+  `"fast_fallback" => true`.
 
   ## What can be read
 
-  A projection read that reaches the database goes through Ash with the caller's actor and the
-  Account pinned as the tenant, so scope authorization and Account isolation are applied as
-  read filters like any other read; a cache hit skips that query, which is safe because the
-  cache key carries the Account id and the scope ids were themselves resolved under the
-  caller's actor before assembly started. Projections marked `dirty` are excluded from the
-  query outright: a dirty card may still contain a statement that has since been rejected,
-  superseded, or erased, so a dirty row is treated as absent rather than as slightly stale.
+  Database reads use the actor and Account tenant. Cache keys include Account; scope ids were
+  already authorized. Dirty projections are excluded because they may retain rejected,
+  superseded, or erased statements.
 
   ## Budget
 

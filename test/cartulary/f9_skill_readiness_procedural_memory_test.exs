@@ -4,53 +4,14 @@ defmodule Cartulary.F9SkillReadinessProceduralMemoryTest do
   @moduledoc """
   Pins skill requirement cards and the readiness gap report that gates helper execution.
 
-  A skill requirement card is authored procedural memory: a human writes down what must
-  already be known before an agent runs a given skill. Asking `check_readiness` then
-  produces a gap report — a purely mechanical comparison between those requirements and the
-  governed knowledge the caller is allowed to see. No model runs. No text search happens.
+  Cards are authored, plain-versioned configuration—not knowledge. Readiness is
+  reasoning-free and never writes: elicited answers return through ingest and
+  governance.
 
-  Two distinctions carry the whole design, and this file exists to keep them from eroding:
-
-  * **A card is configuration, not knowledge.** Cards are human-authored and plainly
-    versioned. They do not pass the approval lifecycle that extracted knowledge passes, and
-    one card can never satisfy another card's requirement. Treating cards as knowledge
-    would let an author declare a skill ready by writing a document.
-  * **Readiness reports; it never writes.** When something is missing, readiness may suggest
-    a question to ask a peer. The answer must come back through ordinary ingest, be
-    extracted, and be approved before it can satisfy anything. Neither the server nor a
-    client helper may shortcut that.
-
-  ## What it pins
-
-  * Requirement definitions are validated before a version is published; an unknown
-    selector key is rejected rather than silently ignored, because a typo that is quietly
-    dropped would turn a required check into no check at all.
-  * Publishing appends an immutable version and deactivates the previous one at the same
-    scope and skill; every publish writes an audit record.
-  * Requirements inherit down the scope tree and merge by key: a nearer scope replaces an
-    ancestor's key, a new key extends the inherited set, and an explicit disable removes an
-    inherited key. Whole cards are never copied into descendants.
-  * A missing `required` item blocks execution; a missing `preferred` item only warns.
-  * Knowledge that is expired, past its revalidation date, or explicitly flagged for
-    revalidation counts as a gap **immediately** — not once a background sweeper notices.
-    Otherwise there would be a window in which stale knowledge silently satisfies a check.
-  * The same `f9-1` contract shows up on every surface: the HTTP route returns the
-    report, `check_readiness` is offered as a tool to machine callers, the governance
-    page names the schema, and both client helpers refuse to run on a blocker.
-
-  ## The `f9-1` string
-
-  `f9-1` is the version identity of the requirement selector language and the gap-report
-  schema. It is data: it is stored on every card and returned in every report so a client
-  knows how to read the payload. Changing it is a deliberate contract transition requiring
-  a changelog entry and updated evidence — restore the behaviour rather than editing the
-  expected value.
-
-  ## If this file fails
-
-  The dangerous direction is always "make readiness pass". Loosening validation, treating a
-  stale item as fresh, downgrading a blocker to a warning, or writing an elicited answer
-  straight into knowledge all make this file green and make the product wrong.
+  This suite pins strict selector validation, immutable audited versions,
+  nearest-scope requirement overrides, required blockers, preferred warnings,
+  and immediate rejection of stale knowledge. It also keeps the `f9-1` selector
+  and gap-report contract aligned across HTTP, machine tools, UI, and helpers.
 
   Runs `async: false`: it bootstraps real credentials, drives HTTP and LiveView requests,
   and reads the file system for the client helper sources.

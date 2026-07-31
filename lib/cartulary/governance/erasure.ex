@@ -4,12 +4,8 @@ defmodule Cartulary.Governance.Erasure do
   @moduledoc """
   Erases everything one peer contributed to an Account, in one transaction.
 
-  A person can demand that a memory system forget them. This module is where
-  that demand is executed: it deletes the knowledge about them, the questions
-  that were put to them, their raw messages, their sessions, their credentials,
-  their role grants, and finally the peer record itself, rebuilding the derived
-  caches along the way so nothing about them survives in a projection or an
-  entity index.
+  Deletes a peer's subject knowledge, questions, messages, sessions, credentials, grants, and peer
+  row, then rebuilds affected projections and entities.
 
   ## Two modes
 
@@ -25,13 +21,8 @@ defmodule Cartulary.Governance.Erasure do
 
   ## What deliberately survives
 
-  The hash-chained audit log is never rewritten. It records ids, categories,
-  actions, hashes, and counts — never content — so it can prove that an erasure
-  happened, at what scale, and for whom, without holding anything the erasure
-  was supposed to remove. Do not "clean up" by deleting audit rows: that breaks
-  the chain for every later event and destroys the only proof the request was
-  honoured. For the same reason the completion event's metadata carries counts
-  and the mode, and nothing else.
+  The content-safe audit chain survives as proof. Never delete its rows; completion metadata keeps
+  only counts and mode.
 
   ## Ordering and safety constraints
 
@@ -45,13 +36,9 @@ defmodule Cartulary.Governance.Erasure do
      vanish; and
   3. the peer row is destroyed last, because everything else points at it.
 
-  The whole run — request row, deletions, cache refresh, completion, audit
-  event — is one transaction. Any failure rolls all of it back and the request
-  stays uncompleted rather than half-applied.
+  Request, deletion, cache refresh, completion, and audit are one transaction.
 
-  Erasure runs with a system pipeline actor scoped to every scope in the
-  Account. That is required: a requester generally cannot read all the scopes
-  their data reached, and a partial erasure would be worse than none.
+  A system-pipeline actor spans every Account scope so erasure cannot be partial.
   """
 
   alias Cartulary.Accounts.ApiKey

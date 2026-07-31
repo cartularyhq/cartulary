@@ -4,11 +4,9 @@
 
 Status: implemented
 
-The Ash domain backbone makes Ash Resources, Actions, tenancy, and policies the
-authoritative boundary for durable Cartulary data. It preserves the frozen
-`poc-0` public contract — a historical version tag that no longer names a
-roadmap phase — while replacing the earlier service's direct writes with Ash
-actions.
+Ash Resources, Actions, tenancy, and policies are the durable-data boundary.
+The migration from direct writes preserved the frozen `poc-0` public contract;
+`poc-0` is a historical contract tag, not a roadmap phase.
 
 ## Domain ownership
 
@@ -24,10 +22,9 @@ actions.
 | `Cartulary.Skills` | SkillRequirementCard |
 | `Cartulary.Operations` | UsageEvent |
 
-This decomposition implements the backbone resource inventory and follows the
-domain map in `specs/architecture/free-core-architecture.md`. It is subordinate
-to `FR-TOP-*`, `FR-KN-*`, `FR-FORM-*`, `FR-GOV-*`, `AD-DATA-*`, and
-`AD-SEC-*`.
+This map implements `FR-TOP-*`, `FR-KN-*`, `FR-FORM-*`, `FR-GOV-*`,
+`AD-DATA-*`, and `AD-SEC-*`; the target map is in
+`specs/architecture/free-core-architecture.md`.
 
 ## Action rules
 
@@ -67,11 +64,9 @@ The Account wall has three in-process/database layers:
    connection to it at boot; `Cartulary.Database.RoleGuard` refuses to serve
    traffic if that switch did not take (`ADR-0008`).
 
-Identity, tenancy, and RBAC replaced the local HTTP Account header with
-password/JWT and API-key identities, single-Account free-mode enforcement, and
-inherited RBAC. The Ash
-actor/tenant and RLS contract introduced here did not change; legacy
-account-key adapters remain internal to eval/migration compatibility paths.
+Password/JWT and API-key identities replaced the HTTP Account header. Free mode
+enforces one Account and inherited RBAC; legacy account-key adapters remain
+internal to evaluation and migration compatibility paths.
 
 ## Migration and evidence
 
@@ -86,20 +81,12 @@ Deterministic evidence is in:
 - the frozen baseline contract tests listed in `AGENTS.md`; and
 - `mix ash.codegen --check`, which detects resource/snapshot drift.
 
-Transactional writes, audit, and jobs now couple state transitions, audit
-entries, durable pipeline-run records, and AshOban enqueue effects in one
-transaction. That implementation boundary and its evidence are documented in
-`specs/architecture/transactional-writes-audit-jobs.md`. Retrieval, entity
-resolution, and context completes the retrieval SQL transition and is
-documented in `specs/architecture/retrieval-entity-context.md`.
+Related implementation notes:
 
-Identity, tenancy, and RBAC adds the 28th Resource,
-`Cartulary.Accounts.ApiKey`, and the authenticated edge/RBAC resolver without
-changing the domain ownership above. Its implementation and evidence are
-documented in `specs/architecture/identity-tenancy-rbac.md`.
-
-Skill readiness and procedural memory completes the authored
-`SkillRequirementCard` placeholder without adding a new Resource. Versioned
-selectors, inherited procedural memory, readiness checks, and their
-public/helper contracts are documented in
-`specs/architecture/skill-readiness-procedural-memory.md`.
+- `transactional-writes-audit-jobs.md` — transactional state, audit,
+  `PipelineRun`, and AshOban coupling.
+- `retrieval-entity-context.md` — retrieval SQL, entity resolution, and context.
+- `identity-tenancy-rbac.md` — `Cartulary.Accounts.ApiKey` and authenticated
+  RBAC resolution; domain ownership is unchanged.
+- `skill-readiness-procedural-memory.md` — the existing
+  `SkillRequirementCard`, versioned selectors, inheritance, and readiness.

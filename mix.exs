@@ -91,15 +91,6 @@ defmodule Cartulary.MixProject do
   defp elixirc_paths(_), do: ["lib"]
 
   # Runtime and tooling dependencies.
-  #
-  # Deliberately absent, and not to be added back: Redis or any non-PostgreSQL job
-  # backend, a SQLite/embedded Oban engine, and any second worker runtime. Jobs, vectors,
-  # and full-text search all run on PostgreSQL in every deployment mode, which is what
-  # lets one release cover both of them with the same guarantees.
-  #
-  # Also deliberately absent: any dependency that would make a hosted third-party service
-  # mandatory on a core path. Model access is provider-neutral and the default embedding
-  # path runs locally, so an operator can run the whole system offline.
   defp deps do
     [
       {:phoenix, "~> 1.8.9"},
@@ -193,11 +184,10 @@ defmodule Cartulary.MixProject do
   # Static type analysis settings.
   #
   # The custom mix tasks and the test support modules are analysed too, so the persistent
-  # lookup table has to know about `mix` and `ex_unit`. The table is written to
-  # `priv/plts/` instead of Dialyxir's default location under `_build`, so the CI cache can
-  # name it as its own path: building it from scratch takes minutes, checking against it
-  # takes seconds. `:no_warn` silences Dialyxir's deprecation notice for setting
-  # `:plt_file` at all.
+  # lookup table has to know about `mix` and `ex_unit`. The table is written to `priv/plts/`
+  # instead of Dialyxir's default location under `_build`, so the CI cache can name it as its
+  # own path: building it from scratch takes minutes, checking against it takes seconds.
+  # `:no_warn` silences Dialyxir's deprecation notice for setting `:plt_file` at all.
   defp dialyzer do
     [
       plt_add_apps: [:mix, :ex_unit],
@@ -232,14 +222,14 @@ defmodule Cartulary.MixProject do
   # The single deployable artifact.
   #
   # Launchers are generated for both Unix and Windows because the no-container release is
-  # meant to be unpacked and run by an individual on their own machine, not only deployed
-  # to a Linux server. `runtime_tools` is given the `:permanent` start type, so the
-  # tooling an operator attaches to a live node with is always started with it.
+  # meant to be unpacked and run by an individual on their own machine, not only deployed to a
+  # Linux server. `runtime_tools` is given the `:permanent` start type, so the tooling an
+  # operator attaches to a live node with is always started with it.
   #
   # The overlay directory is copied verbatim into the built release. It carries the extra
   # entry points the generated launcher does not provide — a server starter that creates a
-  # private data root and signing secret on first run, and a standalone migration command
-  # — so a fresh install needs no manual setup step before it can serve.
+  # private data root and signing secret on first run, and a standalone migration command — so
+  # a fresh install needs no manual setup step before it can serve.
   defp releases do
     [
       cartulary: [

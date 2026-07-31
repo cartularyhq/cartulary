@@ -4,13 +4,13 @@
 
 Status: implemented
 
-Transactional writes, audit, and jobs make an accepted raw observation, its
-immutable audit event, its durable processing identity, and its AshOban job
-one PostgreSQL transaction. They implement `AD-DATA-8`, `AD-PIPE-1`,
+An accepted raw observation, its immutable audit event, durable processing
+identity, and AshOban job share one PostgreSQL transaction. This implements
+`AD-DATA-8`, `AD-PIPE-1`,
 `AD-PIPE-3`, `AD-PIPE-4`, `AD-SEAM-4.2`, `AD-SEAM-4.3`, `FR-KN-9`,
 `FR-FORM-8`, `FR-GOV-17`, `FR-GOV-20`, and `NFR-8` without changing the frozen
 `poc-0` HTTP surface. `poc-0` is a historical version tag for that frozen
-contract and no longer names a roadmap phase.
+contract, not a roadmap phase.
 
 ## Transaction boundary
 
@@ -23,11 +23,9 @@ contract and no longer names a roadmap phase.
 3. create or reuse a unique `Cartulary.Operations.PipelineRun`; and
 4. insert its AshOban trigger job.
 
-All four writes use the caller's existing `Cartulary.Repo` transaction. An
-error after the enqueue rolls all of them back. Message ingestion always takes
-this asynchronous path. The synchronous extraction response retained by
-`poc-0` runs only after that transaction commits and is safe to replay when the
-queued job later executes.
+All four writes use the caller's `Cartulary.Repo` transaction; any error rolls
+back all four. Message ingest is always asynchronous. The synchronous `poc-0`
+extraction response runs only after commit and remains replay-safe.
 
 `PipelineRun` is durable processing state, not a second queue. Its unique
 `{account_id, idempotency_key}` identity lets the reconciler and event sources
@@ -36,20 +34,11 @@ both deployment modes.
 
 ## A background job declares its own Account
 
-A job has no request behind it, so nothing upstream of it has installed the
-transaction-local Account settings that the row-level-security policies on
-every tenant table compare against. Since `AD-DATA-1` isolation became
-enforced at the database (the application connects as a role that cannot
-bypass row-level security), an undeclared connection sees no `pipeline_runs`
-row and may write none.
-
-That matters because AshOban touches the run row twice outside anything
-Cartulary controls: the worker reads the row back to confirm its trigger still
-applies, and the error handler writes the failed attempt. Undeclared, the read
-returns nothing and the runner cancels the job as `trigger_no_longer_applies`,
-and the write matches nothing and surfaces as a stale record — both of which
-look identical to "this work was already handled" while the work is in fact
-outstanding.
+Background jobs begin without request-installed Account settings. Under
+`AD-DATA-1` RLS, an undeclared connection cannot see or update its
+`pipeline_runs` row. AshOban would therefore cancel the worker read as
+`trigger_no_longer_applies` and report its failure update as stale, incorrectly
+making outstanding work look complete.
 
 The declaration therefore belongs to the actions themselves, not to their
 callers:
@@ -64,54 +53,38 @@ callers:
   overwrites a declaration already in force, so an enclosing Account-scoped
   transaction still wins and the change can never switch or widen tenancy.
 
-`execute` is transactional for that write only. Its Ash change runs the lane's
-Reactor in a `before_transaction` hook, which keeps the long-running work
-outside the transaction exactly as before while the short status write gains
-the declaration it needs.
+`execute` is transactional only for its status write. A `before_transaction`
+hook keeps the long Reactor outside that transaction.
 
 ## No external call inside an Account transaction
 
-A transaction owns a pooled PostgreSQL connection for its whole duration, and
-DBConnection closes a connection whose checkout exceeds its ownership timeout —
-15 000 ms by default, which nothing overrides for `Cartulary.Repo`. An
-extraction can spend far longer than that in a model provider: the structured
-generator allows two repair attempts beyond the first call, and
-`CARTULARY_MODEL_RECEIVE_TIMEOUT_MS` defaults to 120 000 ms per call. A
-transaction spanning those calls is therefore not slow but wrong — the
-connection is closed mid-transaction and the write recording an
-already-completed, already-billed call is discarded, so the job retries and the
-Account pays twice.
+A transaction holds one pooled connection. `Cartulary.Repo` keeps
+DBConnection's 15,000 ms ownership timeout, while a model call may take 120,000
+ms (`CARTULARY_MODEL_RECEIVE_TIMEOUT_MS`) and structured generation permits two
+repairs. Keeping that call in a transaction can close the connection, discard
+the post-call write, retry billed work, and charge the Account twice.
 
-Work that mixes durable writes with an external call is therefore split into
-three phases: a short transaction that reads everything the call needs, the
-call itself holding no connection, and a second short transaction that commits
-what the call produced. `Cartulary.Memory.extract_message/2`,
+Such work has three phases: a short read transaction, the external call without
+a connection, and a short result transaction. `Cartulary.Memory.extract_message/2`,
 `Cartulary.Memory.extract_message_for_account/2`, and
 `Cartulary.Documents.Service.process_version_for_account/2` all have this
-shape; the document lane's external phase also covers the blob fetch, the
-parse, and the embedding call.
+shape. The document external phase also fetches the blob, parses, and embeds.
 
-Two database touches happen *during* a provider call and cannot be lifted out
-of it: resolving the Account's stored `ModelRoleConfig`, and appending the
-`UsageEvent` for the call. Both scope themselves through
+Two database operations remain inside a provider call: resolving the Account's
+`ModelRoleConfig` and appending its `UsageEvent`. Both use
 `Cartulary.DataLayer.in_account_transaction/2`, which installs the Account
 setting the row-level-security policies read without resolving an Account row
 or building an actor. Nesting is deliberate: it always opens a transaction
 rather than branching on `Repo.in_transaction?/0`, because under the SQL
-sandbox every test already runs inside one, so a branch would make the
-production path the one no test exercises.
+sandbox already wraps every test in a transaction; branching would leave the
+production path untested.
 
-A consequence worth stating: a usage record commits independently of whatever
-the caller does next. A caller whose own write fails afterwards no longer takes
-the ledger row down with it, which is correct — the call happened and was
-billed regardless.
+Usage commits independently because the call remains billable even if the
+caller's later write fails.
 
-Ordering, idempotency, and locking are unchanged by the split. The duplicate
-check and the transaction-scoped advisory lock already sat after the model
-call, so both stay together in the write phase and still serialize concurrent
-writers. Neither the observation nor the version is stamped as processed until
-its write phase commits, so an interrupted extraction is found again by the
-reconciler rather than silently lost.
+The write phase retains the duplicate check and transaction-scoped advisory
+lock. Observations and versions are marked processed only on commit, so the
+reconciler finds interrupted extraction.
 
 ## Job and Reactor map
 
@@ -125,15 +98,10 @@ reconciler rather than silently lost.
 | import-derived-cache rebuild | `portability` | maintenance Reactor continuation |
 | unprocessed-record reconciliation | `reconciler` | Account-scoped reconciler |
 
-This capability owns durable execution, retry, uniqueness, and continuation
-seams. Gate A/B governance owns the real gate/revalidation/expiry semantics;
-the model layer and structured extraction own document extraction and
-model-backed reasoning; documents, connectors, and sync own connector
-behavior; retrieval, entity resolution, and context own projections; and
-portability, packaging, and operations own the logical import/export
-implementation. Until each of those capabilities lands, its lane here
-completes a typed durable continuation without inventing the later domain
-behavior.
+This capability owns durable execution, retries, uniqueness, and continuation.
+Governance owns gate/lifecycle semantics; the model layer owns extraction and
+reasoning; document sync owns connectors; retrieval owns projections; and
+portability owns logical import/export.
 
 ## Idempotency and reconciliation
 
@@ -169,13 +137,10 @@ durable write; all durable state still goes through Ash actions.
 - the previous Account event hash; and
 - the deterministic SHA-256 event hash.
 
-An Account-scoped transaction advisory lock serializes only that Account's
-chain tip. Different Accounts do not block one another. The audit action reads
-the prior tip and inserts the new event in the same transaction as the domain
-change. Lifecycle, gate, attribution, observation, deletion, configuration,
-and governance categories are reserved; current message/knowledge and policy
-actions emit the applicable events, while Gate A/B erasure and governance
-actions will use the same append API.
+An Account-scoped advisory lock serializes only that Account's chain tip. The
+audit action reads the prior tip and inserts the event with the domain change.
+Reserved categories cover lifecycle, gate, attribution, observation, deletion,
+configuration, and governance; all emit through the same append API.
 
 ## Evidence
 

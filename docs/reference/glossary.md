@@ -2,14 +2,11 @@
 
 # Glossary
 
-**Account** — the isolation boundary. Every durable row belongs to exactly one.
-Derived from the authenticated identity, enforced at the Phoenix edge, in Ash
-policies, and in PostgreSQL row-level security. The community build serves a
-single Account.
+**Account** — the identity-derived isolation boundary for every durable row,
+enforced by Phoenix, Ash policies, and PostgreSQL RLS. Community serves one.
 
-**Ask** — the operation that retrieves supporting memory and answers a
-question over it, with citations, abstaining when nothing supports it. Defaults
-to the `thorough` retrieval profile.
+**Ask** — cited answer generation over retrieved memory, with abstention.
+Defaults to `thorough`.
 
 **Belief time** — when the system learned or holds a claim (`inserted_at`,
 `revalidate_after`, `expires_at`). Distinct from valid time.
@@ -39,9 +36,8 @@ proposals. Unreachable by machine credentials.
 **Deadline** — the hard wall-clock ceiling on retrieval, covering strategies
 and reranking. Strategies that miss it are dropped and reported.
 
-**Dream-time** — background reasoning over already-governed knowledge:
-consolidation, entity resolution, revalidation planning. The first thing
-throttled under a token budget.
+**Dream-time** — background consolidation, entity resolution, and revalidation
+planning over governed knowledge; throttled first under token pressure.
 
 **Entity** — a canonical referent linking mentions of the same thing. A
 rebuildable, pipeline-internal cache exposed through **no** public surface.
@@ -70,9 +66,8 @@ provenance rather than duplicate knowledge.
 
 **Ingest** — recording a raw observation. The only write path an agent has.
 
-**Knowledge** — the only durable atom of memory: one immutable natural-language
-statement with its own confidence, sensitivity, subject, provenance, lifecycle
-state, and timestamps.
+**Knowledge** — one immutable natural-language statement with confidence,
+sensitivity, subject, provenance, lifecycle state, and timestamps.
 
 **Lifecycle state** — the governance position of a statement: `proposed`,
 `provisional`, `active`, `held`, `needs_revalidation`, `contested`,
@@ -92,8 +87,8 @@ supervises for itself.
 **Profile** — a named, versioned retrieval bundle: strategies, weights, rerank
 flag, and deadline. `fast`, `balanced`, `thorough`.
 
-**Projection** — derived, rebuildable data recomputed from knowledge: peer
-profiles, scope cards, session summaries, context payloads.
+**Projection** — rebuildable peer profiles, scope cards, session summaries, and
+context payloads derived from knowledge.
 
 **Provenance** — which messages or document versions support a statement, and
 how many independent sources it has.

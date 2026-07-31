@@ -4,33 +4,9 @@ defmodule Cartulary.PocContractTest do
   @moduledoc """
   Pins the frozen behaviour baseline of the memory system as executable evidence.
 
-  `poc-0` is the version identity of that baseline: the earliest public behaviour of this
-  system, frozen on purpose so later work cannot drift away from it by accident. The string
-  is a version value, not a project phase. This file is one of the places the baseline is
-  enforced; the HTTP request tests for the memory controller and the evaluation fixture
-  contract test are the others.
-
-  Two behaviours are pinned here.
-
-  **Ingest is durable and the pipeline is the only writer of knowledge.** A caller submits a
-  raw observation. The observation is stored verbatim, and the knowledge derived from it is
-  minted by the extraction pipeline rather than by the caller. Each derived row records who
-  produced it — provider, model, model version, prompt version, pipeline version — and which
-  raw messages it came from. New knowledge is born `proposed` and is moved on by governance;
-  it never appears already active.
-
-  **Containment inheritance runs downward only.** Knowledge recorded at a scope is visible to
-  that scope and to every scope nested inside it, and is never visible to the parent. Upward
-  movement exists, but only as an explicit, governed promotion — never as a side effect of a
-  read.
-
-  ## If a test in this file fails
-
-  Do not relax the assertion to match the new behaviour. A failure is either a real
-  regression in the durability, pipeline-ownership, or inheritance rules, or it is a
-  deliberate contract change. A deliberate change has to decide, in writing, whether the
-  baseline identity stays `poc-0` or becomes a new version string, and must update the other
-  baseline evidence and the changelog in the same patch.
+    `poc-0` is the version identity of that baseline: the earliest public behaviour of
+    this system, frozen on purpose so later work cannot drift away from it by accident.
+    The string is a version value, not a project phase.
   """
 
   use Cartulary.DataCase, async: false

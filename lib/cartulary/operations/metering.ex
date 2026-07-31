@@ -2,50 +2,11 @@
 
 defmodule Cartulary.Operations.Metering do
   @moduledoc """
-  Records what an Account consumed, and reports it back as an operator summary.
+  Records Account usage and builds operator summaries.
 
-  Two things happen on every metered call, and the order matters. First the
-  durable usage row is written; only then are the in-memory daily counters
-  bumped. The row is the exact ledger and the counters are a rebuildable cache
-  over it, so a crash between the two loses an admission hint, never a recorded
-  charge. Bumping the counter first would mean the reverse.
-
-  ## What this module owns
-
-    * Metering of edge (HTTP) traffic, which has no model behind it. Model
-      calls are metered by the model layer's single usage-emission point; this
-      module only receives their token totals for the counters.
-    * The Account-wide summary an administrator reads: exact recorded counts,
-      token totals overall and per model role, logical storage bytes, and an
-      estimated cost.
-
-  ## Cost estimates are operator-supplied, not billing state
-
-  There is no hidden billing service. The estimate multiplies recorded tokens
-  by per-million rates the operator configured; roles with no configured rate
-  contribute zero. It is a visibility aid for self-hosters and must never be
-  presented as an authoritative invoice.
-
-  ## Every database touch here opens its own Account-scoped transaction
-
-  Nothing in this module runs inside a transaction its caller opened. Edge
-  metering happens in a before-send callback, after the controller's own
-  transactions have already committed; the summary is rendered by an operator
-  page or a plain controller action that never opens one. Both therefore start
-  on a pooled connection with no Account declared on it, and the row-level
-  security policies on the usage table compare every row — read or written —
-  against that declaration. Writing without one is refused outright; reading
-  without one silently returns nothing, which would report an active Account as
-  having consumed zero. So each entry point below wraps its own database work in
-  the Account-scoped transaction helper, and a new one must do the same.
-
-  ## Content safety
-
-  Everything written or returned here is identifiers, counts, timings, model
-  provenance, and status. Request bodies, statements, prompts, questions,
-  answers, and credentials must never be added: the summary is exported to
-  Account administrators, so a field added here is disclosed outside the
-  governed memory boundary.
+  UsageEvent is the only durable ledger. Metadata is reduced to a reviewed content-safe allowlist,
+  token and duration units remain explicit, and self-hosted cost estimates use operator-provided
+  rates rather than hidden billing state.
   """
 
   alias Cartulary.Actor
@@ -58,28 +19,13 @@ defmodule Cartulary.Operations.Metering do
   @token_metrics [:input_tokens, :output_tokens, :embedding_tokens]
 
   @doc """
-  Writes one usage-ledger row for an authenticated HTTP request, then bumps the
-  daily counters.
+  Writes one authenticated HTTP usage event and updates daily counters.
 
-  `attrs` must carry `:operation` (the coarse route name, for example
-  `"api.ingest"`); `:scope_id`, `:http_status`, and `:status` are optional and
-  `:status` defaults to `"ok"`. The row is attributed to the actor's Account and
-  peer, never to anything taken from the request body.
+  `attrs` requires a coarse `:operation`; scope, HTTP status, and outcome are optional.
+  Attribution comes from the actor, never request content. `"f10-1"` is the versioned
+  operational payload identity, and ingest requests also increment the ingest counter.
 
-  The provenance columns are filled with placeholders — an `"edge"` model role
-  and `"none"` provider/model/version — because no model was involved. The
-  pipeline version column is stamped with the literal `"f10-1"`, the same
-  identity the readiness payload carries; it names the operational payload
-  contract rather than an extraction pipeline. Changing that string is a
-  contract transition that owes a changelog entry and updated evidence, not a
-  cosmetic edit.
-
-  Requests naming the ingest operation increment a second counter, so ingest
-  volume can be throttled independently of ordinary API traffic.
-
-  Returns `:ok`. Raises if the ledger write fails, because a call that cannot be
-  metered must not be silently free; a counter update that finds no table is
-  dropped instead.
+  Returns `:ok`. Ledger failures raise; unavailable rebuildable counters are skipped.
   """
   def record_api(%Actor{} = actor, attrs) do
     operation = Map.fetch!(attrs, :operation)

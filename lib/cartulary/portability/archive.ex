@@ -2,64 +2,11 @@
 
 defmodule Cartulary.Portability.Archive do
   @moduledoc """
-  Reads and writes the logical Account archive: one file that holds an entire
-  Account's durable state.
+  Reads and writes the versioned logical Account archive.
 
-  ## The file
-
-  A gzip-compressed tar containing:
-
-  - `manifest.json` — the archive schema, Account identity, the embedder the
-    source deployment is configured with, one entry per resource file with its
-    row count and SHA-256, one entry per document blob with its size and
-    SHA-256, the verified audit head and event count, and an explicit statement
-    of what was excluded;
-  - `resources/<name>.jsonl` — one JSON object per row, one row per line, in
-    restoration order;
-  - `blobs/<sha256>` — the original bytes of every exported document version,
-    named by their content hash.
-
-  Everything is checksummed twice over: each file against the manifest, and each
-  blob against its own content hash. The manifest itself is hashed by the reader
-  and used as the replay key for the rebuild work an import queues.
-
-  ## Export
-
-  All reads happen in one Account-scoped database transaction, so the archive is
-  a coherent snapshot rather than a series of independent queries. Rows are
-  fetched in keyset-paginated batches rather than one unbounded query, then
-  ordered so an import can replay them without referencing a row that does not
-  exist yet.
-
-  ## Import
-
-  Verification comes first and is total: schema, per-file checksums, row counts,
-  blob hashes, and the complete audit hash chain are all checked before a single
-  durable write. A tampered, truncated, or foreign archive is rejected while the
-  database is still untouched.
-
-  The target must be a fresh Account. If the Account already exists the import
-  raises, so an archive can never merge into, overwrite, or interleave with live
-  data.
-
-  Durable restoration then happens in one Account-scoped transaction through
-  private restore actions, preserving ids, timestamps, lifecycle history,
-  governance decisions, replay keys, and audit hashes exactly. The rebuild work
-  for the caches archives deliberately omit is queued inside that same
-  transaction, so the jobs and the rows they process commit together.
-
-  ## Filesystem safety
-
-  Archives are untrusted input. Tar entries are rejected if they are absolute or
-  contain a parent-directory segment, extraction happens into a generated
-  temporary directory that is removed afterwards, and every path read from the
-  manifest is re-checked to be inside that directory before it is opened.
-
-  ## Failure style
-
-  This module raises rather than returning error tuples for anything malformed.
-  A half-verified archive has no useful partial result, and the operator-facing
-  commands that call it want the specific reason.
+  Exports keyset-stream durable resources in dependency order and checksum every included blob.
+  Imports validate schema, checksums, references, exclusions, and the full audit graph before any
+  durable write. Archive data is untrusted input and the target must be empty.
   """
 
   alias Cartulary.Actor
@@ -86,25 +33,11 @@ defmodule Cartulary.Portability.Archive do
   @doc """
   Writes a complete archive of the actor's Account to `output_path`.
 
-  Every read runs inside one Account-scoped transaction, so the snapshot is
-  internally consistent, and the actor's own Account is the only one reachable —
-  the tenant comes from the identity, never from an argument.
+  The Account comes from the actor. One scoped transaction produces a consistent snapshot,
+  and an atomic sibling-file rename prevents partial output.
 
-  `output_path` is the operator's destination. The archive is assembled in a
-  generated temporary directory and written to a sibling temporary file that is
-  renamed into place at the end, so an interrupted export cannot leave a
-  half-written file that looks complete. The temporary directory is always
-  removed, including on failure.
-
-  Returns `{:ok, summary}` with the expanded path, the archive schema, the
-  Account id, per-resource row counts, the blob count, the verified audit head,
-  and the duration in milliseconds. Emits export telemetry carrying counts and
-  timings only.
-
-  Raises if a document blob cannot be read, if a blob's bytes no longer hash to
-  the version's recorded content hash (silent corruption at the storage layer),
-  if the knowledge supersession graph cannot be linearised, or on any filesystem
-  failure.
+  Returns `{:ok, summary}` with schema, Account, row and blob counts, audit head, path, and
+  duration in milliseconds. Blob checksum, supersession graph, or filesystem failures raise.
   """
   # The only caller-controlled path is an operator CLI destination; archive
   # contents are written under a generated temporary root.
@@ -150,30 +83,13 @@ defmodule Cartulary.Portability.Archive do
   @doc """
   Restores an archive into a fresh Account.
 
-  The Account id and key come from the archive, not from the caller: an import
-  recreates the Account it describes, keeping every id stable so provenance,
-  governance history, and audit hashes still refer to the same things.
+  Account identity comes from the archive. Unsafe paths, schema, counts, checksums, blobs,
+  references, and audit chain are verified before durable writes. The fresh-target check,
+  dependency-ordered restore, and rebuild enqueue share one Account transaction.
 
-  Steps, in this order and for these reasons:
-
-  1. extract into a generated temporary directory, rejecting unsafe tar paths;
-  2. verify the entire archive — schema, checksums, counts, blob hashes, and the
-     audit chain — while nothing durable has been touched;
-  3. store the verified blobs, which is safe to do before the transaction
-     because blobs are content-addressed: writing the same bytes twice is a
-     no-op, and blobs with no surviving row are inert;
-  4. in one Account-scoped transaction, refuse a target that already exists,
-     restore every row in dependency order, and queue the derived-cache
-     rebuilds. Any failure rolls the whole transaction back, including the
-     queued work.
-
-  Returns `{:ok, summary}` with per-resource counts, the blob count, the archive
-  schema, the Account id, the manifest hash used as the rebuild replay key, the
-  audit head, and the duration in milliseconds. Emits import telemetry carrying
-  counts and timings only.
-
-  Raises if the target Account exists, if verification fails, if a blob cannot
-  be stored, or if the restore transaction cannot commit.
+  Returns `{:ok, summary}` with counts, schema, Account, replay hash, audit head, and
+  duration in milliseconds. Existing targets, verification, blob, or transaction failures
+  raise.
   """
   def import(input_path) when is_binary(input_path) do
     started_at = System.monotonic_time()

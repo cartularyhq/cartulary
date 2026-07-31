@@ -2,43 +2,11 @@
 
 defmodule Cartulary.Observability do
   @moduledoc """
-  Tracing seam: wires framework instrumentation together and gates the
-  application's own spans by category.
+  Provides content-safe tracing and telemetry helpers.
 
-  Whether traces leave the node at all is a separate, runtime decision. This
-  module only attaches handlers and correlates logs, so that HTTP, database,
-  background job, and hand-written spans all end up in the same trace instead
-  of several disconnected ones. Nothing here changes what the system computes;
-  turning every category off changes only what is observed.
-
-  ## Content safety is absolute
-
-  A span attribute is a place where content leaks, because traces are exported
-  to whatever backend the operator configured and are retained long after the
-  request. Only identifiers, counts, category and profile names, model and
-  provider names, versions, timings, token counts, and error classes may be
-  recorded. Never raw messages, prompts, questions, answers, statements,
-  document text, connector cursors, API keys, Account keys, peer keys, or any
-  restricted knowledge. This is the reason database statements are off by
-  default: a SQL statement carries its parameters, and those parameters are
-  content.
-
-  ## Categories
-
-  Callers pass a category rather than reading configuration, so a whole class
-  of spans can be silenced without touching the code that emits them. An
-  unrecognised category is enabled by default — a new span shows up rather than
-  disappearing silently — so adding a category to the configuration mapping is
-  how you make it switchable, not how you make it work.
-
-  ## What a disabled category does and does not skip
-
-  With a category off, the wrapped function still runs — only the span around
-  it is skipped — and the attribute setters become no-ops. So wrapping work in
-  a span never changes whether that work happens, which is the property that
-  makes it safe to add spans anywhere. It also means an expensive value
-  computed at the call site purely to be recorded is computed whether or not
-  anything records it, so keep attribute expressions cheap.
+  Spans may record ids, counts, names, versions, timings, token totals, and error classes, never
+  messages, prompts, answers, credentials, or secrets. Incoming W3C trace ids are preserved and
+  new requests receive a trace id.
   """
 
   require OpenTelemetry.Tracer, as: Tracer

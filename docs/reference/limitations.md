@@ -2,14 +2,11 @@
 
 # Limitations
 
-Cartulary `0.2.0` is a community beta. This page is the honest list of what is
-not there, so nothing on this site has to be read optimistically.
+Cartulary `0.2.0` is a community beta. These capabilities are unavailable.
 
-The machine-readable version is the surface contract inventory in the
-repository at
+The machine-readable inventory is
 [`specs/eval/surface-contract-inventory.json`](https://github.com/cartularyhq/cartulary/blob/main/specs/eval/surface-contract-inventory.json),
-which marks these surfaces `unavailable`. The release check fails if they are
-advertised as shipped.
+which marks these surfaces `unavailable`. Release checks reject contrary claims.
 
 ## Not implemented
 
@@ -61,16 +58,13 @@ may not hold; the JSON surface is where an agent checks its own peer.
 
 ## Evaluation evidence is deliberately small
 
-Upstream-scale benchmark scores and independent live-model judge evidence do
-not exist yet. The committed fixtures are smoke-scale on purpose, and the
-recorded reports are historical baseline evidence rather than current
-performance claims.
+Upstream-scale scores and independent live-model judge evidence do not exist.
+Committed fixtures are smoke-scale; recorded reports are historical baselines,
+not current performance claims.
 
-Any published quality number must carry its full provenance: application
-version, retrieval profile and exact profile version, all four model-role
-versions, dataset id, SHA-256 and split, deadline setting, date, judge
-identity, strategy override, and run limits. A number without that context is
-not a claim this project makes.
+Published quality numbers require application version, retrieval profile and
+version, four model-role versions, dataset id/SHA-256/split, deadline, date,
+judge, strategy override, and run limits.
 
 ## Operational gaps worth planning around
 
@@ -101,7 +95,7 @@ These are deliberate designs, not gaps:
 
 ## Where the outstanding work is tracked
 
-With acceptance criteria, in the repository at
+Acceptance criteria live in
 [`specs/roadmap/beta-roadmap.md`](https://github.com/cartularyhq/cartulary/blob/main/specs/roadmap/beta-roadmap.md).
-What actually runs today, with its verification evidence, is
+Current behavior and verification live in
 [`specs/implementation-status.md`](https://github.com/cartularyhq/cartulary/blob/main/specs/implementation-status.md).

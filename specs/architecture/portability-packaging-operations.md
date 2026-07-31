@@ -4,14 +4,12 @@
 
 Status: implemented on 2026-07-28.
 
-Portability, packaging, and operations make the community core installable,
-movable, observable, and recoverable without changing its 38-Resource durable
-boundary. This work implements FR-PLAT-2, FR-PLAT-5, FR-PLAT-8 through
+The community core is installable, movable, observable, and recoverable without
+changing its 38-Resource durable boundary. This implements FR-PLAT-2, FR-PLAT-5, FR-PLAT-8 through
 FR-PLAT-11, FR-PLAT-14, AD-CFG-2, AD-PORT-1 through AD-PORT-4, AD-OBS-1
 through AD-OBS-7, NFR-7 through NFR-9, and ADR-0003. The ARCH prime directive
-remains intact: pg0 and external Postgres are infrastructure adapters around
-the same release, Repo, Ash actions, migrations, Oban queues, and product
-behavior.
+remains intact: pg0 and external Postgres wrap the same release, Repo, Ash
+actions, migrations, queues, and behavior.
 
 ## Deployment boundary
 
@@ -91,15 +89,14 @@ The focused contract is
 archive composition/exclusions, audit tamper rejection, readiness, exact edge
 metering/cost visibility, and packaging invariants.
 
-The implementation was also exercised with a real two-database round trip:
-33 resource counts, six audit events and the final audit hash matched exactly;
-the fresh target enqueued two scope rebuilds and carried no exported vectors.
-The packaged release started a fresh pg0 instance, applied migrations, became
-ready, and stopped the managed database. The external lane uses the same
-migration and test contracts against the stock Postgres image from
-`compose.yml`. The production container built with the pinned Rust builder,
-started as UID 10001 without Rust or pg0 in its runtime layer, and returned
-`f10-1` readiness against that stock Postgres service.
+Real-system evidence:
+
+- A two-database round trip matched 33 resource counts, six audit events, and
+  the final audit hash; the target enqueued two rebuilds and imported no vectors.
+- The package initialized pg0, migrated, became ready, and stopped cleanly.
+- The external lane uses the same contracts against `compose.yml` Postgres.
+- The production container ran as UID 10001, contained neither Rust nor pg0,
+  and returned `f10-1` readiness.
 
 Operator procedures live in:
 

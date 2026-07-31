@@ -2,23 +2,10 @@
 
 defmodule Cartulary.Database.RoleGuard do
   @moduledoc """
-  Supervised startup step that refuses to serve traffic when the database's half
-  of cross-Account isolation would not enforce.
+  Refuses startup unless the application connection is restricted by row-level security.
 
-  It sits after the repository and the migration step and before anything that
-  answers a request. That position is deliberate: the role it checks is created
-  by the provisioning step and granted rights over tables the migration step may
-  have only just created, and a node that fails this check must fail before it
-  accepts its first request rather than after.
-
-  The check itself is one query, and its outcome is a boot decision rather than
-  a log line, because the condition it detects is invisible in every other way.
-  Row-level security that is skipped produces no error, no warning, and no
-  behavioural difference until the day an application-layer tenant filter is
-  wrong — at which point it produces another Account's rows.
-
-  All the work happens in `init/1`, which blocks the supervisor until it
-  returns. The process then sits idle for the life of the node.
+  It runs after Repo starts and treats owner, superuser, BYPASSRLS, or misconfigured roles as
+  fatal rather than serving with weakened Account isolation.
   """
 
   use GenServer

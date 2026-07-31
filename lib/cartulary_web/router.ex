@@ -2,82 +2,32 @@
 
 defmodule CartularyWeb.Router do
   @moduledoc """
-  Every HTTP path into Cartulary, and the authentication each one demands.
+  Defines every HTTP route and its authentication boundary.
 
-  There are five kinds of caller and they are kept strictly apart:
-
-  - **Anonymous.** Only the liveness/readiness probes, the password sign-in endpoint, the two
-    browser sign-in forms and their POSTs, and the bare origin's redirect. No Account is
-    resolved yet on these requests.
-  - **Any authenticated identity** (`/api/v1` memory routes, `/mcp`). Requires
-    `Authorization: Bearer <credential>`, where the credential is either a human sign-in token
-    or an agent API key. This is the surface agents use.
-  - **A human password identity** (`/api/v1/self/*`). A bearer token is not enough; the
-    credential must have been minted by a password sign-in. An agent API key gets 403 here
-    even if it belongs to the same peer, because contesting, redacting, and erasing one's own
-    knowledge are personal decisions that a machine may not take on a person's behalf.
-  - **Any human browser session** (`/console/*`). Cookie session plus CSRF plus a re-check on
-    every LiveView mount. Every role is admitted — reading the memory your grants reach is
-    not privileged — and the pages themselves decide what each role may see and do.
-  - **A human curator browser session** (`/governance/*`). The same session, narrowed at
-    mount to the account-admin and curator roles. This is the only place curator decisions
-    can be taken.
-
-  Both browser surfaces read the same session key, so one sign-in opens whichever of them the
-  reader's role allows. Keep it that way: two keys would mean a curator signing in at one door
-  found the other locked.
-
-  **Account is derived from the credential, never from the request.** The authentication plug
-  resolves the verified identity into an actor and installs that actor's Account as the Ash
-  tenant for the rest of the request. No route reads an Account from a header, a query
-  parameter, or a JSON body. An older account-key header and account fields inside request
-  bodies are inert: they are ignored rather than honoured. Do not reintroduce a
-  caller-supplied Account, even behind a debug flag — a caller that can name its tenant can
-  name someone else's.
-
-  Curator authority is not reachable over any machine-facing route. Approving, editing,
-  rejecting, merging, deferring, promoting, and gate-rule administration exist only in the
-  browser LiveView; the machine tool endpoint below exposes a fixed allowlist that contains
-  none of them.
+  Account identity always comes from the verified credential. Machine-facing routes can
+  ingest observations and read governed memory but cannot perform curator actions.
+  Self-governance requires a password identity; governance additionally requires curator
+  or account-admin. Both browser areas share one signed session.
   """
 
   use CartularyWeb, :router
 
-  # JSON transport only: no session, no CSRF, no cookies. Authentication is a separate
-  # pipeline, so piping through :api alone leaves a route public.
+  # JSON parsing only; routes remain public unless they also use :authenticated_api.
   pipeline :api do
     plug :accepts, ["json"]
   end
 
-  # Turns a bearer credential into an authenticated actor, then bills the request.
-  #
-  # Order is load-bearing. RequireIdentity halts with 401 before any controller runs and
-  # assigns the actor plus the Ash tenant/actor context; MeterUsage registers a
-  # before_send callback that reads that actor to write one usage-ledger row per response.
-  # Swap the two and unauthenticated traffic would either crash the meter or be billed to
-  # nobody.
+  # Authentication must precede metering because the meter bills the assigned actor.
   pipeline :authenticated_api do
     plug CartularyWeb.Plugs.RequireIdentity
     plug CartularyWeb.Plugs.MeterUsage
   end
 
-  # The browser surface: cookie session, CSRF token check on every non-GET, the single HTML
-  # shell, and a deliberately tight Content-Security-Policy.
-  #
-  # The policy allows only same-origin resources. `connect-src` additionally permits ws:/wss:
-  # because LiveView holds a WebSocket. `script-src 'self'` bans inline script, which is why
-  # the page bootstraps from a served .js file rather than an inline tag. `style-src` still
-  # allows 'unsafe-inline' because the governance markup styles elements with plain `style`
-  # attributes; removing that allowance requires moving those rules into a stylesheet first,
-  # or the UI renders unstyled. `frame-ancestors 'none'` blocks click-jacking of curator
-  # decision buttons, and `form-action 'self'` keeps the sign-in form from being retargeted.
+  # Same-origin CSP allows LiveView sockets and existing inline styles, but no inline scripts.
   pipeline :browser do
     plug :accepts, ["html"]
     plug :fetch_session
-    # Flash must be fetched on the HTTP request, not only inside the socket. A
-    # LiveView that puts a flash while still rendering statically — the
-    # operations page declining a member and redirecting, for instance — would
-    # otherwise raise instead of redirecting.
+    # Static LiveView redirects need flash state before the socket connects.
     plug :fetch_live_flash
     plug :protect_from_forgery
     plug :put_root_layout, html: {CartularyWeb.Layouts, :root}
@@ -90,9 +40,7 @@ defmodule CartularyWeb.Router do
     }
   end
 
-  # Narrows an already-authenticated request to a human password identity, rejecting agent
-  # API keys with 403. Must be piped after :authenticated_api, which is what supplies the
-  # actor it inspects.
+  # Must follow :authenticated_api, which assigns the actor this plug inspects.
   pipeline :human_governance do
     plug CartularyWeb.Plugs.RequireHumanIdentity
   end
@@ -100,30 +48,17 @@ defmodule CartularyWeb.Router do
   scope "/api", CartularyWeb do
     pipe_through :api
 
-    # Unauthenticated on purpose: container and load-balancer probes must answer before any
-    # credential exists, and sign-in is where a credential is obtained in the first place.
-    #
-    # The probe payloads stay content-safe — component status, queue counts, model
-    # identities, versions, and error classes only, never credentials or stored content —
-    # because anyone who can reach the port can read them. Health also reports the
-    # extractor/pipeline contract identity "f5-1"; that string names the extraction
-    # behaviour clients are compiled against, so bumping it is a deliberate contract change
-    # that owes a changelog entry and updated contract evidence, not a version cosmetic.
+    # Public probes must remain content-safe. "f5-1" is the extraction contract identity.
     get "/health", MemoryController, :health
     get "/ready", MemoryController, :ready
 
-    # Exchanges an email and password for a short-lived bearer token, which the caller then
-    # sends on the authenticated routes. A wrong email and a wrong password produce the same
-    # opaque 401, so the response cannot be used to enumerate accounts.
+    # Credential failures share one opaque 401 to prevent account enumeration.
     post "/auth/password", AuthController, :password
 
     scope "/v1" do
       pipe_through :authenticated_api
 
-      # The memory surface shared by agents and humans. Writes here are raw observations
-      # only: ingest records what was said and hands it to the extraction pipeline, which
-      # is the only writer of governed knowledge. No route on this list can activate
-      # knowledge or approve a proposal.
+      # This surface accepts raw observations; only the pipeline writes knowledge.
       post "/ingest", MemoryController, :ingest
       post "/ask", MemoryController, :ask
       post "/search", MemoryController, :search
@@ -134,27 +69,17 @@ defmodule CartularyWeb.Router do
     end
   end
 
-  # The browser console: the reading and self-governance surface, open to every human role.
-  #
-  # Sign-in here stores the same session token the curator area reads, so a curator who signs
-  # in at this door does not have to sign in again at the other one.
+  # All password-authenticated roles share this console session.
   scope "/", CartularyWeb do
     pipe_through :browser
 
-    # The bare origin is a redirect rather than a page of its own. Whether the visitor is
-    # signed in is decided by the console's mount hook, in one place.
     get "/", SessionController, :home
 
     get "/sign-in", SessionController, :new
     post "/sign-in", SessionController, :create
     delete "/sign-out", SessionController, :delete
 
-    # The mount hook re-verifies the session token and the password identity kind on the
-    # initial render and again on every socket reconnect, redirecting to sign-in otherwise.
-    # It does not check the role: these pages admit readers, members, curators, and account
-    # admins alike, and each page decides for itself what that role may see and do. The
-    # operations page turns away anyone who is not an account admin, because the resources
-    # behind it refuse a lesser role outright rather than returning an empty result.
+    # Re-authenticate every mount and reconnect; individual pages narrow role access.
     live_session :console,
       on_mount: [{CartularyWeb.ConsoleAuth, :default}] do
       live "/console", ConsoleLive.Dashboard, :index
@@ -172,27 +97,19 @@ defmodule CartularyWeb.Router do
   scope "/governance", CartularyWeb do
     pipe_through :browser
 
-    # Password sign-in stores a short-lived token in the signed session cookie. The
-    # controller admits only account-admin and curator password identities, so a valid
-    # member credential cannot open the curator UI.
+    # Only curator and account-admin password identities may establish this session.
     get "/sign-in", GovernanceSessionController, :new
     post "/sign-in", GovernanceSessionController, :create
     delete "/sign-out", GovernanceSessionController, :delete
 
-    # The on_mount hook re-verifies the session token, the password identity kind, and the
-    # curator/account-admin role on the initial render and again on every socket
-    # (re)connect, redirecting to sign-in otherwise. Presence of the cookie alone is never
-    # treated as authorization, because a token can expire or be revoked while a tab stays
-    # open. This is the only place human curator decisions can be made.
+    # Re-verify identity and role on every mount and reconnect.
     live_session :governance,
       on_mount: [{CartularyWeb.GovernanceAuth, :default}] do
       live "/", GovernanceLive.Index, :index
     end
   end
 
-  # Subject self-governance: a person acting on knowledge about themselves. Same JSON
-  # transport and bearer authentication as the memory routes, plus the human-only gate, so
-  # the three pipelines must stay in this order.
+  # Pipeline order is load-bearing: JSON, authentication, then the human-only check.
   scope "/api/v1", CartularyWeb do
     pipe_through [:api, :authenticated_api, :human_governance]
 
@@ -202,20 +119,12 @@ defmodule CartularyWeb.Router do
     post "/self/erasure", SelfGovernanceController, :erase
   end
 
-  # Model Context Protocol endpoint for agent tooling. It authenticates exactly like the
-  # JSON memory routes — bearer credential in, Account derived from it — so an MCP client
-  # can never reach another tenant's data.
+  # MCP derives Account access from the same bearer identity as the JSON API.
   scope "/mcp" do
     pipe_through [:api, :authenticated_api]
 
-    # This list is the complete machine tool surface: submit raw observations, read governed
-    # memory, answer the calling peer's own pending question, and adjust that peer's own
-    # interruption limits. It contains no approve, edit, reject, merge, defer, promote, or
-    # gate-rule tool, and must not gain one — that would let any API key push knowledge into
-    # shared scopes without a human curator, which is precisely what the gates prevent.
-    #
-    # "2025-03-26" is the MCP protocol revision advertised to clients during handshake;
-    # changing it changes what clients believe this server speaks.
+    # Complete machine allowlist: never add curator or promotion actions here.
+    # "2025-03-26" is the advertised MCP protocol revision.
     forward "/", AshAi.Mcp.Router,
       tools: [
         :ingest,

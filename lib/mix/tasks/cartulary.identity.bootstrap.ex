@@ -8,52 +8,11 @@ defmodule Mix.Tasks.Cartulary.Identity.Bootstrap do
   @moduledoc """
   Creates the single community Account and its first human administrator.
 
-  This is the one-time step that turns a migrated but empty database into a usable
-  installation. It provisions the community Account if it does not exist, registers a human
-  peer with a password identity, grants that peer the administrator role on the root scope
-  with downward propagation, and prints a short-lived bearer token so the operator can make
-  an authenticated call immediately.
-
-      CARTULARY_BOOTSTRAP_PASSWORD='a long password' \
-        mix cartulary.identity.bootstrap \
-          --email admin@example.test \
-          --name 'Local Admin'
-
-  ## Switches
-
-    * `--email ADDRESS`, `-e` — required. Becomes the sign-in identity, and a normalized
-      form of it becomes the administrator's peer key.
-    * `--name TEXT`, `-n` — display name. Default: the email address.
-    * `--password TEXT` — takes precedence over the environment variable. Prefer the
-      environment variable: an argument is visible in shell history and in the process list
-      of every other user on the machine.
-
-  ## Environment
-
-    * `CARTULARY_BOOTSTRAP_PASSWORD` — the password to set when `--password` is absent. If
-      neither is present the task refuses to run rather than inventing a default
-      credential.
-
-  ## Output
-
-  Three lines on standard output: the community Account key, the administrator peer id, and
-  a bearer token valid for 12 hours. Nothing is written to a file. The token is not
-  recoverable afterwards — it is a credential, so keep it out of logs, tickets, and chat;
-  once it expires, sign in with the password through the ordinary sign-in endpoint.
-
-  ## Who this creates
-
-  A human administrator. Only human peers can make curator decisions such as approving or
-  rejecting proposed knowledge; machine peers are provisioned separately with API keys and
-  can never approve their own submissions. Do not reuse this account as an agent identity.
-
-  ## Failure behaviour
-
-  A missing email, a missing password, or an unknown switch raises before anything is
-  written. Re-running for an email or peer key that already exists also raises, because the
-  underlying registration is unique per Account. Bootstrapping happens inside one database
-  transaction, so a failure never leaves a half-created administrator with no role grant.
-  Every failure exits non-zero.
+    This is the one-time step that turns a migrated but empty database into a usable
+    installation. It provisions the community Account if it does not exist, registers a
+    human peer with a password identity, grants that peer the administrator role on the
+    root scope with downward propagation, and prints a short-lived bearer token so the
+    operator can make an authenticated call immediately.
   """
 
   @doc """

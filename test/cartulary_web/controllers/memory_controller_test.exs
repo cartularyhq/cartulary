@@ -4,51 +4,10 @@ defmodule CartularyWeb.MemoryControllerTest do
   @moduledoc """
   The frozen behaviour baseline for the JSON HTTP surface.
 
-  Every test here drives a real request through the endpoint and asserts the
-  exact response shape a client is written against. These are not smoke tests:
-  a client outside this repository depends on these field names and on the
-  contract identity strings embedded in the payloads, so a failure means an
-  external contract moved, not that a detail needs adjusting.
-
-  ## What each group pins
-
-  - **Route contracts.** The liveness probe, observation ingest, ranked search,
-    grounded answering, context assembly, and knowledge listing each answer a
-    documented shape, wrapped in `"data"` for the domain routes and unwrapped
-    for the probe, which external monitoring consumes directly. Every response
-    also carries a correlation header.
-  - **Account isolation.** The Account is derived from the verified credential.
-    A request cannot select one, and the test below proves that both legacy
-    ways of trying — a header and a body field — are inert.
-  - **No write path to knowledge.** Agents submit observations; the extraction
-    pipeline is the only writer of knowledge, and what it extracts still has to
-    clear governance. The absence of a knowledge-writing route is asserted
-    directly, because "nobody added one yet" and "adding one is forbidden" look
-    identical in a router file otherwise.
-
-  ## Contract identity strings
-
-  Several literals asserted below — `"f5-1"` for the extraction and pipeline
-  behaviour, `"f7-1"` for retrieval and context behaviour — are contract
-  identities, not the application's semantic version. They tell a client which
-  behaviour it is talking to and they do not move when the app version does.
-  Changing one is a deliberate contract transition that owes a changelog entry
-  and refreshed contract evidence; editing the literal here to make a test pass
-  inverts the purpose of the test.
-
-  ## Test environment
-
-  Extraction and answering run on the local deterministic path — no network
-  call, no cost, and identical output on every machine — and setup strips every
-  model credential so nothing can leave the machine. It then bootstraps the
-  single community Account with its root scope, an administrator peer, and a
-  bearer token; the returned token is what authenticates each request.
-
-  `async: false` is required because the setup mutates OS environment variables
-  and application environment, which are global to the node.
-
-  This file is named as regression evidence elsewhere. Improve its clarity
-  through documentation, not by renaming it.
+    Several literals asserted below — `"f5-1"` for the extraction and pipeline
+    behaviour, `"f7-1"` for retrieval and context behaviour — are contract identities,
+    not the application's semantic version. They tell a client which behaviour it is
+    talking to and they do not move when the app version does.
   """
 
   use CartularyWeb.ConnCase, async: false

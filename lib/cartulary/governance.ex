@@ -2,13 +2,10 @@
 
 defmodule Cartulary.Governance do
   @moduledoc """
-  Ash domain for the audit chain, the gate decision records, and the machine tool surface.
+  Ash domain for governance records and machine tools.
 
-  Governance is the part of the system that decides whether an extracted claim may become
-  visible memory, and that keeps tamper-evident evidence of every such decision. Agents and
-  connectors submit raw observations; the extraction pipeline proposes claims; nothing becomes
-  readable memory until the two gates in this domain say so. Gate A asks "is this claim worth
-  keeping at all", Gate B asks "how widely may it be placed".
+  Gate A decides whether to keep an extracted claim; Gate B decides its audience. This domain
+  stores tamper-evident evidence for both decisions.
 
   ## Durable rows this domain owns
 
@@ -21,28 +18,24 @@ defmodule Cartulary.Governance do
     outcome.
   * `Cartulary.Governance.Consent` — subject-owned permission to place personal knowledge in a
     wider scope.
-  * `Cartulary.Governance.PeerQuery` and `Cartulary.Governance.PeerQueryDelivery` — the frozen
-    question asked back to a peer inside a session, plus the evidence that the exact text was
-    shown and answered.
+  * `Cartulary.Governance.PeerQuery` and `Cartulary.Governance.PeerQueryDelivery` — a frozen
+    question and evidence that it was shown and answered.
   * `Cartulary.Governance.PeerAskPreference` — how often a peer tolerates being interrupted.
   * `Cartulary.Governance.ErasureRequest` — durable record of a subject erasure and its counted
     effects.
 
-  `Cartulary.Governance.McpTools` is the one non-persisted member; it exists only to carry the
-  generic actions published as tools.
+  `Cartulary.Governance.McpTools` is non-persisted and publishes the generic tool actions.
 
   ## Invariants callers must not break
 
-  Knowledge is the only durable atom. Nothing here is a second store of statements: these rows
-  hold a knowledge id, a statement hash, or one frozen copy of a single statement that a peer
-  was asked to confirm.
+  These rows are not a second knowledge store. They hold ids, hashes, or the one frozen
+  statement needed for peer confirmation.
 
   Curator judgement is human-only. Approve, edit, reject, merge, defer, promotion, and gate-rule
   administration are reachable only from a password-session browser identity;
   `Cartulary.Policy.HumanRoleIn` refuses a machine API key even when it holds the curator role.
 
-  Audit stays content-safe. Ids, hashes, counts, timestamps, and class strings are allowed;
-  raw message text, statements, prompts, answers, keys, and secrets are not.
+  Audit may contain ids, hashes, counts, timestamps, and class strings, never content or secrets.
   """
 
   use Ash.Domain, extensions: [AshAi]
@@ -61,11 +54,8 @@ defmodule Cartulary.Governance do
     resource Cartulary.Governance.McpTools
   end
 
-  # This is the complete machine-facing tool surface. It is deliberately limited to submitting
-  # raw observations, reading governed memory, answering the calling peer's own frozen question,
-  # and lowering that same peer's interruption limits. Do not add a curator tool here: approve,
-  # edit, reject, merge, defer, promotion, and gate-rule administration are human-only, and the
-  # resources behind them refuse a machine credential anyway.
+  # Complete machine surface: raw ingest, governed reads, the caller's frozen question, and
+  # lower interruption limits. Curator operations remain human-only.
   tools do
     tool(:ingest, Cartulary.Governance.McpTools, :ingest)
     tool(:get_context, Cartulary.Governance.McpTools, :get_context)
@@ -82,23 +72,14 @@ defmodule Cartulary.Governance.AuditEvent do
   @moduledoc """
   One append-only, content-safe entry in an Account's tamper-evident governance audit chain.
 
-  A row records that something governance-relevant happened — a lifecycle transition, a gate
-  decision, an attribution change, a deletion, a configuration change, or an accepted
-  observation. It never records what was said. `content_hash` is a digest of the content the
-  event refers to and `metadata` holds ids, counts, and class strings; both must stay free of
-  raw message text, statements, prompts, answers, API keys, and secrets. That rule is what lets
-  the log be kept forever even after the underlying content is erased.
+  A row records a governance event without recording its content. `content_hash` is a digest;
+  `metadata` may contain ids, counts, and class strings, never content or secrets.
 
-  Rows are chained. `previous_hash` is the `event_hash` of the previous row for the same
-  Account, and `event_hash` digests this row's fields together with that predecessor, so
-  altering or dropping any historical row invalidates every later hash.
-  `Cartulary.Governance.Changes.HashAuditEvent` computes both inside the write transaction under
-  a per-Account advisory lock, which is what stops two concurrent appends from claiming the same
-  predecessor and forking the chain.
+  `previous_hash` links to the prior Account event. `HashAuditEvent` computes both hashes in the
+  write transaction under a per-Account advisory lock, preventing concurrent chain forks.
 
-  Only `:read` and `:record` are defined, so history cannot be rewritten in place. The shared
-  resource macro additionally injects private export/import actions used by whole-Account
-  archives; those are restricted to the internal pipeline or system actor.
+  Only `:read` and `:record` are public. Private export/import actions are restricted to internal
+  pipeline or system actors.
 
   Prefer `Cartulary.Governance.Audit.append/3`, which supplies the timestamp and forces a
   pipeline actor, over calling `:record` directly.
@@ -106,8 +87,7 @@ defmodule Cartulary.Governance.AuditEvent do
 
   use Cartulary.Resource, domain: Cartulary.Governance, table: "audit_events"
 
-  # Attribute multitenancy pins every read and write to the tenant Account. Postgres row-level
-  # security on this table is the independent second wall; neither one is sufficient alone.
+  # Attribute tenancy and Postgres RLS independently enforce Account isolation.
   multitenancy do
     strategy :attribute
     attribute :account_id
@@ -116,9 +96,7 @@ defmodule Cartulary.Governance.AuditEvent do
   actions do
     defaults [:read]
 
-    # Append-only: there is no update or destroy counterpart by design. `occurred_at` is accepted
-    # so a caller can record when the event really happened; the hashing change fills in the
-    # current time when it is omitted, and always computes previous_hash/event_hash itself.
+    # Append-only. The hashing change defaults `occurred_at` and computes both chain hashes.
     create :record do
       accept [
         :scope_id,
@@ -136,11 +114,8 @@ defmodule Cartulary.Governance.AuditEvent do
     end
   end
 
-  # Every policy block must pass, so the first clause is the Account wall: no later clause can
-  # widen it, and a row belonging to another Account is invisible regardless of role. Appending
-  # then needs an admin, curator, or system role, or the internal pipeline actor; reading needs
-  # one of those roles, and the pipeline flag alone does not grant it. Ordinary members and
-  # readers cannot browse the audit log at all.
+  # Account isolation always applies. Record requires governance/system role or pipeline;
+  # reading requires governance/system role.
   policies do
     policy always() do
       authorize_if expr(account_id == ^actor(:account_id))
@@ -182,20 +157,15 @@ end
 
 defmodule Cartulary.Governance.PolicyConfig do
   @moduledoc """
-  One versioned governance setting: a named key with a map value, held Account-wide or at a
-  single scope.
+  One versioned Account-wide or scope-specific governance setting.
 
-  A row is unique on scope, key, and version, so publishing a revision appends a new row rather
-  than overwriting the old one, and `active` marks which revision is in force. A nil `scope_id`
-  means the setting is Account-wide; a set `scope_id` attaches it to that one scope.
+  Scope, key, and version identify a row; `active` selects the live revision. A nil `scope_id`
+  means Account-wide.
 
-  Both mutations append a configuration entry to the audit chain. Only a digest of key, value,
-  version, and active reaches the log, so the setting value itself is never copied into audit.
+  Mutations audit only a digest of key, value, version, and active.
 
-  This is not where gate behaviour is decided: the confidence and placement matrix lives in
-  `Cartulary.Governance.GateRule` and interruption limits in
-  `Cartulary.Governance.PeerAskPreference`. This table is the durable, exportable home for other
-  governed configuration, and nothing in the current request path reads it.
+  Gate behavior lives in `GateRule`; interruption limits live in `PeerAskPreference`. This is
+  the durable home for other governed configuration and is not read by current request paths.
   """
 
   use Cartulary.Resource, domain: Cartulary.Governance, table: "policy_configs"

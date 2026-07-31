@@ -1,57 +1,20 @@
 # SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
 
-# Boot-time configuration. This is the only configuration file a deployment can
-# influence, and the place where deployment mode is chosen.
+# Boot-time environment configuration. Process variables override `.env`; strict
+# security and topology settings raise instead of guessing.
 #
-# WHEN THIS FILE IS EVALUATED
-#   On every start of the system, in every environment, after all code is
-#   compiled and before the supervision tree boots. In a packaged release it is
-#   shipped as a script and re-read each time the release starts, so changing an
-#   environment variable and restarting is enough — no rebuild. The consequence
-#   of that ordering: nothing here can affect compilation. A setting a library
-#   reads at compile time must live in `config/config.exs` instead, or it will
-#   silently have no effect.
-#
-# INPUTS
-#   A `.env` file in the working directory, if present, plus the real process
-#   environment. The process environment is listed second below and therefore
-#   wins over the file. Nearly every variable is optional and each lookup states
-#   its own default; the handful that must not be guessed raise instead — a
-#   production boot with no auth signing secret, an unparseable port, pool size
-#   or boolean, an unknown retrieval strategy, budget metric, or cost metric.
-#
-# OUTPUTS
-#   The `:cartulary`, `:opentelemetry`, `:opentelemetry_exporter`, and `:ex_aws`
-#   application environments: database location, credentials, model roles,
-#   retrieval deadlines, budget limits, blob storage, and tracing.
-#
-# DEPLOYMENT MODE IS A LOCATION, NOT A BEHAVIOUR
-#   `CARTULARY_DATABASE_MODE=pg0` makes the release supervise its own pinned
-#   PostgreSQL process; `external` points it at a server the operator runs.
-#   That is the whole difference. Same release, same migrations, same schema,
-#   same product guarantees, same tenancy and governance rules. No code path
-#   branches on the mode beyond deciding where to connect and whether to start
-#   and stop the database process. If a change makes the two modes behave
-#   differently, the change is wrong, not the configuration.
-#
-# SECRETS
-#   Credentials are read here and handed to the runtime; they are never written
-#   into durable configuration. Model roles persist an `api_key_ref` — the name
-#   of the variable to read — rather than the key itself, so a database dump or
-#   an exported Account archive contains no provider credential.
+# Database mode changes only where PostgreSQL runs. Both modes use the same release,
+# migrations, and guarantees. Credentials remain runtime-only; persisted model settings
+# hold environment-variable references, never secret values.
 
 import Config
 import Dotenvy
 
-# Later sources override earlier ones, so a real environment variable always
-# beats the same key in a checked-out `.env`.
+# Later sources win, so the process environment overrides `.env`.
 env = source!([".env", System.get_env()])
 env_get = fn key, default -> Map.get(env, key, default) end
 
-# The parsing helpers below come in two flavours. The lenient ones fall back to
-# the stated default when a value cannot be parsed, and suit knobs where a typo
-# is survivable. The bang versions raise, and are used where a silently wrong
-# value would be dangerous — a port, a pool size, an auto-migrate switch.
+# Lenient parsers use defaults; bang parsers reject unsafe ambiguity.
 
 # Absent or unparseable means false.
 env_true? = fn key ->
@@ -63,10 +26,7 @@ env_bool = fn key, default ->
   String.downcase(env_get.(key, value)) in ~w(true 1 yes on)
 end
 
-# Parses "Name=value,Other=value" into header tuples; an entry without an `=` is
-# skipped rather than raising. These headers normally carry the collector's
-# ingestion credential, so neither this value nor a parse failure of it may be
-# echoed into a log line or an error message.
+# Parses comma-separated headers without logging collector credentials.
 env_headers = fn key ->
   key
   |> env_get.("")
@@ -79,8 +39,7 @@ env_headers = fn key ->
   end)
 end
 
-# Only the two OTLP wire protocols the exporter supports. Anything unrecognised
-# degrades to HTTP/protobuf, which works against every collector.
+# Unknown OTLP protocols fall back to HTTP/protobuf.
 env_protocol = fn key, default ->
   case env_get.(key, default) do
     "grpc" -> :grpc
@@ -103,8 +62,7 @@ env_integer = fn key, default ->
   end
 end
 
-# Strict integer. Used where a partially parsed value ("8080abc" -> 8080) would
-# start the node on the wrong port or with the wrong pool size.
+# Rejects partially parsed ports and pool sizes.
 env_integer! = fn key, default ->
   value = env_get.(key, default)
 
@@ -114,8 +72,7 @@ env_integer! = fn key, default ->
   end
 end
 
-# Strict boolean. Refusing to guess matters for switches like auto-migrate,
-# where treating an unrecognised value as false would quietly skip migrations.
+# Rejects ambiguous switches such as auto-migrate.
 env_bool! = fn key, default ->
   value = env_get.(key, if(default, do: "true", else: "false"))
 
@@ -126,11 +83,7 @@ env_bool! = fn key, default ->
   end
 end
 
-# Trace sampling policy, using the standard OpenTelemetry sampler names.
-# "parentbased_*" honours an incoming caller's sampling decision, which is what
-# keeps a distributed trace whole; the ratio samplers take their fraction
-# (0.0-1.0) from OTEL_TRACES_SAMPLER_ARG. The default samples everything, which
-# is right for a self-hosted node and wrong for a high-volume one.
+# Parent-based sampling preserves incoming decisions; ratios range from 0.0 to 1.0.
 env_sampler = fn ->
   sampler = env_get.("OTEL_TRACES_SAMPLER", "parentbased_always_on")
 

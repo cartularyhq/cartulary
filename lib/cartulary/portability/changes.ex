@@ -2,32 +2,10 @@
 
 defmodule Cartulary.Portability.Changes.RestoreAttributes do
   @moduledoc """
-  Writes archived attribute values back onto a row verbatim, during import only.
+  Restores archived attributes through the private import action.
 
-  Restoring an Account is not the same as authoring it again. Ordinary create
-  actions accept a narrow set of caller-supplied fields and derive the rest —
-  new ids, fresh timestamps, initial lifecycle state. Running an import through
-  those actions would silently rewrite the history it is supposed to preserve.
-  This change instead forces every archived value onto the row, so ids,
-  belief-times, valid-times, lifecycle states, decision records, replay keys,
-  and audit hashes come back exactly as they were. Audit chain verification
-  depends on that: a re-derived timestamp would break every hash after it.
-
-  The actions carrying this change are non-public and admit only an internal
-  actor — the `:system` role or the pipeline flag — neither of which an
-  externally authenticated caller can hold. It must never be exposed to an
-  ordinary caller: it is, by design, a way to write attributes that no action
-  would otherwise accept.
-
-  Values are matched to attributes by name, and anything in the archive that
-  the current schema no longer has is skipped rather than raising. That is
-  deliberate: an archive written by an older release, or one naming a column
-  since removed, still restores everything it shares with the target instead of
-  failing wholesale.
-
-  It cannot resurrect what the archive excluded. Credentials, secrets, vectors,
-  and derived caches are absent from the file, so they are absent here too; the
-  target rebuilds the derived ones after the import commits.
+  It force-writes known values, including ids and timestamps, only for an internal pipeline or
+  system actor. This bypass is for verified fresh-target restore, never ordinary mutation.
   """
 
   use Ash.Resource.Change

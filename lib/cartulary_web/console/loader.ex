@@ -2,53 +2,11 @@
 
 defmodule CartularyWeb.Console.Loader do
   @moduledoc """
-  Every database read the browser console performs, in one place.
+  Performs every browser-console database read.
 
-  The console's LiveViews own rendering and event dispatch; they do not query.
-  Each function here opens one Account-scoped transaction through
-  `Cartulary.DataLayer.with_actor/2`, runs its reads inside it as the signed-in
-  actor, and returns plain maps and lists ready for a template. Keeping the
-  reads together is what makes the console's access rules auditable: there is
-  one file to check, rather than nine.
-
-  ## Why the transaction wrapper is mandatory
-
-  `with_actor/2` installs the Account into the transaction-local PostgreSQL
-  setting that row-level security compares against. Without it a query is not
-  merely unfiltered — every Ash policy still applies, but the database's second
-  wall is absent, so a policy mistake would have nothing behind it. Never run a
-  console read outside the wrapper, and never widen the actor inside one.
-
-  ## What is deliberately never read here
-
-  * **Entity and entity-mention rows.** They are a private recall cache whose
-    rows span every scope that ever mentioned a name, so a canonical name, an
-    alias, a surface form, or an entity id must never reach a rendered page.
-    Their read actions are pipeline-only, so an accidental query fails loudly
-    rather than leaking — do not "fix" such a failure by elevating the actor.
-  * **Embedding vectors and document chunks.** Rebuildable derived caches with
-    no meaning to a reader.
-  * **Password hashes, API key hashes, connector secrets, and blob bytes.**
-
-  ## Reads that are gated before they are attempted
-
-  Some resources answer a read with an outright refusal rather than an empty
-  list, because their policies are plain role checks with no filter behind
-  them: gate decisions, gate rules, usage events, and pipeline runs are all
-  curator- or administrator-only. Calling them as a member raises
-  `Ash.Error.Forbidden` instead of returning nothing. Each such read is
-  therefore guarded by `CartularyWeb.Console.Access.can?/2` before it is
-  issued, and the guard must stay — deleting it turns a member's dashboard into
-  a crash.
-
-  ## Scope paths
-
-  Rows store a `scope_id`; a person recognises a path. Every function that
-  returns rows also returns, or folds in, a path lookup built from the scopes
-  the actor may read. A scope missing from that lookup means a row surfaced
-  from a scope the caller cannot see, which is a policy defect — the paths are
-  resolved with `Map.get/3` and a `nil` renders as an explicit unknown marker
-  rather than being silently dropped, so the defect stays visible.
+  LiveViews render and dispatch events but do not query directly. Each load runs in one
+  Account-scoped transaction, applies console visibility rules, and excludes secret or
+  derived internals from returned data.
   """
 
   alias Cartulary.Actor
@@ -101,17 +59,11 @@ defmodule CartularyWeb.Console.Loader do
   @doc """
   Everything the dashboard shows.
 
-  Returns a map with the Account, the actor's visible scope count, the
-  knowledge totals broken down by lifecycle state and by sensitivity, counts of
-  documents, sessions and raw observations, the open governance queue depth,
-  the number of statements about the viewer personally, the count of cached
-  context projections currently marked dirty, and the most recent lifecycle
-  events.
-
-  The state breakdown covers only the states this viewer is entitled to see, so
-  a member's dashboard does not disclose how many proposals are waiting behind
-  a gate. Counts are computed as SQL aggregates rather than by loading rows,
-  which keeps a dashboard cheap on an Account with a large corpus.
+    Returns a map with the Account, the actor's visible scope count, the knowledge
+    totals broken down by lifecycle state and by sensitivity, counts of documents,
+    sessions and raw observations, the open governance queue depth, the number of
+    statements about the viewer personally, the count of cached context projections
+    currently marked dirty, and the most recent lifecycle events.
   """
   def overview(%Actor{} = actor) do
     DataLayer.with_actor(actor, fn account, current_actor ->
@@ -159,20 +111,10 @@ defmodule CartularyWeb.Console.Loader do
   end
 
   @doc """
-  One page of the knowledge explorer.
+  Returns one filtered page of the knowledge explorer.
 
-  `filters` is a string-keyed map holding any of `"scope"` (a scope path whose
-  subtree is searched), `"state"`, `"kind"`, `"sensitivity"`, `"target_level"`,
-  `"subject"` (the string `"me"` narrows to statements about the viewer), and
-  `"page"`. An unknown or unauthorized scope path narrows to nothing rather
-  than widening to everything.
-
-  Returns `%{items:, scope_paths:, scopes:, page:, page_size:, total:}` where
-  each item is the knowledge row with a `:scope_path` key folded in for
-  display. The lifecycle-state and provisional rules from
-  `CartularyWeb.Console.Access` are applied inside the query, so paging is
-  correct: a page never comes back short because rows were dropped after the
-  fact.
+  The result includes items, scope paths, scopes, page metadata, and total count. It applies
+  the lifecycle and provisional visibility rules from `CartularyWeb.Console.Access`.
   """
   def knowledge_list(%Actor{} = actor, filters) when is_map(filters) do
     DataLayer.with_actor(actor, fn account, current_actor ->
@@ -217,24 +159,14 @@ defmodule CartularyWeb.Console.Loader do
   end
 
   @doc """
-  Everything the knowledge detail page shows for one statement, or `nil` when
-  the id names nothing this actor may see.
+  Everything the knowledge detail page shows for one statement, or `nil` when the id
+    names nothing this actor may see.
 
-  Returns a map holding the knowledge row (with `:scope_path`), its provenance
-  rows, its attributions, its outgoing and incoming relations, the source
-  messages and document versions named by its provenance, its lifecycle
-  timeline, the open queue entry if one exists, its gate decisions when the
-  viewer is a curator, the statement it supersedes and the statements that
-  supersede it, and the scope path lookup.
-
-  A row that exists but fails the console's lifecycle-state or provisional rule
-  returns `nil` — indistinguishable from a row that does not exist, so a
-  reader cannot probe for the ids of proposals they are not entitled to see.
-
-  Gate decisions are fetched only for curators and account administrators.
-  Their read policy is a plain role check with no filter behind it, so asking
-  as a member raises rather than returning an empty list; the empty list a
-  member receives here is produced by not asking.
+    Returns a map holding the knowledge row (with `:scope_path`), its provenance rows,
+    its attributions, its outgoing and incoming relations, the source messages and
+    document versions named by its provenance, its lifecycle timeline, the open queue
+    entry if one exists, its gate decisions when the viewer is a curator, the statement
+    it supersedes and the statements that supersede it, and the scope path lookup.
   """
   def knowledge_detail(%Actor{} = actor, knowledge_id) when is_binary(knowledge_id) do
     DataLayer.with_actor(actor, fn account, current_actor ->
@@ -254,18 +186,6 @@ defmodule CartularyWeb.Console.Loader do
 
   @doc """
   The scope containment tree, as a flat list in path order.
-
-  Each entry carries the scope, its depth in the tree, the viewer's effective
-  role there, and the number of knowledge statements, documents, and sessions
-  attached directly to it. Only scopes the actor's role grants reach appear, so
-  a subtree the viewer cannot see is absent rather than shown empty — and a
-  scope whose parent is invisible still appears, at its own depth, because
-  access is granted per scope and a hidden intermediate must not hide a granted
-  child.
-
-  Scope relations are returned alongside, as lateral cross-links between two
-  scopes that are not in a parent-child line. A relation widens what retrieval
-  may consider; it never widens what a caller may see.
   """
   def scope_directory(%Actor{} = actor) do
     DataLayer.with_actor(actor, fn account, current_actor ->
@@ -316,22 +236,14 @@ defmodule CartularyWeb.Console.Loader do
   end
 
   @doc """
-  Nodes and edges for the graph view, already narrowed to what this actor may
-  see.
+  Nodes and edges for the graph view, already narrowed to what this actor may see.
 
-  `opts` may carry `:scope` (a scope path whose subtree is drawn) and `:limit`
-  (how many knowledge nodes to include, capped at 150 because a force layout
-  over more than that is unreadable as well as slow).
+    `opts` may carry `:scope` (a scope path whose subtree is drawn) and `:limit` (how
+    many knowledge nodes to include, capped at 150 because a force layout over more than
+    that is unreadable as well as slow).
 
-  Returns `%{scopes:, knowledge:, containment:, relations:, knowledge_edges:,
-  truncated?:}`. `truncated?` says whether the knowledge cap dropped rows, so
-  the page can say so out loud rather than presenting a partial graph as a
-  complete one.
-
-  The graph is built exclusively from scopes, scope relations, knowledge, and
-  knowledge relations. It contains no entity nodes: entity rows are a private
-  recall cache whose names cross scope boundaries, and drawing them would
-  expose exactly what that cache is forbidden to expose.
+    Returns `%{scopes:, knowledge:, containment:, relations:, knowledge_edges:,
+    truncated?
   """
   def graph(%Actor{} = actor, opts \\ []) do
     limit = min(Keyword.get(opts, :limit, 90), 150)
@@ -404,17 +316,12 @@ defmodule CartularyWeb.Console.Loader do
   end
 
   @doc """
-  The provenance surface: documents with their versions, and sessions with
-  their raw observations.
+  The provenance surface: documents with their versions, and sessions with their raw
+    observations.
 
-  Returns `%{documents:, versions_by_document:, sessions:, messages:,
-  connectors:, scope_paths:}`. Lists are capped at a panel's worth of rows and
-  ordered newest first.
-
-  Raw message text and document titles are shown on purpose: this page exists
-  so a person can see what was actually said or uploaded before a statement was
-  extracted from it. That text is for the browser only — it must never be
-  copied into logs, telemetry, audit metadata, or job arguments.
+    Returns `%{documents:, versions_by_document:, sessions:, messages:, connectors:,
+    scope_paths:}`. Lists are capped at a panel's worth of rows and ordered newest
+    first.
   """
   def sources(%Actor{} = actor) do
     DataLayer.with_actor(actor, fn account, current_actor ->

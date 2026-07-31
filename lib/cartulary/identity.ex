@@ -2,16 +2,9 @@
 
 defmodule Cartulary.Identity.SigningSecret do
   @moduledoc """
-  Supplies the secret that session tokens are signed and verified with.
+  Reads the session-token signing secret from runtime configuration.
 
-  Authentication asks this module for the key every time it mints or checks a
-  token, so the value is read from runtime configuration on each call rather
-  than captured at compile time. That is deliberate: a release must be able to
-  take its secret from the environment at boot without being rebuilt, and the
-  secret must never be baked into a compiled artifact.
-
-  Rotating the secret invalidates every outstanding session token at once,
-  because tokens are stateless and are trusted purely on their signature.
+  Missing configuration fails closed. Rotating the secret invalidates all stateless tokens.
   """
 
   use AshAuthentication.Secret
@@ -39,35 +32,11 @@ end
 
 defmodule Cartulary.Identity.CredentialLocator do
   @moduledoc """
-  Resolves which Account an API key belongs to, before Account isolation can be applied.
+  Finds an API key's Account before normal tenant isolation can begin.
 
-  This module exists to break a genuine ordering problem. Every Account-scoped
-  table is guarded by a PostgreSQL row-level-security policy that compares rows
-  against an Account id pinned into the transaction. But when a request arrives
-  carrying only an API key, that Account id is exactly what is not yet known —
-  and the key row itself is behind the very wall we cannot yet raise.
-
-  The way out is a narrow, reviewed database function that runs with row
-  security disabled, accepts only an opaque credential id, and can return
-  nothing but an Account id. No peer data, no hashes, no content. Once the
-  Account is known, the caller opens a normal Account-scoped transaction and the
-  key's hash is verified inside it by the ordinary authentication path.
-
-  ## Why this is safe
-
-  The credential id is not a secret and is not authorization: it is recovered
-  from the key's own encoding, and knowing it lets you learn only which Account
-  a key was minted for. A forged or guessed id gets you an Account id and
-  nothing else, because the subsequent hash check happens against the real
-  stored hash inside that Account.
-
-  ## Constraints on anyone editing this
-
-  This is one of the few places allowed to issue SQL directly rather than going
-  through the domain layer, because it must run outside Account isolation.
-  Keep it that way: it must stay read-only, must never widen what the database
-  function returns, and must keep every failure indistinguishable from every
-  other so a caller cannot probe for which keys or Accounts exist.
+  This reviewed bootstrap exception passes only the opaque credential id to a read-only
+  security-definer function. It returns only an Account id; secret verification still happens
+  inside the resulting Account transaction. All failures remain indistinguishable.
   """
 
   alias Cartulary.Repo
@@ -133,45 +102,11 @@ end
 
 defmodule Cartulary.Identity.RoleResolver do
   @moduledoc """
-  Turns a Peer's role grants into the concrete set of scopes it may act in.
+  Resolves a Peer's grants into authorized scopes and effective roles.
 
-  Scopes form a containment tree addressed by path strings — `/`, `/team`,
-  `/team/project`. A role grant attaches a role to a Peer at one scope and says
-  whether it propagates downwards. This module walks every scope in the Account
-  and decides, per scope, what the Peer's effective role there is.
-
-  ## The resolution rules
-
-  For each target scope:
-
-  1. Collect the grants that apply — a grant on that exact scope, plus grants on
-     any containing ancestor whose `propagate` flag is set.
-  2. **Deny wins.** If any applicable grant has effect `"deny"`, the scope is
-     dropped entirely. A deny is not weighed against allows and cannot be
-     out-ranked by a more powerful role; it removes the scope. This is what
-     makes a deny a usable safety mechanism: an administrator can carve a hole
-     in an inherited grant and be certain nothing patches it over.
-  3. Otherwise the strongest applicable allow wins, ordered
-     reader < member < curator < account-admin.
-  4. If the credential in hand is an API key restricted to a scope subtree, the
-     result is intersected with that subtree. A restricted key can only narrow.
-
-  Inheritance follows containment only. Cross-links between scopes never grant
-  anything; being able to see one end of a link says nothing about the other.
-
-  ## What callers get and what they must not do
-
-  The result is a fully-formed authorization context: the Account, the Peer, the
-  authorizing credential's kind and assurance, the per-scope role map, the flat
-  list of authorized scope ids, and the highest role held anywhere. Scopes the
-  Peer cannot reach are simply absent — there is no "denied" marker to check, so
-  membership in the map *is* the authorization test.
-
-  Resolution is a point-in-time snapshot. Changing a grant does not retroactively
-  change a context that was already handed out, which is why request handling
-  re-resolves rather than trusting a cached one. This module reads with an
-  internal Account-wide actor in order to see all scopes and grants; do not
-  expose that intermediate actor or the raw grant rows to callers.
+  Propagation is downward, any applicable deny removes the scope, and API-key restrictions can
+  only narrow access. Cross-links never grant access. Results are snapshots, so callers must
+  re-resolve after grant changes.
   """
 
   alias Cartulary.Accounts.Peer
@@ -326,43 +261,11 @@ end
 
 defmodule Cartulary.Identity do
   @moduledoc """
-  The single door between a presented credential and an authorization context.
+  Authenticates credentials and returns identity-derived authorization contexts.
 
-  Everything that authenticates a caller goes through here. Two credential kinds
-  are accepted, and both end at the same place — a `Cartulary.Actor` whose
-  Account, Peer, and scope permissions were all derived from the credential:
-
-  - **Session token.** A human signs in with email and password and receives a
-    signed token. On each request the token's signature, expiry, audience, and
-    tenant claim are checked, and the Peer named in it is looked up inside the
-    one community Account.
-  - **API key.** An agent presents a key. The Account it belongs to is resolved
-    from the key's own embedded id, a transaction is opened for that Account,
-    and only then is the key's hash verified inside it.
-
-  ## The rule this module exists to enforce
-
-  The Account is never taken from a request. There is no header, parameter, or
-  body field that selects it — it is a consequence of which credential was
-  presented and verified. Any new authentication path added here must keep that
-  property, or the isolation between Accounts becomes advisory.
-
-  ## Failure behaviour
-
-  Every rejection is the same opaque `{:error, :unauthorized}`. Wrong password,
-  unknown email, malformed key, expired token, valid key belonging to an Account
-  that does not hold the community slot — all identical from outside, so a
-  caller cannot probe for which Accounts, Peers, or keys exist. Exceptions
-  raised while authenticating are rescued into the same value. Do not add a more
-  specific error to help debugging; log instead.
-
-  ## Provisioning
-
-  This module also owns the write side of identity: bootstrapping the first
-  human administrator, provisioning agents with keys, and granting roles. Agent
-  provisioning and role grants require an administrator context; bootstrapping
-  is the cold-start path and is driven from the `cartulary.identity.bootstrap`
-  Mix task. None of the three is wired to an HTTP route.
+  Passwords and API keys converge on the same Account and role resolution. The module stores no
+  plaintext credentials, returns opaque failures, and never accepts Account selection from a
+  request.
   """
 
   alias AshAuthentication.{Info, Strategy}

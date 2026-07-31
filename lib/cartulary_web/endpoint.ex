@@ -2,21 +2,11 @@
 
 defmodule CartularyWeb.Endpoint do
   @moduledoc """
-  The HTTP entry point: the ordered plug pipeline every request passes through before the
-  router sees it, plus the LiveView socket and the static-file serving rules.
+  The HTTP entry point: the ordered plug pipeline every request passes through before
+    the router sees it, plus the LiveView socket and the static-file serving rules.
 
-  Plug order in this file is behaviour, not style. Reordering the declarations changes what
-  runs on a request and what still runs when an earlier stage rejects it. The intent is:
-
-  1. Static assets are answered first, so file serving never pays for parsing or sessions.
-  2. Correlation identifiers are attached next, before anything can fail, so even a crash or
-     a 401 comes back with a trace id the operator can search for.
-  3. Body parsing, method/HEAD normalisation, and the session are set up last, immediately
-     before the router.
-
-  This endpoint performs no authentication. It establishes transport concerns only; identity,
-  Account selection, and authorization all happen inside router pipelines. Nothing here may
-  start deriving a tenant from a header.
+    1. Static assets are answered first, so file serving never pays for parsing or
+    sessions.
   """
 
   use Phoenix.Endpoint, otp_app: :cartulary

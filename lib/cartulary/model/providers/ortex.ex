@@ -4,19 +4,9 @@ defmodule Cartulary.Model.Providers.Ortex do
   @moduledoc """
   Provider adapter for the local ONNX embedding runtime.
 
-  This is the default embedder, and the reason a fresh install can embed with no
-  API key, no network access, and no per-token cost. It serves the embedding
-  capability only; the three generation capabilities return an error rather than
-  a degraded answer, so a role misconfigured to point generation at the local
-  embedder fails loudly instead of quietly producing nothing useful.
-
-  Its job is translation: turn a resolved role's options into the argument list
-  the runtime wants, and turn the runtime's output into a provider result with
-  real token counts. Every knob — artifact paths, sequence length, pooling,
-  execution providers — comes from role options. Sequence length, pooling, and
-  the artifacts themselves change the coordinates a text maps to, so changing
-  one obliges a bump of the role's `model_version`; the options are not
-  themselves part of the recorded embedding identity.
+  Provides offline embedding only; generation and reranking fail explicitly. Role options select
+  artifacts, sequence length, pooling, and execution providers. Coordinate-changing options
+  require a `model_version` bump and re-embedding.
   """
 
   @behaviour Cartulary.Model.Provider
@@ -41,10 +31,7 @@ defmodule Cartulary.Model.Providers.Ortex do
   @doc """
   Embeds texts locally and reports the tokens the tokenizer actually produced.
 
-  Token counts come from a second pass over the same encoding rather than an
-  estimate, so the usage ledger records local embedding spend as precisely as it
-  records a hosted call — worth having even though local tokens cost nothing,
-  because capacity planning depends on it.
+  Token counts come from the tokenizer, not an estimate, for capacity accounting.
   """
   @impl true
   def embed(%Role{} = config, texts, _opts) do
@@ -68,15 +55,7 @@ defmodule Cartulary.Model.Providers.Ortex do
   def rerank(_config, _query, _documents, _opts),
     do: {:error, :ortex_embedding_model_cannot_rerank}
 
-  # Translates role options into runtime arguments.
-  #
-  # The cache key is provider, model, and model version together, which is what
-  # makes a version bump load fresh artifacts instead of serving the previously
-  # cached session. Since the model version is required to change whenever the
-  # artifact, tokenizer, or pooling changes, this cannot serve stale weights for
-  # a changed embedding identity.
-  #
-  # Defaults below are chosen for the shipped sentence-embedding model:
+  # Provider/model/version keys cached sessions; identity changes load fresh artifacts.
   defp embedding_opts(config) do
     options = config.options
 
@@ -85,19 +64,13 @@ defmodule Cartulary.Model.Providers.Ortex do
       cache_key: {config.provider, config.model, config.model_version},
       model_path: Map.get(options, "model_path"),
       tokenizer_path: Map.get(options, "tokenizer_path"),
-      # Tokens per text. Longer inputs are truncated; 256 covers a typical
-      # statement or chunk while bounding inference cost, which grows with
-      # sequence length.
+      # Tokens per text; 256 covers typical chunks while bounding inference cost.
       max_length: Map.get(options, "max_length", 256),
-      # Which ONNX output tensor holds the hidden states. 0 is first, correct
-      # for the usual single-output encoder export.
+      # Output tensor index; 0 fits the shipped single-output encoder.
       output_index: Map.get(options, "output_index", 0),
-      # Input tensor order must match the exported graph's signature exactly;
-      # this is the standard encoder triple.
+      # Input order must match the exported graph signature.
       input_order: Map.get(options, "input_order", ~w(input_ids attention_mask token_type_ids)),
-      # How token vectors collapse into one sentence vector. Must match how the
-      # model was trained; changing it changes the coordinates, so it obliges a
-      # `model_version` bump and a re-embed.
+      # Pooling must match training; changes require a version bump and re-embed.
       pooling: pooling(Map.get(options, "pooling", "cls")),
       execution_providers:
         options
@@ -106,11 +79,7 @@ defmodule Cartulary.Model.Providers.Ortex do
     ]
   end
 
-  # Hardware backends. CPU is the default because it is the only one available
-  # everywhere; an unrecognized string degrades to CPU rather than failing,
-  # since the wrong accelerator name should slow a deployment down, not stop it
-  # embedding. An atom is passed through untranslated for a backend the runtime
-  # knows but this list does not.
+  # Unknown backend strings fall back to portable CPU; known runtime atoms pass through.
   defp execution_provider("cpu"), do: :cpu
   defp execution_provider("coreml"), do: :coreml
   defp execution_provider("cuda"), do: :cuda
@@ -118,9 +87,7 @@ defmodule Cartulary.Model.Providers.Ortex do
   defp execution_provider(provider) when is_atom(provider), do: provider
   defp execution_provider(_provider), do: :cpu
 
-  # Anything not explicitly "mean" is treated as CLS pooling, matching the
-  # default above. A typo therefore produces the documented default rather than
-  # a crash mid-embedding.
+  # Anything except `mean` uses the documented CLS default.
   defp pooling("mean"), do: :mean
   defp pooling(:mean), do: :mean
   defp pooling(_pooling), do: :cls

@@ -2,72 +2,15 @@
 
 defmodule Cartulary.Retrieval.EntityResolver do
   @moduledoc """
-  Builds the internal name index: which real-world things are mentioned in
-  which approved statements, and which surface forms refer to the same thing.
+  Rebuilds the private entity-and-mention index from active statements.
 
-  It exists so that once "Ada" and "ada@example.com" have been folded onto one
-  entity, a question naming either spelling can reach statements written with
-  the other.
+  These rows are rebuildable caches: missing data may reduce recall but never correctness. Never
+  expose entity ids, canonical names, aliases, or surface forms; retrieval returns authorized
+  statements only.
 
-  ## These rows are a cache, not a record
-
-  Every entity and mention it writes is reconstructible from the approved
-  statements alone, and the rebuild below throws them away and recreates them.
-  Two consequences follow, and both are load-bearing:
-
-  * **Nothing may be exposed.** No entity id, canonical name, alias, or surface
-    form may reach a caller through any surface. The index is a graph of who
-    and what appears where, assembled across scopes; publishing it would leak
-    relationships nobody was granted. Retrieval uses it only to find statements
-    and returns ordinary statement records.
-  * **Nothing may depend on it.** A missing or stale entity costs recall and
-    never correctness. Resolution never blocks a statement from being stored,
-    approved, or retrieved.
-
-  Only approved statements are read, so a proposal awaiting review contributes
-  no mentions. When a statement is erased, rebuilding this index is what makes
-  the erased names disappear from it.
-
-  ## How a surface form is resolved
-
-  Three tiers, cheapest first, and the expensive one runs only in the narrow
-  band where the cheap ones are genuinely unsure:
-
-  1. Case-insensitive match against an existing canonical name or alias.
-  2. Cosine similarity between the surface form's embedding and the entity's
-     alias embedding.
-  3. For a middling similarity only, one structured yes/no question to the
-     reasoning model.
-
-  A surface form that resembles nothing becomes a new entity. One that
-  resembles an existing entity but is judged not to be it records no mention at
-  all, rather than inventing a near-duplicate. An embedding failure likewise
-  skips the surface form; neither case interrupts the run.
-
-  ## Three phases, and no model call holds a connection
-
-  A rebuild reads in one short transaction, resolves every surface form with no
-  transaction open, and writes everything in a second short transaction. The
-  split is what makes the lane survivable. A transaction owns one pooled
-  database connection for its whole duration, and resolving a scope can make
-  hundreds of embedding calls plus one reasoning call per ambiguous name.
-  Holding a connection across all of that exceeds DBConnection's
-  checkout-ownership timeout, which closes the connection mid-transaction and
-  discards every write — after the provider calls have already happened and
-  already been billed. Do not move a model call back inside a transaction.
-
-  The middle phase therefore resolves against an in-memory working set rather
-  than re-reading the Account's entities per surface form. An entity invented a
-  moment ago is appended to that set, so a later surface form in the same run
-  still matches it, exactly as it did when every lookup went to the database.
-
-  ## Cost
-
-  It embeds each unmatched surface form and re-embeds an entity's whole alias
-  set every time a surface form is folded into it, so cost scales with
-  statements times distinct names. Nothing on the retrieval path calls it: it
-  runs from the entity-resolution and projection-refresh jobs, and
-  synchronously inside an erasure, which rebuilds the scopes it stripped.
+  Resolution tries case-insensitive aliases, vector similarity, then a model only for ambiguous
+  similarity. It uses short read and write transactions around an in-memory/model phase; never
+  hold a database connection during model calls. Failures skip a form without blocking rebuild.
   """
 
   alias Cartulary.DataLayer
@@ -77,23 +20,13 @@ defmodule Cartulary.Retrieval.EntityResolver do
 
   require Ash.Query
 
-  # Cosine similarity bands between a surface form and an entity's alias
-  # embedding. At or above the match threshold the two are taken to be the same
-  # entity outright. Between the two thresholds the evidence is genuinely
-  # ambiguous and a model is asked to decide. Below the reject threshold no
-  # model is consulted at all and a new entity is created, because a wrong
-  # merge is far more damaging than a duplicate: merging two people's
-  # statements crosses a boundary, whereas a duplicate entity only costs
-  # recall and is repaired by the next rebuild.
+  # Cosine bands: match directly at 0.86+, ask the model at 0.72-0.86, otherwise create. False
+  # merges cross identities; duplicates only reduce recall.
   @match_threshold 0.86
   @reject_threshold 0.72
 
-  # Candidate name spotting, deliberately crude. The first pattern takes runs
-  # of one to four capitalised words, which catches most personal, company, and
-  # product names in English prose; the second takes email addresses, which are
-  # the strongest identity signal available and would otherwise be split apart.
-  # False positives are acceptable here — a spurious entity costs a little
-  # storage and no correctness — so this is not worth replacing with a model.
+  # Cheap spotting accepts up to four capitalized words and email addresses; false positives cost
+  # derived storage, not correctness.
   @mention_regex ~r/\b(?:[A-Z][[:alnum:]@._-]*)(?:\s+[A-Z][[:alnum:]@._-]*){0,3}\b/u
   @email_regex ~r/\b[[:alnum:]._%+-]+@[[:alnum:].-]+\.[[:alpha:]]{2,}\b/u
 

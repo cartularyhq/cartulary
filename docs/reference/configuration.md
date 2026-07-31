@@ -2,8 +2,7 @@
 
 # Configuration reference
 
-Everything is environment-driven and resolved at boot, never at build time.
-There is no second project file and no build flag that forks behaviour.
+Environment configuration is resolved at boot, never build time.
 
 The annotated, complete example is
 [`.env.example`](https://github.com/cartularyhq/cartulary/blob/main/.env.example)
@@ -29,10 +28,8 @@ in the repository.
 External mode needs PostgreSQL 18 with pgvector available.
 
 !!! danger "The connecting role must be able to reach a restricted role, or boot fails"
-    PostgreSQL row-level security is skipped entirely for a superuser or a role
-    granted `BYPASSRLS`, no matter how the policies are written. Cartulary
-    therefore refuses to serve traffic unless its connections run as a role
-    that is neither. There are two ways to satisfy this:
+    PostgreSQL skips RLS for superusers and `BYPASSRLS` roles. Cartulary serves
+    traffic only through a role that is neither:
 
     - Give `DATABASE_URL`'s role `CREATEROLE`, and Cartulary provisions
       `CARTULARY_DATABASE_APP_ROLE` itself on every boot (idempotent) and
@@ -41,10 +38,9 @@ External mode needs PostgreSQL 18 with pgvector available.
       NOBYPASSRLS` — the stronger arrangement, since that connection then has
       no path back to elevated access at all.
 
-    `CARTULARY_ALLOW_UNRESTRICTED_DATABASE_ROLE=true` boots anyway with the
-    database's isolation backstop inert, logging that fact at error level on
-    every start. It exists so an upgrade cannot strand a running install, not
-    as a supported way to operate one.
+    `CARTULARY_ALLOW_UNRESTRICTED_DATABASE_ROLE=true` bypasses this guard and
+    logs an error at every start. It exists only to avoid stranding an upgrade,
+    not for supported operation.
 
 ## Identity and secrets
 
@@ -78,19 +74,13 @@ External mode needs PostgreSQL 18 with pgvector available.
 | `CARTULARY_MODEL_RECEIVE_TIMEOUT_MS` | `120000` | Request timeout (ms) shared by all three generation roles |
 
 !!! warning "Reasoning models can blow the context window or time out without these"
-    A reasoning model (the default `openai/gpt-oss-120b` included) can spend an
-    uncapped share of its context window on internal reasoning tokens before
-    ever emitting output — regardless of how small the input is.
-    `CARTULARY_MODEL_REASONING_EFFORT` bounds that spend directly; without it,
-    a single small extraction can request as much output as the model's entire
-    context length and fail outright. `CARTULARY_MODEL_MAX_TOKENS` is the hard
-    backstop once reasoning is bounded. `CARTULARY_MODEL_RECEIVE_TIMEOUT_MS`
-    matters separately: ReqLLM only extends its request timeout for model ids
-    it recognizes as reasoning models (OpenAI's o-series, gpt-5, and codex
-    families), so `openai/gpt-oss-120b` and reasoning models from other
-    vendors get ReqLLM's plain 30-second default unless this is set. Raise
-    these only if a chosen model genuinely needs a larger budget or more time
-    to answer.
+    Reasoning models, including the default `openai/gpt-oss-120b`, can consume
+    their context before producing output. `CARTULARY_MODEL_REASONING_EFFORT`
+    bounds reasoning and `CARTULARY_MODEL_MAX_TOKENS` caps output. ReqLLM only
+    extends timeouts automatically for recognized OpenAI reasoning families;
+    `CARTULARY_MODEL_RECEIVE_TIMEOUT_MS` overrides its 30-second default for
+    `openai/gpt-oss-120b` and other vendors. Raise these values only when the
+    chosen model requires it.
 
 There are exactly four Account-level model roles: `embedder`,
 `ingest_extractor`, `dream_reasoner`, and `dialectic_agent`. Only secret
@@ -155,14 +145,11 @@ Dream-time is throttled first when a limit bites.
 | --- | --- | --- |
 | `CARTULARY_GOVERNANCE_UNATTENDED` | `false` | Declares this whole deployment process has no human governance participant |
 
-When true, personal knowledge aimed above its subject's peer level has its
-subject consent auto-granted instead of blocked pending a real subject —
-Cartulary otherwise requires the subject's own verified grant before a
-curator's approval can widen a personal item's exposure, and there is no
-GateRule setting that can waive it. This is a real privacy trade-off: only
-set it for a benchmark, evaluation, or synthetic-data deployment that has no
-real human subjects to ever grant that consent. It is logged at boot when
-active and reported on `GET /api/ready`.
+When true, personal knowledge above peer level receives an automatic subject
+consent record. Normally only the subject's verified grant permits widening;
+GateRule cannot waive it. Use this only for benchmarks, evaluations, or
+synthetic deployments without real subjects. Cartulary logs it at boot and
+reports it on `GET /api/ready`.
 
 An individual Account can be marked the same way without touching the whole
 deployment — see [Governance](../concepts/governance.md) for the
@@ -208,5 +195,4 @@ Fusion uses reciprocal rank with `k = 60`. `enabled_strategies` is a
 deployment-level allowlist: a strategy absent from it never runs, whatever a
 profile asks for.
 
-Changing a profile changes product behaviour and needs review; pointing the
-release at a different PostgreSQL does not.
+Profile changes require product review; PostgreSQL location changes do not.

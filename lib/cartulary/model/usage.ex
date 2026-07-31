@@ -4,13 +4,9 @@ defmodule Cartulary.Model.Usage do
   @moduledoc """
   The single durable emission point for model usage.
 
-  Every provider call — successful, failed, or a repair retry — appends exactly
-  one usage row here, and nothing else in the codebase writes a *model* row.
-  (`Cartulary.Operations.Metering` writes the separate HTTP-request rows into
-  the same table, tagged with the `"edge"` model role and a `"none"` provider.)
-  That makes the usage table the exact ledger of what the Account spent; tracing
-  spans mirror the same numbers for convenience but are sampled and lossy, so
-  they are not the ledger.
+  Every provider attempt, including failure and repair, appends one model usage row here.
+  `Operations.Metering` separately writes HTTP rows as role `"edge"`, provider `"none"`. Traces
+  are sampled; this table is the exact ledger.
 
   ## What a row records
 
@@ -21,21 +17,14 @@ defmodule Cartulary.Model.Usage do
 
   ## A row commits on its own
 
-  The row is written in its own short Account-scoped transaction rather than joining whatever
-  transaction the caller happens to hold. Metering runs during a provider call, and a provider
-  call is made with no transaction open so that a minutes-long external call never holds a
-  pooled database connection. The second effect is the one that matters for the ledger: a
-  caller whose own write fails afterwards cannot take this row down with it. The call happened
-  and was billed regardless of what the caller did with its result.
+  Each row uses its own short Account transaction. Provider calls hold no database connection,
+  and a later caller rollback cannot erase usage already incurred.
 
   ## Content safety is enforced here, not by convention
 
-  Metadata is filtered through a fixed allowlist of keys. A caller can pass any
-  map it likes and only the allowed keys survive. This is the last line of
-  defence that keeps prompts, generated answers, observation text, credentials,
-  and knowledge content out of a table that Account admins and operators read.
-  Widening the allowlist is a content-safety decision: every new key must be
-  provably free of content.
+  Metadata uses a fixed allowlist. Unknown keys are dropped so prompts, answers, observations,
+  credentials, and knowledge cannot enter this operator-visible table. New keys must be
+  provably content-free.
 
   ## Mistakes to avoid
 
@@ -83,12 +72,7 @@ defmodule Cartulary.Model.Usage do
     metadata = attrs |> Map.get(:metadata, %{}) |> safe_metadata()
     provenance = Config.provenance(config)
 
-    # The row gets its own short Account-scoped transaction. Two reasons, both load-bearing.
-    # It has to be scoped at all because metering runs during a provider call, which is made
-    # with no transaction open so that an external call never holds a database connection. And
-    # it has to be its own transaction so that a caller whose later write fails cannot roll
-    # this row back with it: the call really happened and was really billed, and a ledger that
-    # forgets it understates what the Account owes.
+    # A separate Account transaction records incurred usage even if the caller later rolls back.
     Cartulary.DataLayer.in_account_transaction(account_id, fn ->
       UsageEvent
       |> Ash.Changeset.new()

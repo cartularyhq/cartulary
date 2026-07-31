@@ -2,22 +2,17 @@
 
 # Exploring memory in the web console
 
-The console at `/console` is the browser surface for people. It shows every
-statement your roles reach, where each one came from, how it reached its
-current state, and what you are allowed to do about it.
+`/console` shows the memory your roles can reach, its provenance and history,
+and the actions available to you.
 
 ```bash
 open http://127.0.0.1:4000/sign-in
 ```
 
-Any human role can sign in — reader, member, curator, or account admin.
-Reading the memory your grants reach is not a privileged act. What differs
-between roles is what the pages show and which controls appear.
+Readers, members, curators, and account admins may sign in. Roles change
+visibility and available controls.
 
-An agent API key cannot open the console. It is a valid credential on the JSON
-and MCP surfaces, but the console offers gestures only a person may take on
-their own behalf, so a machine credential is turned away exactly like no
-credential at all.
+Agent API keys work on JSON and MCP, never the console.
 
 ## What you can reach
 
@@ -34,38 +29,27 @@ credential at all.
 | `/console/operations` | Account admins only: readiness, usage and cost, gate rules, retrieval tunings |
 | `/governance` | Curators and account admins only: the gate queue and skill-card authoring |
 
-Navigation hides what you cannot reach. Hiding a link is a convenience, not a
-control — every destination re-checks your authority when it is opened, and a
-request for a page you may not see is declined rather than served empty.
+Navigation hides inaccessible pages, but every destination independently
+checks authority and refuses unauthorized requests.
 
 ## What you see, and why you might see less than a colleague
 
 Two rules narrow the console beyond the ordinary scope filtering.
 
-**Provisional statements are visible only to their subject.** A statement in
-the `provisional` state is one peer's working knowledge while a decision is
-pending. It is hidden from everyone else, including account admins. This is the
-same rule retrieval applies, so the console and an agent's `search` agree about
-what exists.
+**Provisional statements are visible only to their subject**, including against
+account admins. Retrieval applies the same rule.
 
-**Undecided and withdrawn states are for curators.** A member or reader sees
-`active`, `needs_revalidation`, `expired`, and `superseded` — the states that
-represent settled belief. They do not see `proposed`, `held`, `rejected`,
-`contested`, or `redacted` statements, because those have either not cleared a
-gate or been withdrawn on purpose. Curators and account admins see all of them,
-because deciding what happens to them is their work.
+**Only curators and account admins see every state.** Members and readers see
+`active`, `needs_revalidation`, `expired`, and `superseded`, but not
+`proposed`, `held`, `rejected`, `contested`, or `redacted`.
 
-**Except about yourself.** Any statement whose subject is you is visible to you
-whatever its state and whichever scope it lives in — even a scope you hold no
-role on. That exemption is what makes contesting, redacting, and erasure real
-rather than theoretical.
+**You always see statements about yourself**, regardless of state or scope, so
+you can contest, redact, or erase them.
 
 Two people looking at the same Account will therefore see different totals.
 That is the scope tree working, not an inconsistency.
 
 ## Browsing versus retrieval
-
-The explorer offers both, side by side, and they answer different questions.
 
 **Browsing** applies attribute filters — scope, state, kind, sensitivity,
 subject — and pages through the result. It is exhaustive: what is not listed is
@@ -76,11 +60,8 @@ either filtered out or not visible to you, never merely ranked low.
 dropped against the deadline, and what each candidate scored. It ranks; it does
 not enumerate.
 
-Retrieval needs a scope to search from, because context flows down the
-containment tree — searching at `/team/project` also searches `/team` and the
-root. Pick a scope in the filter bar and the search box becomes active. A
-retrieval miss is a ranking result, not proof that the memory is empty; the
-list below it is the exhaustive one.
+Retrieval requires a scope. Searching `/team/project` also searches `/team`
+and `/`. A miss means nothing ranked, not that the exhaustive browser is empty.
 
 ## The statement page
 
@@ -97,10 +78,8 @@ Everything the system holds about one claim is on `/console/knowledge/<id>`:
 - its lifecycle timeline, and for curators the immutable gate decisions;
 - its relations in both directions and the supersession chain it belongs to.
 
-A cross-reference to a statement you cannot read is omitted entirely rather
-than shown as a dead identifier, because the presence of the link would itself
-disclose that the hidden statement exists. An identifier that names nothing and
-one you are not entitled to see report the same "not found".
+Unreadable cross-references are omitted. Missing and unauthorized statement ids
+both return "not found".
 
 ## What you can change
 
@@ -162,16 +141,12 @@ depth in the containment tree, so the root sits in the middle. Each scope's
 statements orbit it, so a dense scope looks dense. A statement's size is its
 confidence and its colour is its lifecycle state.
 
-Two kinds of line cross the rings rather than following them, and those are the
-interesting ones: a **scope relation** links scopes that are not in a
-parent-child line, and a **knowledge relation** links two statements.
-Containment is predictable; cross-references are not.
+Cross-ring lines are either **scope relations** between non-parent scopes or
+**knowledge relations** between statements.
 
-Select any node to see what it is and jump to its full record. The layout is
-deterministic — the same data always draws the same picture, so you can come
-back and find things where you left them. When more statements match than can
-be drawn legibly, the page says so rather than presenting a partial picture as
-a complete one.
+Select a node for details. Layout is deterministic. When too many statements
+match, the page reports truncation instead of presenting a partial graph as
+complete.
 
 ## What the console deliberately does not show
 
@@ -185,9 +160,7 @@ a complete one.
 - **Credentials.** Password hashes, API key hashes, and connector secrets are
   never rendered. Connectors show status, schedule, and error class only.
 
-Text you read in the console — statements, observations, document titles — is
-for the browser. It is never copied into logs, telemetry, audit metadata, or
-background-job arguments.
+Console content never enters logs, telemetry, audit metadata, or job arguments.
 
 ## Appearance and offline use
 

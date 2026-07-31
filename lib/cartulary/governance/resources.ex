@@ -4,21 +4,14 @@ defmodule Cartulary.Governance.GateRule do
   @moduledoc """
   One cell of the versioned matrix that decides what happens to a proposed piece of knowledge.
 
-  For a single combination of target level and sensitivity, a row answers: how confident the
-  extractor must be, whether the keep decision (Gate A) and the placement decision (Gate B) may
-  be taken without a human, how many independent sources must agree, how long a pending review
-  may sit before it is chased, and how long an accepted item stays trusted.
+  For one target level and sensitivity, a row sets confidence, automation, corroboration, review
+  age, and revalidation limits.
 
   ## How a row is selected
 
-  The gate engine loads the active rows whose target level and sensitivity match the proposal,
-  ordered by `priority` then `version`, both descending. It then takes the first row scoped
-  exactly to the proposal's scope; failing that, the first row with a nil `scope_id`, which is
-  the Account-wide default; failing that, a conservative rule built into the engine that demands
-  full confidence and a human at both gates. The scope match is exact — a rule on a parent scope
-  does not govern a child scope's items. Because the built-in rule is always there, no
-  combination of target level and sensitivity is ever left ungoverned; but deleting a
-  scope-specific row hands its decisions to the Account-wide row, which may be more permissive.
+  Matching rows sort by priority then version, descending. Selection uses exact scope, then the
+  Account-wide row, then a built-in rule requiring full confidence and human review at both
+  gates. Parent rules do not govern child scopes.
 
   ## Field meanings
 
@@ -34,15 +27,11 @@ defmodule Cartulary.Governance.GateRule do
 
   ## Versioning and safety
 
-  Rows are unique on scope, target level, sensitivity, and version, so a revised cell is a new
-  row and the previous one stays on record. Creating or updating a rule appends a configuration
-  entry to the audit chain with a digest of the rule fields, because a change here silently
-  alters what the whole Account is willing to accept without review.
+  Scope, target level, sensitivity, and version identify a row. Mutations append a digest to the
+  audit chain.
 
-  Reading and writing the matrix require a password-session admin or curator, or the internal
-  pipeline actor the engine uses to look a rule up. A machine credential is never either of
-  those, so it cannot inspect or weaken the gate configuration even when it holds the curator
-  role.
+  Only password-session admins or curators and the pipeline may read or write rules. Machine
+  credentials cannot inspect or weaken them.
   """
 
   use Cartulary.Resource, domain: Cartulary.Governance, table: "governance_gate_rules"
@@ -201,26 +190,20 @@ defmodule Cartulary.Governance.ValidationItem do
   @moduledoc """
   One outstanding or settled request for judgment about one knowledge item.
 
-  This is the single queue shared by curators and peers. A row exists whenever something about a
-  knowledge item needs a decision that the automatic gates would not make:
+  Curators and peers share this queue. A row exists when automation cannot decide:
 
   * `kind: "gate_a_b"` — a freshly proposed item the matrix would not accept on its own.
   * `kind: "gate_b"` — a request to place an existing item in a wider scope.
   * `kind: "revalidation"` — an accepted item whose trust window has elapsed.
   * `kind: "contest"` — a subject disputes a statement about themselves.
 
-  `state` starts at `"pending"` and may pass through `"escalated"`, `"awaiting_consent"`, or
-  `"deferred"` before settling on `"approved"`, `"rejected"`, or `"merged"`; `decision` records
-  what a human or peer actually chose. An item that goes unanswered past `due_at` is escalated
-  once by the aging sweep and then auto-rejected. The bias is intentional: silence must never
-  ripen into accepted memory.
+  State starts `"pending"`, may become `"escalated"`, `"awaiting_consent"`, or `"deferred"`, and
+  settles as `"approved"`, `"rejected"`, or `"merged"`. Aging escalates once, then rejects;
+  silence never accepts memory.
 
   ## Replay safety
 
-  `:enqueue` upserts on knowledge id plus kind, so re-running a pipeline job, re-proposing the
-  same item, or retrying after a crash reuses the existing row instead of queueing the same
-  question twice. The upsert deliberately refreshes only the mutable review fields and leaves
-  the identifying ones — knowledge id, scope, kind, statement hash — as first written.
+  `:enqueue` upserts by knowledge id and kind, refreshing only mutable review fields.
 
   ## Content safety
 
@@ -381,10 +364,8 @@ defmodule Cartulary.Governance.GateDecision do
   @moduledoc """
   One immutable history row for a single gate outcome, automatic or human.
 
-  Every time a proposal is kept, rejected, deferred, placed, held, or edited, one of these rows
-  is written alongside the lifecycle change and a hash-chained audit entry. Together they answer
-  "why is this item in the state it is in, who or what decided that, and could the decider prove
-  the subject really agreed".
+  Every gate outcome is recorded with its lifecycle change and audit entry, preserving why the
+  state changed, who decided, and whether subject agreement was verified.
 
   `gate` is `"gate_a"` (keep or discard), `"gate_b"` (how widely to place), or `"gate_a_b"` for
   a human decision that settles both at once. `decision` is the outcome verb — for example
@@ -394,10 +375,7 @@ defmodule Cartulary.Governance.GateDecision do
   was actually settled — an automatic rule outcome, a curator decision, or a transcript-verified
   peer answer — and false on the rows written when a proposal is only queued for review.
 
-  Rows are append-only: only `:read` and `:record` exist, so a decision trail cannot be
-  rewritten to make a past placement look justified. `statement_hash` is a digest and is not
-  public, and `metadata` is limited to content-safe values such as the id of the rule that
-  applied and the peer who answered.
+  Rows are append-only. `statement_hash` is private and metadata is content-safe.
   """
 
   use Cartulary.Resource, domain: Cartulary.Governance, table: "gate_decisions"
@@ -486,11 +464,8 @@ defmodule Cartulary.Governance.Consent do
   @moduledoc """
   One subject's answer to one request to share one personal statement with one wider scope.
 
-  Personal knowledge does not travel upward on a curator's say-so. When an item about a person
-  is proposed for a scope beyond that person's own, a row is opened here with status
-  `"pending"` and the item stays held and out of retrieval. The status then becomes `"granted"`
-  or `"denied"`. A grant does not place the item by itself; it removes the blocker so that a
-  curator approval can.
+  Personal knowledge stays held while consent is `"pending"`. `"granted"` removes the consent
+  blocker but does not replace curator approval; `"denied"` prevents placement.
 
   Three properties make this meaningful and must be preserved:
 
@@ -504,8 +479,7 @@ defmodule Cartulary.Governance.Consent do
     example a tool answer with no matching session transcript — is refused. A denial is always
     accepted, because refusing to share is never the risky direction.
 
-  The row records who decided, over which channel, and whether that channel was verified, so the
-  basis for sharing stays auditable long after the fact.
+  The row records decider, channel, and verification.
   """
 
   use Cartulary.Resource, domain: Cartulary.Governance, table: "knowledge_consents"
@@ -595,19 +569,12 @@ defmodule Cartulary.Governance.PeerQuery do
   @moduledoc """
   One question waiting to be put to one peer, with the exact wording frozen at creation time.
 
-  Rather than sending people to an inbox, the system asks them inside a conversation they are
-  already having: a read through the tool surface can carry back one of these questions, the
-  agent quotes it, and the person answers in their own words. Three kinds exist —
-  `"confirm"` for a newly proposed statement about them, `"revalidate"` for one whose trust
-  window has elapsed, and `"consent_upward"` for permission to share a personal statement with
-  a wider scope.
+  Reads can carry one of three questions: `"confirm"`, `"revalidate"`, or `"consent_upward"`.
 
   ## Why the text is stored here
 
-  This is the one governance row that holds a statement's text. It has to: the peer must be
-  shown the precise claim, and verification later works by matching what the transcript shows
-  against this frozen copy. Freezing also means editing the underlying knowledge cannot change
-  the question someone already answered.
+  This is the only governance row holding statement text, frozen for exact display and transcript
+  verification.
 
   That makes `statement_text` erasable subject content. It must never be copied into audit
   metadata, telemetry, logs, or background-job arguments — only `statement_hash` may travel.
@@ -746,10 +713,8 @@ defmodule Cartulary.Governance.PeerQueryDelivery do
   @moduledoc """
   Evidence that one question was actually put to one peer in one session, and what came back.
 
-  A question being handed to an agent is not the same as a person having seen it. This row is
-  the record that closes that gap: when the question was released into a session, which tool
-  call carried it, whether the agent's claim about what it displayed matched the frozen wording,
-  and whether the answer could be verified against the session transcript.
+  Records when and where a question was delivered, whether shown text matched, and whether the
+  transcript verified the answer.
 
   `verification` starts `"pending"` and settles as `"verified"` or `"unverified_channel"`. Only
   a verified answer may confirm, retract, or consent; an unverified one merely pushes the
@@ -865,11 +830,8 @@ defmodule Cartulary.Governance.PeerAskPreference do
   @moduledoc """
   How willing one peer is to be interrupted by inline validation questions.
 
-  Asking people to confirm what the system believes about them only works if being asked stays
-  tolerable, so one row per peer caps it: at most `max_per_session` questions inside a single
-  conversation, at most `max_per_day` across a rolling day, and none at all while `paused_until`
-  is in the future. Defaults are 3 per session and 10 per day. When a limit is reached the read
-  simply comes back without a question; nothing is lost, and the queue offers it later.
+  One row caps questions per session and rolling day and pauses them until `paused_until`.
+  Defaults are 3 per session and 10 per day. Reaching a limit leaves the read unchanged.
 
   Two update paths exist and they are not interchangeable:
 
@@ -972,10 +934,8 @@ defmodule Cartulary.Governance.ErasureRequest do
   @moduledoc """
   The durable record that a person's data was erased, and what that erasure actually touched.
 
-  Erasure deletes the content but must not delete the fact that it happened, so this row is
-  written first, then updated with counts once the work is done, and then survives everything
-  else about the subject. That is also why it must stay content-safe: `affected_counts` holds
-  numbers and the mode string, never text or identifying detail beyond the peer id.
+  Created before erasure and completed with counts afterward, this content-safe receipt survives
+  the subject data. `affected_counts` stores numbers and mode only.
 
   Two modes differ in how far the removal reaches:
 
@@ -1064,23 +1024,16 @@ defmodule Cartulary.Governance.McpTools do
   @moduledoc """
   The complete tool surface an external agent can reach, declared as generic Ash actions.
 
-  This resource stores nothing. It has no data layer and no table; it exists purely to give the
-  published tools a home, and each action delegates to an implementation module that calls the
-  ordinary memory and governance paths.
+  This non-persisted resource publishes tools that delegate to ordinary memory and governance.
 
   ## What the surface deliberately allows
 
-  Submit a raw observation, read governed memory four ways, check whether a skill's prerequisite
-  knowledge is in place, answer the calling peer's own frozen validation question, and lower
-  that same peer's interruption limits. That is all.
+  It permits raw ingest, governed reads, readiness, the caller's frozen question, and lower
+  interruption limits.
 
   ## What it deliberately does not
 
-  There is no tool for approving, editing, rejecting, merging, or deferring a proposal, none for
-  promoting knowledge to a wider scope, and none for editing the gate matrix. Those are human
-  judgements made from a password-session browser identity, and the resources behind them refuse
-  a machine credential regardless of the role it carries. Publishing one here would advertise a
-  capability no tool caller can exercise.
+  It has no curator, promotion, or gate-rule tool. Those require a password-session human.
 
   Each action's `description` is what the calling model reads when it decides whether to invoke
   a tool, so a description that overstates what a tool does is a real defect, not a typo.

@@ -19,25 +19,20 @@ erDiagram
 
 ## Account — the isolation boundary
 
-Every durable row belongs to exactly one Account. The Account is derived from
-the authenticated identity and is enforced three times over: at the Phoenix
-edge, in Ash policies, and in PostgreSQL row-level security. With no Account
-set on a transaction, the row-level policy matches no rows at all.
+Every durable row belongs to one Account, derived from the authenticated
+identity and enforced by Phoenix, Ash policies, and PostgreSQL row-level
+security. Without a transaction Account, RLS returns no rows.
 
-No header, query parameter, or request body field selects tenancy. An older
-`x-cartulary-account-key` header and `account_key` fields in request bodies are
-accepted and *ignored*, so an outdated client fails closed into its own Account
-rather than reaching into someone else's.
+No request value selects tenancy. Legacy `x-cartulary-account-key` and
+`account_key` values are accepted but ignored.
 
 The community build serves a single Account. Multi-Account operation is an
 enterprise concern.
 
 ## Scope — the containment tree
 
-A scope is a path such as `/marketing/social`. Scopes nest, and **inheritance
-is downward and nearest-wins**: anything attached to `/marketing` is visible at
-`/marketing/social`, and a value set on the child overrides the same value
-inherited from the parent.
+A scope is a path such as `/marketing/social`. Inheritance is **downward and
+nearest-wins**: child scopes see ancestor values and may override them.
 
 ```mermaid
 flowchart TD
@@ -57,13 +52,10 @@ flows downward. It never selects siblings or descendants.
 
 ## Peer — one participant
 
-A peer is a human or an agent. Humans authenticate with a password and receive
-a short-lived bearer token; agents hold a hashed per-peer API key. Peers are
-the narrowest audience knowledge can have.
-
-The distinction matters for authority, not just identity: only human peers can
-make curator decisions. See
-[Isolation and access control](security-model.md).
+A peer is a human or agent and is the narrowest knowledge audience. Humans use
+passwords and short-lived tokens; agents use hashed per-peer API keys. Only
+humans may make curator decisions. See [Isolation and access
+control](security-model.md).
 
 ## Knowledge — the only durable atom
 
@@ -82,7 +74,7 @@ governs it:
 | State | The governance lifecycle position. |
 | Verification | *Why* the last transition happened: an automatic gate keep, a curator approval, a subject dispute. |
 
-Three independence rules follow from that table and are easy to get wrong:
+Keep these dimensions independent:
 
 - **Subject is not source.** An agent talking about a colleague produces a
   statement whose subject is the colleague and whose source is the agent.
@@ -93,9 +85,8 @@ Three independence rules follow from that table and are easy to get wrong:
 
 ## Lifecycle states
 
-Every extracted statement starts as `proposed` — the create action refuses any
-other starting state. Governance moves it from there, and **retrieval filters
-on state**, so the state alone decides whether anyone ever sees a statement.
+Every extracted statement starts as `proposed`; the create action rejects other
+starting states. Governance transitions it, and retrieval filters by state.
 
 ```mermaid
 stateDiagram-v2
@@ -143,13 +134,9 @@ state attribute directly.
 
 ## Projections are not a second store
 
-A peer profile, a scope card, and a session summary look like stored documents
-but are not. Each is a **projection** recomputed from governed knowledge, held
-as a cache, marked dirty when its inputs change, and rebuilt in the background.
-Delete them all and Cartulary loses nothing but time.
-
-This is why `get_context` is cheap and repeatable: it reads projections and
-never calls a reasoning model.
+Peer profiles, scope cards, and session summaries are cached **projections** of
+governed knowledge. Input changes mark them dirty for background rebuild.
+`get_context` reads these projections without calling a reasoning model.
 
 ## What is durable
 

@@ -2,9 +2,8 @@
 
 # Connecting an MCP client
 
-Cartulary serves a Model Context Protocol endpoint at `/mcp`. It authenticates
-exactly like the JSON memory routes — bearer credential in, Account derived
-from it — so an MCP client can never reach another tenant's data.
+`/mcp` uses bearer authentication and derives the Account from the credential,
+like the JSON routes.
 
 The advertised protocol revision is `2025-03-26`.
 
@@ -23,8 +22,8 @@ The advertised protocol revision is `2025-03-26`.
 }
 ```
 
-Use an agent API key for an agent. A human password token works too, but ties
-the agent's memory writes to a person's identity, which muddies attribution.
+Use an agent API key for an agent. Human tokens work but attribute the agent's
+writes to that person.
 
 ## The complete tool surface
 
@@ -58,16 +57,12 @@ flowchart LR
     Available -. "no path" .-> Never
 ```
 
-There is no approve, edit, reject, merge, defer, promote, or gate-rule tool,
-and there must never be one. Adding one would let any API key push knowledge
-into shared scopes without a human curator — precisely what the gates exist to
-prevent.
+MCP never exposes approve, edit, reject, merge, defer, promote, or gate-rule
+actions; shared knowledge requires a human curator.
 
 ## Inline validation
 
-`resolve_validation` lets a peer answer a validation question that was attached
-to a read result — confirming or correcting a statement inside the conversation
-they are already in, instead of in a console they will never open.
+`resolve_validation` answers a validation question attached to a read result.
 
 Constraints worth knowing:
 
@@ -98,9 +93,7 @@ sequenceDiagram
     A->>C: ingest(what was learned)
 ```
 
-Ingest what was learned; never assume the agent's own summary of a turn is
-knowledge. It becomes knowledge only if the pipeline extracts it and the gates
-accept it.
+Ingest what was learned. It becomes knowledge only after extraction and gates.
 
 ## Troubleshooting
 

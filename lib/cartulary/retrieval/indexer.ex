@@ -2,38 +2,11 @@
 
 defmodule Cartulary.Retrieval.Indexer do
   @moduledoc """
-  Recomputes the embedding vectors that semantic retrieval searches, for every
-  statement in a scope.
+  Rebuilds semantic-search vectors for one scope.
 
-  Vectors are a derived cache. Losing them costs semantic recall until this
-  runs again; it never loses a statement, because the statement text is the
-  durable record and the vector is only an index over it. That is what makes
-  this safe to run at any time.
-
-  It is needed whenever vectors and statements fall out of step: after a
-  logical import, after an erasure, after a statement is approved while the
-  embedder was unavailable, or after the Account switches to a different
-  embedder and the old vectors stop being usable.
-
-  Runs as a background job, never on a request path — it embeds the whole scope
-  in one call and then updates one row per statement.
-
-  ## Three phases, and the embedding call holds no connection
-
-  A rebuild is a short read transaction, then the embedding call with no
-  transaction open, then a short write transaction. The split is not
-  cosmetic. A transaction owns one pooled database connection for its whole
-  duration, and a batched embedding call against a hosted embedder is a network
-  round trip whose duration grows with the scope. Holding a connection across
-  it exceeds DBConnection's checkout-ownership timeout, which closes the
-  connection mid-transaction and discards every write in it — including the
-  writes recording an embedding call that already happened and was already
-  billed. Do not reunite the phases.
-
-  Each write records which embedder produced the vector (provider, model,
-  version, dimensions) alongside it. Semantic search then only compares vectors
-  from the identical embedder, so a half-migrated scope returns fewer results
-  rather than nonsensical ones.
+  Vectors are derived caches. Rebuild uses a short read transaction, an embedding call without a
+  database connection, then a short write transaction. Never combine these phases. Each vector
+  stores provider, model, version, and dimensions so incompatible spaces are never compared.
   """
 
   alias Cartulary.DataLayer
@@ -49,10 +22,7 @@ defmodule Cartulary.Retrieval.Indexer do
   statement is retrievable by the peer it is about and needs a vector too;
   soft-deleted statements are skipped so erased content stays out of the index.
 
-  Replay-safe: it overwrites vectors rather than accumulating them, so running
-  it repeatedly converges. Every write happens in the final transaction, so a
-  failure at any point — including inside the embedder — leaves the previous
-  vectors in place instead of a partially re-embedded scope.
+  Replay-safe overwrites happen in the final transaction; embedding failure preserves old vectors.
 
   Returns `{:ok, %{indexed: n}}`, with zero when the scope has nothing to
   index, or the embedding provider's error tuple. Raises if a read or write
@@ -62,21 +32,13 @@ defmodule Cartulary.Retrieval.Indexer do
     {items, actor} = read_items!(account_id, scope_id)
 
     case items do
-      # Return early rather than calling the embedder with an empty list,
-      # which some providers reject outright.
+      # Some providers reject empty batches.
       [] -> {:ok, %{indexed: 0}}
       items -> embed_then_write(items, account_id, scope_id, actor)
     end
   end
 
-  # Phase one. Covers both approved and provisional statements and skips
-  # soft-deleted ones, so erased content stays out of the index.
-  #
-  # The actor is returned alongside the rows because phase two needs one and
-  # runs with no transaction open. That is safe: an actor is a plain struct
-  # naming the Account and the authorization role, so it stays valid after the
-  # transaction that produced it ends, and the model layer uses it to scope its
-  # own configuration read and usage write.
+  # Read active/provisional, non-deleted items and retain the plain actor for external embedding.
   defp read_items!(account_id, scope_id) do
     DataLayer.with_account_id(
       account_id,
@@ -95,14 +57,7 @@ defmodule Cartulary.Retrieval.Indexer do
     )
   end
 
-  # Phases two and three. One batched embedding call for the whole scope with no
-  # transaction open, then one write per statement in a second short
-  # transaction. The pairing relies on the provider returning vectors in the
-  # same order as the submitted texts; a reordering here would attach each
-  # vector to the wrong statement and silently corrupt semantic search.
-  #
-  # An embedding failure short-circuits before the write transaction opens, so
-  # the scope keeps whatever vectors it already had and the job retries.
+  # Providers must preserve batch order; write only after the whole embedding call succeeds.
   defp embed_then_write(items, account_id, scope_id, actor) do
     context = %{account_id: account_id, scope_id: scope_id, actor: actor}
 
@@ -113,10 +68,7 @@ defmodule Cartulary.Retrieval.Indexer do
         fn _account, actor ->
           Enum.each(Enum.zip(items, result.vectors), fn {item, embedding} ->
             item
-            # A dedicated action that only touches index columns. It is the
-            # sole way a knowledge vector is written, which keeps the derived
-            # index out of the actions that change a statement's meaning or
-            # lifecycle.
+            # Keep derived index writes separate from meaning and lifecycle actions.
             |> Ash.Changeset.for_update(:index_from_pipeline, %{
               embedding: embedding,
               embedding_provider: result.provider,

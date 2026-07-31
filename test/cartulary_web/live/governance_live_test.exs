@@ -2,16 +2,10 @@
 
 defmodule CartularyWeb.GovernanceLive.IndexTest do
   @moduledoc """
-  Pins the curator queue's rendering and feedback behaviour at `/governance` —
-  as distinct from `test/cartulary/f4_real_gate_a_b_governance_test.exs`, which
-  pins what the underlying `Engine` decisions actually do.
+  Pins curator queue rendering and feedback at `/governance`.
 
-  Every decision the queue records is real: `Engine.decide/4` genuinely
-  refuses to activate personal knowledge awaiting subject consent, and that
-  refusal must never turn into a silent no-op on this page. A curator who
-  clicks Approve and sees nothing happen cannot tell a working consent hold
-  from a broken button, and a bulk-selection control that cannot select
-  everything is not a bulk control at all.
+  Tests exercise real governance operations through LiveView while broader gate behavior
+  remains covered by the governance contract suite.
   """
 
   use CartularyWeb.ConnCase

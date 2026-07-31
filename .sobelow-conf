@@ -1,15 +1,7 @@
 # SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
 #
-# Sobelow (Phoenix security scanner) configuration, read by `mix sobelow
-# --config`. Run it for any change touching the web layer, authentication,
-# tenancy, or raw SQL.
-#
-# The posture here is deliberately strict: the scan fails the build on a
-# low-confidence finding, and nothing is on a permanent ignore list. If a
-# finding is a genuine false positive, suppress it at the call site with a
-# `# sobelow_skip ["Finding.Module"]` comment above the function, explaining
-# why, so the reason lives next to the code rather than in this file where
-# nobody will read it.
+# Sobelow (Phoenix security scanner) configuration, read by `mix sobelow --config`. Run it for
+# any change touching the web layer, authentication, tenancy, or raw SQL.
 [
   # Exit non-zero as soon as a low-or-higher finding appears, so CI blocks.
   exit: :low,

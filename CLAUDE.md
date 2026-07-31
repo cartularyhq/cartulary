@@ -1,7 +1,9 @@
-# Cartulary agent operating contract
+# Cartulary instructions
 
-`AGENTS.md` is the single source of truth for this repository. It is imported
-below so Claude Code loads exactly the same contract every other agent and
-contributor follows. Do not duplicate rules here — edit `AGENTS.md`.
+Read and follow `AGENTS.md`; it is the repository contract.
+
+Write for busy readers: lead with the point, keep paragraphs short, and delete
+repetition. Comments explain a non-obvious reason or constraint, never the code
+in front of them. Documentation gives each fact once, near the task it helps.
 
 @AGENTS.md

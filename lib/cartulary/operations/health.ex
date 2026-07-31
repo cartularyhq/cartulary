@@ -2,44 +2,11 @@
 
 defmodule Cartulary.Operations.Health do
   @moduledoc """
-  Liveness and readiness probes, and the queue-depth sampler.
+  Builds liveness, readiness, and queue-depth results.
 
-  Liveness answers "is this process running". Readiness answers the much
-  stronger question "can this node correctly serve traffic right now", and it
-  says no unless the database answers, the job supervisor is alive, the job
-  table is queryable, and the model-role configuration is readable. A load
-  balancer or orchestrator uses the difference: a live-but-not-ready node
-  should be left alone to recover, not restarted, and must not receive
-  requests.
-
-  ## Disclosure boundary
-
-  The readiness payload is served without authentication, so anyone who can
-  reach the port can read it. Component status, queue depths, model identities,
-  versions, and error classes are allowed. Credentials, connection strings,
-  secrets, exception messages, SQL, and any stored content are not — an error
-  is reduced to the name of its exception type before it is reported. Adding a
-  field to these maps is a disclosure decision, not a formatting change.
-
-  ## Never raises
-
-  Every check catches its own failure and reports it as an unhealthy component.
-  A readiness probe that crashes tells an orchestrator nothing except that the
-  endpoint is broken; one that returns "database: error" tells it what to do.
-  The queue sampler is called on a timer alongside other periodic
-  measurements, and staying silent on failure keeps a database blip from
-  killing the poller.
-
-  ## Version identity
-
-  The payloads built here carry the literal `"f10-1"`, which versions the shape
-  of the operational payload itself, not the application's release. Operator
-  tooling parses against it, so changing the string is a deliberate contract
-  transition: it owes a changelog entry, updated contract evidence, and a note
-  in the closest architecture document. Adding an optional field does not
-  require a new identity; removing or renaming one does. The `GET /api/health`
-  route is separate: it builds its own payload carrying the `"f5-1"`
-  extractor/pipeline identity and does not call this module.
+  Readiness reports component state, counts, versions, model identities, and error classes only.
+  It never exposes content or credentials and is unhealthy when required database, queue, or
+  model components cannot serve.
   """
 
   alias Cartulary.Repo

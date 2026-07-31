@@ -2,10 +2,9 @@
 
 # Physical Backup And Restore
 
-A recoverable Cartulary backup is a coordinated snapshot of the system-of-
-record Postgres database and original blob store. Derived chunks, projections,
-FTS/vector indexes, HNSW state, ETS counters, and `persistent_term` caches can
-be rebuilt.
+Back up the Postgres database and original blob store at the same recovery
+point. Chunks, projections, indexes, HNSW state, ETS counters, and
+`persistent_term` caches are rebuildable.
 
 ## Embedded pg0
 
@@ -30,17 +29,15 @@ required PostgreSQL backup coordination.
 
 ## External Postgres
 
-Use the database platform's supported physical backup/PITR facilities,
-including WAL archiving, retention, encryption, and periodic restore tests.
-Snapshot the local/S3 blob namespace at a coordinated recovery time. The DB
-stores content hashes and blob references, so restoring only one side can leave
-durable document versions without their original bytes.
+Use the platform's physical backup or PITR facilities, including WAL archiving,
+retention, encryption, and restore tests. Snapshot the blob namespace at the
+same recovery point. Restoring only one side can orphan document bytes or
+references.
 
 For a logical emergency copy, use `pg_dump`/`pg_restore` with the exact server
-major version and include extensions, schemas, functions, RLS policies, Oban
-tables, and all Cartulary tables. This database dump is different from the
-portable Account archive: it contains credentials and deployment state and
-must receive stronger secret handling.
+major version. Include extensions, schemas, functions, RLS policies, Oban, and
+all Cartulary tables. Unlike a portable Account archive, this dump contains
+credentials and deployment state.
 
 ## S3-compatible blobs
 

@@ -2,36 +2,10 @@
 
 defmodule Cartulary.Portability.AuditVerifier do
   @moduledoc """
-  Proves an archive's audit log is the same unbroken chain that was exported.
+  Verifies the archive's content-safe audit hash chain.
 
-  An Account's audit events form a hash chain: each event's hash is computed
-  over its own content-safe fields plus the hash of the event before it. That
-  makes the log tamper-evident — editing, deleting, inserting, or reordering any
-  event changes hashes from that point on and cannot be repaired without
-  rewriting everything after it.
-
-  This module re-derives the whole chain from a set of rows and refuses anything
-  that does not reconstruct exactly. Export uses it to record the verified head
-  and event count in the manifest; import uses it again before opening the write
-  transaction, so an Account whose history has been altered is never partially
-  restored. Verification is a gate, not a warning.
-
-  Each failure it detects means something different:
-
-  - a recomputed event hash that does not match the stored one — an event's
-    content was changed;
-  - no single starting event, or more than one — events were removed from the
-    front, or two chains were spliced together;
-  - two events claiming the same predecessor — the chain forks, so the true
-    order is unknowable;
-  - a link that revisits an event already seen — only possible in a forged
-    chain;
-  - a chain that terminates before covering every row — events were removed
-    from the middle, leaving orphans.
-
-  It compares hashes only. Audit events are content-safe by construction — they
-  carry ids, categories, actions, timestamps, and hashes of content rather than
-  content — so verification never inspects a message, a statement, or a secret.
+  It checks ordering, predecessor links, recomputed hashes, and the terminal head. Any missing,
+  duplicate, reordered, or altered event rejects the archive before import writes begin.
   """
 
   alias Cartulary.Governance.Audit

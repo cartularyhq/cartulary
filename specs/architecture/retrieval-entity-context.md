@@ -4,10 +4,8 @@
 
 Status: implemented
 
-Retrieval, entity resolution, and context replace the earlier inline retrieval
-helper with profile-selected, deadline-bounded candidate strategies and
-projection-backed context assembly.
-It implements `FR-API-1` through `FR-API-5`, `FR-API-7`, `FR-API-10`,
+Profile-selected, deadline-bounded strategies and projection-backed context
+replace inline retrieval. This implements `FR-API-1` through `FR-API-5`, `FR-API-7`, `FR-API-10`,
 `FR-API-23` through `FR-API-25`, `FR-API-27` through `FR-API-29`,
 `FR-KN-18` through `FR-KN-22`, `AD-SEAM-3`, `AD-DATA-5`,
 `AD-DATA-10`, `AD-PIPE-7`, `AINV-5`, `AINV-6`, and `NFR-2`.
@@ -22,22 +20,18 @@ It implements `FR-API-1` through `FR-API-5`, `FR-API-7`, `FR-API-10`,
 | Seed | Semantic, Lexical, Temporal, SalienceRecency, EntityMatch |
 | Expand | RelationExpand |
 
-Seed strategies run concurrently in production. Expansion runs after the seed
-head is known and traverses knowledge relations, permission-filtered scope
-relations, and shared-entity edges. The test SQL sandbox deliberately runs the
-same strategy contracts serially because one test owns one shared connection;
-release/runtime execution retains `Task.async_stream` fan-out.
+Production seed strategies run concurrently; expansion then traverses knowledge
+relations, permission-filtered scope relations, and shared-entity edges. SQL
+sandbox tests run the same contracts serially on their shared connection.
 
 Each source list has its own cutoff and cap. Weighted reciprocal-rank fusion
 uses only within-strategy rank (`k = 60`), so pgvector similarity, FTS rank,
 time relevance, salience, and mention confidence are never treated as
 comparable scores. The `:thorough` profile optionally reranks only the fused
-head through `Cartulary.Model.Gateway`. That call is made with no transaction
-open, as is grounded answer generation on the same request: the model layer
-scopes its own configuration read and usage write, so wrapping either would
-hold a pooled database connection across a provider call on a request that has
-already finished reading. A hard remaining-time budget wraps both strategy
-tasks and reranking. Timeouts are dropped, not retried, and every
+head through `Cartulary.Model.Gateway`. Reranking and grounded answers hold no
+transaction; the model layer scopes its own configuration read and usage write.
+A hard remaining-time budget wraps strategies and reranking. Timeouts are
+dropped, not retried, and every
 response reports contributed and dropped strategies plus pre-fusion
 cross-strategy disagreement.
 
@@ -100,24 +94,11 @@ vectors, resolves entities, and refreshes projections. Document import already
 re-enters ordinary document ingest, which rebuilds chunk vectors and causes
 governed knowledge to enqueue the same derived-cache jobs.
 
-`Cartulary.Retrieval.Indexer.rebuild_scope/2` and
-`Cartulary.Retrieval.EntityResolver.rebuild_scope/2` make the same "no
-transaction open across a model call" guarantee as the request path above, for
-the same reason: a transaction holds one pooled database connection for its
-whole duration, and both lanes can spend well beyond the connection's
-checkout-ownership timeout on provider calls before either one is otherwise
-done. Each reads in one short transaction, calls the model layer with none
-open — the model layer scoping its own configuration read and usage write
-exactly as it does on the request path — and writes everything durable in one
-final short transaction. The entity resolver resolves every statement's
-surface forms against an in-memory working set seeded from that first read,
-rather than re-reading the Account's entities per surface form, so an entity
-this run invented is still matchable by a later statement without a database
-round trip. Clearing a scope's stale mentions and writing its rebuilt ones stay
-in that one final transaction together, which is what keeps the existing
-failure guarantee intact: a failure anywhere, including inside the embedder or
-the reasoning model, leaves the previous index in place rather than half
-cleared.
+`Indexer.rebuild_scope/2` and `EntityResolver.rebuild_scope/2` use a short read
+transaction, connection-free model calls, and one final write transaction. The
+entity resolver matches surface forms against an in-memory set seeded by the
+read, including entities created earlier in the same run. Stale-mention removal
+and replacement are atomic; any failure leaves the previous index intact.
 
 ## Entity resolution
 
@@ -159,10 +140,9 @@ It never invokes dialectic or dream reasoning on the live context path.
 
 ## Version and evidence
 
-The message/extractor and health identity remains `f5-1`. Search, ask, and
-context profile identity intentionally advances from `poc-0` to `f7-1`; the
-baseline HTTP evidence was updated for that explicit transition. These `f*`
-prefixes are historical version tags and no longer name roadmap phases.
+Message/extractor and health stay `f5-1`. Search, ask, and context advance from
+`poc-0` to `f7-1`, with updated baseline HTTP evidence. These are historical
+contract tags, not roadmap phases.
 
 Implementation and regression evidence:
 

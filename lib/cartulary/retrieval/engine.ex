@@ -2,53 +2,18 @@
 
 defmodule Cartulary.Retrieval.Engine do
   @moduledoc """
-  Runs a retrieval request: resolve the profile, fan out to strategies in two
-  phases under one shared deadline, merge by rank, and optionally rerank.
+  Runs retrieval strategies under one deadline, fuses their ranks, and optionally reranks.
 
-  ## The pipeline, in order
+  Seed strategies run first. Their interleaved, bounded ids feed expansion strategies; this
+  chooses the expansion frontier, not the final order. Weighted reciprocal-rank fusion orders all
+  candidates, then a model may rerank the fused head.
 
-  1. **Resolve the profile.** Which strategies run, their fusion weights,
-     whether to rerank, and the deadline all come from the profile, which may
-     be overridden per scope.
-  2. **Seed phase.** Every applicable strategy whose stage is `:seed` runs
-     against the query text.
-  3. **Choose seed ids.** The seed lists are interleaved by their
-     strategy-local rank, truncated to the candidate cap, and reduced to ids.
-     That ordering picks *what to expand from*; it is not the answer order,
-     which only fusion decides.
-  4. **Expand phase.** Strategies whose stage is `:expand` walk outwards from
-     those seed ids.
-  5. **Fuse.** All lists merge through weighted reciprocal-rank fusion.
-  6. **Rerank (optional).** Only a profile with reranking enabled — of the
-     shipped ones, `:thorough` — pays for a model-backed reordering of the
-     fused head.
+  The budget includes profile resolution, strategies, and reranking. Timeouts are killed without
+  retry and reported as dropped; reranker failure preserves fusion order. Strategies normally run
+  concurrently; tests may run them serially against one sandbox connection.
 
-  ## Deadline behaviour
-
-  One budget, started before any work, covers strategies *and* reranking. A
-  phase that finds no time left reports every applicable strategy as dropped
-  without running it. A strategy that overruns is killed, not retried, and
-  named in `dropped_strategies`. A rerank that overruns or errors leaves the
-  fusion order intact and adds `reranker` to the dropped list. Callers
-  therefore always get a usable answer plus an honest account of what was
-  skipped; a shrinking contributed list is the signal that the deadline is too
-  tight, not an error.
-
-  ## Concurrency
-
-  Strategies normally run concurrently. Serial execution exists because the
-  test SQL sandbox gives the whole test one database connection, and parallel
-  tasks would each need their own. The serial path runs the identical strategy
-  contracts and checks the budget between strategies, so behaviour matches
-  apart from wall-clock time.
-
-  ## Authorization
-
-  Each strategy runs inside its own Account-scoped transaction, which pins the
-  database session to that Account. The strategies then apply scope, lifecycle,
-  and provisional-subject filters themselves. Nothing in this module filters
-  results afterwards, so a strategy that skips those filters leaks data
-  straight to the caller.
+  Each strategy runs in its own Account transaction and must filter scope, lifecycle, and
+  provisional subjects before returning candidates. This module does no post-filtering.
   """
 
   alias Cartulary.DataLayer
@@ -58,8 +23,8 @@ defmodule Cartulary.Retrieval.Engine do
   @doc """
   Executes one retrieval request and returns the response map.
 
-  `query` is a `Cartulary.Retrieval.Query` whose Account, actor, and scope ids
-  are already authorized. `profile_name` selects the posture. Options:
+  `query` has an authorized Account, actor, and scopes. `profile_name` selects the posture.
+  Options:
 
   * `:deadline?` (default true) — set false to remove the time budget; only for
     evaluation runs and dream-time rebuilds, never a live request.
@@ -69,12 +34,8 @@ defmodule Cartulary.Retrieval.Engine do
     to server-side and evaluation callers; profile resolution raises otherwise.
   * `:inherit?` — set false to ignore any stored per-scope profile override.
 
-  The returned map reports the profile name and version, latency in
-  milliseconds, whether the deadline was enabled, the strategies that ran to
-  completion (a strategy that finished with no hits still counts as
-  contributing), the strategies that were dropped, a disagreement summary
-  computed before fusion, and the ranked candidate maps. Each candidate map is
-  the database record plus `rrf_score` and the strategies that proposed it.
+  Returns profile metadata, latency in milliseconds, contributed and dropped strategies,
+  pre-fusion disagreement, and ranked records with `rrf_score` and contributing strategies.
 
   Raises `ArgumentError` for an unknown profile or strategy name, or for a
   strategy list from a non-internal caller. A strategy killed by the deadline
@@ -84,8 +45,7 @@ defmodule Cartulary.Retrieval.Engine do
   propagates to the caller.
   """
   def retrieve(query, profile_name, opts \\ []) do
-    # Taken before profile resolution so the deadline covers the database read
-    # that resolution may perform, not just the strategies.
+    # Include profile resolution in the request deadline.
     started_at = Cartulary.Clock.monotonic_ms()
     profile = Profile.resolve(profile_name, query, opts)
     deadline? = Keyword.get(opts, :deadline?, true)
@@ -109,11 +69,8 @@ defmodule Cartulary.Retrieval.Engine do
       |> Enum.filter(&(&1.stage() == :seed))
       |> run_phase(query, budget, concurrent?)
 
-    # Expansion needs a starting set, and it needs it before fusion has run.
-    # Interleaving the seed lists by strategy-local rank is a breadth choice,
-    # not a relevance judgement: it takes each strategy's best hits so the walk
-    # starts from a diverse frontier. The truncation happens before `uniq` so
-    # the frontier stays bounded even when strategies agree heavily.
+    # Interleave before fusion for a diverse, bounded expansion frontier. Taking before `uniq`
+    # keeps the frontier bounded even when strategies agree.
     seed_ids =
       seed_lists
       |> Enum.flat_map(fn {_strategy, candidates} -> candidates end)
@@ -135,10 +92,7 @@ defmodule Cartulary.Retrieval.Engine do
 
     contributed = Enum.map(lists, fn {strategy, _candidates} -> strategy end)
 
-    # Three different reasons a strategy is missing are reported the same way:
-    # switched off by deployment configuration, out of time, or (for the
-    # reranker) failed. Callers need the union to judge whether a thin answer
-    # reflects thin memory or a degraded run.
+    # Include disabled, timed-out, and failed work so callers can distinguish degradation.
     dropped =
       profile.disabled_strategies ++
         seed_dropped ++ expand_dropped ++ if(rerank_dropped?, do: [:reranker], else: [])
@@ -151,17 +105,13 @@ defmodule Cartulary.Retrieval.Engine do
       latency_ms: Cartulary.Clock.monotonic_ms() - started_at,
       contributed_strategies: contributed |> Enum.uniq() |> Enum.map(&Atom.to_string/1),
       dropped_strategies: dropped |> Enum.uniq() |> Enum.map(&Atom.to_string/1),
-      # Deliberately computed from the seed lists only, and before fusion:
-      # once the lists are merged, the evidence that two strategies picked
-      # completely different records is gone.
+      # Fusion destroys evidence of strategy disagreement.
       disagreement: Fusion.disagreement(seed_lists),
       candidates: Enum.map(ranked, &candidate_map/1)
     }
   end
 
-  # Runs one stage of strategies and returns {completed_lists, dropped_names}.
-  # Strategies that report themselves inapplicable are silently skipped rather
-  # than reported as dropped: "this query has no text" is not a degraded run.
+  # Inapplicable strategies are skipped, not reported as degraded.
   defp run_phase([], _query, _budget, _concurrent?), do: {[], []}
 
   defp run_phase(modules, query, budget, concurrent?) do
@@ -169,8 +119,7 @@ defmodule Cartulary.Retrieval.Engine do
     timeout = Budget.remaining_ms(budget)
 
     if timeout == 0 do
-      # Out of time before the phase even starts, typically because the seed
-      # phase consumed the whole budget. Report, do not run.
+      # Report applicable work that the exhausted budget prevented.
       {[], Enum.map(applicable, & &1.name())}
     else
       results = execute_modules(applicable, query, budget, timeout, concurrent?)
@@ -179,12 +128,8 @@ defmodule Cartulary.Retrieval.Engine do
         for {:ok, {strategy, candidates}} <- results,
             do: {strategy, candidates}
 
-      # A killed task carries no reference to the strategy that owned it, so
-      # the name is recovered positionally. This is only sound because the
-      # concurrent path requests ordered results and the serial path builds the
-      # list in module order; reordering either would misattribute drops. On
-      # the concurrent path a crashing strategy also arrives here as an exit,
-      # so it is reported as dropped rather than failing the whole request.
+      # Task exits lack strategy names. Ordered results make this positional lookup safe; changing
+      # result order would misattribute drops. Concurrent crashes are also reported as dropped.
       timed_out =
         results
         |> Enum.with_index()
@@ -199,11 +144,7 @@ defmodule Cartulary.Retrieval.Engine do
 
   defp execute_modules(modules, query, budget, timeout, concurrent?) do
     run = fn module ->
-      # Each strategy runs in its own Account-scoped transaction. That is what
-      # pins the database session to this Account, so a strategy that somehow
-      # omitted its own Account predicate still cannot read another tenant's
-      # rows. Validation happens inside the same transaction because the
-      # candidate records are read lazily from it.
+      # Pin the database session to the Account and validate lazily read records inside it.
       candidates =
         DataLayer.with_actor(query.actor, fn _account, actor ->
           scoped_query = %{query | actor: actor}
@@ -220,9 +161,7 @@ defmodule Cartulary.Retrieval.Engine do
     end
 
     if concurrent? do
-      # `ordered: true` is load-bearing: the caller identifies timed-out
-      # strategies by position. `on_timeout: :kill_task` implements
-      # drop-never-retry — a strategy past the deadline is abandoned outright.
+      # Ordering maps task exits to strategies; timed-out work is killed without retry.
       Task.async_stream(modules, run,
         ordered: true,
         max_concurrency: max(length(modules), 1),
@@ -231,9 +170,7 @@ defmodule Cartulary.Retrieval.Engine do
       )
       |> Enum.to_list()
     else
-      # Serial fallback for the single-connection test sandbox. It cannot
-      # interrupt a running strategy, so it can only enforce the deadline
-      # between strategies; the shapes it returns match `Task.async_stream`.
+      # The single-connection test path can enforce deadlines only between strategies.
       Enum.map(modules, fn module ->
         if Budget.remaining_ms(budget) == 0 do
           {:exit, :timeout}
@@ -244,9 +181,7 @@ defmodule Cartulary.Retrieval.Engine do
     end
   end
 
-  # Returns {candidates, reranker_dropped?}. Every failure mode keeps the
-  # fusion order and reports the reranker as dropped, so a slow or broken model
-  # degrades answer ordering rather than the request.
+  # Reranker failure preserves fusion order and reports degradation.
   defp maybe_rerank(candidates, _query, %{rerank: false}, _budget, _concurrent?),
     do: {candidates, false}
 
@@ -258,17 +193,13 @@ defmodule Cartulary.Retrieval.Engine do
     if remaining == 0 do
       {candidates, true}
     else
-      # Only the head is reranked: the model call costs tokens and latency
-      # proportional to the number of documents, and the tail keeps its fusion
-      # order regardless, so paying for it would buy nothing the caller sees.
+      # Rerank only the visible head to bound model cost and latency.
       head_size = retrieval_config(:rerank_head)
       {head, tail} = Enum.split(candidates, head_size)
       documents = Enum.map(head, & &1.record["statement"])
 
-      # No transaction around the call. The model layer scopes its own configuration read and
-      # its usage write to the Account, so nothing here needs one — and wrapping a model call
-      # in a transaction would hold a pooled database connection for the whole of a request
-      # that has already done all the reading it is going to do.
+      # The model layer scopes its own reads and usage writes; do not hold a database connection
+      # during the external call.
       call = fn ->
         Gateway.rerank(query.text, documents, %{
           account_id: query.account_id,
@@ -278,10 +209,7 @@ defmodule Cartulary.Retrieval.Engine do
 
       case deadline_call(call, remaining, concurrent?) do
         {:ok, rankings, _provenance} ->
-          # The model answers with positions into the head, so a ranking that
-          # names a position the head does not have is discarded rather than
-          # trusted. Ranks are renumbered across head and tail together so the
-          # final list stays dense and 1-based.
+          # Ignore invalid positions and keep final ranks dense and 1-based.
           reordered =
             rankings
             |> Enum.sort_by(&ranking_score/1, :desc)
@@ -299,17 +227,14 @@ defmodule Cartulary.Retrieval.Engine do
     end
   end
 
-  # Runs `call` under the remaining budget. With the deadline disabled, or on
-  # the single-connection serial path where spawning a task would need a second
-  # database connection, it simply runs inline and may exceed the nominal time.
+  # Disabled deadlines and the single-connection test path run inline.
   defp deadline_call(call, :infinity, _concurrent?), do: call.()
 
   defp deadline_call(call, timeout, concurrent?) do
     if concurrent? do
       task = Task.async(call)
 
-      # `brutal_kill` after the yield window: an overrunning rerank is
-      # abandoned, never awaited further and never retried.
+      # Abandon an overdue rerank without waiting or retrying.
       case Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill) do
         {:ok, result} -> result
         nil -> {:error, :timeout}
@@ -319,19 +244,13 @@ defmodule Cartulary.Retrieval.Engine do
     end
   end
 
-  # Reranker responses may arrive with atom or string keys depending on how the
-  # provider payload was decoded, and some providers name the field `score`
-  # rather than `relevance_score`; all shapes are accepted. A missing position
-  # falls back to 0, which points at the head's first entry.
+  # Accept provider key variants; a missing index selects the first head entry.
   defp ranking_index(ranking), do: ranking[:index] || ranking["index"] || 0
 
   defp ranking_score(ranking),
     do: ranking[:relevance_score] || ranking["relevance_score"] || ranking[:score] || 0.0
 
-  # Flattens a candidate into the caller-facing map. Only the database record,
-  # the fused score, and the strategy names travel outwards — never the
-  # strategy-local raw score, which callers would be tempted to compare across
-  # strategies.
+  # Do not expose incomparable strategy-local scores.
   defp candidate_map(%Candidate{} = candidate) do
     candidate.record
     |> Map.put("rrf_score", candidate.score)

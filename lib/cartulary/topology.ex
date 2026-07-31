@@ -2,48 +2,11 @@
 
 defmodule Cartulary.Topology do
   @moduledoc """
-  Ash domain for the scope tree: where things live, what is linked to what, and who may act where.
+  Ash domain for scoped containment, lateral relations, and role grants.
 
-  Almost everything in Cartulary is attached to a scope, and this domain
-  defines what a scope is. Scopes form a containment tree inside one Account,
-  addressed by slash-delimited paths — `/`, `/team`, `/team/project`. Three
-  rules follow from that shape, and the rest of the system relies on all three.
-
-  ## Context flows down, nearest wins
-
-  Anything attached to a scope is visible to the scopes contained within it. A
-  statement recorded at `/team` is in context at `/team/project`; the reverse
-  is not true, and moving knowledge upward is a governed decision made
-  elsewhere, never an automatic consequence of the tree. Where several
-  ancestors offer a value for the same thing — a retrieval override, a skill
-  requirement, a role — the nearest enclosing scope wins, so a specific place
-  can always override a general one. Callers that rely on this order receive
-  scope lists sorted nearest-first; re-sorting such a list inverts the rule.
-
-  ## Deny wins over inherited allows
-
-  A role grant attaches a role to a peer at one scope and says whether it
-  propagates downward. When several grants reach the same scope, any applicable
-  deny removes that scope outright — it is not weighed against allows and
-  cannot be out-ranked by a stronger role. That is what makes a deny a
-  dependable way to carve a hole in a broad inherited grant.
-
-  ## A link is not a grant
-
-  Relations connect scopes that are not in a parent-child line. They can widen
-  what retrieval *considers*, but never what a caller may *see*: expansion
-  across a relation only happens when the caller is already authorized at both
-  ends. Do not treat a relation as a shortcut for granting access.
-
-  ## What this domain owns
-
-  * `Scope` — one node in the containment tree.
-  * `ScopeRelation` — a lateral link between two scopes.
-  * `RoleGrant` — one peer's role at one scope, allow or deny, propagating or not.
-
-  Every resource here is tenanted on `account_id`, and the database enforces the
-  same Account wall again with row-level security. A path is unique per Account,
-  never globally.
+  Context inherits downward with nearest-scope overrides. Role grants inherit downward
+  only when configured, and any applicable deny removes access. A scope relation may
+  expand retrieval only when both endpoints are already authorized; it never grants access.
   """
 
   use Ash.Domain
@@ -57,27 +20,11 @@ end
 
 defmodule Cartulary.Topology.Scope do
   @moduledoc """
-  One node in an Account's containment tree — a team, a project, a person's own space.
+  One node in an Account's containment tree.
 
-  A scope is addressed by its `path`: the full slash-delimited address from the
-  root, such as `/team/project`. The path is the load-bearing field. Containment
-  is decided by string prefix on it rather than by walking `parent_id`, which is
-  why the path is written once at creation and no action accepts a change to
-  it. Renaming a scope by rewriting its path would silently re-parent
-  everything attached to it and to its descendants; create a new scope and move
-  the work instead.
-
-  Scopes are created lazily. Callers do not allocate them up front: ingesting an
-  observation at `/team/project` creates every missing segment along the way,
-  outermost first, and repeated ingest reuses the existing rows. That is why the
-  create action is an idempotent upsert — it must be safe to retry and safe for
-  two concurrent requests to race.
-
-  `key` is the final segment and `name` a human label; both are cosmetic
-  compared to the path. `state` marks the scope's own lifecycle and defaults to
-  `"active"`. Nothing filters retrieval on it today, so setting it to anything
-  else records an intention rather than hiding the scope's contents — do not
-  rely on it as an access control.
+  Scopes are created idempotently as paths are encountered. A path and parent are
+  immutable because they define containment for every attached row; create a new scope
+  instead of trying to move one.
   """
 
   use Cartulary.Resource, domain: Cartulary.Topology, table: "scopes"
@@ -155,25 +102,10 @@ end
 
 defmodule Cartulary.Topology.ScopeRelation do
   @moduledoc """
-  A lateral link between two scopes that are not in a parent-child line.
+  A lateral link between scopes outside the containment line.
 
-  Containment already connects a scope to its ancestors and descendants. This
-  resource records the other kind of connection — two teams working on the same
-  thing, a project related to a client — so retrieval can consider material
-  from a neighbouring scope when the caller is entitled to both.
-
-  **A relation grants nothing.** Retrieval expansion across a link happens only
-  when both endpoints are already in the caller's authorized scope set, and the
-  read policy on this resource enforces the same rule for the relation rows
-  themselves. If a link could widen access, creating one would become a way to
-  reach into someone else's scope, so never use one as a substitute for a role
-  grant.
-
-  In practice a relation is undirected: expansion matches a scope on either end
-  and pulls in the other. Source and target order therefore records how the
-  link was written, not a direction of flow — but it does affect uniqueness, so
-  writing the mirror image creates a second row rather than colliding with the
-  first.
+  Both endpoints must already be authorized. The link can expand retrieval but grants
+  no access, and its endpoints are immutable so changes leave an auditable old pair.
   """
 
   use Cartulary.Resource, domain: Cartulary.Topology, table: "scope_relations"
@@ -237,33 +169,11 @@ end
 
 defmodule Cartulary.Topology.RoleGrant do
   @moduledoc """
-  One peer's role at one scope: allowed or denied, inherited downward or not.
+  One peer's allow or deny role grant at one scope.
 
-  These rows are the raw material of authorization. They are not consulted per
-  query — when a caller authenticates, every grant belonging to that peer is
-  read once and folded into the concrete set of scopes it may act in, together
-  with the effective role at each. Two rules govern that fold:
-
-  * **Inheritance is downward and opt-in per grant.** A grant with `propagate`
-    set reaches every scope contained in the one it was written at; without it
-    the grant applies to that scope alone. A grant never reaches upward.
-  * **Deny wins.** If any grant that reaches a scope has effect `"deny"`, the
-    peer loses that scope entirely. A deny is not compared against allows and
-    is not out-ranked by a stronger role, which is what lets an administrator
-    cut a hole in a broad inherited grant and be certain nothing patches over
-    it. The uniqueness key deliberately includes `effect`, so an allow and a
-    deny for the same role at the same scope can coexist — and the deny wins.
-
-  `role` holds a string: `"reader"`, `"member"`, `"curator"`, or
-  `"account-admin"`, in increasing power (the underscore spelling of the last
-  one is also accepted). Among surviving allows the strongest wins, and an
-  unrecognised role string is ignored rather than guessed at, so a typo grants
-  nothing instead of granting something arbitrary.
-
-  Because grants are folded at authentication time, editing a row does not
-  change an authorization context that has already been handed out. Anything
-  that must see a fresh grant immediately re-resolves rather than reusing a
-  cached context.
+  Propagating grants inherit downward, never upward. Any applicable deny removes the
+  scope regardless of stronger allows. Grants are resolved at authentication time, so
+  callers that need an immediate change must resolve a fresh actor.
   """
 
   use Cartulary.Resource, domain: Cartulary.Topology, table: "role_grants"

@@ -2,56 +2,18 @@
 
 defmodule CartularyWeb.ConsoleLive.KnowledgeDetail do
   @moduledoc """
-  One statement in full, at `/console/knowledge/:id`: what it says, where it
-  came from, how it got to its current state, what it is connected to, and what
-  this reader may do about it.
+  `/console/knowledge/:id` transparency and governance controls for one visible
+  statement, including provenance, identities, lifecycle, relations, and
+  supersession.
 
-  ## The page is the transparency surface
+  Curators decide queued items and request ancestor promotion; subjects confirm,
+  contest, or redact only their own statements. Editing creates a governed
+  replacement and preserves the original. Controls only aid presentation: every
+  event delegates to governance operations, which reauthorize and own locks,
+  transactions, decisions, lifecycle events, and audit records.
 
-  Everything the system holds about a statement is on it: the four independent
-  axes (subject against source, belief time against valid time, confidence
-  against sensitivity, state against verification), the raw observations and
-  document versions it was extracted from, the model and prompt identity that
-  extracted it, the embedding identity attached to it, its lifecycle timeline,
-  its relations in both directions, and the supersession chain it belongs to.
-  A reader who cannot see why the system believes something cannot meaningfully
-  govern it.
-
-  ## What this module may write: nothing
-
-  Every action forwards to the governance operation layer, which owns the
-  transaction, the advisory lock, the immutable decision record, the lifecycle
-  event, and the hash-chained audit entry. Introducing an `Ash.create!` or
-  `Ash.update!` here would put a second writer behind the gate and break the
-  rule that reasoned knowledge is only ever written by the pipeline. Do not do
-  it, not even for a field that looks harmless.
-
-  ## Who may do what
-
-  Controls are rendered according to the reader's authority, and the operation
-  layer re-checks that authority before it writes — a control that was never
-  rendered is still refused if the event is forged. The split is:
-
-  - **Curators and account administrators** decide queued items: approve,
-    reject, defer, edit as a replacement, merge into another statement. They
-    may also ask to promote a statement to a wider scope, which parks it for a
-    second decision rather than moving it.
-  - **The subject of a statement** may confirm, contest, or redact it,
-    whatever role they hold and whichever scope the statement lives in. That is
-    not a curator power and a curator cannot exercise it on someone's behalf.
-
-  "Edit as replacement" is literal. It does not rewrite the statement: it mints
-  a new pipeline-owned row with the corrected text, supersedes this one, and
-  sends the replacement back through the gate. The original text stays
-  readable, which is the whole point.
-
-  ## Content safety
-
-  The statement, the raw observations behind it, and any edited replacement are
-  rendered here because an authorized human has to read them to judge them.
-  That text is for the browser only. Never copy it into logs, telemetry, audit
-  metadata, or job arguments — those channels carry ids, hashes, counts,
-  states, and error classes.
+  Rendered statement and source text is browser-only. Never copy it into logs,
+  telemetry, audit metadata, or job args.
   """
 
   use CartularyWeb, :live_view
@@ -65,10 +27,8 @@ defmodule CartularyWeb.ConsoleLive.KnowledgeDetail do
   @doc """
   Loads one statement, or renders the not-found state.
 
-  A statement that exists but fails the console's lifecycle-state or
-  provisional rule is reported as not found, exactly like an id that names
-  nothing. The two must stay indistinguishable: a distinct "forbidden" would
-  let a reader confirm the existence of proposals they are not entitled to see.
+  Missing and unauthorized ids are indistinguishable to prevent existence
+  probing.
   """
   @impl true
   def mount(%{"id" => id}, _session, socket) do
@@ -76,45 +36,24 @@ defmodule CartularyWeb.ConsoleLive.KnowledgeDetail do
   end
 
   @doc """
-  Applies one curator decision, one promotion request, or one subject verdict.
+  Delegates curator decisions, promotion requests, and subject verdicts.
 
-  All three raise rather than return on a refusal from the operation layer,
-  which is where authority is actually enforced. Refusals and bad input are
-  turned into a flash message rather than crashing the socket, because the
-  merge target and the replacement statement are free-text fields a person
-  types by hand and a typo is an ordinary mistake, not an exceptional
-  condition. A genuinely forbidden action lands in the same branch and reports
-  the same generic refusal; the write did not happen either way.
-
-  After every attempt the page re-reads from the database instead of patching
-  assigns in memory, so what is rendered is committed state and a partially
-  applied change is immediately visible.
+  Refusals become generic flashes, and every attempt reloads committed state.
   """
   @impl true
-  # Every clause below reads the loaded statement, so an event that arrives when
-  # nothing is loaded — the not-found page, or a forged message — is answered
-  # with a refusal rather than a crash. This clause has to come first: it is the
-  # one that makes the others safe to write without repeating the check.
+  # Reject forged events on the not-found state before accessing the statement.
   def handle_event(_event, _params, %{assigns: %{detail: nil}} = socket) do
     {:noreply, put_flash(socket, :error, "That action was refused. Nothing was changed.")}
   end
 
   def handle_event("decide", %{"action" => action} = params, socket) do
-    # Only the optional decision inputs are forwarded, and blank ones are
-    # dropped rather than sent as empty strings. The operation layer reads an
-    # absent key as "keep what is stored" for sensitivity and the defer window,
-    # and requires a present one for edit and merge, so a cleared field must
-    # arrive absent — passing "" would either overwrite a stored value with
-    # nothing or record an empty claim.
+    # Blank optional fields mean absent, not an empty replacement value.
     opts =
       params
       |> Map.take(["statement", "merge_into_id", "defer_hours", "sensitivity"])
       |> Map.reject(fn {_key, value} -> value in [nil, ""] end)
 
-    # A decision acts on a queue row, not on the statement. When there is no
-    # open row there is nothing to decide, and the controls were never
-    # rendered — so this only happens for a forged event, which is refused
-    # rather than allowed to raise on a nil id.
+    # Decisions require an open queue row; forged events fail closed.
     case socket.assigns.detail.validation do
       nil ->
         {:noreply, put_flash(socket, :error, "There is no open decision on this statement.")}
@@ -528,9 +467,7 @@ defmodule CartularyWeb.ConsoleLive.KnowledgeDetail do
     """
   end
 
-  # Re-reads the whole page from the database and recomputes which controls the
-  # reader is entitled to. Called on mount and after every attempted action, so
-  # what is rendered is always committed state.
+  # Reload committed state and recompute visible controls after each attempt.
   defp load(socket, id) do
     actor = socket.assigns.current_actor
     detail = Loader.knowledge_detail(actor, id)
@@ -540,10 +477,7 @@ defmodule CartularyWeb.ConsoleLive.KnowledgeDetail do
     |> assign(:actions, actions(actor, detail))
   end
 
-  # Which control groups to render. Curator decisions need an open queue entry
-  # to act on, because approve, reject, defer, edit, and merge all operate on a
-  # queue row rather than directly on the statement. Promotion needs a strict
-  # ancestor to promote into, so a statement already at the root offers none.
+  # Decisions need a queue row; promotion needs a strict ancestor.
   defp actions(_actor, nil), do: %{any?: false}
 
   defp actions(actor, detail) do
@@ -561,11 +495,7 @@ defmodule CartularyWeb.ConsoleLive.KnowledgeDetail do
     }
   end
 
-  # Promotion may only widen exposure along the containment tree, so the offered
-  # targets are the strict ancestors of the statement's current scope — and only
-  # those this reader can see. Sideways and downward moves are rejected by the
-  # operation layer; not offering them here keeps the reader from discovering
-  # that by trying.
+  # Offer only authorized strict ancestors; operations reject other moves.
   defp promotion_targets(detail) do
     case detail.item.scope_path do
       nil ->
@@ -581,14 +511,7 @@ defmodule CartularyWeb.ConsoleLive.KnowledgeDetail do
   defp ancestor?("/", _path), do: true
   defp ancestor?(candidate, path), do: String.starts_with?(path, candidate <> "/")
 
-  # Runs one operation-layer call and turns its outcome into a flash.
-  #
-  # The rescued cases are all ordinary: a hand-typed merge target that names
-  # nothing, a blank replacement statement, or an authority the operation layer
-  # declined. Letting those crash the socket would drop the reader back to a
-  # remounted page with no explanation of what went wrong. The refusal message
-  # is deliberately the same for all of them, so a reader cannot use the error
-  # text to learn which ids exist.
+  # Keep refusal messages generic so operation errors cannot reveal ids.
   defp guard(socket, success_message, fun) do
     actor = socket.assigns.current_actor
     id = socket.assigns.detail.item.id

@@ -2,60 +2,20 @@
 
 defmodule Cartulary.Memory do
   @moduledoc """
-  The entry point every caller uses to read and write Cartulary memory.
+  Account-scoped facade for ingest, extraction, retrieval, context, and skill
+  readiness. HTTP, MCP, evaluation, and jobs use it instead of resources.
 
-  Everything outside the domain — the HTTP controllers, the agent tool layer,
-  the evaluation harness, and the background extraction job — goes through this
-  module instead of touching Ash resources directly. It turns loosely typed,
-  string-keyed input into Account-scoped Ash work, and shapes results back into
-  plain string-keyed maps that serialize straight to JSON.
+  Authenticated calls derive Account from the actor. `account_key` and
+  `account_id` are internal-only job/evaluation inputs. Callers submit raw
+  observations; only the pipeline creates `proposed` knowledge through Ash.
 
-  ## What it offers
+  Message and knowledge responses expose only public resource attributes, so
+  making an attribute public also changes the API. Traces contain identifiers,
+  counts, lengths, and profile names—never messages, questions, answers, or
+  statements.
 
-  - `ingest_message/2` — accept one raw observation, persist it, and by default
-    run extraction inline so the caller immediately sees the new knowledge.
-  - `extract_message/2` and `extract_message_for_account/2` — run the
-    extraction pipeline over an already-persisted raw message.
-  - `query_knowledge/2` — unranked listing of governed knowledge in a scope.
-  - `search/2` — multi-strategy retrieval over knowledge and documents.
-  - `ask/2` — retrieval plus a grounded, citation-checked answer.
-  - `get_context/2` — reasoning-free assembly of cached context projections.
-  - `check_readiness/2` — pre-flight check of a skill's procedural memory.
-
-  ## Invariants this module upholds
-
-  **The Account is derived, never requested.** Every entry point opens an
-  Account-scoped transaction from the caller's authenticated actor. The
-  alternative `"account_key"` and `"account_id"` shapes exist only for internal
-  callers that already know which Account they run in (background jobs and the
-  evaluation harness). A request cannot reach them: the controllers always pass
-  an actor, and the actor clause matches only a real `Cartulary.Actor` struct,
-  which decoded JSON can never produce.
-
-  **Callers submit observations; only the pipeline writes knowledge.** No
-  function here stores a statement supplied by a caller. Knowledge rows are
-  created by the extraction path, under an internal pipeline actor, and always
-  enter the `proposed` state so the governance gate decides whether they ever
-  become visible.
-
-  **Ash records leave only through the resource's public attribute list.** The
-  message and knowledge maps returned here are built from that list, so internal
-  columns such as the Account id and content hashes never leave. Marking a new
-  resource attribute public therefore also publishes it on the API, in the same
-  commit. Retrieval and context payloads are shaped by their own modules and are
-  not covered by this rule.
-
-  **Tracing stays content-safe.** The spans opened here record ids, counts,
-  lengths, profile names, and booleans. Message text, question text, answers,
-  and statements must never be added as span attributes.
-
-  ## Mistakes to avoid
-
-  Do not add a durable write that bypasses an Ash action. Do not let raw
-  retrieval strategy overrides reach a caller that is not internal. Do not
-  reuse an authenticated actor across scope creation without re-resolving its
-  role grants: the actor's authorized scope list is a snapshot taken when the
-  credential was verified, and a scope created during the request is not in it.
+  After creating a scope, re-resolve the actor's grants before scoped writes;
+  its authorized-scope set is a snapshot. Keep raw strategy overrides internal.
   """
 
   alias Cartulary.Accounts.Peer

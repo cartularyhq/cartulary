@@ -2,37 +2,11 @@
 
 defmodule Cartulary.Eval.ModelJudge do
   @moduledoc """
-  Optional live-model grader for evaluation answers, held to an independence rule.
+  Optional live-model grader for evaluation answers.
 
-  The deterministic lexical scores are the reproducible baseline and always run. This
-  module adds a second opinion from an actual model: it grades an answer for groundedness
-  in its retrieved context, for whether that context was relevant to the question, and for
-  whether the answer addresses the question.
-
-  ## Independence is enforced, not advised
-
-  The reasoning role grades answers that the answering role produced. If those two roles
-  resolve to the same provider and model, this refuses to run at all — the check runs again
-  on every graded question, not once per run. A model grading its own output measures its
-  self-consistency, not the system's quality, and a number produced that way would look
-  like evidence while being worthless. Independence is judged on provider and model
-  together, so one provider serving two genuinely different models is allowed.
-
-  ## Fail loud, never degrade
-
-  A provider error, a missing score, or a score that is not an integer on the 1-to-5 scale
-  raises. There is no default value and no fallback path, because a fabricated judge
-  number does not merely lower a report — it corrupts it. Callers that want a run to
-  survive a flaky provider should use the deterministic judge instead.
-
-  ## Output and content safety
-
-  It contributes only `model_`-prefixed keys, so merging its output over the deterministic
-  scores cannot displace a reproducible measurement, and its identity is recorded in every
-  report it touches.
-
-  Judging sends the question, the retrieved context, and the answer to the configured
-  provider. Only point it at fixtures whose content is safe to transmit.
+  The judge must be independent from the model role that produced the answer and is never part of
+  deterministic release guardrails. Results record judge identity and fail explicitly when live
+  judging is unavailable.
   """
 
   alias Cartulary.Model.{Config, Gateway}
