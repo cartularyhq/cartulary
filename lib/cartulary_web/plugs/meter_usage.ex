@@ -47,6 +47,11 @@ defmodule CartularyWeb.Plugs.MeterUsage do
   # The ingest budget keys on this exact operation identity.
   defp operation(%{method: "POST", request_path: "/api/v1/ingest"}), do: "api.ingest"
 
+  # Status paths end in a message id, so use a bounded operation name rather
+  # than recording one durable usage identity per observation.
+  defp operation(%{method: "GET", path_info: ["api", "v1", "ingest", _message_id]}),
+    do: "api.ingest_status"
+
   # Last-segment names bound cardinality and exclude record ids from durable usage.
   defp operation(%{request_path: path}),
     do: "api." <> (path |> Path.basename() |> String.downcase())

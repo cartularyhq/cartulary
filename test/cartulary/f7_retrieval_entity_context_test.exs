@@ -835,7 +835,9 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
                "content" => statement
              })
 
-    knowledge_id = message["knowledge"] |> hd() |> Map.fetch!("id")
+    assert {:ok, [knowledge]} = Memory.extract_message(message["id"], account_key)
+
+    knowledge_id = Map.fetch!(knowledge, "id")
 
     DataLayer.with_account_key(account_key, fn account, actor ->
       scope =

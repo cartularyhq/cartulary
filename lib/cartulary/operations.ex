@@ -203,6 +203,18 @@ defmodule Cartulary.Operations.PipelineRun do
       prepare Cartulary.Pipeline.Preparations.DeclareAccount
     end
 
+    # A caller may inspect only the extraction run for a message whose scope it
+    # can already read. This keeps queue enumeration operator-only while making
+    # an accepted asynchronous ingest observable to its submitter.
+    read :ingest_status do
+      argument :message_id, :uuid, allow_nil?: false
+
+      filter expr(
+               kind == "extraction" and target_type == "message" and
+                 target_id == ^arg(:message_id)
+             )
+    end
+
     # One enqueue action per lane. They are identical apart from the lane name
     # they stamp and the trigger they fire, and each one follows the same
     # pattern: upsert on the deterministic replay key, rewrite nothing but that
@@ -366,9 +378,13 @@ defmodule Cartulary.Operations.PipelineRun do
 
     # Reading queue state is an operator or internal capability; ordinary
     # members and readers cannot enumerate what an Account is processing.
-    policy action_type(:read) do
+    policy action([:read, :for_trigger]) do
       authorize_if {Cartulary.Policy.RoleIn, roles: [:account_admin, :system]}
       authorize_if actor_attribute_equals(:pipeline?, true)
+    end
+
+    policy action(:ingest_status) do
+      authorize_if {Cartulary.Policy.ScopeAccess, attribute: :scope_id}
     end
   end
 

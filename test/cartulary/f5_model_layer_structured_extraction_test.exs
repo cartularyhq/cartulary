@@ -379,8 +379,8 @@ defmodule Cartulary.F5ModelLayerStructuredExtractionTest do
 
     assert account_setting!() == account_id
 
-    # Seeding used `sync_extract: false`, so the emitted row is the only extractor-role call
-    # in this Account.
+    # Seeding does not invoke a model, so the emitted row is the only extractor-role call in
+    # this Account.
     assert scalar!(
              """
              SELECT count(*) FROM usage_events
@@ -390,9 +390,9 @@ defmodule Cartulary.F5ModelLayerStructuredExtractionTest do
            ) == 1
   end
 
-  # Creates the account, scope, peer, session, and raw message in one call. `sync_extract`
-  # is false so the message lands durably without running extraction, letting each test arm
-  # its own recorded provider script before the model is ever consulted.
+  # Creates the account, scope, peer, session, and raw message in one call. The message lands
+  # durably without running extraction, letting each test arm its own recorded provider script
+  # before the model is ever consulted.
   defp seed_raw!(account_key, peer_key, content) do
     assert {:ok, message} =
              Memory.ingest_message(%{
@@ -401,8 +401,7 @@ defmodule Cartulary.F5ModelLayerStructuredExtractionTest do
                "scope_path" => "/f5/#{account_key}",
                "peer_key" => peer_key,
                "role" => "user",
-               "content" => content,
-               "sync_extract" => false
+               "content" => content
              })
 
     message
