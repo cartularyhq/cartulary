@@ -133,6 +133,33 @@ defmodule Cartulary.F7RetrievalEntityContextTest.VanishingProvider do
   def rerank(_config, _query, _documents, _opts), do: {:error, :not_supported}
 end
 
+defmodule Cartulary.F7RetrievalEntityContextTest.UnavailableEmbedderProvider do
+  @moduledoc """
+  Provider whose embedder is down and whose other capabilities are not.
+
+  Used to prove that a failed embedding call degrades one strategy and is
+  reported, rather than passing as a query that legitimately matched nothing.
+  """
+
+  @behaviour Cartulary.Model.Provider
+
+  alias Cartulary.Model.Providers.Deterministic
+
+  @impl true
+  def structured(config, messages, schema, opts),
+    do: Deterministic.structured(config, messages, schema, opts)
+
+  @impl true
+  def chat(config, messages, opts), do: Deterministic.chat(config, messages, opts)
+
+  @impl true
+  def embed(_config, _texts, _opts), do: {:error, :embedder_unavailable}
+
+  @impl true
+  def rerank(config, query, documents, opts),
+    do: Deterministic.rerank(config, query, documents, opts)
+end
+
 defmodule Cartulary.F7RetrievalEntityContextTest do
   @moduledoc """
   Pins retrieval, private entity caches, and reasoning-free context assembly.
@@ -803,6 +830,107 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     assert dirty["fast_fallback"] == true
   end
 
+  test "index coverage separates an unindexed scope from an empty one and reports the identity" do
+    seeded = seed_active!("f7-coverage", "/f7/coverage", "Avery tracks the release checklist.")
+
+    # The scope holds a governed statement and no vectors — exactly the state a cancelled
+    # projection refresh leaves behind, and the state that was previously unobservable.
+    before = Cartulary.Retrieval.index_coverage(seeded.account.id, [seeded.scope.id])
+
+    assert %{
+             statement_count: 1,
+             embedded_count: 0,
+             mention_count: 0,
+             coverage: +0.0,
+             embedding_identities: []
+           } = Map.fetch!(before, seeded.scope.id)
+
+    # A scope that was never written to reads as zeros rather than as an absent key, and
+    # counts as covered: there is nothing to index, so an alert on the ratio must not fire.
+    empty_scope_id = Ecto.UUID.generate()
+    empty = Cartulary.Retrieval.index_coverage(seeded.account.id, [empty_scope_id])
+
+    assert %{statement_count: 0, embedded_count: 0, coverage: 1.0} =
+             Map.fetch!(empty, empty_scope_id)
+
+    events = attach_projection_refresh_telemetry!()
+
+    assert {:ok, %{index: %{indexed: 1}}} =
+             Cartulary.Retrieval.rebuild_scope(seeded.account.id, seeded.scope.id)
+
+    after_rebuild = Cartulary.Retrieval.index_coverage(seeded.account.id, [seeded.scope.id])
+    coverage = Map.fetch!(after_rebuild, seeded.scope.id)
+
+    assert coverage.statement_count == 1
+    assert coverage.embedded_count == 1
+    assert coverage.coverage == 1.0
+    # Mentions are reported as a count. Naming the entity, its aliases, or the matched surface
+    # form here would create a second, ungoverned view of who an Account knows about.
+    assert coverage.mention_count >= 1
+
+    assert Map.keys(coverage) |> Enum.sort() == [
+             :coverage,
+             :embedded_count,
+             :embedding_identities,
+             :mention_count,
+             :statement_count
+           ]
+
+    # The identity is what decides whether stored vectors are comparable at all; two of them
+    # in one scope means part of it needs re-embedding.
+    assert [%{provider: "fixture", model: "f7-fixture", version: "1", dimensions: 3}] =
+             coverage.embedding_identities
+
+    assert_receive {^events, measurements, metadata}
+    assert measurements.indexed == 1
+    assert measurements.statements == 1
+    assert measurements.embedded == 1
+    assert measurements.coverage == 1.0
+    assert metadata.scope_id == seeded.scope.id
+    assert metadata.account_id == seeded.account.id
+  end
+
+  test "an unavailable embedder drops the semantic strategy instead of reporting no matches" do
+    seeded = seed_active!("f7-drop", "/f7/drop", "Avery reviews the release checklist.")
+
+    assert {:ok, %{indexed: 1}} = Indexer.rebuild_scope(seeded.account.id, seeded.scope.id)
+
+    original_provider = Application.get_env(:cartulary, :model_provider)
+
+    on_exit(fn ->
+      if original_provider do
+        Application.put_env(:cartulary, :model_provider, original_provider)
+      else
+        Application.delete_env(:cartulary, :model_provider)
+      end
+    end)
+
+    Application.put_env(
+      :cartulary,
+      :model_provider,
+      Cartulary.F7RetrievalEntityContextTest.UnavailableEmbedderProvider
+    )
+
+    result =
+      Memory.search(%{
+        "account_key" => "f7-drop",
+        "scope_path" => seeded.scope.path,
+        "query" => "release checklist",
+        "strategies" => ["semantic", "lexical"],
+        "deadline" => "disabled"
+      })
+
+    # Semantic never ran, so it is degradation and must be reported as such. Counting it as a
+    # contributing strategy that happened to find nothing is what makes an unindexed corpus
+    # and a broken embedder indistinguishable from a genuinely unmatched query.
+    assert "semantic" in result["dropped_strategies"]
+    refute "semantic" in result["contributed_strategies"]
+    # The request still answers from the strategies that did run.
+    assert "lexical" in result["contributed_strategies"]
+    assert [%{"id" => id} | _] = result["candidates"]
+    assert id == seeded.knowledge.id
+  end
+
   # The index names below are frozen: they are what the hand-written migration DDL created,
   # and the query planner will not use an index that has been renamed or dropped. A missing
   # index does not fail any other test — retrieval still returns correct results, just by
@@ -1027,6 +1155,28 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     |> Ash.Changeset.set_tenant(account_id)
     |> Ash.Changeset.for_create(action, attrs)
     |> Ash.create!(actor: actor)
+  end
+
+  # Forwards the projection-refresh event to the test process and returns the handler id used
+  # as the message tag, so an assertion can prove the event fired with the counts an operator
+  # would alert on.
+  defp attach_projection_refresh_telemetry! do
+    handler_id = {__MODULE__, :projection_refresh, System.unique_integer()}
+    test_process = self()
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        [:cartulary, :retrieval, :projection_refresh],
+        fn _event, measurements, metadata, _config ->
+          send(test_process, {handler_id, measurements, metadata})
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    handler_id
   end
 
   # One-column, one-row raw query, for asserting on tables no Ash action reads back — the

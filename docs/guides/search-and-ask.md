@@ -48,8 +48,11 @@ curl -fsS -X POST http://127.0.0.1:4000/api/v1/search \
 - `candidates` is **already in the right order.** Do not re-sort by a
   per-strategy score: those scores live in different spaces and comparing them
   degrades results.
-- `dropped_strategies` lists strategies that missed the deadline. Frequent
-  drops mean the profile's budget is too tight for your data size.
+- `dropped_strategies` lists strategies that did not run: they missed the
+  deadline, or a dependency was unavailable — `semantic` appears here when the
+  embedder failed. Frequent deadline drops mean the profile's budget is too
+  tight for your data size. A strategy that ran and matched nothing is *not*
+  listed; it stays in `contributed_strategies`.
 - Account, scope authorisation, and lifecycle filtering already happened inside
   retrieval. You do not need to post-filter.
 

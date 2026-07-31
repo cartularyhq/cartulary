@@ -159,6 +159,12 @@ Details: `specs/architecture/documents-connectors-sync.md`.
 - Entity and EntityMention rows are internal rebuildable caches. They are never
   exposed through HTTP, MCP, SDK, LiveView, projections, or retrieval
   responses.
+- Per-scope index coverage is readable and reported: statement, embedded, and
+  mention counts plus embedding identities, on `/console/scopes` and as a
+  telemetry event on every completed projection refresh. Those indexes are
+  eventually consistent, so a refresh that never ran leaves a scope with
+  statements and no vectors; coverage is what makes that state observable.
+  Re-enqueuing a stale scope's refresh is still manual.
 - Incremental peer profile, scope card, and session summary projections with
   dirty marking, bounded delta compaction, and PubSub-backed ETS invalidation.
 - `get_context` assembles its budget from clean projections and stays
