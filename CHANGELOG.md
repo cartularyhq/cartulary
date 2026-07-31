@@ -11,6 +11,25 @@ changelog entry and contract-version transition.
 
 ### Fixed
 
+- Every authenticated API request returned `500 Internal Server Error` once the
+  database role became one that row-level security actually applies to.
+  `Cartulary.Operations.Metering.record_api/2` writes the edge usage-ledger row
+  from `CartularyWeb.Plugs.MeterUsage`'s before-send callback, which runs after
+  the request's own transactions have already ended, and it wrote that row with
+  no Account declared to the database at all. The ledger's Account policy
+  compares each new row against the transaction-local Account setting, so with
+  none installed the insert was refused with `42501 insufficient_privilege` and
+  the response the controller had already produced was replaced by a `500` —
+  `/api/v1/ingest`, `/api/v1/search`, and every other metered route alike. The
+  same omission on the read side made `Cartulary.Operations.Metering.summary/1`
+  fail silently instead: `GET /api/v1/costs` and the console's overview and
+  operations pages reported an Account with real recorded spend as having
+  consumed nothing, because the policy filtered the whole ledger away rather
+  than raising. Both entry points now open their own
+  `Cartulary.DataLayer.in_account_transaction/2`, which is also what keeps the
+  ledger row independent of whether the request's own work committed. No route,
+  parameter, response field, or contract identity changes; the `f10-1` stamp on
+  edge rows is unchanged.
 - The two background rebuild lanes left out of the previous fix now follow the
   same rule: `Cartulary.Retrieval.Indexer.rebuild_scope/2` and
   `Cartulary.Retrieval.EntityResolver.rebuild_scope/2` no longer hold an

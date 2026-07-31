@@ -60,6 +60,7 @@ defmodule Cartulary.F10PortabilityPackagingOperationsTest do
   alias Cartulary.Portability
   alias Cartulary.Portability.AuditVerifier
   alias Cartulary.Portability.Registry
+  alias Cartulary.Repo
 
   test "logical export is self-describing, checksum verified, and excludes secrets and caches" do
     # Unique account key per run so a leftover archive or account from an earlier run cannot
@@ -210,6 +211,46 @@ defmodule Cartulary.F10PortabilityPackagingOperationsTest do
     assert summary.estimated_model_cost == 0.0
   end
 
+  test "metering declares its own Account, so the database wall admits the ledger write" do
+    account_key = "f10-metering-wall-#{System.unique_integer([:positive])}"
+
+    {_account, actor} =
+      DataLayer.with_account_key(
+        account_key,
+        [role: :account_admin, pipeline?: true],
+        fn account, actor -> {account, actor} end
+      )
+
+    # Metering runs from a before-send callback and from an operator page, both of which
+    # execute after every transaction the request opened has already ended. In production
+    # each therefore starts on a pooled connection with no Account declared on it at all,
+    # and the row-level-security policies compare every row against that declaration.
+    #
+    # Under the SQL sandbox the seeding above leaves its Account settings installed for the
+    # rest of this test, which would hide exactly that condition. Clearing them is what
+    # reproduces the connection state metering actually meets.
+    clear_account_declaration!()
+
+    # Without its own Account-scoped transaction this write is refused outright: the policy's
+    # check clause compares the new row's account against an undeclared setting, which is
+    # never equal, and PostgreSQL rejects the insert.
+    assert :ok =
+             Metering.record_api(actor, %{
+               operation: "api.search",
+               http_status: 200,
+               status: "ok"
+             })
+
+    clear_account_declaration!()
+
+    # The read side carries the same requirement and fails far more quietly: with no Account
+    # declared the policy filters every row away, so an operator is told the Account consumed
+    # nothing instead of being told the question could not be answered.
+    summary = Metering.summary(actor)
+    assert summary.event_count == 1
+    assert summary.api_requests == 1
+  end
+
   test "production JSON logs redact credentials and drop unreviewed metadata" do
     # A deliberately hostile log line: three credential shapes in the message, and a metadata
     # key holding user content. Logs are shipped off-box and retained, so anything that
@@ -312,6 +353,14 @@ defmodule Cartulary.F10PortabilityPackagingOperationsTest do
       occurred_at: event["occurred_at"],
       previous_hash: event["previous_hash"]
     })
+  end
+
+  # Puts this connection back into the state a freshly checked-out one is in: no Account
+  # declared, so every row-level-security policy on a tenant table denies until a caller
+  # declares one. The settings are transaction-local, so this only affects the running test.
+  defp clear_account_declaration! do
+    Ecto.Adapters.SQL.query!(Repo, "SELECT set_config('cartulary.account_id', '', true)", [])
+    Ecto.Adapters.SQL.query!(Repo, "SELECT set_config('cartulary.account_key', '', true)", [])
   end
 
   # Unique path per call so concurrent or repeated runs never share an archive file. The

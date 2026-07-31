@@ -26,6 +26,19 @@ defmodule Cartulary.Operations.Metering do
   contribute zero. It is a visibility aid for self-hosters and must never be
   presented as an authoritative invoice.
 
+  ## Every database touch here opens its own Account-scoped transaction
+
+  Nothing in this module runs inside a transaction its caller opened. Edge
+  metering happens in a before-send callback, after the controller's own
+  transactions have already committed; the summary is rendered by an operator
+  page or a plain controller action that never opens one. Both therefore start
+  on a pooled connection with no Account declared on it, and the row-level
+  security policies on the usage table compare every row — read or written —
+  against that declaration. Writing without one is refused outright; reading
+  without one silently returns nothing, which would report an active Account as
+  having consumed zero. So each entry point below wraps its own database work in
+  the Account-scoped transaction helper, and a new one must do the same.
+
   ## Content safety
 
   Everything written or returned here is identifiers, counts, timings, model
@@ -37,6 +50,7 @@ defmodule Cartulary.Operations.Metering do
 
   alias Cartulary.Actor
   alias Cartulary.Clock
+  alias Cartulary.DataLayer
   alias Cartulary.Operations.BudgetCounter
   alias Cartulary.Operations.UsageEvent
   alias Cartulary.Repo
@@ -71,32 +85,41 @@ defmodule Cartulary.Operations.Metering do
     operation = Map.fetch!(attrs, :operation)
     scope_id = Map.get(attrs, :scope_id)
 
-    UsageEvent
-    |> Ash.Changeset.new()
-    |> Ash.Changeset.set_tenant(actor.account_id)
-    |> Ash.Changeset.for_create(:record, %{
-      call_id: Ecto.UUID.generate(),
-      scope_id: scope_id,
-      peer_id: actor.peer_id,
-      operation: operation,
-      model_role: "edge",
-      provider: "none",
-      model_name: "none",
-      model_version: "none",
-      prompt_version: "none",
-      pipeline_version: "f10-1",
-      status: Map.get(attrs, :status, "ok"),
-      metadata: %{
-        "http_status" => Map.get(attrs, :http_status),
-        "request_count" => 1,
-        "ingest_count" => if(operation == "api.ingest", do: 1, else: 0)
-      },
-      occurred_at: Clock.utc_now()
-    })
-    # The caller's own role must not decide whether its usage is recorded, so
-    # the write is escalated to the internal writer that the ledger's create
-    # policy admits. The Account is still the caller's.
-    |> Ash.create!(actor: %{actor | role: :system, pipeline?: true})
+    # The write needs its own Account-scoped transaction. This runs from a
+    # before-send callback, so the request's own transactions have already ended
+    # and the connection it lands on has no Account declared: the row-level
+    # security policy on the ledger compares the new row against that
+    # declaration and refuses the insert without one. Opening the transaction
+    # here is also what keeps the ledger row independent of the request's
+    # outcome — a request that rolled its own work back still consumed capacity.
+    DataLayer.in_account_transaction(actor.account_id, fn ->
+      UsageEvent
+      |> Ash.Changeset.new()
+      |> Ash.Changeset.set_tenant(actor.account_id)
+      |> Ash.Changeset.for_create(:record, %{
+        call_id: Ecto.UUID.generate(),
+        scope_id: scope_id,
+        peer_id: actor.peer_id,
+        operation: operation,
+        model_role: "edge",
+        provider: "none",
+        model_name: "none",
+        model_version: "none",
+        prompt_version: "none",
+        pipeline_version: "f10-1",
+        status: Map.get(attrs, :status, "ok"),
+        metadata: %{
+          "http_status" => Map.get(attrs, :http_status),
+          "request_count" => 1,
+          "ingest_count" => if(operation == "api.ingest", do: 1, else: 0)
+        },
+        occurred_at: Clock.utc_now()
+      })
+      # The caller's own role must not decide whether its usage is recorded, so
+      # the write is escalated to the internal writer that the ledger's create
+      # policy admits. The Account is still the caller's.
+      |> Ash.create!(actor: %{actor | role: :system, pipeline?: true})
+    end)
 
     # Counters follow the durable write, never precede it.
     BudgetCounter.increment(actor.account_id, scope_id, :api_requests, 1)
@@ -141,27 +164,35 @@ defmodule Cartulary.Operations.Metering do
   Raises if the actor may not read the ledger.
   """
   def summary(%Actor{} = actor) do
-    events =
-      UsageEvent
-      |> Ash.Query.set_tenant(actor.account_id)
-      |> Ash.read!(actor: actor)
+    # Both reads happen inside one Account-scoped transaction. Callers — an
+    # operator page and a controller action — hold no transaction of their own,
+    # so without this the connection has no Account declared and the row-level
+    # security policies filter every row away. That failure is silent: the
+    # summary would report an Account with real spend as having consumed
+    # nothing, which is worse than refusing to answer.
+    DataLayer.in_account_transaction(actor.account_id, fn ->
+      events =
+        UsageEvent
+        |> Ash.Query.set_tenant(actor.account_id)
+        |> Ash.read!(actor: actor)
 
-    by_role =
-      events
-      |> Enum.group_by(& &1.model_role)
-      |> Map.new(fn {role, role_events} -> {role, token_totals(role_events)} end)
+      by_role =
+        events
+        |> Enum.group_by(& &1.model_role)
+        |> Map.new(fn {role, role_events} -> {role, token_totals(role_events)} end)
 
-    %{
-      account_id: actor.account_id,
-      event_count: length(events),
-      api_requests: metadata_sum(events, "request_count"),
-      ingests: metadata_sum(events, "ingest_count"),
-      tokens: token_totals(events),
-      tokens_by_role: by_role,
-      logical_storage_bytes: logical_storage_bytes(actor.account_id),
-      estimated_model_cost: estimated_cost(by_role),
-      currency: "USD"
-    }
+      %{
+        account_id: actor.account_id,
+        event_count: length(events),
+        api_requests: metadata_sum(events, "request_count"),
+        ingests: metadata_sum(events, "ingest_count"),
+        tokens: token_totals(events),
+        tokens_by_role: by_role,
+        logical_storage_bytes: logical_storage_bytes(actor.account_id),
+        estimated_model_cost: estimated_cost(by_role),
+        currency: "USD"
+      }
+    end)
   end
 
   defp token_totals(events) do
@@ -194,7 +225,11 @@ defmodule Cartulary.Operations.Metering do
   # excluded on purpose, so the number reflects what an export would carry.
   #
   # A failed query yields zero rather than raising: storage size is an
-  # informational field and must not take down the whole summary.
+  # informational field and must not take down the whole summary. That
+  # forgiveness is why this must stay inside the summary's Account-scoped
+  # transaction: run with no Account declared, the row-level security policies
+  # on all three tables filter every row away and the honest-looking zero it
+  # returns would be indistinguishable from an empty Account.
   # sobelow_skip ["SQL.Query"]
   defp logical_storage_bytes(account_id) do
     sql = """

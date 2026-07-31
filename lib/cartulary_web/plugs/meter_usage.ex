@@ -23,6 +23,12 @@ defmodule CartularyWeb.Plugs.MeterUsage do
   `error`; everything below it is `ok`, so a client error counts as ordinary
   consumed usage rather than as a server fault.
 
+  The consequence to remember is that by the time this callback runs, every
+  transaction the request opened has ended, so the connection it lands on has no
+  Account declared to the database. The metering module opens its own
+  Account-scoped transaction for exactly that reason; do not assume here that
+  any database context survives from the controller.
+
   ## Content safety is mandatory
 
   Only three things travel from the request into the ledger entry: a coarse
