@@ -2,48 +2,11 @@
 
 defmodule Cartulary.ReleaseReadiness do
   @moduledoc """
-  Decides whether the working tree is actually releasable, and refuses by
-  default.
+  Validates whether a revision can be released.
 
-  A release is a claim about a specific version: that this code, this
-  changelog entry, this tag, and this recorded evaluation evidence all describe
-  the same thing. This module reads the repository as data and verifies that
-  claim. Every check is fail-closed — anything it cannot confirm raises, and
-  there is no warning or partial-pass outcome, because a release check that
-  only warns is one nobody reads.
-
-  ## What it verifies
-
-    * The project file declares a literal `version:` string and it parses as
-      Semantic Versioning.
-    * The changelog still carries an Unreleased section, a dated entry for
-      exactly that version, and the anchor-evidence marker the changelog format
-      requires.
-    * Every document a releaser reads still describes the release-readiness
-      gate under a recognisable name, so a rename cannot quietly orphan it.
-    * A supplied tag is exactly `v` followed by the declared version.
-    * Supplied evaluation evidence is provenance-valid, was produced by this
-      same application version, and still clears the committed metric floors.
-
-  ## Why stale evaluation evidence is rejected outright
-
-  A report naming an older application version is the most dangerous input
-  here: it looks like evidence, it passes every threshold, and it measures code
-  that is not being shipped. Version equality is checked before thresholds for
-  that reason.
-
-  ## Guardrails versus ablations
-
-  Only runs the release matrix marks as guardrails are re-asserted against the
-  committed floors. Exploratory variants in the same suite are informational
-  and must not be able to block or rescue a release.
-
-  ## Files read as data
-
-  The version comes from `mix.exs` and the changelog from `CHANGELOG.md`. The
-  release matrix and the committed metric floors are read from
-  `specs/eval/release-suite.json` and `specs/eval/deterministic-thresholds.json`.
-  Those are inputs this module parses, not background reading.
+  It checks semantic version, tag and changelog alignment, clean provenance, required evaluation
+  identity and deterministic floors, and expected surface evidence. Missing or malformed evidence
+  fails closed; frontier metrics remain informational unless deliberately promoted to gates.
   """
 
   alias Cartulary.Eval.Report

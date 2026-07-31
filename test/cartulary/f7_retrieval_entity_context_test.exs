@@ -2,24 +2,12 @@
 
 defmodule Cartulary.F7RetrievalEntityContextTest.Provider do
   @moduledoc """
-  Call-recording model provider that makes "did retrieval invoke a model?" assertable.
+  Deterministic, call-recording provider for retrieval tests.
 
-  Two jobs. First, it delegates to the built-in deterministic adapter for structured
-  generation, chat, and reranking, so the retrieval suite gets reproducible behaviour with
-  no network. Second — and this is the reason it exists rather than using the deterministic
-  adapter directly — it records every capability call in an `Agent`, so a test can assert
-  that assembling a cached context made *no* model call at all. Ordinary context assembly
-  must be reasoning-free: if it started calling a reasoner, latency and cost would change
-  by orders of magnitude and nothing else would fail.
-
-  Embeddings are hand-built rather than delegated so that similarity is legible: dimension
-  one flags the substring "avery", dimension two flags "release", and dimension three is
-  character count divided by 100 and capped at 1.0. That gives a corpus where a human can
-  predict which statement wins a semantic search, which is what makes the fusion assertions
-  meaningful.
-
-  The recorder is a named `Agent`, so the suite is `async: false`. Call `reset!/0`
-  immediately before the window you want to measure, then read `calls/0`.
+  Structured generation, chat, and rerank delegate offline; embeddings use two
+  keyword flags plus normalized text length so semantic order is predictable.
+  A named Agent records calls, allowing context tests to prove the cached path
+  is model-free. The singleton recorder requires synchronous tests.
   """
 
   @behaviour Cartulary.Model.Provider
@@ -39,9 +27,7 @@ defmodule Cartulary.F7RetrievalEntityContextTest.Provider do
     Deterministic.chat(config, messages, opts)
   end
 
-  # Three interpretable dimensions instead of a real embedding: two keyword flags and a
-  # length signal. Not delegated to the deterministic adapter because these tests need to
-  # reason about which document is nearest.
+  # Interpretable dimensions make nearest-neighbor expectations explicit.
   @impl true
   def embed(_config, texts, _opts) do
     record(:embed)
@@ -92,27 +78,13 @@ end
 
 defmodule Cartulary.F7RetrievalEntityContextTest.VanishingProvider do
   @moduledoc """
-  Test model provider that deletes a row as a side effect of answering, so the write phase
-  that follows either capability fails.
+  Failure-injection provider for rebuild transaction boundaries.
 
-  This is the only way to observe, from inside the SQL sandbox, whether a rebuild lane's
-  embedding and reasoning calls share a transaction with the write that follows them. Every
-  test already runs inside one sandbox transaction, so `Repo.in_transaction?/0` proves
-  nothing; what is observable is whether the usage row a call produces survives the write
-  phase's failure. It survives only if the two were written in separate transactions.
-
-  `embed/3` deletes the `knowledge_items` row whose statement exactly matches an embedded
-  text — a no-op unless the caller is `Indexer.rebuild_scope/2` embedding the scope's own
-  statements, which is the only place a full statement is ever embedded. `structured/4`
-  deletes the `entities` row named on the right-hand side of the adjudication prompt, which
-  is exactly the entity `EntityResolver.rebuild_scope/2` is about to fold a surface form
-  into. Both deletes are raw SQL because they run mid-call, from the provider, with no actor
-  and no Ash action available, and they rely on the Account's row-level-security setting
-  still being installed on the sandbox connection from the read phase.
-
-  Only the capability each test actually exercises is meaningful; `chat/3` and `rerank/4`
-  return an error so a test that reaches them fails loudly instead of receiving a fabricated
-  answer.
+  Embed deletes the knowledge row due for indexing; structured generation
+  deletes the entity due for folding. The subsequent write must fail while the
+  separately committed usage event survives. Raw SQL performs the mid-provider
+  deletion under the sandbox's Account RLS setting. Unused chat and rerank calls
+  fail explicitly.
   """
 
   @behaviour Cartulary.Model.Provider
@@ -147,11 +119,7 @@ defmodule Cartulary.F7RetrievalEntityContextTest.VanishingProvider do
       ])
     end)
 
-    # A hand-picked pair rather than a real embedding: "Oryon" carries a vector at exactly
-    # cosine 0.8 from "Orion" — inside the ambiguous band the resolver hands to the
-    # reasoning model — so the entity-resolver test reaches `structured/4` deterministically.
-    # Anything else, including the joined alias text a successful fold re-embeds, gets an
-    # arbitrary vector of the same width; its value is never asserted on.
+    # Cosine 0.8 puts Oryon in the resolver's ambiguous adjudication band.
     vectors =
       Enum.map(texts, fn
         "Oryon" -> [0.8, 0.6, 0.0]
@@ -167,60 +135,18 @@ end
 
 defmodule Cartulary.F7RetrievalEntityContextTest do
   @moduledoc """
-  Pins the retrieval boundary, the internal-only entity cache, and context assembly.
+  Pins retrieval, private entity caches, and reasoning-free context assembly.
 
-  Retrieval is a set of independent strategies whose results are merged; context assembly
-  is a reasoning-free projection of already-governed knowledge. This file is the regression
-  floor for both, and for the security properties that ride on them.
+  The suite protects strategy contracts, rank fusion, in-query authorization,
+  entity invisibility, nearest-wins versioned profiles, internal-only raw
+  strategy selection, enforced/reported deadlines, model-free cached context,
+  and authorization at both cross-scope endpoints. Account/scope leakage or
+  public entity data is a security failure.
 
-  ## What it pins
-
-  * **Every strategy satisfies the same small contract** (name, cost class, seed-or-expand
-    stage, applicability test), so strategies can be enabled, disabled, and combined by
-    configuration rather than by code changes.
-  * **Scores from different strategies are never compared directly.** Vector similarity,
-    full-text rank, recency, salience, and mention confidence are incommensurable numbers.
-    Results are merged by *rank* within each strategy, so a strategy that happens to emit
-    large scores cannot dominate the ranking.
-  * **Authorization runs inside retrieval, not after it.** Account, authorized scope,
-    lifecycle state, and source filters are applied before candidates leave retrieval
-    internals — a caller cannot receive rows it should not see and then filter them.
-  * **Entity resolution is a private cache.** Entities and their mentions exist to widen
-    recall. Canonical names, aliases, surface forms, and entity ids must not appear on any
-    HTTP route, in any response body, or as public resource attributes. An alias can *find*
-    a statement without ever being disclosed.
-  * **Profiles inherit nearest-wins down the scope tree.** A profile authored on a child
-    scope beats one on its parent, and the reported profile version includes a digest of
-    the effective strategies, weights, and rerank settings, so two runs that report the
-    same version really did use the same configuration.
-  * **Raw strategy lists are internal-only.** External callers pick a named profile;
-    letting them hand-pick strategies would make published results unreproducible.
-  * **Deadlines are enforced and reported.** A strategy that runs out of time is dropped,
-    not retried, and the response says which strategies contributed and which were dropped.
-    An empty result with a dropped strategy is an honest answer; a slow complete one is not.
-  * **Context assembly is model-free.** A cached projection is served from memory with zero
-    model calls; only a cache miss falls back to the cheapest retrieval profile.
-  * **Cross-scope links never grant access.** Following a relation into another scope
-    requires the caller to already be authorized for that scope.
-
-  ## The `f7-1` string
-
-  `f7-1` is the version identity of the retrieval and context profile contract, reported
-  in search, ask, and context responses. It is data: consumers pin it to know which
-  ranking behaviour produced a result. Changing it is a deliberate contract transition
-  requiring a changelog entry and updated evidence, so a failed assertion on that value
-  almost always means restore the behaviour rather than edit the expectation.
-
-  ## If this file fails
-
-  The two failures to treat as security incidents rather than test breakage are: a
-  candidate appearing for an account or scope the caller is not authorized for, and an
-  entity name, alias, or id leaking into a public surface. The rest are correctness
-  regressions — most commonly someone comparing raw strategy scores, or making the context
-  path call a model to "improve" the summary.
-
-  Runs `async: false`: it swaps node-global provider, model-role, and retrieval-profile
-  application environment, and reads a singleton call recorder.
+  `f7-1` identifies retrieval and context behavior in search, ask, and context
+  responses; changing it requires a changelog and updated evidence. The suite
+  runs synchronously because it changes node-global retrieval/model settings
+  and uses a singleton recorder.
   """
 
   use Cartulary.DataCase, async: false

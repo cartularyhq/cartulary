@@ -2,9 +2,8 @@
 
 # Isolation and access control
 
-Three questions decide whether a request may see a row: which Account it
-belongs to, which scopes the caller may read, and what lifecycle state the row
-is in. They are answered in that order, and the first is answered three times.
+Visibility depends on Account, authorized scopes, and lifecycle state, in that
+order.
 
 ## Account isolation is enforced three times
 
@@ -16,15 +15,10 @@ flowchart LR
     R --> DATA[(Rows)]
 ```
 
-Each layer would be sufficient on its own; all three are present because the
-cost of a tenancy bug is unbounded. With no Account set on the transaction, the
-row-level policy matches **no rows** — the failure mode is an empty result, not
-a leak.
+Without a transaction Account, row-level security returns **no rows**.
 
-**Account is derived from the credential, never from the request.** No route
-reads an Account from a header, a query parameter, or a JSON body. The legacy
-`x-cartulary-account-key` header and `account_key` body fields are inert:
-accepted and ignored, so an old client fails closed into its own Account.
+**Account comes from the credential, never request data.** Legacy
+`x-cartulary-account-key` and `account_key` values are accepted but ignored.
 
 ## Five kinds of caller
 
@@ -36,10 +30,8 @@ accepted and ignored, so an old client fails closed into its own Account.
 | Any human browser session | cookie session + CSRF + re-check on every mount | `/console/*` |
 | Human curator browser session | the same session, narrowed at mount to curator or account-admin | `/governance` |
 
-A browser session admits every human role, because reading the memory your
-grants reach is not privileged; the console pages decide what each role sees
-and may do. A machine credential cannot establish one at all — the sign-in
-forms accept only an email and password.
+Every human role may establish a browser session; pages enforce role-specific
+visibility and actions. Machines cannot establish a session.
 
 An agent API key gets a 403 on `/api/v1/self/*` even when it belongs to the
 same peer as a human token. Contesting, redacting, and erasing one's own
@@ -78,10 +70,8 @@ They can never reach approve, edit, reject, merge, defer, promotion, gate-rule
 administration, or bulk curator actions. Those exist only in the human browser
 console, which a machine credential cannot sign into.
 
-This is not a permissions convenience — it is the property that makes agent
-memory safe to share. An agent that is compromised or simply confused can
-record misleading *observations*, which are attributed to it and reviewable. It
-cannot edit what the organisation believes.
+A compromised or mistaken agent can submit attributed, reviewable observations;
+it cannot edit organizational knowledge.
 
 ## Credential handling
 
@@ -95,12 +85,10 @@ cannot edit what the organisation believes.
 
 ## The browser surface
 
-The curator console runs under a deliberately tight Content-Security-Policy:
-same-origin only, no inline script, `frame-ancestors 'none'` to block
-click-jacking of decision buttons, and `form-action 'self'` so the sign-in form
-cannot be retargeted. Session presence alone is never treated as
-authorisation — the token, the identity kind, and the role are re-verified on
-the initial render and again on every socket reconnect.
+The console Content-Security-Policy is same-origin only, forbids inline script,
+uses `frame-ancestors 'none'`, and limits forms with `form-action 'self'`.
+Initial render and every socket reconnect re-check token, identity kind, and
+role.
 
 ## Content safety in logs and traces
 

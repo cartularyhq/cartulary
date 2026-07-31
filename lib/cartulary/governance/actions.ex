@@ -4,11 +4,8 @@ defmodule Cartulary.Governance.Actions.McpIngest do
   @moduledoc """
   Implementation behind the `ingest` tool: records one raw observation from a machine caller.
 
-  The caller writes a message and nothing else. Extraction runs on the pipeline's own terms and
-  everything it produces enters as a proposal, so the confidence and placement gates and any
-  consent requirement — not the caller — decide whether a claim reaches shared memory. The
-  caller is identified by the actor already resolved from its credential; the Account is never
-  taken from the arguments.
+  The caller writes only a message; extraction produces governed proposals. Actor and Account
+  come from the credential, never arguments.
   """
   use Ash.Resource.Actions.Implementation
 
@@ -44,24 +41,16 @@ end
 
 defmodule Cartulary.Governance.Actions.McpRead do
   @moduledoc """
-  Shared implementation behind the read-only tools, plus the inline question attachment.
+  Shared read-tool implementation with optional inline validation.
 
-  One module serves `get_context`, `search`, `ask`, `query_knowledge`, and `check_readiness`;
-  the `:operation` option chosen in each action's `run` declaration selects which memory call
-  runs. Every one of them returns only what the calling identity is authorized to see — the
-  Account comes from the actor, never from an argument.
+  `:operation` selects `get_context`, `search`, `ask`, `query_knowledge`, or `check_readiness`.
+  Reads use the actor's Account and authorization.
 
-  After the read, the module offers the caller at most one pending validation question that is
-  addressed to this very peer, so a human can be asked to confirm a memory in the flow of an
-  existing conversation instead of through a separate inbox. Attachment is strictly best effort:
-  the peer queue runs it under its own short deadline and swallows timeouts, rate limits, and
-  "no relevant question", in which case the read result is returned untouched. A read must never
-  fail or stall because the question machinery is unhappy.
+  After the read, it may attach one question for the calling peer. Attachment is deadline-bounded
+  and best effort; failure, rate limits, or no match leave the read unchanged.
 
-  The attached question is a copy of the exact statement the peer is being asked about, frozen
-  when the question was created. Answering it goes back through the separate
-  `resolve_validation` tool and still has to satisfy transcript verification before it can move
-  any knowledge.
+  The question contains frozen statement text. `resolve_validation` requires transcript proof
+  before changing knowledge.
   """
   use Ash.Resource.Actions.Implementation
 
@@ -128,14 +117,10 @@ defmodule Cartulary.Governance.Actions.ResolveValidation do
   @moduledoc """
   Implementation behind the `resolve_validation` tool: relays one peer's answer to one question.
 
-  A tool answer is a claim, not proof. The peer queue only treats a confirmation or rejection as
-  binding when the session transcript shows that the frozen statement text was actually shown to
-  the human and that a human turn followed it. An answer arriving over an unverified channel
-  only pushes the revalidation timer out; it can never activate, retract, or grant permission to
-  share knowledge more widely.
+  Confirmation or rejection binds only when the transcript shows the frozen text followed by a
+  human turn. Unverified answers only defer revalidation.
 
-  The queue also refuses any question that is not addressed to the calling peer, so this tool
-  cannot be used to answer on someone else's behalf.
+  The queue accepts only questions addressed to the calling peer.
   """
   use Ash.Resource.Actions.Implementation
 
@@ -177,10 +162,7 @@ defmodule Cartulary.Governance.Actions.SetAskPreference do
   Implementation behind the `set_ask_preference` tool: lets a peer turn their own interruptions
   down.
 
-  This is a one-way valve. The underlying `:restrict` action clamps each value against what is
-  already stored, so the tool can lower the per-session and per-day question ceilings and extend
-  a pause, but never raise a ceiling or cut a pause short. Restoring a peer's limits is an
-  administrator action on a different path.
+  The `:restrict` action may lower question limits or extend a pause, never loosen them.
 
   It only ever touches the calling peer's own row; there is no argument for choosing a peer.
   """

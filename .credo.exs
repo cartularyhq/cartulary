@@ -1,19 +1,12 @@
 # SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
 #
-# Credo configuration, run as `mix credo --strict` for changes that touch
-# non-trivial logic.
+# Credo configuration, run as `mix credo --strict` for changes that touch non-trivial logic.
 #
-# The check list below is explicit rather than inherited from Credo's default
-# set. That is deliberate: a new Credo release cannot silently start failing
-# this repository's builds, and every enabled check is one somebody chose.
-# Adding a check is a normal change; disabling one needs a reason in the PR.
-#
-# Two entries are load-bearing for readability and worth knowing about:
-#   - Readability.ModuleDoc is ON: every module needs a moduledoc. Credo is
-#     satisfied by `@moduledoc false`; this repository is not — a first-party
-#     module must carry a real one.
-#   - Design.AliasUsage is OFF. Fully-qualified calls are allowed where they
-#     make the origin of a function obvious at the call site.
+# Two entries are load-bearing for readability and worth knowing about: -
+# Readability.ModuleDoc is ON: every module needs a moduledoc. Credo is satisfied by
+# `@moduledoc false`; this repository is not — a first-party module must carry a real one. -
+# Design.AliasUsage is OFF. Fully-qualified calls are allowed where they make the origin of a
+# function obvious at the call site.
 
 %{
   configs: [

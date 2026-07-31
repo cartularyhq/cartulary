@@ -2,29 +2,12 @@
 
 defmodule CartularyWeb.Plugs.TraceContextTest do
   @moduledoc """
-  Covers the request-correlation header contract, end to end through a real
-  request rather than by calling the plug directly.
+  Covers the request-correlation header contract, end to end through a real request
+    rather than by calling the plug directly.
 
-  Two promises are pinned here, and both are things an operator relies on while
-  debugging a live system:
-
-  - **Every response is correlatable.** A response always carries an
-    `x-trace-id` header, whether or not distributed tracing is switched on, so
-    an id can be copied out of any response and used to find the matching log
-    lines.
-  - **A caller's existing trace is not broken.** When the request arrives with
-    a standard `traceparent` header, this service reports the same trace id
-    back instead of minting a new one, so this hop stays joined to the caller's
-    wider trace rather than starting an orphan.
-
-  The route used is the unauthenticated liveness probe, chosen because it needs
-  no credential and touches no database: a failure here then means the header
-  behaviour is wrong, and cannot be authentication or data setup misfiring.
-
-  The headers are ids only. Anything richer — an account key, a peer id, a
-  parameter, any request content — must never be added to a response header,
-  because headers travel to the caller and into intermediary logs, outside the
-  boundary that governs stored memory.
+    The route used is the unauthenticated liveness probe, chosen because it needs no
+    credential and touches no database: a failure here then means the header behaviour
+    is wrong, and cannot be authentication or data setup misfiring.
   """
 
   use CartularyWeb.ConnCase, async: true

@@ -2,19 +2,13 @@
 
 defmodule Cartulary.Governance.UnattendedMode do
   @moduledoc """
-  Whether this deployment process has declared it has no human governance
-  participant at all.
+  Reports whether the deployment has no human governance participant.
 
-  This is the deployment-wide counterpart to
-  `Cartulary.Accounts.Account.consent_mode`: the per-Account attribute needs a
-  console session or a mix task to flip, which a headless benchmark or eval
-  process may never have. Setting `CARTULARY_GOVERNANCE_UNATTENDED=true`
-  covers every Account in the process instead.
+  `CARTULARY_GOVERNANCE_UNATTENDED=true` applies to every Account, unlike per-Account
+  `consent_mode`, and supports headless benchmarks or evaluation.
 
-  Read only by `Cartulary.Governance.Engine`'s consent resolution. It has no
-  effect on `Cartulary.Governance.GateRule`'s Gate A/B automation, which stays
-  entirely rule-configured, and it is boot-time only — nothing in this
-  codebase changes it at runtime outside of tests.
+  It affects consent resolution only, not Gate A/B rules. It is boot-time configuration except in
+  tests.
   """
 
   @doc """

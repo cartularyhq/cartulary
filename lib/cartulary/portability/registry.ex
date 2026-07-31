@@ -2,45 +2,11 @@
 
 defmodule Cartulary.Portability.Registry do
   @moduledoc """
-  The definitive list of what a logical Account archive contains, in the order
-  it must be restored.
+  Defines the durable resources and dependency order in an Account archive.
 
-  Three decisions live here, and each of them is a rule rather than a
-  convenience:
-
-  1. **What is portable.** Only durable, authored, or governed state. A resource
-     absent from this list is absent from every archive.
-  2. **What is deliberately excluded.** Credentials and secrets, because an
-     archive is a file that travels; and rebuildable caches, because shipping a
-     stale copy of something the target can recompute is worse than shipping
-     nothing.
-  3. **What order restoration takes.** The list is dependency-ordered, and the
-     import walks it top to bottom.
-
-  ## Ordering is load-bearing
-
-  Rows are written in list order, so a resource must appear after everything it
-  references: scopes before the things that live in them, documents before
-  document versions, knowledge before its provenance, attributions, relations,
-  and lifecycle history. Reordering this list to look tidier will produce
-  foreign-key failures partway through an import. New resources go where their
-  dependencies place them, not at the end.
-
-  Audit events come last so the chain is restored over a database that already
-  contains everything it refers to.
-
-  ## Exclusions
-
-  API keys are never exported: an archive is not a credential store, and a
-  restored Account is expected to be issued fresh credentials. Password hashes,
-  embeddings, extracted-text caches, and extraction bookkeeping are stripped
-  from otherwise-portable rows for the same two reasons — secrets must not
-  travel, and derived values must be recomputed from the restored originals so
-  they match the target's own model configuration rather than the source's.
-
-  Document chunks, entities, entity mentions, and projections are excluded
-  wholesale. They are rebuilt from the restored governed statements and document
-  blobs after import.
+  Only system-of-record rows belong here. Credentials, secrets, and rebuildable chunks, vectors,
+  projections, entities, and mentions remain excluded; original blobs are handled separately
+  with checksums.
   """
 
   # Restoration order. Each entry maps the archive's file name to the resource

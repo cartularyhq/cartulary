@@ -4,30 +4,19 @@ defmodule Cartulary.Model.StructuredGenerator do
   @moduledoc """
   Structured generation with a bounded validate-and-repair loop.
 
-  Generation is non-streaming: the whole object must exist before it can be
-  validated, and only validated objects are allowed to leave this module.
+  Generation is non-streaming; only complete, validated objects leave this module.
 
   ## Why a second validation exists
 
-  Capable providers constrain their own decoding to the supplied JSON schema.
-  Weaker and locally hosted models do not, or do it imperfectly. Rather than
-  restricting Cartulary to providers with reliable constrained decoding, every
-  response is validated again against the schema module's own `cast/2`, which is
-  also where the domain rules live that a JSON schema cannot express.
+  Provider schema enforcement is not trusted. Every response passes the schema module's `cast/2`,
+  which also enforces domain rules JSON Schema cannot express.
 
   ## The repair loop
 
-  On a validation failure the original messages are re-sent with the validation
-  errors and the previous object appended, asking for a corrected object. This
-  repeats at most twice, and the cap is enforced in code as well as in
-  configuration, so raising the configured value alone cannot widen it. Each
-  attempt is a real provider call and is separately metered — the repair attempt
-  number rides along on the call so the ledger shows what a repaired generation
-  actually cost.
+  Validation failure resends the original messages with errors and the prior object. At most two
+  repairs are allowed, even if configuration asks for more. Every attempt is separately metered.
 
-  Exhausting the budget returns an error. Malformed output is never partially
-  accepted, coerced, or turned into knowledge: the caller's durable job retries
-  instead.
+  Exhaustion returns an error. Malformed output is never partially accepted or coerced.
 
   ## Content safety
 

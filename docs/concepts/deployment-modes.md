@@ -2,13 +2,10 @@
 
 # Deployment modes
 
-Cartulary follows one rule above all others:
-
 > **One codebase, two deployment modes, identical guarantees.**
 
-The packaged single-machine install and a queue-backed deployment are the *same
-Mix release* with different adapters and runtime configuration. They are never
-forks, and never a simplified reimplementation of one another.
+Single-machine and queue-backed deployments run the same Mix release with
+different runtime configuration.
 
 ```mermaid
 flowchart TB
@@ -32,10 +29,8 @@ flowchart TB
 | How migrations are triggered | Retrieval, governance, tenancy, or audit behaviour |
 | Backup procedure | The API |
 
-Pointing the release at pg0 or at an operator-run PostgreSQL is an
-**infrastructure** decision. Swapping a retrieval strategy or a gate rule is a
-**behaviour** decision. The two are deliberately different kinds of change, and
-only the second needs product review.
+Choosing pg0 or external PostgreSQL changes infrastructure. Changing retrieval
+or gate rules changes product behavior and requires product review.
 
 ## Supervised PostgreSQL (pg0)
 
@@ -50,8 +45,7 @@ The packaged release carries a checksum-pinned pg0 distribution. On start it:
    pg0's superuser bootstrap login;
 6. runs migrations, then serves traffic.
 
-pg0 is never in the container image path. A container host already has a
-supported way to run a database.
+Container images never include pg0; containers use external PostgreSQL.
 
 ## Operator-run PostgreSQL
 

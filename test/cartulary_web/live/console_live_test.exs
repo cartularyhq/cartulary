@@ -2,27 +2,10 @@
 
 defmodule CartularyWeb.ConsoleLiveTest do
   @moduledoc """
-  End-to-end evidence for the browser console: who may open it, what each role
-  is shown, and that the pages render against a real Account rather than a
-  fixture.
+  End-to-end evidence for the browser console: who may open it, what each role is
+    shown, and that the pages render against a real Account rather than a fixture.
 
-  Three things this file exists to catch, in order of how much damage they
-  would do:
-
-  1. **An unauthenticated or machine caller reaching the console.** The console
-     offers subject gestures — contest, redact, request erasure — that only a
-     person may take on their own behalf, so an agent API key pasted into a
-     session must be turned away exactly like no credential at all.
-  2. **A member seeing a proposal.** Undecided proposals have not cleared a
-     gate. A member's explorer must not list them, and their dashboard must not
-     count them.
-  3. **A member reaching the operations view.** The resources behind it refuse
-     a lesser role outright, so an ungated page would crash rather than
-     decline — the test asserts the redirect, not merely the absence of a link.
-
-  The sign-in is a real one throughout. Nothing here assigns an actor onto a
-  connection: doing so would skip the code path that resolves an Account from a
-  credential, and the test would then prove nothing about isolation.
+    1. **An unauthenticated or machine caller reaching the console.
   """
 
   use CartularyWeb.ConnCase

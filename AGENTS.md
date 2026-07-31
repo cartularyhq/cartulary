@@ -1,610 +1,327 @@
-# Cartulary agent operating contract
+# Cartulary agent contract
 
-This file is the top-level operating contract for agents and human contributors
-working in this repository. It applies to the entire repository tree unless a
-more deeply nested `AGENTS.md` overrides it for a subdirectory.
+Applies to the repository unless a nested `AGENTS.md` overrides it. Cartulary
+is a `0.2.0` community beta. The old `F0`–`F11` phase names are retired.
 
-Cartulary is a community beta at version `0.2.0`. It is no longer a proof of
-concept. Capabilities are named literally throughout this document; the former
-`F0`–`F11` phase labels are retired.
+## Before editing
 
-## Read first
+Read only what the task needs:
 
-Before editing, read the smallest authoritative set needed for the task:
+1. This file.
+2. Relevant anchors in the three `specs/memory-system-*` blueprints.
+3. `specs/roadmap/beta-roadmap.md` for remaining work and delivery order.
+4. `specs/implementation-status.md` for current behavior and limitations.
+5. `specs/architecture/free-core-architecture.md` for boundaries and contracts.
+6. The closest ADR, architecture note, test, and user guide.
 
-1. This `AGENTS.md`.
-2. The relevant blueprint anchors in:
-   - `specs/memory-system-functional-requirements.md`
-   - `specs/memory-system-architecture-and-nfr.md`
-   - `specs/memory-system-product-blueprint.md`
-3. `specs/roadmap/beta-roadmap.md` — the only roadmap. It carries the
-   outstanding work, the delivery workflow, and the maintainer-owned GitHub
-   setup.
-4. `specs/implementation-status.md` — what actually runs today, its verification
-   evidence, and its real limitations.
-5. `specs/architecture/free-core-architecture.md` — target decomposition,
-   abstraction layers, durable-versus-derived rules, the public operation set,
-   and the contract version identities.
-6. Any ADRs, architecture notes, eval notes, security notes, or nested
-   instructions that govern the files you will touch.
-7. For observability, tracing, logging, telemetry, evaluation instrumentation,
-   experiment comparison, CI, versioning, or release-readiness work, also read
-   `specs/memory-system-evaluation-framework.md`,
-   `specs/observability/README.md`, and
-   `specs/architecture/evaluation-ci-release-readiness.md`.
-8. For work touching Ash resources, actions, policies, tenancy, or migrations,
-   also read `specs/architecture/ash-domain-backbone.md`.
-9. For document ingestion, blob storage, parsing, connectors, sync,
-   supersession, or document portability, also read
-   `specs/architecture/documents-connectors-sync.md`.
-10. For anything a user or operator can see — an endpoint, a parameter, a
-    default, an environment variable, a CLI command, an install or upgrade
-    step — also read the affected page under `docs/`, because you will be
-    updating it in the same patch. See "Documentation layout".
+Also read:
 
-Blueprint anchors are stable review handles. Preserve existing `FR-*`, `AD-*`,
-`AINV-*`, `NFR-*`, and `EV-*` meanings unless the task explicitly asks for a
-blueprint change.
+- `specs/memory-system-evaluation-framework.md`, `specs/observability/README.md`,
+  and `specs/architecture/evaluation-ci-release-readiness.md` for telemetry,
+  evaluation, CI, versioning, or releases;
+- `specs/architecture/ash-domain-backbone.md` for Ash resources, actions,
+  policies, tenancy, or migrations;
+- `specs/architecture/documents-connectors-sync.md` for documents, blobs,
+  parsing, connectors, sync, or supersession;
+- the affected page under `docs/` for anything users or operators can see.
+
+Preserve existing `FR-*`, `AD-*`, `AINV-*`, `NFR-*`, and `EV-*` meanings unless
+the task explicitly changes the blueprint.
+
+## Writing style
+
+Write for a busy reader.
+
+- Lead with the point. Use short sentences and short paragraphs.
+- Keep one fact in one place. Link to detail instead of repeating it.
+- Delete throat-clearing, recap sections, repeated warnings, and obvious text.
+- Use headings for navigation, not as a substitute for clear prose.
+- Prefer a small table for repeated mappings; prefer prose for a simple idea.
+- Keep examples task-focused. Do not explain every line of an example.
+- Define an unfamiliar term once, then use it consistently.
+- Preserve necessary precision: commands, units, defaults, failure modes,
+  invariants, security boundaries, and contract identities.
+- Do not add `TL;DR` sections. Make the page itself easy to scan.
+
+For source comments and docstrings:
+
+- Explain a non-obvious reason, invariant, boundary, or failure mode.
+- Never narrate the code or restate a name or type.
+- Keep module docs to purpose, ownership, key guarantees, and caller traps.
+- Keep public function docs to purpose, non-obvious inputs, return shape, and
+  failures. Omit details already clear from the signature.
+- Give constants a unit and a brief reason when the value is not self-evident.
+- Delete stale, redundant, speculative, and purely historical commentary.
+- Do not point to a spec for understanding. State the rule where code enforces
+  it. Specs and PRs carry traceability; source stands on its own.
 
 ## Prime directive
 
-Cartulary follows the ARCH prime directive:
-
 > One codebase, two deployment modes, identical guarantees.
 
-Single-node and queue-mode are the same Mix release with different adapters and
-runtime configuration, never forks or simplified reimplementations. Free/core
-and enterprise code may be licence-gated, but the community build must remain
-coherent and buildable in isolation.
+Single-node and queue mode run the same Mix release and behavior. Runtime
+adapters may differ; product semantics may not. The community build must remain
+coherent without enterprise code.
 
-## Architecture posture
+## Product invariants
 
-Cartulary is an Elixir/Ash/Phoenix/Oban system:
+1. Context flows down freely; knowledge flows up only through Gate B.
+2. Agents submit raw observations; only the pipeline writes knowledge.
+3. Wider visibility requires more confidence, sensitivity care, and consent.
+4. Knowledge is the atom; profiles, scope cards, and summaries are projections.
+5. Reasoned artifacts pass gates; authored artifacts use plain versioning.
+6. Belief-time, valid-time, and salience are independent. Confidence,
+   sensitivity, subject, and source are also independent.
+7. Scoped values inherit down the containment tree; nearest wins.
+8. Account isolation is absolute. Identity determines Account.
+9. Users own their data and keys; core must not require a managed service.
+10. Raw messages, governed knowledge, and audit logs are durable. Queues,
+    projections, indices, HNSW, ETS, and `persistent_term` are rebuildable.
+11. One operation commits its state, audit, and enqueue/outbox effects together.
+12. Infrastructure adapters change where work runs. Domain strategies change
+    behavior and require explicit review.
 
-- **Runtime:** Elixir on the BEAM; one Mix release, no second engine runtime.
-- **Domain model:** Ash Domains, Resources, Actions, policies, and data layers
-  carry the ports-and-adapters structure.
-- **Surfaces:** Phoenix HTTP, LiveView, Channels/PubSub, AshJsonApi, gateway
-  proxy, and the `ash_ai` MCP server where appropriate.
-- **Jobs:** Oban through AshOban on the Postgres engine in every deployment
-  mode. Do not introduce Redis/BullMQ, `Oban.Engines.Lite`, or a separate
-  worker fleet.
-- **Storage:** AshPostgres + pgvector + Postgres FTS in every deployment mode.
-  Local single-node uses pg0 as the embedded Postgres launcher; queue-mode uses
-  an operator-run Postgres. Keep vector/lexical indices and projections as
-  rebuildable derived caches.
-- **Models:** provider-neutral model roles over ReqLLM; self-hosted and
-  OpenAI-compatible endpoints must remain possible. Default embedding strategy
-  should remain compatible with local/offline Ortex/ONNX.
-- **Extraction/retrieval:** prefer native Elixir/Rust/C-NIF integrations already
-  named by the blueprint (Extractous/MDEx, `bitcrowd/rag`, hnswlib) before
-  bespoke infrastructure.
+## Architecture boundaries
 
-## Non-negotiable product and architecture invariants
+- Runtime: Elixir/BEAM, one Mix release, no second engine runtime.
+- Domain: Ash Domains, Resources, Actions, policies, and data layers.
+- Surfaces: Phoenix HTTP/LiveView/Channels, AshJsonApi, gateway, and `ash_ai`
+  MCP where implemented.
+- Jobs: AshOban on Postgres in every mode. No Redis, BullMQ, Lite engine, or
+  separate worker fleet.
+- Storage: AshPostgres, pgvector, and Postgres FTS. Local mode supervises pg0;
+  queue mode uses operator-run Postgres.
+- Models: provider-neutral roles through ReqLLM. Keep self-hosted,
+  OpenAI-compatible, and local Ortex/ONNX options possible.
+- Native work: prefer the named Extractous/MDEx, `bitcrowd/rag`, and hnswlib
+  integrations over bespoke infrastructure.
 
-Treat these as hard constraints during design, implementation, review, and
-refactoring:
+## Contract identities
 
-1. **Context flows down freely; knowledge flows up only through Gate B.**
-2. **Agents submit raw observations only; the pipeline is the sole writer of
-   knowledge.**
-3. **Blast radius scales the bar:** wider exposure requires stronger confidence,
-   sensitivity handling, and consent.
-4. **Knowledge is the only atom; profiles, scope cards, and session summaries
-   are projections.**
-5. **Reasoned artifacts pass validation gates; authored artifacts use plain
-   versioning.**
-6. **Belief-time, valid-time, and salience are independent; confidence and
-   sensitivity are independent; subject and source are independent.**
-7. **Everything scoped inherits down the containment tree, nearest-wins.**
-8. **Cross-account isolation is absolute. Account is derived from identity, not
-   from request parameters.**
-9. **The user owns the data and keys.** Core paths must not require a proprietary
-   managed service.
-10. **System of record and derived caches are distinct.** Raw messages,
-    validated knowledge, and audit logs are durable; queues, projections,
-    lexical/vector indices, HNSW, ETS, and `persistent_term` caches are
-    rebuildable.
-11. **Transactional integrity is mandatory.** State changes, audit entries, and
-    Oban enqueue/outbox effects that belong to one operation commit together.
-12. **Infrastructure ports and domain strategies are different seams.** Pointing
-    the release at pg0 or an operator-run Postgres changes where Postgres lives,
-    not product behavior; swapping a retrieval or gate strategy changes behavior
-    and needs explicit review.
+These strings version public contracts, not roadmap phases:
 
-## Contract version identities
-
-Several public contracts carry their own version string, independent of the
-application's semantic version. The `f`-prefixed identities are historical
-version tags. They no longer name a roadmap phase, and they must not be renamed
-casually:
-
-| Identity | Covers |
+| Identity | Contract |
 | --- | --- |
-| `poc-0` | Frozen behaviour baseline and the historical evaluation reports. |
-| `f4-1` | Governed lifecycle: proposals enter `proposed`/`provisional` or are held. |
-| `f5-1` | Extractor and pipeline identity, reported by `GET /api/health`. |
-| `f7-1` | Retrieval and context profile identity. |
-| `f9-1` | Skill selector language and gap-report schema. |
-| `f10-1` | Readiness payload shape. |
-| `f11-1`, `f11-suite-1` | Evaluation report schema and release bundle. |
-| `f11-surface-contracts-1` | Surface contract inventory schema. |
-| `cartulary-account-1` | Logical Account archive schema. |
+| `poc-0` | Frozen behavior baseline and historical evaluation reports |
+| `f4-1` | Governed lifecycle |
+| `f5-1` | Extractor and pipeline |
+| `f7-1` | Retrieval and context profiles |
+| `f9-1` | Skill selectors and gap reports |
+| `f10-1` | Readiness payload |
+| `f11-1`, `f11-suite-1` | Evaluation report and release bundle |
+| `f11-surface-contracts-1` | Surface inventory |
+| `cartulary-account-1` | Logical Account archive |
 
-Changing any of them is a deliberate contract transition. It needs a changelog
-entry, updated contract evidence, and a note in the closest architecture
-document.
+A transition needs a changelog entry, updated evidence, and the closest
+architecture note. Never casually rename an identity or historical artifact.
 
-## Development discipline
+## Change discipline
 
-### Documentation layout
+- Implement only the requested scope. Do not pull in later roadmap work.
+- Inspect the worktree first. Preserve unrelated and concurrent changes.
+- Keep each behavior change small, with one clear home and focused tests.
+- Use Ash actions for durable writes. Keep snapshots and migrations aligned via
+  `mix ash.codegen`; review generated migrations and custom DDL.
+- Update tests, docs, fixtures, ADRs, and comments with behavior changes.
+- Mark roadmap items complete only when code, evidence, and durable docs exist.
+- Put anchor traceability in commits, PRs, and `specs/`, never source comments.
+- Align `mix.exs`, `CHANGELOG.md`, tags, protocol/report versions, and release
+  artifacts for releases.
 
-The repository has exactly two documentation trees, and they do not overlap.
-Putting a file in the wrong one is a review defect, not a matter of taste.
+### Documentation locations
 
-| Tree | Holds | Audience |
-| --- | --- | --- |
-| `docs/` | Setup, usage, operations, and explanations of how the running system behaves. Published to GitHub Pages by `.github/workflows/docs.yml`. | People installing, using, or operating Cartulary. |
-| `specs/` | Blueprint specs, architecture notes, ADRs, design documents, the roadmap, implementation status, evaluation methodology and evidence, observability measurement discipline, security notes, and release/versioning process. | Contributors and maintainers. Not published. |
-| `CONTRIBUTING.md` | How to develop: workflow, branch/PR rules, required checks, review expectations. | Contributors. |
-| `README.md` | Orientation: what Cartulary is, how a request flows, repository layout, where every document lives. | Everyone. |
-
-Concretely:
-
-- **Never** add a spec, plan, ADR, roadmap item, benchmark result, or design
-  rationale under `docs/`. It belongs in `specs/`.
-- **Never** put installation, configuration, API usage, or operational
-  procedure only in `specs/` or only in a source comment. If a user or an
-  operator needs it, it belongs in `docs/`.
-- Development process instructions belong in `CONTRIBUTING.md`, not in
-  `docs/`.
-- `docs/` pages are user-facing prose: explain the behaviour, not the decision
-  history behind it. Cite no `FR-*`/`AD-*`/`NFR-*` anchors there; those belong
-  in `specs/`, commit messages, and PR descriptions.
-- Diagrams in `docs/` use Mermaid fenced blocks, which the site renders
-  natively. Prefer a diagram to a paragraph when explaining a flow, a state
-  machine, or a boundary.
-- Every new `docs/` page must be added to the `nav:` in `mkdocs.yml`. The site
-  builds with `strict: true`, so a page missing from the navigation or a broken
-  internal link fails CI.
-- Links from `docs/` into `specs/` or into source must be absolute GitHub URLs.
-  MkDocs cannot resolve a relative path outside `docs/`.
-
-**Documentation is part of the change, not a follow-up.** A patch that alters
-anything in the left-hand column below must update the right-hand column in the
-same patch, or state in the PR why no update is needed:
-
-| A change to… | Updates… |
+| Location | Content |
 | --- | --- |
-| A route, parameter, default, or response field | `docs/reference/http-api.md`, and the affected guide |
-| An environment variable or config default | `docs/reference/configuration.md` and `.env.example` |
-| A Mix task or release command | `docs/reference/mix-tasks.md` |
-| Install, upgrade, backup, or export behaviour | The affected page under `docs/operations/` or `docs/getting-started/` |
-| Governance, retrieval, pipeline, document, or skill behaviour | The affected page under `docs/concepts/`, and its architecture note under `specs/architecture/` |
-| A contract version identity | `docs/reference/contract-versions.md`, `CHANGELOG.md`, and the closest architecture note |
-| A surface becoming available or unavailable | `docs/reference/limitations.md` and `specs/eval/surface-contract-inventory.json` |
-| A browser console route, page, panel, control, or visibility rule | `docs/guides/web-console.md`, the browser routes table in `docs/reference/http-api.md`, and `specs/architecture/browser-console.md` |
-| A design decision or trade-off | `specs/` only — never `docs/` |
+| `docs/` | Published setup, usage, operations, and current behavior |
+| `specs/` | Requirements, architecture, ADRs, plans, evidence, and process |
+| `CONTRIBUTING.md` | Development workflow and review rules |
+| `README.md` | Project orientation and documentation map |
 
-### Coding conventions
+Do not mix the trees. User procedures must not live only in specs or comments;
+design rationale must not appear in `docs/`. User docs do not cite blueprint
+anchors. Use Mermaid for useful flows. Add every new docs page to `mkdocs.yml`;
+use absolute GitHub URLs when a docs page links outside `docs/`.
 
-**Source files are the primary documentation.** A competent Elixir developer
-who has never opened `specs/` or `docs/` must be able to open any file in this
-repository and understand, from that file alone, what it does, why it exists,
-which rules it enforces, and what a caller may not do with it.
+Update these together:
 
-- **Explain in place; never delegate the explanation.** A comment or docstring
-  must not offload its meaning onto a spec, an architecture note, a roadmap
-  item, an issue, or a blueprint anchor. Do not write `see
-  specs/architecture/...`, `per FR-KN-3`, or `AD-DATA-1 requires this` in
-  source. State the rule itself, in plain language, at the place that enforces
-  it. Traceability belongs in commit messages, PR descriptions, ADRs, and the
-  `specs/` tree — not in code comments. Pointing at a file for *data* (a
-  fixture path, a threshold file the code actually reads) is fine; pointing at
-  a document for *understanding* is not.
-- **No retired phase labels.** `F0`–`F11` no longer name anything, and must
-  never appear in a comment or docstring. Contract version identity *values*
-  such as `f7-1`, `poc-0`, or `cartulary-account-1` are data, not labels: keep
-  the string and explain beside it which contract it versions and what
-  changing it obliges you to do.
-- **Every module carries a real `@moduledoc`.** No bare `@moduledoc false` in
-  first-party code. A moduledoc answers, in order: what this module is, what
-  it owns, the invariants it guarantees, and the mistakes callers must avoid.
-  A module that must stay out of generated docs may keep `@moduledoc false`
-  only when an equivalent `#` comment block with the same content sits
-  immediately above or below it.
-- **Every public function carries an `@doc`,** except in files that are pure
-  DSL declarations (an Ash domain listing resources, a `use`-only module). The
-  docstring gives purpose, the meaning of non-obvious arguments, the return
-  shape, and the failure modes a caller must handle — including which variants
-  raise.
-- **Comment the why, never the what.** `# increment the counter` above
-  `count + 1` is noise; delete it. Comment ordering constraints, transaction
-  boundaries, tenancy filters, replay and idempotency requirements,
-  content-safety redaction, deliberately non-obvious algorithms, workarounds,
-  and anything a future reader would otherwise "clean up" and break.
-- **Give constants a unit and a reason.** Timeouts, limits, weights,
-  thresholds, retry counts, and buffer sizes get a comment naming the unit and
-  why that value was chosen.
-- **Document Ash resources inline.** Say what one row means, which actions are
-  reachable only by the internal pipeline, why an action is create-only or
-  append-only, what each custom change or validation enforces, and what the
-  multitenancy and policy blocks actually guarantee.
-- **Document DSL blocks that encode a rule.** Policies, multitenancy,
-  identities, Oban triggers, and hand-written index or row-level-security DDL
-  need a sentence stating the guarantee, not a restatement of the DSL syntax.
-- **Non-Elixir files count too.** Shell launchers, `Dockerfile`, Compose
-  files, CI workflows, config files, schema-bearing JSON, and the `sdk/`
-  helpers open with a header comment stating purpose, inputs, outputs, and
-  assumptions. Keep the SPDX line first where the format allows comments.
-- **Comments are part of the change.** A behaviour edit updates the
-  surrounding comment in the same patch. A stale comment is a defect; a
-  comment that contradicts the code is reviewed as a bug.
-- **Exempt trees.** Generated and historical artifacts are not rewritten for
-  style: `deps/`, the generated migrations under `priv/repo/migrations/`, the
-  resource snapshots under `priv/resource_snapshots/`, recorded evaluation
-  reports under `specs/eval/results/`, and committed JSON fixtures. New
-  migrations still get comments on hand-written DDL, because that DDL is
-  authored, not generated.
-- **Existing evidence identities keep their names.** Test files and modules
-  whose paths are cited as regression evidence elsewhere in this contract are
-  renamed only by a deliberate, contract-updating change. Make them
-  self-explanatory with a moduledoc that states which behaviour the file pins
-  and why, rather than by renaming.
+| Change | Required documentation |
+| --- | --- |
+| Route, parameter, default, response field | `docs/reference/http-api.md` and affected guide |
+| Environment variable or config default | `docs/reference/configuration.md`, `.env.example` |
+| Mix task or release command | `docs/reference/mix-tasks.md` |
+| Install, upgrade, backup, export | Affected operations/getting-started page |
+| Governance, retrieval, pipeline, documents, skills | Affected concept and architecture note |
+| Contract identity | Contract reference, changelog, architecture note |
+| Surface availability | Limitations and surface inventory JSON |
+| Browser route, page, control, visibility | Console guide, HTTP route table, console architecture |
+| Design decision | `specs/` only |
 
-### Traceability
+### Source documentation
 
-- Keep each change traceable to the task, issue, and blueprint anchors it
-  implements. Record that trace in the commit message, the PR description, and
-  the durable documents under `specs/` — not in source comments, which must
-  stand alone.
-- Use `specs/roadmap/beta-roadmap.md` as the execution map. It does not replace
-  the blueprint specs; it decomposes their remaining free-core scope into
-  tracks and acceptance slices.
-- Roadmap checkboxes are evidence markers. Mark an item `[x]` only when
-  implementation, regression evidence, and the closest durable documentation
-  are present and current; return it to `[ ]` if that evidence is removed or
-  fails.
-- Implement only the requested scope. Do not opportunistically add
-  later-roadmap artifacts unless the current task explicitly asks for them.
-- You are not alone in this codebase. Inspect the worktree before editing,
-  avoid overwriting concurrent changes, and never revert or rewrite another
-  person's edits unless the task explicitly authorizes it.
-- Prefer small, reviewable patches. One behavior change should have one obvious
-  home and one obvious set of tests.
-- Keep docs, code, tests, eval fixtures, and ADRs aligned. If behavior changes,
-  update the closest durable documentation or explain why no doc update is
-  needed.
-- Keep `mix.exs`, `CHANGELOG.md`, release tags, protocol/report identities, and
-  release artifacts aligned. Every release has a dated changelog entry citing
-  the closest blueprint/architecture anchors.
+Every first-party module needs a useful `@moduledoc`; every public function
+needs `@doc`, except pure DSL or `use`-only modules. `@moduledoc false` requires
+an adjacent equivalent comment when generated docs must hide the module.
 
-### Baseline API contract
+Document Ash rows, internal-only actions, append/create-only rules,
+multitenancy, policies, identities, Oban triggers, and hand-written RLS/index
+DDL where they enforce a non-obvious guarantee. Header comments in authored
+scripts, workflows, config, containers, and SDK helpers should state only
+non-obvious purpose, inputs, outputs, or assumptions. Keep SPDX first.
 
-- The frozen behaviour baseline is the regression floor. Changes to HTTP
-  behavior, Account selection, downward scope inheritance, raw-message
-  persistence, pipeline-only knowledge writes, lifecycle insertion,
-  deterministic fallback, or normalized eval fixtures must update the
-  corresponding contract evidence and document whether the contract identity
-  remains `poc-0` or is intentionally versioned.
-- Baseline evidence is `test/cartulary/poc_contract_test.exs`,
-  `test/cartulary_web/controllers/memory_controller_test.exs`,
-  `test/cartulary/eval/fixture_contract_test.exs`, and
-  `test/fixtures/eval/poc-contract-baseline.json`. Run those tests before and
-  after any internal migration slice.
+Do not restyle generated or historical artifacts: `deps/`, generated
+migrations, resource snapshots, recorded eval results, or committed JSON
+fixtures. Comment new hand-written DDL inside generated migrations.
 
-### Ash domain backbone
+## Domain guardrails
 
-- Ten configured Ash Domains and 38 Resources are the authoritative durable
-  data boundary. Do not add durable writes outside Ash actions.
-- Evidence: `test/cartulary/f1_ash_domain_backbone_test.exs`,
-  `priv/resource_snapshots/`, and the generated migrations under
-  `priv/repo/migrations/`. Design notes:
-  `specs/architecture/ash-domain-backbone.md`.
-- Keep Ash resources and `priv/resource_snapshots/` synchronized. Resource
-  changes must use `mix ash.codegen`, manually review generated migrations, and
-  keep custom pgcrypto/pgvector/FTS/index/RLS DDL intact.
-- Direct Repo/Ecto SQL access is confined to infrastructure/data-layer modules
-  and explicitly ticketed custom query helpers. The current exceptions are:
-  - `Cartulary.Retrieval.Store` — read-only helper for static, parameterized
-    PG-FTS, pgvector ANN, and hop-one expansion queries. It performs no durable
-    write and must keep all authorization filters inside each query.
-  - `Cartulary.Pipeline.Lock` — infrastructure helper for parameterized
-    transaction-scoped advisory locks. It performs no durable write.
-  - `Cartulary.Identity.CredentialLocator` — bootstrap helper that maps only an
-    opaque AshAuthentication API-key id to `account_id` through the reviewed
-    security-definer function before Account RLS can be installed.
+### Baseline contract
 
-  New exceptions require a named roadmap/issue transition and durable
-  documentation.
+HTTP behavior, Account selection, inheritance, raw persistence, pipeline-only
+writes, lifecycle insertion, deterministic fallback, and normalized eval
+fixtures must not regress. Evidence:
 
-### Transactional writes, audit, and jobs
+- `test/cartulary/poc_contract_test.exs`
+- `test/cartulary_web/controllers/memory_controller_test.exs`
+- `test/cartulary/eval/fixture_contract_test.exs`
+- `test/fixtures/eval/poc-contract-baseline.json`
 
-- `Cartulary.Operations.PipelineRun` makes raw observation, content-safe
-  hash-chain audit, durable idempotency record, and AshOban enqueue one
-  transaction. Do not enqueue pipeline work outside the `PipelineRun` Ash
-  actions.
-- Evidence: `test/cartulary/f2_transactional_writes_audit_jobs_test.exs` and
-  `specs/architecture/transactional-writes-audit-jobs.md`.
-- Pipeline execution is replay-safe. New jobs need a deterministic key in
-  `Cartulary.Pipeline.Idempotency`; durable source records need a reconciler
-  path; and content-bearing values must not be copied into audit metadata or
-  Oban arguments.
+### Ash and transactions
 
-### Identity, tenancy, and RBAC
+Ten Domains and 38 Resources own durable data. Direct Repo/Ecto SQL is limited
+to the documented read-only retrieval store, advisory-lock helper, and
+credential bootstrap locator. New exceptions need explicit architecture work.
 
-- `Cartulary.Accounts.ApiKey` makes HTTP Account selection identity-derived,
-  enforces one authenticated community Account, and resolves deny-wins
-  inherited basic roles. Do not reintroduce request-selected Account identity,
-  store plaintext API keys, or bypass `Cartulary.Identity.RoleResolver` for
-  authenticated scope reads.
-- Evidence: `test/cartulary/f3_identity_tenancy_basic_rbac_test.exs`,
-  `test/cartulary_web/controllers/memory_controller_test.exs`, and
-  `specs/architecture/identity-tenancy-rbac.md`.
-- Role grants use exactly `account-admin`, `curator`, `member`, and `reader`
-  with `allow|deny` effects and per-grant propagation. Any applicable deny
-  removes access to that scope. Cross-linked scope reads require access to both
-  relation endpoints; a cross-link never grants access.
+`Cartulary.Operations.PipelineRun` commits the observation, content-safe audit,
+idempotency record, and AshOban enqueue together. Jobs need deterministic replay
+keys and reconciliation. Never put content in audit metadata or job arguments.
 
-### Gate A/B governance
+Evidence: `test/cartulary/f1_ash_domain_backbone_test.exs`,
+`test/cartulary/f2_transactional_writes_audit_jobs_test.exs`.
 
-- New extracted knowledge must enter `proposed` and pass
-  `Cartulary.Governance.Engine`. Do not reintroduce auto-activation outside the
-  versioned Gate matrix.
-- Evidence: `test/cartulary/f4_real_gate_a_b_governance_test.exs` and
-  `specs/architecture/gate-a-b-governance.md`.
-- Curator decisions are human-only. Machine credentials and MCP may submit raw
-  observations, read governed memory, resolve only the calling peer's frozen
-  inline question, and lower that peer's ask limits; they must never expose or
-  invoke approve, edit, reject, merge, defer, promotion, Gate-rule
-  administration, or bulk curator actions.
-- Scope and account proposals remain `held` and absent from retrieval until
-  Gate B approval. Upward personal knowledge additionally requires
-  target-specific, verified subject consent; curator approval cannot substitute
-  for that consent. Every automatic and human gate result must preserve
-  immutable decision, lifecycle, content-safe audit, and replay-keyed
-  continuation evidence.
-- Erasure goes through `Cartulary.Governance.Erasure`. Proportionate erasure
-  removes subject content and scrubs shared provenance; strict erasure removes
-  all knowledge sourced only through the subject path. Both must recompute or
-  dirty affected projections/entities while retaining content-safe audit
-  evidence. Inline delivery text is erasable and must not be copied into audit,
-  telemetry, or Oban arguments.
+### Identity and governance
 
-### Model layer and structured extraction
+`Cartulary.Accounts.ApiKey` derives Account from identity. Store no plaintext
+keys. Authenticated scope reads use deny-wins inherited roles through
+`Cartulary.Identity.RoleResolver`. Roles are exactly `account-admin`, `curator`,
+`member`, and `reader`. A cross-link grants no access.
 
-- All model calls go through `Cartulary.Model.Gateway`. Do not invoke ReqLLM or
-  a provider adapter from pipeline, retrieval, web, or governance code.
-- Evidence: `test/cartulary/f5_model_layer_structured_extraction_test.exs`,
-  `test/fixtures/model/f5-provider-cassette.json`, and
-  `specs/architecture/model-layer-structured-extraction.md`.
-- There are exactly four Account-level roles: `embedder`, `ingest_extractor`,
-  `dream_reasoner`, and `dialectic_agent`. Persist secret references only, keep
-  per-scope role overrides deferred, and preserve provider/model/version plus
-  prompt/pipeline provenance. `Cartulary.Model.Usage` is the only durable usage
-  emission point; keep its events and model spans content-safe.
-- Structured extraction and reasoning use the Ash-derived schemas and bounded
-  repair in `Cartulary.Model.StructuredGenerator`. Do not accept malformed
-  provider output, bypass pipeline-only knowledge writes, collapse subject into
-  source, omit hearsay discounting, or skip governance. Provider failures must
-  leave raw observations and jobs retryable, and `get_context` must remain
-  model-free.
-- Embedding identity includes provider, model, version, and dimensions. A
-  mismatch must return the versioned re-embed path and must never reuse or
-  silently substitute vectors. The deterministic provider is test/local-only;
-  production must not fall back to it after a provider error.
+New knowledge enters `proposed` and passes `Cartulary.Governance.Engine`.
+Machine credentials and MCP cannot perform curator actions. Scope/account
+proposals stay held until Gate B approval; upward personal knowledge also needs
+verified subject consent. Erasure uses `Cartulary.Governance.Erasure`, preserves
+content-safe audit evidence, and refreshes affected derived data.
 
-### Documents, connectors, and sync
+Evidence: `test/cartulary/f3_identity_tenancy_basic_rbac_test.exs`,
+`test/cartulary/f4_real_gate_a_b_governance_test.exs`.
 
-- Connectors submit raw document versions only. Extracted knowledge must still
-  pass the structured extraction pipeline and Gate A/B governance.
-- Evidence: `test/cartulary/f6_documents_connectors_sync_test.exs` and
-  `specs/architecture/documents-connectors-sync.md`.
-- Connector cursors advance only after a page is durably handled. Repeated
-  content hashes are no-ops, changed documents append immutable versions and
-  supersede stale derivations without overwriting history, and remote deletion
-  uses tombstones. Supersession and tombstones must not retract knowledge with
-  surviving independent provenance. Blob adapter choice is a runtime
-  infrastructure seam and must not change those semantics.
-- Document chunks and embeddings are rebuildable derived caches. Logical export
-  includes checksum-verified version blobs and metadata but excludes
-  chunks/vectors; import rebuilds through ordinary ingest. Erasure must remove
-  exclusive blobs and document-only knowledge while preserving content-safe
-  audit evidence and knowledge with surviving provenance. Never copy document
-  bytes, extracted text, connector cursors, source metadata, or secrets into
-  audit metadata, telemetry, or Oban arguments.
+### Models and documents
 
-### Retrieval, entity resolution, and context
+All model calls go through `Cartulary.Model.Gateway`. The four Account roles are
+`embedder`, `ingest_extractor`, `dream_reasoner`, and `dialectic_agent`. Persist
+secret references, model provenance, and usage through `Cartulary.Model.Usage`.
+Structured output uses bounded validation/repair and still passes governance.
+`get_context` stays model-free. Embeddings must match provider, model, version,
+and dimensions; mismatches take the re-embed path. Deterministic fallback is
+test/local only.
 
-- `Cartulary.Retrieval.Strategy` is the retrieval boundary and
-  `Cartulary.Context` is the reasoning-free projection assembly boundary.
-  `search` defaults to `:balanced`, `ask` to `:thorough`, and only the `:fast`
-  profile may run live on a `get_context` projection miss.
-- Evidence: `test/cartulary/f7_retrieval_entity_context_test.exs` and
-  `specs/architecture/retrieval-entity-context.md`.
-- Retrieval must apply Account, authorized scope, lifecycle, provisional
-  subject, and source filters before candidates leave retrieval internals.
-  Strategy-local scores are not comparable: merge with weighted
-  reciprocal-rank fusion, compute disagreement before fusion, enforce the
-  remaining deadline around strategies and reranking, and report contributed
-  and dropped strategies. Raw strategy overrides remain internal/eval-only.
-- `Entity` and `EntityMention` rows are rebuildable, pipeline-internal caches.
-  Never expose entity rows, canonical names, aliases, surface forms, or entity
-  ids through Phoenix, MCP, SDK, LiveView, projection payloads, or retrieval
-  responses. Erasure and import must recompute them from surviving governed
-  statements. Scope relations and shared-entity edges may expand retrieval only
-  after both endpoint scopes pass the caller's authorization.
-- Vectors carry provider, model, version, and dimensions. A mismatch follows the
-  explicit re-embed path; never reuse or silently substitute vectors. Keep
-  knowledge/chunk/entity HNSW indexes and statement/chunk PG-FTS indexes
-  synchronized with resource and migration changes. Projection changes must
-  preserve dirty marking, bounded delta compaction, source ids, and PubSub/ETS
-  invalidation; normal `get_context` assembly must not call a reasoning model.
+Connectors write immutable raw document versions, then use the ordinary
+pipeline. Advance cursors only after durable handling. Repeated hashes are
+no-ops; changes append and supersede; deletions tombstone. Independent
+provenance survives supersession or erasure. Export blobs and metadata, not
+chunks or vectors; import rebuilds derived data. Keep document content, cursors,
+metadata, and secrets out of audit, telemetry, and job arguments.
+
+Evidence: `test/cartulary/f5_model_layer_structured_extraction_test.exs`,
+`test/cartulary/f6_documents_connectors_sync_test.exs`.
+
+### Retrieval and context
+
+`Cartulary.Retrieval.Strategy` owns retrieval;
+`Cartulary.Context` owns reasoning-free projection assembly. `search` defaults
+to `:balanced`, `ask` to `:thorough`; only `:fast` may run live on a projection
+miss. Filter Account, authorized scopes, lifecycle, subject, and source before
+candidates leave retrieval internals. Fuse incomparable strategy ranks with
+weighted reciprocal-rank fusion under the remaining deadline, and report
+contributed/dropped strategies.
+
+Entities and mentions are internal rebuildable caches. Never expose their
+names, aliases, surface forms, ids, vectors, or chunk contents. Expansion
+requires access to both relation endpoints. Keep vector/FTS indices,
+projections, invalidation, and erasure/import rebuilds aligned.
+
+Evidence: `test/cartulary/f7_retrieval_entity_context_test.exs`.
 
 ### Browser console
 
-- The browser surface is one console. `/console/*` admits any human password
-  identity through `CartularyWeb.ConsoleAuth`; `/governance` narrows the same
-  session to curator and account-admin through `CartularyWeb.GovernanceAuth`.
-  Both read the same session key, so one sign-in opens whichever surface the
-  role allows. A machine credential must never establish either.
-- Evidence: `test/cartulary_web/live/console_live_test.exs`,
-  `test/cartulary_web/console/access_test.exs`,
-  `test/cartulary_web/console/graph_test.exs`, and
-  `specs/architecture/browser-console.md`.
-- `CartularyWeb.Console.Access` is the only place the console's two visibility
-  rules live, and both are narrowing. A `provisional` statement is visible only
-  to its subject, for every role including account admin — the same condition
-  retrieval applies, and the two must stay identical. Curators and account
-  admins see every lifecycle state; everyone else sees only settled states plus
-  anything whose subject is themselves.
-- `CartularyWeb.Console.Loader` performs every console read, each inside one
-  `DataLayer.with_actor/2` transaction. Reads whose policies are plain role
-  checks with no filter behind them — gate decisions, gate rules, usage events,
-  pipeline runs — are gated by `Access.can?/2` before they are issued, because
-  they refuse rather than return empty.
-- The console writes nothing itself. Every gesture forwards to
-  `Cartulary.Governance.Engine`, `Cartulary.Governance.Erasure`, or
-  `Cartulary.Skills`, which own the transaction, the decision record, the
-  lifecycle event, and the audit entry. A rendered control is never
-  authorization: the operation layer re-checks a forged event.
-- Entity rows, entity mentions, embedding vectors, chunk contents, password and
-  key hashes, and connector secrets must not reach any console page, including
-  the graph. The graph is scopes, scope relations, statements, and statement
-  relations only.
-- Appearance lives in `priv/static/assets/console.css`; markup emits class
-  names, not inline styles. The browser policy forbids inline script and there
-  is no bundler, so a new control must work as a server round-trip and any
-  visualisation must be computed server-side and rendered as plain SVG. Keep
-  `CartularyWeb.Console.Graph` deterministic — no randomness, no wall clock.
+One human password session covers `/console/*`; curator/admin roles also reach
+`/governance`. Machines establish neither. `CartularyWeb.Console.Access` owns
+visibility: provisional statements are subject-only even for admins; settled
+state and curator visibility follow its narrowing rules. All reads go through
+`CartularyWeb.Console.Loader` inside `DataLayer.with_actor/2`; role-only reads
+are pre-gated. Writes delegate to the operation layer, which reauthorizes them.
 
-### Skill readiness and procedural memory
+Never expose entities, vectors, chunks, hashes, or secrets. Keep styles in
+`console.css`, use no inline script/style, and render deterministic server-side
+SVG without randomness or wall clock.
 
-- Skill requirement cards are human-authored, plain-versioned procedural
-  memory. They are not knowledge and do not pass Gate A/B. Requirement keys
-  inherit down the scope tree with nearest-scope overrides.
-- Evidence: `test/cartulary/f9_skill_readiness_procedural_memory_test.exs` and
-  `specs/architecture/skill-readiness-procedural-memory.md`.
-- Readiness may be satisfied only by authorized `active` knowledge or the
-  calling peer's usable `provisional` knowledge. Expired, due-for-revalidation,
-  and `needs_revalidation` items remain gaps even before a sweeper runs.
-- Required gaps block helper execution and preferred gaps only warn.
-  `ask-peer` and `either` gaps may produce an elicitation prompt, but the
-  answer must return through ordinary raw `ingest` and governance before
-  readiness is checked again. SDK helpers must never override a server blocker
-  or write knowledge directly.
+Evidence: `test/cartulary_web/live/console_live_test.exs`,
+`test/cartulary_web/console/access_test.exs`,
+`test/cartulary_web/console/graph_test.exs`.
 
-### Portability, packaging, and operations
+### Skills, portability, and operations
 
-- The same release runs in supervised-pg0 and external-Postgres modes. Keep pg0
-  version and platform SHA-256 values pinned, run it before Repo and
-  migrations, and never add pg0 to the container path or fork behavior by
-  database mode.
-- Evidence: `test/cartulary/f10_portability_packaging_operations_test.exs`,
-  `specs/architecture/portability-packaging-operations.md`, `docs/operations/`,
-  `rel/`, `Dockerfile`, and `compose.yml`.
-- Logical Account archives use schema `cartulary-account-1`, keyset-stream
-  durable resources, include checksum-verified original blobs, and verify the
-  entire audit graph before any durable import. Credentials, password hashes,
-  secrets, vectors, chunks, projections, entities, entity mentions, and
-  extracted-text caches must remain excluded. Imports require a fresh target,
-  write only through the private Ash portability actions in one Account-scoped
-  transaction, and enqueue replay-keyed ordinary rebuild work.
-- Operations remain content-safe. `/api/ready` may expose component status,
-  queue counts, model identities, versions, and error classes; it must never
-  expose credentials or content. Exact API/model usage stays in `UsageEvent`,
-  ETS budget counters remain rebuildable, dream-time is throttled first, and
-  self-host cost visibility uses operator-provided rates rather than hidden
-  billing state. Production structured logs retain only the reviewed metadata
-  allowlist.
+Skill cards are authored, plain-versioned procedural memory, not gated
+knowledge. Requirements inherit nearest-wins. Only authorized active or the
+calling peer's usable provisional knowledge satisfies readiness. Stale or due
+items remain gaps. Required gaps block; preferred gaps warn. Elicited answers
+return through ingest and governance; helpers never override the server.
 
-### Evaluation, CI, and release readiness
+The same release runs supervised-pg0 and external Postgres. Pin pg0 version and
+checksums; start it before Repo/migrations; never put it in the container path.
+Archives use `cartulary-account-1`, stream durable resources, verify blobs and
+the audit graph, exclude secrets and derived caches, require a fresh Account,
+write through private Ash actions in one transaction, and enqueue replay-safe
+rebuilds.
 
-- Application releases use Semantic Versioning; evaluation evidence uses the
-  `f11-1` report identity. A release must not proceed when a deterministic
-  guardrail, external-Postgres or pg0 lane, release/container build, semantic
-  tag/changelog check, report provenance check, or committed
-  correctness/citation floor fails.
-- Evidence: `test/cartulary/f11_evaluation_ci_release_readiness_test.exs`,
-  `specs/memory-system-evaluation-framework.md`,
-  `specs/architecture/evaluation-ci-release-readiness.md`, `specs/eval/`,
-  `.github/workflows/`, and `CHANGELOG.md`.
-- Public benchmark and quality claims require the exact application and
-  retrieval-profile versions, all four model-role versions, dataset id/SHA-256
-  and split, deadline setting, date, judge identity, strategy override, and run
-  limits. Quality, latency, token efficiency, and degradation remain
-  frontier-tracked; do not turn them into gates without an explicit reviewed
-  threshold change. Fusion weights may use only held-out tuning data.
-- Integration surfaces, gateway, and generated SDKs are **not implemented**.
-  The skill-readiness helpers under `sdk/` are not generated SDKs, and `0.2.0`
-  has no generated AshJsonApi OpenAPI contract. Keep unavailable surfaces
-  explicit in `specs/eval/surface-contract-inventory.json`; do not advertise
-  them as shipped or silently omit their missing lane.
+Readiness and logs may expose ids, counts, component status, model/version
+identity, timings, tokens, and error classes—never content or secrets. Preserve
+incoming W3C trace ids and return `x-trace-id`.
 
-### Observability and safety
+Evidence: `test/cartulary/f9_skill_readiness_procedural_memory_test.exs`,
+`test/cartulary/f10_portability_packaging_operations_test.exs`.
 
-- Keep observability content-safe. Traces and logs may record ids, counts,
-  profile names, model names, strategy names, timings, token counts, and error
-  classes; they must not record raw messages, prompts, answers, API keys,
-  account keys, peer keys, restricted knowledge, or secrets.
-- Preserve per-request trace correlation. HTTP responses should expose
-  `x-trace-id`; callers with W3C `traceparent` should keep their incoming trace
-  id, and callers without one should get a newly generated request trace id.
+### Evaluation and release
 
-### Things not to do
+Application versions use SemVer; evaluation reports use `f11-1`. Deterministic
+guardrails, both Postgres lanes, builds, version/changelog checks, provenance,
+and committed correctness/citation floors block a release. Public claims need
+exact application/profile/model versions, dataset id/hash/split, deadline,
+date, judge, strategy override, and run limits. Tune fusion only on held-out
+data. Quality, latency, token, and degradation frontiers are not gates without
+an explicit threshold change.
 
-- Do not invent architecture that bypasses Ash, Phoenix, Oban, or the blueprint
-  seams. If a new seam is unavoidable, document the reason and cite anchors.
-- Do not put `try`/`catch` or equivalent defensive wrappers around imports or
-  aliases. Fix dependency/configuration problems directly.
-- Do not rename a historical artifact that carries evidence. The migration
-  filenames under `priv/repo/migrations/`, the `pipeline_version` defaults
-  baked into old migrations and resource snapshots, and the recorded `poc-0`
-  evaluation reports under `specs/eval/results/` are immutable. Renaming a live
-  default such as the `/poc` scope path is a versioned behaviour change with
-  its own roadmap item, not incidental cleanup.
+Integration surfaces, gateway, and generated SDKs are not implemented. Keep
+them unavailable in `specs/eval/surface-contract-inventory.json`.
 
-## Licensing discipline
+Evidence: `test/cartulary/f11_evaluation_ci_release_readiness_test.exs`.
 
-Cartulary is fair-code / source-available, modelled on the blueprint's
-open-core stance:
+## Licensing
 
-- Community/core files are governed by `LICENSE.md` and should carry
-  `SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0` when the file format
-  supports comments.
-- Enterprise-only files are governed by `LICENSE_EE.md`, must live under an
-  `ee` directory or use `.ee.` in the filename, and should carry
-  `SPDX-License-Identifier: Cartulary-Enterprise`.
-- Do not add enterprise-gated behavior, move a feature across the license
-  boundary, or change entitlement semantics unless a human has explicitly made
-  that licensing decision in an issue, ADR, or blueprint update. ADR-0002 treats
-  licensing boundaries as human-only decisions.
-- The community build must remain coherent and buildable without enterprise
-  code. Core must not import enterprise modules; enterprise code may depend on
-  core through the explicit OTP app / runtime entitlement boundary described by
-  `AD-TOPO-3` and `AD-CFG-3`.
-- Gate scale, operations, governance, compliance, and support by license. Do not
-  gate core answer quality or retrieval correctness unless the maintainer
-  resolves the open ADR-0004 licensing question differently.
-- Never remove, alter, or obscure copyright, license, or SPDX notices.
-- Third-party code and vendored dependencies keep their upstream licenses. Do
-  not add Cartulary SPDX headers under `deps/` or other vendored trees.
+- Community/core uses `LICENSE.md` and SPDX
+  `Cartulary-Sustainable-Use-1.0` where comments are supported.
+- Enterprise uses `LICENSE_EE.md`, lives under `ee` or in `.ee.` files, and uses
+  SPDX `Cartulary-Enterprise`.
+- Do not move behavior across the boundary or change entitlements without an
+  explicit human decision. Core cannot import enterprise modules.
+- Gate scale, operations, compliance, and support—not core answer quality.
+- Never alter license notices. Vendored code keeps upstream licenses.
 
-## Required local checks before opening a PR
+## Checks
 
-Run the checks that exist for the repository state you are editing and report
-all results in the PR and final response. When a command is unavailable, state
-that explicitly rather than fabricating evidence.
-
-Minimum checks for every task:
+Run and report applicable checks honestly.
 
 ```bash
 git status --short
-```
-
-The standard Elixir gate:
-
-```bash
 mix deps.get
 mix ash.codegen --check
 mix format --check-formatted
@@ -612,89 +329,39 @@ mix compile --warnings-as-errors
 mix test
 ```
 
-Also run, when the change touches the relevant area:
+Run `mix credo --strict`, `mix dialyzer`, and `mix sobelow --config` when the
+area warrants them. For evaluation/release work also run:
 
 ```bash
-mix credo --strict
-mix dialyzer
-mix sobelow --config
-```
-
-For evaluation, CI, versioning, or release-readiness changes, also run:
-
-```bash
-mix cartulary.eval.release \
-  --no-model \
-  --assert-thresholds \
+mix cartulary.eval.release --no-model --assert-thresholds \
   --output /private/tmp/cartulary-release-eval.json
 mix cartulary.release.check \
   --eval-report /private/tmp/cartulary-release-eval.json
 ```
 
-The pg0 CI lane additionally runs `scripts/ci-pg0-lane`; it downloads the
-checksum-pinned pg0 asset, so local execution requires network access. The
-external-Postgres and packaged-pg0 job names and the release procedure are in
-`specs/process/release-checklist.md`.
-
-For any change touching `docs/` or `mkdocs.yml`, build the published site. It
-runs with `strict: true`, so a broken internal link or a page missing from the
-navigation fails:
+For `docs/` or `mkdocs.yml` changes:
 
 ```bash
 pip install -r docs/requirements.txt
 mkdocs build
 ```
 
-For documentation-only changes elsewhere, inspect the changed Markdown directly
-and run any available repo-local Markdown or link check. If no such tool
-exists, say so and include the manual inspection scope.
+The pg0 lane is `scripts/ci-pg0-lane` and requires network access. Database-mode
+changes need parity evidence. If a check is unavailable, say so.
 
-For changes touching local single-node and queue-mode behavior, provide parity
-evidence for pg0-backed and operator-run Postgres paths. Clearly mark any lane
-you could not run.
+## Delivery and review
 
-## Review guidance
+Use one task, branch, and PR. Start from current `main`; keep humans as the
+merge gate. The PR states scope, reason, relevant anchors, real check results,
+and deliberate limitations. Do not claim repository settings from workflow
+files alone.
 
-Reviewers and agents should ask:
+Before delivery, confirm the change preserves Account isolation, inheritance,
+governed promotion, pipeline-only writes, durable/cache separation,
+transactional effects, deployment parity, provider neutrality, license
+boundaries, concise self-contained source documentation, and aligned user docs.
 
-- Does the change preserve the prime directive: one codebase, two modes,
-  identical guarantees?
-- Does it maintain Account isolation, downward inheritance, governed upward
-  promotion, and pipeline-only knowledge writes?
-- Does it distinguish durable stores from rebuildable caches?
-- Are Oban jobs, audit writes, lifecycle transitions, and derived-index updates
-  transactionally safe?
-- Does it avoid provider, database, deployment-mode, or cloud lock-in?
-- Are Free/Core and Enterprise boundaries explicit and non-forking?
-- Are blueprint anchors cited in the PR description and the durable docs where
-  the design depends on them — and kept out of source comments?
-- Can every touched file be read and understood on its own, without opening
-  `specs/` or `docs/`? Does each comment explain a reason rather than restate
-  the code?
-- Are test results real, current, and scoped to the change?
-- Does every user-visible change carry its `docs/` update in the same patch,
-  and did each new document land in the correct tree — `docs/` for setup and
-  usage, `specs/` for design, `CONTRIBUTING.md` for development process?
-- Is the PR focused on one task, with no unrelated cleanup or roadmap creep?
-
-Security-, tenancy-, audit-, pipeline-, backend-parity-, or eval-sensitive work
-needs explicit reviewer attention and evidence matching that risk class.
-
-## Delivery discipline
-
-One task, one issue, one branch, one PR. The full workflow, the label taxonomy,
-and the maintainer-owned GitHub settings that are still outstanding are in
-`specs/roadmap/beta-roadmap.md`.
-
-1. A human scopes and labels exactly one implementation issue as `ai-ready`.
-2. The agent reads this contract, the blueprint anchors, and the closest
-   architecture note before editing.
-3. The agent implements only that issue's acceptance criteria.
-4. The agent opens one focused PR with real check evidence and links the issue.
-5. A human reviews and remains the merge gate.
-6. The next task starts only after merge, from the updated `main`.
-
-Do not batch unrelated tasks. Repository rulesets, required checks, protected
-secrets and environments, publishing permissions, and Codex integration are
-maintainer-owned GitHub settings: the presence of a workflow file is not
-evidence that `main` is protected.
+Do not add defensive `try`/`catch` wrappers around imports or aliases; fix the
+dependency or configuration. Do not rename historical migrations, snapshots,
+pipeline defaults, recorded `poc-0` reports, evidence test paths, or live
+defaults as incidental cleanup.

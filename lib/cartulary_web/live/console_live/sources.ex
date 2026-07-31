@@ -2,38 +2,13 @@
 
 defmodule CartularyWeb.ConsoleLive.Sources do
   @moduledoc """
-  The provenance surface at `/console/sources`: the raw material knowledge was
-  extracted from, before any of it became a governed statement.
+  Read-only `/console/sources` provenance view of authorized observations,
+  immutable document versions, sessions, and connector status.
 
-  Two kinds of source arrive in Cartulary and both are shown here:
-
-  - **Observations.** What someone actually said, grouped into sessions. A
-    message is durable and immutable; the statements extracted from it are
-    separate rows with their own lifecycle.
-  - **Documents.** Uploaded or connector-synced files. A document is versioned
-    immutably: a changed document appends a version and supersedes the stale
-    derivations rather than overwriting history, and a remote deletion leaves a
-    tombstone rather than a hole.
-
-  ## Why raw content is shown
-
-  A person cannot judge an extracted statement without being able to read what
-  it was extracted from. This page is that check. Everything on it passed the
-  same scope authorization as the statements themselves.
-
-  That text is for the browser only. Document bytes, extracted text, connector
-  cursors, source metadata, and secrets must never be copied into audit
-  metadata, telemetry, or job arguments — and nothing here writes any of them
-  anywhere.
-
-  ## What is not shown
-
-  Document chunks and their embedding vectors are rebuildable derived caches
-  with no meaning to a reader, so they are reported as counts and nothing more.
-  Connector secrets are stored as references and are never rendered; the
-  connector rows show only status, schedule, and error class.
-
-  This page performs no writes.
+  Raw content is rendered only in the browser. Never copy document bytes,
+  extracted text, cursors, metadata, or secrets into audit data, telemetry, or
+  job args. Do not render connector secrets, chunks, vectors, entity data, or
+  credentials; derived caches appear only as counts.
   """
 
   use CartularyWeb, :live_view

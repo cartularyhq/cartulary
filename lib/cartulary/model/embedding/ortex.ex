@@ -6,38 +6,22 @@ defmodule Cartulary.Model.Embedding.Ortex do
 
   ## Offline by construction
 
-  Model and tokenizer artifacts are filesystem paths supplied by the operator,
-  and each must name an existing regular file before anything else happens.
-  Nothing here downloads a model, resolves a model name against a hub, or
-  substitutes a different model when the configured one is missing — a missing
-  artifact is an error. Text being embedded therefore never leaves the machine,
-  which is what makes a fully offline install possible.
+  Operator-supplied model and tokenizer paths must name regular files. Nothing is downloaded or
+  substituted, and embedded text never leaves the machine.
 
   ## What the pipeline does, and why each step matters
 
-  1. **Tokenize as a batch**, then truncate and pad every sequence in the batch
-     to the same length. ONNX Runtime needs a rectangular tensor, and the target
-     length is the longest sequence in this batch capped at the configured
-     maximum — so a batch of short texts is not padded out to the cap and does
-     not pay for inference it does not need.
+  1. **Tokenize as a batch.** Truncate at the configured maximum and pad only to the longest
+     sequence in the batch.
   2. **Run the graph** with the input tensors in the order the export expects.
-  3. **Pool**, if the model returns per-token hidden states. A rank-2 output is
-     already one vector per text and is used as-is; a rank-3 output is reduced
-     by taking the first token or by masked mean, and the choice must match how
-     the model was trained. Mean pooling counts only unmasked positions, so
-     padding cannot drag a vector toward zero.
-  4. **L2-normalize**, so that a dot product is a cosine similarity. Retrieval
-     relies on this; returning unnormalized vectors would silently skew every
-     comparison in favour of longer texts.
+  3. **Pool** rank-3 token states by first token or masked mean; use rank-2 vectors as-is. Pooling
+     must match training, and masked mean excludes padding.
+  4. **L2-normalize** so dot product equals cosine similarity.
 
   ## Caching
 
-  The tokenizer and the loaded model session are cached in `:persistent_term`
-  keyed by artifact path and the caller's `:cache_key`, because loading an ONNX
-  session per call would dominate the cost. This is a rebuildable cache: it
-  holds no durable state and a restart simply reloads from the same files. The
-  provider adapter puts the model version into `:cache_key`, so a version bump
-  loads fresh artifacts rather than serving the previously cached session.
+  `:persistent_term` caches tokenizer and model by artifact path and `:cache_key`. It is
+  rebuildable; the provider includes model version in the key so version changes reload files.
 
   ## Mistakes to avoid
 

@@ -2,7 +2,7 @@
 
 # Checking skill readiness
 
-Call this before an agent runs a skill, not after it produces something wrong.
+Check readiness before running a skill.
 
 ```bash
 curl -fsS -X POST http://127.0.0.1:4000/api/v1/readiness \
@@ -74,8 +74,7 @@ So a requirement is a gap when the relevant statement is:
   gap **immediately**, without waiting for the background sweeper;
 - outside the scopes the peer may read.
 
-That last case is not a bug. Readiness is per-peer for the same reason
-retrieval is: what one agent may act on is not what another may.
+Readiness is per-peer: one agent may not act on another's inaccessible memory.
 
 ## Authoring requirement cards
 
@@ -83,8 +82,7 @@ Cards are human-authored, plainly versioned procedural memory. They are not
 knowledge and do not pass Gate A or Gate B. Author them in the governance
 console — see [Curating memory](governance-console.md).
 
-Keep them small. A card with fifteen required keys blocks constantly and
-teaches callers to ignore it.
+Keep cards small enough that required keys remain actionable.
 
 ## In code
 

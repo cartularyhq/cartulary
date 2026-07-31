@@ -10,18 +10,16 @@ Unauthenticated. Touches no database and no queue.
 {"status": "ok", "app": "cartulary", "version": "f5-1"}
 ```
 
-`version` is the identity of the extraction-and-pipeline contract this build
-implements — **not** the application's semantic version. It tells a client
-which extraction behaviour it is talking to. See
+`version` identifies the extraction-and-pipeline contract, **not** the
+application version. See
 [Contract versions](../reference/contract-versions.md).
 
 Point orchestrator **liveness** probes here.
 
 ## Readiness: `GET /api/ready`
 
-Unauthenticated. Runs the database, Oban, queue-depth, and model-role checks
-and answers 200 only when every one reports `ok`; otherwise 503, so a load
-balancer stops routing to this node.
+Unauthenticated. Checks the database, Oban, queue depth, and model roles.
+Returns 200 when all are `ok`; otherwise 503.
 
 The body is the whole check map: per-component status, queue depths by queue
 and job state, an error class per failing component, and `"f10-1"` — the
@@ -74,10 +72,9 @@ flowchart LR
     ADM -->|yes| TH["Throttle dream-time first"]
 ```
 
-!!! info "It is a visibility aid, not a bill"
-    The cost figure is arithmetic over your own usage ledger using rates you
-    supplied. There is no hidden billing state behind it, and nothing is sent
-    anywhere.
+!!! info "This is not a bill"
+    The estimate uses your usage ledger and operator-supplied rates. Nothing is
+    sent elsewhere.
 
 ### Budgets and throttling
 

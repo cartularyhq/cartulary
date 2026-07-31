@@ -2,53 +2,21 @@
 
 defmodule Cartulary.F10PortabilityPackagingOperationsTest do
   @moduledoc """
-  Pins account portability, operator surfaces, log safety, and packaging invariants.
+  Pins Account portability, audit verification, readiness, exact metering, log
+  safety, and packaging parity.
 
-  These are the promises that make Cartulary self-hostable and leaveable: an operator can
-  take their whole account elsewhere, verify that nothing was tampered with on the way,
-  see exactly what the system is doing and what it costs, and run the same release either
-  against a database Cartulary manages for them or against one they run themselves.
+  Archives exclude credentials, secrets, and rebuildable caches by construction;
+  imports verify checksums and the audit chain before writing. Readiness remains
+  content-safe, usage comes from the durable ledger, and production logs allow
+  only reviewed metadata. pg0 assets are pinned while containers use stock
+  Postgres with the same release.
 
-  ## What it pins
+  `cartulary-account-1` is the external archive schema identity. Changing it
+  requires a changelog entry and updated evidence. Treat archive leakage, log
+  redaction, and unverified packaging failures as security issues.
 
-  * **The archive is self-describing and complete enough to move an account**, and small
-    enough not to move things that should not travel. Credentials, password hashes, secret
-    values, vectors, chunks, projections, and entity caches are excluded by construction —
-    not filtered at the last moment. Anything rebuildable is rebuilt at the destination
-    under the target's own model configuration.
-  * **The audit chain is verified before any import writes.** Audit events are hash-chained:
-    each one commits to its predecessor. Changing a single field of a single event breaks
-    the chain, and the verifier must reject the whole archive rather than import a history
-    that cannot be trusted.
-  * **Readiness reports component health without leaking anything.** Component status,
-    queue counts, and model-role configuration are safe to expose; credentials and content
-    are not.
-  * **Usage is metered exactly**, per request, so cost visibility comes from a real ledger
-    rather than an estimate — and self-hosters price it with their own rates.
-  * **Production logs redact credentials and drop unlisted metadata.** The metadata filter
-    is an allowlist, so a new field added anywhere in the system cannot start appearing in
-    logs by default.
-  * **Packaging stays honest.** The embedded database launcher is version- and
-    checksum-pinned, and the container image deliberately does *not* contain it: containers
-    run against a stock Postgres image instead. Both paths are the same release with
-    different adapters, never two implementations.
-
-  ## The `cartulary-account-1` string
-
-  `cartulary-account-1` is the archive schema identity, written into every export manifest
-  and checked on import. It is data that external tooling pins. Changing it is a deliberate
-  contract transition requiring a changelog entry and updated evidence.
-
-  ## If this file fails
-
-  Treat two failures as security issues rather than test breakage: a credential, hash,
-  secret, or content field appearing in the archive inventory, and a redaction assertion
-  failing on log output. For the packaging assertions, check whether the pinned version or
-  digest was updated deliberately — an unpinned or mismatched download is a supply-chain
-  problem, not a stale test.
-
-  Runs `async: false`: it writes real archive files to a temporary path and reads
-  repository files from disk.
+  Runs synchronously because it writes temporary archives and reads repository
+  files.
   """
 
   use Cartulary.DataCase, async: false

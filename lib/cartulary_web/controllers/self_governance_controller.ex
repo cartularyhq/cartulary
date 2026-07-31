@@ -2,34 +2,11 @@
 
 defmodule CartularyWeb.SelfGovernanceController do
   @moduledoc """
-  What a person may do about knowledge that is *about them*: read it, dispute it, redact
-  it, or demand its erasure.
+  Implements a person's rights over knowledge about them.
 
-  These are subject rights, not curator powers. The distinction runs through every action
-  here:
-
-  - the caller acts only on their own subject knowledge, and the peer is always taken from
-    the credential, never from a parameter, so there is no way to spell another person's
-    id into a request and act on their behalf;
-  - nothing here approves, activates, promotes, merges, or edits anyone's knowledge.
-    Contesting an item asks a human curator to look at it; it does not decide the outcome.
-
-  ## Only a human password identity gets in
-
-  The routes are mounted behind a plug that requires the credential to have come from a
-  password sign-in. An agent API key is rejected with a 403 carrying the error message
-  "Human identity required", even when the key belongs to the same peer, because disputing
-  or erasing what the system believes about a person is a personal decision that a machine
-  may not take for them. Do not relax that pipeline to "any authenticated caller" — it is
-  the whole reason these actions can be trusted.
-
-  ## Content safety
-
-  Read responses are projected through the resource's public attributes only, so private
-  and sensitive internals never reach the wire even when a new attribute is added to the
-  resource later. Erasure answers with the request's id, mode, and state and nothing else:
-  reporting what was removed would re-disclose the very content the subject asked to have
-  destroyed.
+  The password-backed caller may read, dispute, redact, or erase only their own subject knowledge;
+  peer identity always comes from the credential. These actions never approve or edit knowledge.
+  Responses use resource-public attributes, and erasure returns only request id, mode, and state.
   """
 
   use CartularyWeb, :controller
@@ -40,9 +17,7 @@ defmodule CartularyWeb.SelfGovernanceController do
   @doc """
   Lists the knowledge whose subject is the calling peer.
 
-  Takes no parameters — the subject is the authenticated peer, always. Returns
-  `%{"data" => rows}` newest first, skipping items already deleted, with each row reduced
-  to the resource's public attributes.
+  Takes no subject parameter. Returns newest non-deleted rows through public attributes.
 
   This is the person's view of their own record, including items that are still
   provisional or held and therefore invisible to ordinary retrieval. Seeing an item here
@@ -60,16 +35,9 @@ defmodule CartularyWeb.SelfGovernanceController do
   @doc """
   Disputes one item of knowledge about the calling peer.
 
-  `id` is the knowledge id from the path. The item moves to a contested state marked as
-  disputed by its subject, an immutable audit entry is written, and a validation item is
-  queued for a human curator with a 24-hour deadline — long enough for a curator to answer
-  during a working day, short enough that a disputed claim is not left standing for a
-  week.
+  Moves the item to contested, audits it, and queues human review with a 24-hour deadline.
 
-  Returns `%{"data" => item}` with the updated row. Raises not-found when the id is
-  unknown *or* belongs to knowledge whose subject is somebody else; the two cases are
-  deliberately indistinguishable, so this route cannot be used to probe for the existence
-  of other people's records.
+  Returns the public updated row. Missing and other-subject ids are indistinguishable.
 
   Contesting states an objection. It does not delete or rewrite the claim, and only a
   human curator can resolve it.
@@ -82,9 +50,7 @@ defmodule CartularyWeb.SelfGovernanceController do
   @doc """
   Withdraws one item of knowledge about the calling peer from use.
 
-  `id` is the knowledge id from the path. The item moves to a redacted state marked as
-  redacted by its subject and an audit entry is written. Unlike `contest/2` this does not
-  queue curator review: the subject's decision stands on its own.
+  Moves the item to subject-redacted and audits it without curator review.
 
   Returns `%{"data" => item}`. Raises not-found for an unknown id or for knowledge about
   another peer, with no distinction between the two.
@@ -102,16 +68,10 @@ defmodule CartularyWeb.SelfGovernanceController do
 
   Body: `mode` is `"proportionate"` (the default) or `"strict"`. Any other value raises.
 
-  Proportionate mode removes the peer's observations and the knowledge they are the
-  subject of, and scrubs their traces from provenance that other knowledge still depends
-  on. Strict mode additionally removes knowledge that was only ever sourced through this
-  peer. Neither mode retracts a claim that has surviving independent provenance — someone
-  else's independently sourced statement is not the subject's to delete.
+  Proportionate mode removes subject content and scrubs shared provenance. Strict also removes
+  peer-exclusive sourced knowledge. Independent provenance survives.
 
-  Affected projections and entity derivations are recomputed or marked stale from the
-  surviving record, and content-safe audit evidence — ids, hashes, actions, counts —
-  deliberately survives, because proving that an erasure happened must not require keeping
-  what was erased.
+  Derived caches are rebuilt or dirtied; content-safe audit evidence survives.
 
   The response carries only the erasure request's id, mode, and state. The target peer is
   the authenticated caller: it is read from the credential and cannot be supplied by the
@@ -126,12 +86,7 @@ defmodule CartularyWeb.SelfGovernanceController do
     json(conn, %{data: %{id: request.id, mode: request.mode, state: request.state}})
   end
 
-  # Projects a record to its resource-declared public attributes.
-  #
-  # This is the content-safety filter for every response in this module: whatever the
-  # resource marks private stays private, and an attribute added to the resource later is
-  # excluded by default rather than leaking the moment it is introduced. Never replace
-  # this with Map.from_struct/1 or a hand-written key list.
+  # Resource-public attributes are the response allowlist; never serialize the struct directly.
   defp public_map(record) do
     record.__struct__
     |> Ash.Resource.Info.public_attributes()

@@ -2,46 +2,13 @@
 
 defmodule CartularyWeb.ConsoleLive.Scopes do
   @moduledoc """
-  The scope directory at `/console/scopes`: the containment tree as a
-  browsable hierarchy, with what lives in each node and what authority the
-  reader holds there.
+  Read-only `/console/scopes` directory of authorized scopes, relations, and
+  role grants.
 
-  ## Why the tree is the important picture
-
-  Almost everything in Cartulary hangs off a scope, and three rules follow from
-  the tree's shape. This page exists to make all three visible rather than
-  merely documented:
-
-  - **Context flows down.** A statement recorded at `/team` is in context at
-    `/team/project`, and never the other way round. Moving knowledge upward is
-    a governed decision, not a consequence of the tree.
-  - **Nearest wins.** Where several ancestors offer a value for the same thing
-    — a retrieval override, a skill requirement, a role — the nearest enclosing
-    scope wins, so a specific place can always override a general one.
-  - **Deny wins.** Any applicable deny grant removes a scope outright. It is
-    not weighed against allows and cannot be out-ranked by a stronger role,
-    which is what makes a deny a dependable hole in a broad inherited grant.
-
-  ## What is shown, and what absence means
-
-  Only scopes the reader's grants reach appear. A subtree that is missing is
-  not empty — it is invisible, and the two are deliberately indistinguishable
-  from here.
-
-  A scope whose parent is invisible still appears at its own depth. Access is
-  granted per scope, so a hidden intermediate must not hide a granted child;
-  the indentation therefore reflects path depth rather than the chain of
-  visible ancestors.
-
-  ## Relations are not grants
-
-  Scope relations link scopes that are not in a parent-child line. They can
-  widen what retrieval *considers*, but never what a reader may *see*:
-  expansion across a relation happens only when the caller is already
-  authorized at both ends. They are listed separately from the tree so that
-  distinction stays obvious.
-
-  This page performs no writes.
+  Context inherits downward, nearest overrides win, and any applicable deny
+  removes access. Missing scopes remain indistinguishable from nonexistent
+  ones; authorized children retain path depth even when parents are hidden.
+  Relations never grant access and require authorization at both ends.
   """
 
   use CartularyWeb, :live_view
@@ -170,9 +137,7 @@ defmodule CartularyWeb.ConsoleLive.Scopes do
     """
   end
 
-  # A leading glyph makes depth legible even when the indentation is compressed
-  # on a narrow screen. The root carries a different mark from its descendants
-  # because it is the one scope with no parent.
+  # Distinguish the root when narrow layouts compress indentation.
   defp tree_glyph(0), do: "●"
   defp tree_glyph(_depth), do: "└"
 end

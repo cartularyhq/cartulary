@@ -4,12 +4,8 @@ defmodule Cartulary.Model.Schema do
   @moduledoc """
   The contract every structured-output shape implements.
 
-  A schema module supplies two things: the JSON schema handed to the provider so
-  it can constrain its own decoding, and a `cast/2` that independently validates
-  and normalizes whatever actually came back. Both halves are required. Provider
-  schema enforcement is a hint, not a guarantee — weaker and local models
-  routinely return something that merely resembles the schema — so `cast/2` is
-  the real gate and is written to assume the input is hostile.
+  A schema supplies provider JSON Schema and an independent `cast/2`. Provider enforcement is not
+  trusted; `cast/2` validates and normalizes hostile input.
 
   `cast/2` returns `{:ok, value}` or `{:error, messages}` with a list of
   human-readable, content-free error strings. Those messages are fed back to the
@@ -28,19 +24,14 @@ defmodule Cartulary.Model.Schema.Extraction do
 
   ## Derived from the resource, not hand-copied
 
-  The JSON schema's field types and numeric bounds are read from the knowledge
-  resource's own attribute definitions, and each candidate is finally run
-  through the pipeline create action as an unsaved changeset. A candidate that
-  action would reject is therefore rejected here, before it reaches the
-  pipeline. The enumerations are the one thing restated locally, in `@allowed`,
-  and must be kept equal to the action's own `attribute_in` validations.
+  Types and numeric bounds come from the knowledge resource. Each candidate also passes the
+  pipeline create action as an unsaved changeset. Local `@allowed` enums must match its
+  `attribute_in` validations.
 
   ## What one candidate is
 
-  A natural-language statement plus its classification: kind, confidence,
-  sensitivity, the level it is proposed for, an independently chosen subject,
-  the update operation, a hearsay flag, and four independent timestamps
-  (expiry, revalidation, and the window the claim is true for).
+  A candidate includes statement, classification, confidence, sensitivity, target level,
+  independent subject, operation, hearsay, expiry, revalidation, and validity window.
 
   ## Rules this module enforces
 
@@ -455,16 +446,10 @@ defmodule Cartulary.Model.Schema.Reasoning do
   The structured shape for background reasoning: extraction candidates plus
   typed relations between existing knowledge.
 
-  Reasoning reuses the extraction candidate shape unchanged, deliberately. A
-  deduction made while re-reading stored knowledge is still only a candidate: it
-  is subject to the same subject allowlist, the same hearsay discount, and the
-  same governance as anything extracted from a live observation. Reasoning
-  cannot mint knowledge that extraction could not.
+  Reasoning reuses extraction validation, including subject allowlist, hearsay discount, and
+  governance. It cannot mint otherwise-invalid knowledge.
 
-  What it adds is a `relations` array of `supports`, `contradicts`, and
-  `derived_from` edges between knowledge ids. Note that a contradiction is
-  recorded as an edge, not applied as an overwrite — disagreement between two
-  statements is information to keep, not a conflict to silently resolve.
+  It adds `supports`, `contradicts`, and `derived_from` edges. Contradictions never overwrite.
   """
 
   @behaviour Cartulary.Model.Schema
@@ -517,17 +502,10 @@ defmodule Cartulary.Model.Schema.DialecticAnswer do
   @moduledoc """
   The structured shape for a grounded answer to a question.
 
-  Three fields, all required. `answer` is the text. `citations` are the ids of
-  the knowledge statements the answer rests on. `abstained` is an explicit
-  admission that the retrieved statements do not answer the question — making
-  abstention a first-class field is what allows "not known" to be a correct
-  answer rather than a failure to produce one.
+  Requires answer text, knowledge-id citations, and explicit `abstained` status.
 
-  Citations validated here are only checked for *shape*. Whether each cited id
-  was actually among the statements shown to the model is a separate grounding
-  check performed by the caller, because a model can return a plausible-looking
-  id it never saw. Both checks are needed: this one keeps malformed output out,
-  the caller's keeps invented provenance out.
+  This module checks citation shape. The caller must separately verify every id was shown to the
+  model.
   """
 
   @behaviour Cartulary.Model.Schema

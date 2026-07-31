@@ -2,10 +2,8 @@
 
 # Observability
 
-Cartulary exports OpenTelemetry traces, writes structured logs with trace
-metadata, and keeps an exact usage ledger in the database. Export is **disabled
-by default** and vendor-neutral: the application speaks OTLP to a collector you
-control.
+Cartulary provides OpenTelemetry traces, structured logs, and a durable usage
+ledger. Export is **off by default** and sends OTLP to your collector.
 
 ```mermaid
 flowchart LR
@@ -52,9 +50,8 @@ Every HTTP response carries `x-trace-id`, and `x-span-id` when a span is
 active. A caller supplying a W3C `traceparent` keeps its own trace id; a caller
 without one gets a fresh request trace id.
 
-Copy `x-trace-id` from any response and search it in Jaeger. Logger metadata
-carries `request_id`, `trace_id`, and `span_id`, so the same identifier joins
-logs and traces.
+Search Jaeger for a response's `x-trace-id`. Logs carry `request_id`,
+`trace_id`, and `span_id` for correlation.
 
 ## What is traced
 
@@ -91,10 +88,10 @@ Tune noise per debugging session:
 | `CARTULARY_OTEL_ECTO_SPANS_ENABLED` | `false` | Deep database spans — many, low-level |
 | `CARTULARY_OTEL_DB_STATEMENT_ENABLED` | `false` | SQL statement text; off because statements can carry sensitive values |
 
-## Traces are a sampled mirror; the ledger is exact
+## Traces are sampled; the ledger is exact
 
-For anything that must be exactly right — token totals, request counts, cost —
-read the `UsageEvent` ledger through
+For exact token totals, request counts, and cost, read the `UsageEvent` ledger
+through
 [`/api/v1/operations/costs`](health-and-costs.md).
 Telemetry is sampled and is a diagnostic aid, not an accounting record.
 
@@ -108,8 +105,7 @@ They must **never** record raw messages, prompts, answers, API keys, account
 keys, peer keys, restricted knowledge, document bytes, extracted text,
 connector cursors, source metadata, or secrets.
 
-Production structured logs retain only a reviewed metadata allowlist. If you
-add an attribute, that is a disclosure decision, not a formatting one.
+Production logs retain only the reviewed metadata allowlist.
 
 ## Sending traces elsewhere
 
@@ -121,8 +117,7 @@ OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://cloud.langfuse.com/api/public/otel/v1
 OTEL_EXPORTER_OTLP_TRACES_HEADERS=Authorization=Basic <base64 public:secret>
 ```
 
-Prefer the local collector during development so traces can also be inspected
-locally.
+Use the local collector when you also need local inspection.
 
 The measurement discipline behind evaluation runs — experiment labelling,
 retrieval variants, and what may be claimed from a trace — is maintainer

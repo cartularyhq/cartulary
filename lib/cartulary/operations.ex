@@ -2,20 +2,10 @@
 
 defmodule Cartulary.Operations do
   @moduledoc """
-  Ash domain holding the durable operational record of what the system did.
+  Ash domain for durable usage and pipeline execution records.
 
-  Two resources live here and they are deliberately different in kind:
-
-    * `Cartulary.Operations.UsageEvent` — the append-only ledger of metered
-      work, one row per HTTP request or model call. It is the exact record that
-      budgets, cost estimates, and operator summaries are computed from.
-    * `Cartulary.Operations.PipelineRun` — the durable processing state of one
-      unit of background work, and the row that makes re-enqueueing safe.
-
-  Neither resource stores memory content. Operators and Account administrators
-  read both, so nothing written through this domain may carry message text,
-  statements, prompts, questions, answers, document bytes, connector cursors,
-  credentials, or secrets.
+  Operational rows are content-safe: they may contain ids, counts, timings, versions, and error
+  classes, never memory content, document bytes, prompts, credentials, cursors, or secrets.
   """
 
   use Ash.Domain
@@ -28,39 +18,11 @@ end
 
 defmodule Cartulary.Operations.UsageEvent do
   @moduledoc """
-  Append-only ledger of exactly what an Account consumed.
+  Append-only ledger for HTTP and model usage.
 
-  One row is one metered call: an authenticated HTTP request, recorded when its
-  response is sent, or a single model invocation, recorded by the one durable
-  model-usage emission point. Rows are never updated or deleted — the resource
-  declares no update or destroy action — because a ledger whose past can be
-  rewritten is not evidence.
-
-  ## Exact ledger versus rebuildable counters
-
-  This table is the system of record for usage. The in-memory daily counters
-  used for cheap admission decisions are a rebuildable cache fed by the same
-  emissions; losing them costs the node today's running totals and nothing
-  else. Do not invert that relationship by treating a counter as authoritative
-  or by skipping the ledger write to save a round trip.
-
-  ## Content safety
-
-  Account administrators can read these rows through the operator summary, so
-  a row must stay content-safe. Identifiers, counts, durations, model
-  provenance, a coarse operation name, and an `ok`/`error` status are allowed.
-  Request or response bodies, message text, statements, prompts, questions,
-  answers, and credentials are not. Writers reduce `metadata` to a reviewed key
-  allowlist before it reaches the create action; widening that allowlist is a
-  disclosure decision.
-
-  ## Provenance columns are always populated
-
-  Provider, model, version, prompt, and pipeline identity are non-null even for
-  calls that involve no model at all. The HTTP writer fills them with literal
-  placeholder strings and an `"edge"` role rather than leaving them empty, so
-  every row can be grouped by role without a null check, and so a row can never
-  hide which model configuration produced it.
+  This table is authoritative; ETS budget counters are rebuildable. Writers store exact counts
+  and reviewed content-safe metadata with complete model provenance. Only internal actors write
+  events, while Account administrators may read summaries.
   """
 
   use Cartulary.Resource, domain: Cartulary.Operations, table: "usage_events"
@@ -188,42 +150,11 @@ end
 
 defmodule Cartulary.Operations.PipelineRun do
   @moduledoc """
-  Durable processing state for one unit of background pipeline work.
+  Durable state and idempotency record for one pipeline unit.
 
-  The row, not the queued job, is authoritative. A job is only the mechanism
-  that executes the row's work; the row records which lane it belongs to, what
-  it targets, how many attempts it has taken, and how it ended. That inversion
-  is what makes the pipeline replay-safe: a lost, duplicated, or manually
-  re-enqueued job cannot lose or duplicate work.
-
-  ## Idempotency
-
-  Every `enqueue_*` action upserts on `idempotency_key`, a deterministic string
-  built from the lane plus the immutable identity of the thing being processed
-  — a message id with its content hash, a document version, a scope with a
-  watermark. Because the conflict target rewrites nothing but the key itself,
-  a second enqueue of the same work returns the existing row untouched and its
-  status, attempt count, and error class survive.
-
-  Never add a mutable attribute to that upsert set. Doing so would let a
-  duplicate enqueue reset a run that is already executing or already finished,
-  which is exactly the double-processing the key exists to prevent.
-
-  ## Transaction boundary
-
-  Enqueueing runs inside the caller's transaction: creating the row also
-  inserts the background job, so the durable source write, its audit entry, and
-  the queued work either all commit or all roll back. Nothing may enqueue
-  pipeline work by inserting a job directly — that would produce jobs for state
-  that was never committed, and committed state with no job to process it.
-
-  ## Content safety
-
-  `payload` and the job arguments carry replay keys, hashes, and identifiers
-  only. Message content, extracted text, statements, connector cursors, and
-  secrets must never be copied into them: both outlive the request and are
-  visible to operators. Failures likewise record an error class, never an error
-  message, since messages routinely embed the values that caused them.
+  Source creation, audit, run creation, and AshOban enqueue commit together. Replay keys prevent
+  duplicate work, job arguments remain content-free, and stalled durable sources retain a
+  reconciler path.
   """
 
   use Cartulary.Resource,

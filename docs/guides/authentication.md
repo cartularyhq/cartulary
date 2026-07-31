@@ -2,9 +2,9 @@
 
 # Authentication
 
-Every `/api/v1` route and the MCP endpoint require
-`Authorization: Bearer <credential>`. There are two kinds of credential, and
-which one you hold decides what you may do.
+Every `/api/v1` route and `/mcp` require
+`Authorization: Bearer <credential>`. Human tokens and agent API keys grant
+different authority.
 
 ```mermaid
 flowchart LR
@@ -40,9 +40,8 @@ Authorization: Bearer <token>
 
 ## Agent API keys
 
-An agent holds a per-peer API key, sent in exactly the same header. Keys are
-stored hashed; the plaintext exists only at the moment it is issued, so record
-it then.
+Agents send a per-peer API key in the same header. Cartulary stores only its
+hash, so record the plaintext when issued.
 
 An API key is enough for the memory routes and MCP. It is **not** enough for:
 
@@ -52,7 +51,7 @@ An API key is enough for the memory routes and MCP. It is **not** enough for:
   parameter that substitutes for the sign-in form, so a key has nothing it can
   present; a key placed in a session cookie is refused like no credential.
 
-Those are personal decisions a machine may not take on a person's behalf.
+Machines may not make these personal decisions.
 
 ## Browser sign-in
 
@@ -68,10 +67,8 @@ open http://127.0.0.1:4000/sign-in
 role. Both write the same session, so one sign-in opens whichever surface your
 role allows.
 
-The token, the identity kind, and — for the curator queue — the role are
-re-verified on the initial render **and on every socket reconnect**. Holding
-the cookie is never authorisation on its own, because a token can expire or a
-grant can be revoked while a tab stays open.
+Initial render and every socket reconnect re-check token, identity kind, and,
+for governance, role. A cookie alone is not authorization.
 
 Signing out drops the session. It does not revoke the token: session tokens are
 stateless and stay valid on their signature until they expire.
@@ -80,8 +77,7 @@ See [Exploring memory in the web console](web-console.md).
 
 ## The Account comes from the credential
 
-You do not choose an Account. It is derived from the verified identity and
-installed as the tenant for the whole request.
+The verified identity determines the Account tenant.
 
 An `account_key` field in a request body and the legacy
 `x-cartulary-account-key` header are accepted and **ignored**, so an old client

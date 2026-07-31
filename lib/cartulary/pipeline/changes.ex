@@ -4,10 +4,7 @@ defmodule Cartulary.Pipeline.Changes.ExecuteRun do
   @moduledoc """
   Runs a pipeline run's workflow and records how it ended, as one update.
 
-  This is the body of every background pipeline job. The work itself and the
-  bookkeeping that says the work is done are the same update, so a run cannot be
-  marked completed by a job that never finished, and finished work cannot be
-  left looking pending.
+  This is every background job's body. Workflow outcome determines the run update.
 
   ## Ordering
 
@@ -18,15 +15,9 @@ defmodule Cartulary.Pipeline.Changes.ExecuteRun do
   which aborts the update and lets the job runner's failure path record the
   attempt instead.
 
-  `before_transaction` rather than `before_action` is what keeps the workflow
-  out of the enclosing action's transaction, and that placement is load-bearing:
-  lanes open and commit their own transactions — raw writes, governance
-  decisions, cache rebuilds — and holding one transaction across all of them
-  would keep locks for the entire duration of the work. Moving this hook to
-  `before_action` would put it back inside. The consequence to remember is that
-  a lane's own commits survive even if this row's status update later fails;
-  that is safe only because every lane is replay-safe under its deterministic
-  key.
+  `before_transaction` keeps the workflow outside the action transaction; lanes own their short
+  transactions. Lane commits can survive a later status-update failure, so every lane must remain
+  replay-safe under its deterministic key.
 
   The attempt count is incremented from the row as it was read, not with a
   database-side increment, which is accurate because a run only ever has one
@@ -71,19 +62,12 @@ defmodule Cartulary.Pipeline.Changes.MarkRunFailed do
   @moduledoc """
   Records a failed attempt on a pipeline run without leaking why it failed.
 
-  Invoked by the job runner's failure path. It marks the run failed and bumps
-  the attempt count, leaving the row visible to a retry or to the reconciliation
-  sweep — a failed run is unfinished work, not discarded work.
+  The job failure path marks the run failed, increments attempts, and leaves it retryable.
 
   ## Content safety
 
-  Only a *class* of error is stored, never the error itself. Error messages
-  routinely embed the values that caused them — message text, statements,
-  document fragments, provider payloads, occasionally credentials — and this row
-  is durable, operator-visible, and outside the reach of erasure. The class is
-  the error's struct name, or a generic label for anything that is not a struct,
-  which is enough to distinguish a provider outage from a validation failure
-  without recording content.
+  Store only the error struct name, or a generic label for non-struct errors. Messages may contain
+  content or credentials and must not enter this durable operator-visible row.
   """
 
   use Ash.Resource.Change

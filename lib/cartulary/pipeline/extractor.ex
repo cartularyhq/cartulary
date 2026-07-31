@@ -4,11 +4,8 @@ defmodule Cartulary.Pipeline.Extractor do
   @moduledoc """
   Turns exactly one raw observation into candidate knowledge items.
 
-  This is the model-facing half of ingest: it builds the extraction prompt,
-  hands it to the model gateway with the structured schema, and returns the
-  validated candidates. It writes nothing. Persisting candidates, merging them
-  with existing statements, and submitting them to governance all happen in the
-  pipeline caller, which is the only writer of knowledge.
+  Builds the extraction prompt and returns schema-validated candidates. It writes nothing;
+  persistence, merging, and governance remain pipeline responsibilities.
 
   ## What extraction constrains
 
@@ -27,11 +24,8 @@ defmodule Cartulary.Pipeline.Extractor do
 
   ## Failure behaviour
 
-  A provider error is returned unchanged rather than being papered over. The
-  caller leaves the observation unstamped, so the durable job retries and the
-  reconciler can find it again. There is deliberately no fallback to a different
-  extractor: silently swapping the model would produce knowledge whose recorded
-  provenance is wrong.
+  Provider errors return unchanged. The observation remains unstamped for retry and reconciliation.
+  There is no extractor fallback because it would falsify provenance.
 
   Nothing here activates knowledge. Every returned candidate is still a proposal
   that must pass governance before retrieval can see it.

@@ -2,8 +2,8 @@
 
 # Recording observations
 
-`POST /api/v1/ingest` is the only write path an agent has. You record **what
-was said**; the pipeline decides what, if anything, becomes knowledge.
+`POST /api/v1/ingest` records what was said. Only the pipeline decides what
+becomes knowledge.
 
 ## A minimal request
 
@@ -29,8 +29,7 @@ curl -fsS -X POST http://127.0.0.1:4000/api/v1/ingest \
 | `occurred_at` | no | now | When it was said, if backfilling. |
 | `sync_extract` | no | `true` | `false` moves extraction to the background. |
 
-You do not have to provision topology first — missing scopes, the session, and
-its links are created as part of the request.
+Missing scopes, the session, and its links are created on demand.
 
 ## The acting peer comes from your credential
 
@@ -54,8 +53,7 @@ part of what the scope believes. See [Governance gates](../concepts/governance.m
 
 ## Choosing a scope
 
-The scope decides who can eventually see anything extracted from this
-observation. Pick the **narrowest** scope that is still correct:
+Choose the **narrowest correct scope** for the observation:
 
 ```mermaid
 flowchart TD
@@ -78,16 +76,13 @@ treated as newly *learned* but possibly long *true*.
 
 ## Replaying is safe
 
-Every ingest carries a deterministic idempotency key. Re-sending the same
-observation merges provenance into the existing statement rather than creating
-a duplicate — the second sighting makes the statement better corroborated.
+Deterministic idempotency makes replay merge provenance instead of duplicating
+statements.
 
 ## When the model provider is down
 
-Extraction fails; the observation does not. The raw message is already durable
-and the extraction job retries. Nothing falls back to a deterministic stand-in
-in production, because a silent quality downgrade would be worse than a visible
-delay.
+The durable observation remains and extraction retries. Production never falls
+back silently to a deterministic adapter.
 
 ## Ingesting documents
 

@@ -2,20 +2,12 @@
 
 # Test-environment configuration, used by `mix test`.
 #
-# WHEN THIS FILE IS EVALUATED
-#   At build time, immediately after `config/config.exs` (which imports it at
-#   its bottom) and only when MIX_ENV=test. `config/runtime.exs` still runs
-#   afterwards and has test-specific branches of its own: it reads the database
-#   URL from CARTULARY_TEST_DATABASE_URL rather than DATABASE_URL, and it forces
-#   the model credential to nil so a developer's live API key in the shell can
-#   never make a test suite non-deterministic or spend money.
-#
-# INPUTS   MIX_TEST_PARTITION (optional) — suffixes the database name so
-#          parallel CI partitions do not share one database.
-# OUTPUTS  the `:cartulary`, `:logger`, and `:phoenix` application environments.
-#
-# The purpose of the settings below is determinism: no HTTP listener, no live
-# model provider, no concurrency that the SQL sandbox cannot support.
+# WHEN THIS FILE IS EVALUATED At build time, immediately after `config/config.exs` (which
+# imports it at its bottom) and only when MIX_ENV=test. `config/runtime.exs` still runs
+# afterwards and has test-specific branches of its own: it reads the database URL from
+# CARTULARY_TEST_DATABASE_URL rather than DATABASE_URL, and it forces the model credential to
+# nil so a developer's live API key in the shell can never make a test suite non-deterministic
+# or spend money.
 
 import Config
 

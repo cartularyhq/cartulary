@@ -2,65 +2,11 @@
 
 defmodule Mix.Tasks.Cartulary.Eval.Benchmark do
   @moduledoc """
-  Runs one public or local memory benchmark fixture end to end and prints a scored report.
+  Runs one public or local memory benchmark fixture end to end and prints a scored
+    report.
 
-  The fixture is normalized into a common case shape, ingested through the ordinary durable
-  write path, queried through the ordinary answer path, and scored. Recognized source
-  shapes are LoCoMo, LongMemEval, ConvoMem, BEAM, and Cartulary's own
-  `{"messages": [...], "questions": [...]}` form.
-
-      mix cartulary.eval.benchmark --benchmark locomo --dataset data/locomo10.json
-      mix cartulary.eval.benchmark --benchmark longmemeval \
-        --dataset data/longmemeval_s_cleaned.json
-      mix cartulary.eval.benchmark --benchmark beam --dataset data/beam.json --output report.json
-
-  Useful development limits:
-
-      mix cartulary.eval.benchmark --dataset data/locomo10.json \
-        --limit-cases 1 --limit-questions 5
-
-  ## Switches
-
-    * `--dataset PATH`, `-d` — required. JSON or JSON-lines fixture. Its bytes are hashed
-      so the report can name the exact data a number came from.
-    * `--benchmark NAME`, `-b` — one of `locomo`, `longmemeval`, `convomem`, `beam`,
-      `cartulary`. Default: inferred from the fixture's shape. Pass it explicitly when a
-      fixture is ambiguous or hand-edited.
-    * `--profile NAME`, `-p` — retrieval profile under test. Default `balanced`.
-    * `--account KEY` — Account key that owns everything the run writes. Default
-      `eval-benchmark`.
-    * `--run-id ID` — identifies the run and seeds the scope root it writes under. Default:
-      a UTC timestamp. Give concurrent runs distinct ids so their scopes cannot collide.
-    * `--output PATH`, `-o` — write the report here. Default: print to standard output.
-    * `--limit-cases N`, `--limit-messages N`, `--limit-questions N` — truncate the fixture
-      for a fast local loop. Default: no limit. The chosen limits are recorded in the
-      report, because a truncated run is not comparable with a full one.
-    * `--no-model` — run against the deterministic local extractor and answerer instead of
-      a live provider. Default off.
-
-  ## What it writes
-
-  Durable rows in the configured database, under the given Account key and a scope root
-  derived from the benchmark name and run id. Nothing is cleaned up afterwards. Use a
-  scratch database; never an Account key holding real user data.
-
-  Standard output (or `--output`) receives one pretty-printed report carrying the
-  application version, generation timestamp, benchmark and source format, dataset id, its
-  SHA-256 and split, profile and profile version, strategy override, deadline setting, the
-  four model-role identities, the judge identity, applied limits, ingest counts, scored
-  metrics, and per-case detail. That provenance set is what makes a published number
-  checkable, so do not strip fields from the report before sharing it.
-
-  ## Scope of the result
-
-  This task scores a single configuration; it applies no pass/fail floor. Release gating is
-  `mix cartulary.eval.release`, which runs the whole matrix and asserts the committed
-  thresholds.
-
-  ## Failure behaviour
-
-  An unknown switch, a missing `--dataset`, an unreadable or unrecognizable fixture, or an
-  unwritable output path raises and the task exits non-zero.
+    Durable rows in the configured database, under the given Account key and a scope
+    root derived from the benchmark name and run id. Nothing is cleaned up afterwards.
   """
 
   use Mix.Task

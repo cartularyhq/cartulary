@@ -2,55 +2,12 @@
 
 defmodule Cartulary.DataLayer do
   @moduledoc """
-  Opens the Account-scoped database transaction that every durable write runs inside.
+  Owns Account-scoped PostgreSQL transactions.
 
-  Cross-Account isolation is absolute, and this module is where that wall is
-  built. Each helper here does the same three things in the same order: start a
-  database transaction, install the Account into transaction-local PostgreSQL
-  settings, and hand the caller a `Cartulary.Actor` bound to that Account. Only
-  then does the caller's function run.
-
-  ## Two independent locks on the same door
-
-  The Ash actor and tenant filter every query in application code. Underneath,
-  PostgreSQL row-level security is enabled *and forced* on the Accounts table
-  and on every table carrying an `account_id`, and those database policies
-  compare each row against the settings installed here. A query that somehow
-  escaped the Ash filters would still come back empty. Neither layer is
-  redundant: the database one is the backstop for exactly the mistakes the
-  application layer is capable of making.
-
-  The settings are written with the transaction-local flag, so they vanish when
-  the transaction ends. That matters with a connection pool — a leaked
-  session-level setting would silently hand the next checkout of that
-  connection somebody else's Account.
-
-  One helper here breaks the "open a transaction" pattern on purpose:
-  `declare_account!/1` installs those settings into a transaction an Ash action
-  already opened. Background jobs need it, because nothing upstream of them has
-  declared an Account and the policies deny everything until something does.
-
-  ## The Account is derived, never requested
-
-  Every entry point takes its Account from an authenticated actor, from an
-  internal caller that already resolved one, or from a configured single-Account
-  install. None of them accept an Account from request input. Adding such a path
-  would make the isolation wall a request parameter.
-
-  ## One transaction per operation
-
-  The function passed in runs inside the transaction, so a domain write, its
-  audit entry, its durable idempotency record, and its queued follow-up job
-  either all commit or all roll back. The job queue runs on the same PostgreSQL
-  database precisely so that enqueue can join this transaction; work is never
-  scheduled for an observation that was not stored. Do not enqueue jobs, write
-  audit rows, or call an external provider from inside the callback in a way
-  that cannot be undone by a rollback.
-
-  Every helper raises on failure rather than returning an error tuple, because a
-  half-applied Account-scoped operation is not something a caller can sensibly
-  recover from. The raised message embeds the inspected error, so treat it as
-  operator diagnostics rather than as something safe to echo back to a caller.
+  Each helper pins transaction-local Account settings before running caller work, while Ash
+  applies actor and tenant filters above forced row-level security. Account selection comes from
+  identity or trusted configuration. Keep state, audit, idempotency, and enqueue effects in one
+  callback; do not place irreversible provider calls inside it.
   """
 
   alias Cartulary.Accounts.Account

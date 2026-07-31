@@ -2,36 +2,10 @@
 
 defmodule Cartulary.Operations.BudgetCounter do
   @moduledoc """
-  In-memory daily tallies used for cheap admission decisions.
+  Rebuildable in-memory daily counters for admission checks.
 
-  These counters are a rebuildable cache, not a record. The durable usage
-  ledger is the exact history of what an Account consumed; this table exists
-  only so an admission check can ask "how much today?" without aggregating that
-  ledger on every call. Losing the table — a restart, a crashed owner — costs
-  the current day's running totals and nothing else, which is why nothing here
-  is persisted and why a lost increment is tolerated rather than retried.
-
-  A counter is keyed by Account, scope, metric, and the current UTC calendar
-  day, so tallies reset at midnight UTC simply by keying into a new bucket. Old
-  days are never read again; they are left in the table and disappear with the
-  process.
-
-  ## Owning process versus the table
-
-  The GenServer exists to own the named public table so it dies and is
-  recreated with the supervision tree. It is not in the hot path: readers and
-  writers hit the table directly rather than sending it messages, which is what
-  keeps a per-request increment from serialising every request behind one
-  process.
-
-  ## Increments are best-effort
-
-  Incrementing never fails the caller: if the table does not exist yet — during
-  startup, or in a process tree that never started this one — the increment is
-  dropped. A cache update must never be the reason a real request fails, and
-  the durable ledger row has already been written by then. Reading is not
-  guarded the same way, because an admission check with no table to consult
-  cannot honestly answer.
+  Counters trade exactness for cheap reads and can be reconstructed from UsageEvent. They never
+  replace the durable ledger or carry content.
   """
 
   use GenServer
@@ -107,23 +81,10 @@ end
 
 defmodule Cartulary.Operations.Budget do
   @moduledoc """
-  Decides whether a lane of work may run against today's consumption.
+  Applies daily usage limits to work lanes.
 
-  Lanes are not equal, and that inequality is the whole design. Background
-  reasoning is speculative work the system chose to do for itself, so it is the
-  first thing denied when an Account approaches its configured token ceiling.
-  User-facing work — accepting an observation, answering a governed read —
-  keeps running, because throttling it would make the product look broken in
-  order to save money the operator may not even be spending.
-
-  Limits are operator configuration, expressed as a daily maximum per token
-  metric. Absent configuration means no limit: a self-hoster who has set
-  nothing is never throttled, rather than being throttled at some guessed
-  default.
-
-  Decisions read the rebuildable daily counters, never the durable ledger. That
-  makes an admission check cheap enough to run per job, and means the worst
-  consequence of a lost counter is a slightly generous day.
+  Exact durable usage remains in UsageEvent; this module reads rebuildable counters for admission.
+  Dream-time work is throttled before request-serving paths, and unknown lanes fail closed.
   """
 
   alias Cartulary.Operations.BudgetCounter

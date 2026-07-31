@@ -2,36 +2,13 @@
 
 defmodule CartularyWeb.ConsoleLive.Operations do
   @moduledoc """
-  The operator view at `/console/operations`: readiness, recorded usage, the
-  gate matrix, and the retrieval tunings currently in force.
+  Read-only, account-administrator view of readiness, usage, gate rules, and
+  retrieval profiles at `/console/operations`.
 
-  ## Account administrators only
-
-  The mount hook admits any person to the console; this page turns most of them
-  away again. Every resource behind it — the usage ledger, gate rules,
-  pipeline runs — is guarded by a plain role check with no filter, so a member
-  asking for them is refused outright rather than shown an empty list. The
-  redirect here is therefore not merely cosmetic: without it the page would
-  crash instead of declining.
-
-  ## Everything shown is content-safe
-
-  Readiness may report component status, queue depths, model identities,
-  versions, and error classes. It must never report credentials or stored
-  content, and nothing on this page renders either. Gate rules and retrieval
-  profiles are configuration: they hold thresholds, modes, and strategy
-  weights, never statement text, examples, or secrets.
-
-  The cost figure is computed from operator-supplied rates over this
-  installation's own ledger. It is a self-host visibility aid, not a bill, and
-  there is no hidden billing state behind it.
-
-  ## This page is read-only
-
-  Gate rules and retrieval tunings change behaviour for everyone in a scope, so
-  editing them is a deliberate act that belongs behind a reviewed path rather
-  than a console form. What is shown here is what is currently in force, so an
-  operator can see it without reading the database.
+  Check the role before querying resources that refuse unauthorized reads.
+  Render only content-safe status, counts, model identities, versions, error
+  classes, thresholds, and weights—never credentials or stored content. Cost
+  estimates use operator-provided rates, not hidden billing state.
   """
 
   use CartularyWeb, :live_view
@@ -44,11 +21,9 @@ defmodule CartularyWeb.ConsoleLive.Operations do
   alias CartularyWeb.Console.Loader
 
   @doc """
-  Loads the operational view, or redirects a reader who is not an account
-  administrator back to the overview.
+  Loads operational data for account administrators; others are redirected.
 
-  The check happens before any query runs. Reversing that order would issue a
-  read that the resource refuses, turning a polite redirect into a crash.
+  Authorization must run before protected resource reads.
   """
   @impl true
   def mount(_params, _session, socket) do
@@ -69,11 +44,7 @@ defmodule CartularyWeb.ConsoleLive.Operations do
   end
 
   @doc """
-  Renders readiness, usage, gate rules, and retrieval profiles.
-
-  Guards on the assigns rather than the actor, because the unauthorized mount
-  redirects without assigning anything and LiveView still renders once before
-  the navigation takes effect.
+  Renders operational data when loaded, or a redirect frame otherwise.
   """
   @impl true
   def render(%{health: _health} = assigns) do
@@ -222,9 +193,7 @@ defmodule CartularyWeb.ConsoleLive.Operations do
     """
   end
 
-  # The unauthorized mount assigns nothing and navigates away, but LiveView
-  # still renders once before the navigation is applied. This clause is that
-  # single frame.
+  # LiveView renders once before applying the unauthorized redirect.
   def render(assigns) do
     ~H"""
     <div class="app">

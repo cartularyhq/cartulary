@@ -2,55 +2,11 @@
 
 defmodule Cartulary.F4RealGateABGovernanceTest do
   @moduledoc """
-  Pins the two gates that stand between "an agent said something" and "the system believes it",
-  plus the human-only decisions, consent, aging, and erasure that hang off them.
+  Pins the two gates that stand between "an agent said something" and "the system
+    believes it", plus the human-only decisions, consent, aging, and erasure that hang
+    off them.
 
-  The file name and module name are frozen evidence identities and are not renamed. The rules
-  below are the product's promise about what it will and will not remember, so the assertions
-  are deliberately unforgiving.
-
-  **Nothing is believed by default.** Extracted knowledge is born `proposed`. The first gate
-  decides whether to keep, reject, or defer it; the second decides where it may be seen. With
-  no configured rule the pair defer to a human, so the item lands `provisional` — visible only
-  to the peer it came from — and a review item appears in the curator queue. An operator may
-  configure a rule for a given target level and sensitivity, with a confidence floor, that
-  keeps and places automatically; even then the decision is recorded and the item is given a
-  revalidation deadline, so automatic acceptance is never permanent.
-
-  **Curator decisions belong to humans.** A machine credential may submit observations, read
-  what it is allowed to read, and answer a question about its own memory. It may not approve,
-  edit, reject, merge, or defer, and it cannot reach the human-governance routes or the
-  governance console. Otherwise an agent could rubber-stamp its own submissions and the gate
-  would be decoration.
-
-  **Moving knowledge outward is a separate, harder decision.** A request to publish an item to
-  a wider scope parks it as `held`, where it is absent from ordinary reads until approved. If
-  the item is personal, curator approval alone is not enough: the subject must consent, for
-  that specific destination, through a verified human channel. An unverified channel is
-  refused outright.
-
-  **An answer only counts if the question was really asked.** A question attached to a read is
-  frozen at the moment it is asked, and a peer's confirmation changes anything only when the
-  conversation transcript shows the exact statement was actually delivered to that peer.
-  Otherwise the answer merely defers the timer. Text supplied alongside a correction is kept as
-  evidence and must never become knowledge — new claims come back through ordinary ingest and
-  through these same gates. A peer may always lower how often it is interrupted by such
-  questions, and no caller can raise those limits back up.
-
-  **Unanswered memory decays.** Items past their revalidation date are marked as needing
-  revalidation and generate a question; questions left unanswered past their deadline lose
-  confidence and go stale, so nobody is quietly served aging beliefs as fact.
-
-  **Erasure is real deletion with a surviving trail.** Erasing a subject removes the Peer row,
-  the knowledge about them, and the question text delivered to them, while leaving content-safe
-  audit evidence that the erasure happened.
-
-  ## If a test in this file fails
-
-  Treat it as a privacy or safety defect. Auto-activating without a matching configured rule,
-  letting a machine credential decide, surfacing `held` items, accepting consent from an
-  unverified channel, minting knowledge from a correction, or losing the audit record of an
-  erasure are each a breach of the promise above, not a test that needs relaxing.
+    Nothing is believed by default.
   """
 
   use CartularyWeb.ConnCase, async: false

@@ -1,10 +1,13 @@
 # Cartulary — Multi-Scope Agent Memory System — Architecture & Non-Functional Requirements
 
-> **Edition:** **Elixir/Ash edition.** This document supersedes the TypeScript edition for the *how-it's-built* layer. The **product semantics, invariants, gates, temporal model, and NFR envelope are unchanged** — only the implementation platform changes: TypeScript/Node → **Elixir/BEAM**, hand-rolled ports-and-adapters → **Ash Framework** (Domains, Resources, Actions; data layers *are* the adapters), Redis/BullMQ → **Oban** (via **AshOban**), Node HTTP surfaces → **Phoenix** (HTTP + LiveView + Channels). Every `AD-*`, `NFR-*`, and `AINV-*` anchor from the TypeScript edition is retained as a stable review handle; the prose under it is rewritten for the new platform. Where a section changes materially, a **`**Changed from the TypeScript edition:**`** line records the delta.
+> **Edition:** Elixir/Ash. This supersedes the TypeScript implementation while
+> preserving every `AD-*`, `NFR-*`, and `AINV-*` anchor.
 >
-> **Status:** v1.0 — final. Companion to `memory-system-functional-requirements.md` (the **FR spec** v1.0 — *what* the system does) and `memory-system-evaluation-framework.md` (the **EV spec** — *how it is validated*). This document is the **architecture and NFR layer**: *how the system is built* so that one codebase runs unchanged on a laptop and as a multi-region cluster, with identical guarantees.
-> **Product name:** **Cartulary** (resolved; was an open decision in v0.1 — see §18). *Multi-Scope Agent Memory System* remains the descriptive subtitle.
-> **Anchors:** architecture decisions are prefixed **`AD-<AREA>-<n>`**; non-functional targets **`NFR-<n>`**; architecture invariants **`AINV-<n>`**. References of the form `FR-XXX-n` point into the FR spec, `EV-XXX-n` into the EV spec, `INV-n` into an FR invariant (FR §10), `[n]` into the references (§19). Anchors are stable for review and traceability.
+> **Status:** v1.0 — final. The FR spec defines behavior; the EV spec defines
+> validation; this document defines architecture and non-functional targets.
+> **Anchors:** `AD-*` decisions, `NFR-*` targets, and `AINV-*` invariants are
+> stable. `FR-*`, `EV-*`, and `INV-*` refer to the companion specs; `[n]`
+> refers to §19.
 > **Prime directive:** *one codebase, two deployment modes, identical guarantees.* Single-node and queue-mode are the same artifacts with different adapters wired in — never a fork, never a "lite" reimplementation. Almost every decision below follows from this. On BEAM the two modes converge further than they did on Node: single-node is one supervised OS process, queue-mode is *N identical clustered nodes* — never a different set of programs. Since **ADR-0003** the convergence is total on the storage seam too: **Postgres is the only data layer in both modes**, differing only in *where* the server runs (embedded via pg0 on a laptop, operator-run in queue-mode) and whether clustering is enabled.
 >
 > **Amendments:**
@@ -13,41 +16,21 @@
 > - **ADR-0005 — peer inline validation over MCP.** Peer-level validation questions are attached to read-tool results by a deadline-bounded, fail-open hot-path selector (`Governance.Attach`), and answers are graded by a dream-time transcript check. Adds **AD-PIPE-8**; amends **AD-PIPE-2** with the one governance read permitted on the hot path. Affected anchors are amended in place below and listed in `specs/adr/0005-peer-inline-validation-over-mcp.md`.
 > - **ADR-0006 — entity resolution as a dream-time stage.** Statements gain canonical **referents**: two derived resources (`Entity`, `EntityMention`), a dream-time resolution cascade, and an `EntityMatch` seed strategy. Entities are account-global, carry no visibility of their own, and are readable through **no** public surface — so a resolution error costs accuracy and can never cross a scope or account boundary. Adds **AD-DATA-10**, **AD-PIPE-9** (read/write cost asymmetry as the placement rule), **NFR-11** (token efficiency); amends **AD-SEAM-3**, **AD-EVAL-3**, **NFR-1**, and §18. Affected anchors are amended in place below and listed in `specs/adr/0006-entity-resolution.md`.
 >
-> **Changelog v0.1 → v1.0:** all FR references now resolve against FR v1.0 (FR-KN-17, FR-API-23/24/25/26, FR-GOV-21, FR-PLAT-15/16 were added there); terminology unified on **dream-time** for the slow reasoning lane (previously also called "background processing"); added **AD-PIPE-7** (incremental projection refresh — anti-context-collapse), grounding & abstention wired into **AD-MODEL-3** (FR-API-26), named public benchmarks as the §15 replay targets; research grounding added inline and in §19. No structural decisions changed.
-
----
-
-## Table of contents
-
-1. Purpose & how to read this document
-2. Architecture invariants
-3. Language, runtime & repository topology
-4. Component decomposition & internal seams
-5. Deployment topology & process model
-6. Data & storage architecture
-7. Asynchronous pipeline & job orchestration
-8. Model & provider abstraction
-9. API surfaces & contracts
-10. Headless governance & interaction channels
-11. Security, identity & tenancy
-12. Observability & metering
-13. Configuration, packaging, distribution & licensing
-14. Portability & migration
-15. Quality & evaluation architecture
-16. Non-functional targets, SLOs & resilience
-17. Recommended technology stack (concrete)
-18. Open & deferred decisions
-19. References
+> **v1.0 changes:** FR references now target FR v1.0; the slow lane is called
+> **dream-time**; **AD-PIPE-7** was added; grounding and abstention moved into
+> **AD-MODEL-3**; and §15 names public replay benchmarks. No structural
+> decision changed.
 
 ---
 
 ## 1. Purpose & how to read this document
 
-The FR spec defines the system's behaviour as a set of numbered requirements. This document defines the **structure** that delivers that behaviour and the **non-functional envelope** it must hold. Each section states the decisions for one area as numbered `AD-*` entries — *decision, rationale, traceability* — in the spirit of an ADR log, so a contributor can see not just what was chosen but why, and against which requirement.
-
-**Architecture at a glance.** The core loop is **observe → extract (fast) → reason (dream-time) → gate → project → serve**. Agents and connectors submit raw observations through an edge surface; a cheap extractor mints *proposed* knowledge at ingest-time; a stronger periodic dream-time reasoner deduces, reconciles conflicts, levels by corroboration and refreshes projections; humans validate at the gates (via a console or their own chat channels); agents consume precomputed, reasoning-free context. This split — pay for reasoning offline, serve precomputed state online — is the system-level application of the sleep-time-compute result [4]. The system is **I/O-bound orchestration** — the heavy compute (embeddings, inference) lives in external model endpoints or in a dedicated native NIF tier — which shapes the language choice (§3) and the latency posture (§16). The same modules deploy as a single in-process release or as a horizontally-scaled cluster, distinguished only by which data layers and queue engine are wired and whether clustering is enabled.
-
-**Changed from the TypeScript edition:** the runtime is the **BEAM**. Its scheduler, in-process message passing, and supervision trees make "I/O-bound orchestration with heavy fan-out and background reasoning" the platform's native workload rather than something assembled from a queue, a worker pool, and an RPC layer. The conceptual loop and the online/offline compute split are unchanged.
+The architecture is **observe → extract → reason at dream-time → gate → project
+→ serve**. Agents and connectors submit observations; cheap ingest proposes
+knowledge; dream-time reasoning reconciles it and refreshes projections; gates
+control promotion; reads consume precomputed context. Heavy inference and
+embedding run outside the serving path. One release runs locally or as a
+cluster.
 
 ---
 
@@ -67,8 +50,6 @@ These are the non-negotiable structural anchors. Every `AD-*` is consistent with
 ---
 
 ## 3. Language, runtime & repository topology
-
-**Changed from the TypeScript edition:** the language is **Elixir on the BEAM**, and the hand-built layered package graph (`shared → ports → adapters → core → surfaces → apps`, enforced by `dependency-cruiser`) largely *collapses onto Ash*. Ash Domains group Resources; Ash data layers are the storage/vector/lexical adapters; Ash Actions are the typed op layer. The conceptual seams survive as Ash extension points and Elixir behaviours; the bespoke plumbing does not.
 
 - **AD-LANG-1 — Elixir, single language, end to end for the engine.** Rationale: the system is I/O-bound orchestration with heavy fan-out, soft-real-time reads, and long-running background reasoning under multi-tenant isolation — precisely the BEAM's sweet spot. The scheduler gives cheap concurrency for the `ask`/`get_context` fan-out; supervision trees give crash-isolation for the pipeline; `Phoenix.PubSub` gives realtime governance for free. Ash's Resource/Action/data-layer model *is* the ports-and-adapters architecture the TypeScript edition built by hand, so the single biggest source of bespoke code disappears. A TypeScript SDK is still mandatory because the agent-harness ecosystem is JS/TS-native — but it is a **generated client** off the OpenAPI contract (§9), not part of the engine language. (Confirms FR §11 with the platform reasoning made explicit; the *behaviour* requirement is unchanged.)
 - **AD-LANG-2 — Single Mix release now; no second runtime.** A single Mix release is the distributable in every mode (§13). There is no "faster gateway in another language" escape hatch of the kind the TypeScript edition reserved — the BEAM already gives soft-real-time edge behaviour, and the heavy compute is either in an external model endpoint, in the native NIF tier (Extractous/MDEx parse, Ortex embed), or in Postgres itself (pgvector ANN), all of which are Rust/C already. Bun-single-binary and similar are not applicable; the equivalent "small footprint local on-ramp" is the same release image run as one node.
@@ -98,7 +79,6 @@ PRIMITIVES      Ash resources & types (the lingua franca) · runtime config · t
 
 ## 4. Component decomposition & internal seams
 
-**Changed from the TypeScript edition:** infrastructure ports become **Ash data layers + a small set of behaviours**; the `withTransaction` unit-of-work is Ash's own transaction wrapping (`Ash.Changeset` + data-layer transactions); domain strategies become **Elixir behaviours**. The categories and cross-port invariants are unchanged.
 **Amended by ADR-0003:** the storage / vector / lexical / job-queue ports each collapse from two implementations to one. What remains swappable on the storage port is *where the Postgres server lives*, not *which database it is*.
 
 - **AD-SEAM-1 — Two kinds of seam (AINV-8).** **Infrastructure ports** (driven side: the Ash data layer, model endpoints, secret stores, blob) are chosen by config at boot. **Domain strategies** are pluggable *policy* behaviours inside `core`/`ee`, shipped as code. "Point at a pg0-embedded Postgres instead of an operator-run cluster" and "add a graph strategy to the retrieval profile" are different categories.
@@ -131,7 +111,10 @@ PRIMITIVES      Ash resources & types (the lingua franca) · runtime config · t
 
 ## 5. Deployment topology & process model
 
-**Changed from the TypeScript edition:** the four process *roles* (`gateway` / `worker` / `context` / `scheduler`) **collapse to N identical clustered BEAM nodes.** There is no per-role image and no role flag selecting a program subset. Single-node is one supervised BEAM process running everything; queue-mode is the same release on several nodes joined by **libcluster**, with Oban distributing jobs and exactly one Oban cron leader acting as the scheduler singleton. The sync heavy-read fan-out that the TypeScript edition sent by RPC to dedicated context workers becomes **in-VM `Task.async_stream`** (spanning the cluster only when a single node's cores are insufficient).
+Single-node is one supervised BEAM process. Queue-mode runs the same release on
+identical libcluster nodes, with Oban distributing work and one cron leader.
+Synchronous heavy reads use `Task.async_stream`, spanning nodes only when one
+node lacks capacity.
 
 - **AD-DEPLOY-1 — One image, one program, scaled by node count.** A single Mix release. Single-node runs one node with everything supervised in-process (surfaces + all Domains + Oban on the Postgres engine + the cron leader) alongside a **pg0-supervised local Postgres** (ADR-0003). Queue-mode runs the *same* release on N nodes against an operator-run Postgres; every node is identical and can serve edge traffic, assemble context, and run pipeline jobs. There is no per-service build and no `MEM_ROLE`-selected subset — a node is either the whole system at small scale or one of many identical peers at large scale.
 - **AD-DEPLOY-2 — Two integration paths (AINV-7).** The asynchronous write/pipeline path integrates through the durable substrate: the edge persists raw input and inserts the pipeline Oban job in the same transaction, then returns; any node's Oban workers pick the job up. The synchronous heavy-read path fans out across the BEAM with `Task.async_stream` — across cores on one node, and across the cluster only if needed. *Since ADR-0004 this same primitive carries retrieval strategy fan-out (AD-SEAM-3), with `on_timeout: :kill_task` turning the latency budget into a hard wall-clock bound enforced by the harness rather than by each strategy author's discipline.* In single-node this identical data-flow runs entirely in-process, which is exactly why the two modes are the same system.
@@ -167,8 +150,6 @@ QUEUE-MODE  (enterprise · SAME release · N identical nodes)
 
 ## 6. Data & storage architecture
 
-**Changed from the TypeScript edition:** the relational + migration layer is **AshPostgres with Ash-generated migrations** (replacing Drizzle); the temporal ledger, materialized current-state, confidence-at-read, materialized-path scope tree, co-located indices, isolation tiers, CMK, and append-only hash-chained audit are all expressed as **Ash Resources, calculations, changes, and policies**. The *data model and invariants are unchanged.*
-
 - **AD-DATA-1 — Temporal / lifecycle model: immutable content + an append-only state-transition ledger.** Per FR-FORM-20, a content change is a *new item that supersedes the old* — content is never edited in place — so a knowledge item's statement is effectively immutable; what changes over its life is state, attribution/level, and confidence. Therefore: immutable content + stable id, plus an append-only transition ledger per item. In Ash this is enforced structurally by **not defining `update`/`destroy` actions on the content and ledger resources**: a `Knowledge` row is create-only, and a content change creates a new `Knowledge` with a `supersedes` relationship. The ledger (`LedgerEvent`) *is* the belief-time source (FR-KN-17). Valid-time is the `expires` field; salience is `relevant-window`. This is the classical bi-temporal split — transaction-time (here: belief-time) vs valid-time [12] — the same model the temporal-knowledge-graph memory line converged on for agent memory (Graphiti's `t_created`/`t_invalid` vs `t_valid`/`t_invalid` edge dating [1]); ours adds the independent salience axis on top. `as_of(D)` (FR-API-23) is an **Ash calculation/preparation** producing an indexable interval filter — "items whose active interval covered belief-time D" — no log fold; optionally AND'd with "not expired as of D". The history/diff view (FR-GOV-21) is the ledger + audit entries; supersession chains are walked via the `supersedes` relation.
 
 ```
@@ -188,13 +169,13 @@ K2                proposed@t2 → active@t3      (supersedes K1)
 - **AD-DATA-9 — Migrations: Ash-generated, one set, expand/contract.** Ash generates migrations from resource definitions for AshPostgres (`mix ash.codegen`), keeping the SQL-first control needed for pgvector/RLS/FTS via data-layer options and custom migration statements where the generator stops. *Amended by ADR-0003:* there is **one migration set**, not a shared core plus per-backend fragments — the same DDL that runs against a pg0 instance runs against an operator's cluster. Rolling deploys require **expand/contract** migrations so old and new code run simultaneously mid-deploy. Postgres **major-version** upgrades are handled by the logical export/import path, not by in-place migration (AD-PORT-1, ADR-0003 condition 2).
 - **AD-DATA-10 — Entities and mentions are a derived, non-exported cache (ADR-0006, FR-KN-18..22).** Two resources: `Knowledge.Entity` (`account_id`, `canonical_name`, `kind`, `aliases`, `alias_embedding`, `derived_from`) and `Knowledge.EntityMention` (`statement_id`, `entity_id`, `surface_form`, `confidence`). They are **rebuildable from statements and never the system of record** (AINV-5) — excluded from the AD-PORT-1 export and regenerated on import, which the manifest's embedder model/version already supports. Three properties follow and each is load-bearing. (a) **Entities are account-global and carry no visibility of their own**, following the Peer precedent (AD-SEC-2); mentions inherit scope from the statement they annotate and retrieval filters *statements* exactly as before, so **a resolution error costs accuracy and cannot cross the account wall or a scope boundary** — nothing at the entity layer is consulted for either. (b) **No public surface returns them.** No REST, MCP, SDK, or LiveView endpoint exposes entity rows, alias lists, or canonical names; an entity resolved from a restricted-scope statement would otherwise leak a referent name past the statement filter doing all of the security work. Asserted by a test in the deterministic PR gate (AD-EVAL-3), not by review discipline. (c) **Correction is recomputation.** A merge or split needs no governance gate and writes no ledger entry, and erasure (FR-GOV-15/16) must recompute every entity whose `derived_from` touched an erased statement, pruning any left with no surviving source.
 
-**Changed from the TypeScript edition:** Drizzle → Ash-generated migrations; isolation gains the explicit Ash `:context` + RLS layering. **Changed by ADR-0003:** the SQLite storage tier is gone, so index co-location is a single transactional pgvector + PG-FTS story rather than a per-backend one. The temporal/ledger/confidence/scope-tree/audit semantics are identical to the TypeScript edition.
-
 ---
 
 ## 7. Asynchronous pipeline & job orchestration
 
-**Changed from the TypeScript edition:** the two-runner split (in-process runner *or* BullMQ/Redis) collapses to **one job system in both modes — Oban via AshOban**, on the Postgres engine everywhere (ADR-0003 retired `Oban.Engines.Lite` along with the SQLite tier). **Redis is removed.** Pipeline orchestration (saga steps, compensation, deterministic idempotency keys) is **Ash.Reactor**, triggered by AshOban. The transactional outbox is an Oban insert in the write transaction (AD-SEAM-4.3). The human-in-the-loop "wait for approval" continuation is a held state + a decision-triggered Oban job, not a bespoke durable-execution layer.
+Both modes use AshOban on Postgres. Ash.Reactor owns pipeline steps and
+compensation; jobs inserted with durable writes form the transactional outbox.
+Human approvals resume held work with a decision-triggered Oban job.
 
 - **AD-PIPE-1 — Oban (via AshOban) for jobs; Ash.Reactor for orchestration.** The queue engine is **Oban-Postgres in every mode** — same job code, same engine, same semantics (uniqueness, priorities, cron, rate limits) locally and clustered. This is a strict improvement on both the TypeScript edition's two different runners and the pre-ADR-0003 two Oban engines: single-node no longer runs a different queue implementation than the one it is tested against in production. Each pipeline lane is an **Ash.Reactor** flow: discrete steps with compensation (saga rollback) and a durable-continuation / signal-on-approval seam for the human gate. A heavyweight external durable-execution engine (Temporal/DBOS) is explicitly **not** adopted — Reactor + Oban already give step orchestration, retries, idempotency, and human-in-the-loop parking, and the long-running-approval case is pre-solved by the durable knowledge-lifecycle state machine.
 
@@ -237,8 +218,6 @@ SWEEPS & SYNC  (Oban cron)
 
 ## 8. Model & provider abstraction
 
-**Changed from the TypeScript edition:** the provider factory over the Vercel AI SDK becomes a provider layer over **ReqLLM** (ash_ai's provider layer); the capability interfaces become **Elixir behaviours**; the embedder is a pluggable **`AshAi.EmbeddingModel` behaviour** whose default self-hosted implementation is **Ortex (ONNX Runtime, Rust-backed; bge-small / all-MiniLM class)**, with **Bumblebee + EXLA** for GPU and a BYO-key API embedder also supported. Structured output uses Ash actions + validate-and-repair against Ash resource schemas rather than Zod. The four model roles and every semantic guarantee (grounding, abstention, pinned embedder, provenance, single metering point) are unchanged.
-
 - **AD-MODEL-1 — A provider layer over ReqLLM + capability behaviours.** Configured by a role → (provider, model, params) map at **Account level** (FR-API-18; per-scope overrides deferred, FR §12). Capability behaviours: `Embedder` (the `AshAi.EmbeddingModel` behaviour), `StructuredGenerator` (extractor and reasoner share it, differing by configured tier), `ChatGenerator` (streaming; dialectic + gateway), optional `Reranker` (model-based cross-encoder *or* score-fusion; the FR-API-25 rerank stage — *ADR-0004* places it over the **fused head**, in the `:thorough` profile only, and it is the *only* seam of the three in AD-SEAM-3's retrieval split that already existed). ReqLLM supports OpenAI-compatible and self-hosted endpoints (Ollama, vLLM; FR-API-19). BYO-key throughout. The four roles are unchanged: embedder, ingest extractor (cheap), dream reasoner (strong), dialectic agent.
 - **AD-MODEL-2 — Structured output via Ash resource schemas + validate-and-repair.** The extractor/reasoner emit records against the *same* Ash resource schemas as the DB shape (no separate Zod layer — the resource *is* the schema). Generation via a structured-output action with a bounded **validate-and-repair retry** as the portable baseline (essential for weak self-hosted models), plus optional **constrained decoding** where a provider supports it (e.g. vLLM guided decoding). Extraction/reasoning are non-streaming. ash_ai's prompt-backed actions provide the structured-generation plumbing.
 - **AD-MODEL-3 — Streaming only for dialectic + gateway; `ask` is a bounded, grounded, read-only tool-calling loop.** `ChatGenerator` streams; the gateway proxy tees the upstream stream (to the client + accumulate for capture). `ask` is a prompt-backed action given the *read* APIs as tools (resolve-scope, `query_knowledge`, `search`) for decomposition and multi-hop (FR-API-6) and can never write (FR-API-12); its sub-queries are what the edge fans out with `Task.async_stream` (AD-DEPLOY-2). **Grounding & abstention (FR-API-26) are enforced structurally, not by prompt alone:** the dialectic loop must return the knowledge ids it used (the response schema requires citations), and the assembler verifies every cited id was actually retrieved in-loop; absent / `expired` / `needs_revalidation` knowledge is surfaced to the model as explicitly *unknown-or-stale*, and an "insufficient memory" answer is a first-class, schema-valid outcome — abstention is where memory systems measurably fail [10, 11], so it is designed in, not hoped for. (`bitcrowd/rag`'s built-in groundedness / context-relevance / answer-relevance eval is a bonus signal for this NFR; see §15.) ***Extended by ADR-0004 — one new input and one prohibition.*** The input is **cross-strategy disagreement**: when `Semantic`, `Lexical`, and `Temporal` surface disjoint candidate sets with low raw scores, that is corroborated evidence the corpus does not hold the answer — stronger than any single strategy's score, because the failure is independently reproduced. It feeds the existing abstention decision alongside confidence-at-read (AD-DATA-2). The prohibition: **abstention must be computed pre-fusion.** RRF always emits a ranked list, including from three lists of garbage, so a fused rank carries no information about whether anything was found; any abstention logic reading the fused output is reading a number that cannot say no.
@@ -249,8 +228,6 @@ SWEEPS & SYNC  (Oban cron)
 ---
 
 ## 9. API surfaces & contracts
-
-**Changed from the TypeScript edition:** the "one op definition, many transports" principle is realised natively — the five reads + `ingest` are **Ash Actions**, exposed as **AshJsonApi** (`/v1` JSON:API + auto-generated OpenAPI, the canonical machine transport), the **`ash_ai` MCP server** (reads + `ingest` as tools; governance NOT on MCP), the **Phoenix gateway proxy** (OpenAI/Anthropic-compatible), and the **LiveView governance app** (§10). Consumer SDKs (TypeScript + Python) are generated from the OpenAPI document. AshGraphql is omitted in v1.
 
 - **AD-API-1 — One operation definition, many transports.** The five reads + `ingest` are defined once as **Ash Actions** on the domain resources; every surface is a thin adapter Ash already provides over those actions.
 
@@ -279,8 +256,6 @@ CLIENTS   agent-host(MCP) · generated SDK (TS/Py) · OpenAI-compat harness · c
 
 ## 10. Headless governance & interaction channels
 
-**Changed from the TypeScript edition:** the separate `app:web` governance SPA becomes a **Phoenix LiveView** app over the same Ash resources, with realtime via **`Ash.Notifier.PubSub` + Phoenix.PubSub** — deleting the SPA and its API round-trips. The channel-adapter model (Slack/Teams/Telegram/email) and every governance/audit semantic are unchanged; the web UI is simply one more channel adapter, now server-rendered.
-
 - **AD-GOV-1 — Governance is delivered through channel adapters over the governance op layer; the LiveView app is one adapter.** Outbound *notify* (a validation item needs a curator, or a peer needs revalidation/consent → push an actionable message) and inbound *act* (the response translates back into a governance Ash action: approve / reject / merge / defer / confirm-scope / consent; FR-GOV-5/8/12). LiveView subscribes to `Ash.Notifier.PubSub` so the validation queue, curator dashboards, knowledge history/diff view, and peer self-view update in realtime with no polling. This directly mitigates the blueprint's governance-latency risk by pushing approvals to where curators already are, and extends FR-GOV-10's inline revalidation to reach people *between* sessions.
 - **AD-GOV-2 — Channel assurance is a hierarchy, and authZ runs against the mapped peer regardless.** Slack/Teams have request-signing and verified identities (high assurance — a signed action is trusted as that user); Telegram is usable only after explicit one-time linking (medium); **email is notify + magic-link only — a reply is never authorization** (the action happens behind a one-time, expiring, single-purpose authenticated link). Each inbound channel webhook is a Phoenix endpoint that must verify the channel signature and resolve tenant as rigorously as the edge (a plug enforcing AINV-6 before any Ash action runs).
 - **AD-GOV-3 — Sensitivity-gated routing + per-Account channel allowlist.** Low-sensitivity items may include content inline; high-sensitivity items go *notify-only* (content stays inside the boundary). An Account sets which channels are permitted at all (e.g. a regulated org allows only Slack within its tenant and forces the LiveView UI for `restricted`). This implements the FR-PLAT-16 compliance posture.
@@ -290,8 +265,6 @@ CLIENTS   agent-host(MCP) · generated SDK (TS/Py) · OpenAI-compat harness · c
 ---
 
 ## 11. Security, identity & tenancy
-
-**Changed from the TypeScript edition:** the in-house AuthZ resolver becomes **Ash.Policy.Authorizer + field policies**; multitenancy becomes **Ash multitenancy** (`:context` + Postgres RLS → `manage_tenant` schema → per-Account Repo); free-tier auth becomes **AshAuthentication** (password / API-key / magic-link); enterprise SSO becomes **ExSaml or Samly** (SAML SP) + **assent** (OIDC); SCIM is **implemented over Ash**. The hard wall, identity model, RBAC semantics (deny-wins, per-grant propagation), and deprovisioning≠erasure are all unchanged.
 
 - **AD-SEC-1 — The hard wall (AINV-6).** Account is derived from the authenticated identity, never from a request parameter, and is re-checked in depth: identity-bound account set as the Ash `tenant`/`actor` at the Phoenix edge, authZ re-checked by Ash policies at the action layer, RLS or schema/db-per-account at storage, per-Account namespaces for blobs and secrets. Cross-account access is structurally impossible (FR-TOP-1, INV-8).
 
@@ -335,8 +308,6 @@ read S iff effective is non-empty      (evaluated in an Ash policy check)
 
 ## 12. Observability & metering
 
-**Changed from the TypeScript edition:** OpenTelemetry JS + pino become **OpenTelemetry Elixir + `:telemetry` + Logger**; queue-context propagation rides Oban job args + OTel context; metering stays a durable exact ledger in the DB (now an Ash `UsageEvent` resource). The three-pipeline separation and every metering/telemetry semantic are unchanged.
-
 - **AD-OBS-1 — Three telemetry pipelines, never conflated.** **Operational observability** (operator-facing, lossy-tolerant, their backend), **metering** (money/budgets, exact, in their DB), and **product telemetry** (vendor-facing, anonymous).
 - **AD-OBS-2 — Observability via OpenTelemetry, vendor-neutral, off-by-default on single-node.** OpenTelemetry Elixir + the `:telemetry` ecosystem (Phoenix, Ecto, Oban, Ash all emit `:telemetry` events) for traces and metrics; structured JSON via `Logger` correlated to trace ids. Emit OTLP; the operator points it at their own backend (Grafana/Tempo/Loki, Datadog, Honeycomb…). The key engineering bit: **trace context (W3C `traceparent`) is propagated through the queue** (injected into the Oban job args, continued by the worker), giving end-to-end traces from "message in" → "knowledge minted" → "projection refreshed." Metrics include the FR-PLAT-10 ops set (queue depth via Oban, latency, error rates) plus RED/USE. On single-node it is zero-config off; opt-in to enable.
 - **AD-OBS-3 — Sensitivity-aware log redaction.** Secrets/keys never logged; knowledge content is **never logged above debug level**, and at debug only behind an explicit config flag and **never for `restricted`** (FR-GOV-11). Ash field policies keep `restricted` fields out of default logging paths.
@@ -348,8 +319,6 @@ read S iff effective is non-empty      (evaluated in an Ash policy check)
 ---
 
 ## 13. Configuration, packaging, distribution & licensing
-
-**Changed from the TypeScript edition:** infra/deploy config is **Elixir runtime config** (`config/runtime.exs`), validated at boot (replacing dotenv/Zod); packaging is a **single Mix release image** with the role selected by runtime config (no `MEM_ROLE` program subset — a node is the whole system, scaled by count); the ed25519-signed licence token is verified **in Elixir** against an embedded public key. Policy/behaviour config stays DB-stored and tree-inherited. The two-kinds-of-config split, the licence-gate model, and the fair-code stance are unchanged.
 
 - **AD-CFG-1 — Configuration is two kinds; only one is layered.**
 
@@ -389,7 +358,6 @@ PER-QUERY  (request parameter · narrowest layer · additive to the API contract
 
 ## 14. Portability & migration
 
-**Changed from the TypeScript edition:** export/import moves data between deployments rather than between database engines; derived indices are still not exported. The logical-not-physical export format, both-directions requirement, offline-snapshot-for-v1, and DR posture are unchanged.
 **Amended by ADR-0003:** with one data layer everywhere, the export's job is no longer to bridge two engines. It gains a *new* load-bearing job instead — **it is the supported Postgres major-version upgrade path**, because pg0 documents no in-place major upgrade. What was a portability nicety is now also an operational necessity, and is tested as one.
 
 - **AD-PORT-1 — Export is logical, not physical.** The format is a versioned, self-describing archive of the *domain model* (manifest with schema version + embedder model/version + counts + sha256 checksums, then JSONL per Ash resource type, plus blobs) — **not** a `pg_dump` — because a logical, engine-version-agnostic format is what makes self-host ↔ SaaS migration, cross-major-version moves, and "leave with your data" all the same mechanism. The format is versioned (expand/contract). **PG-major upgrade procedure:** export from major N → fresh `initdb` on major N+1 → import → verify; this round-trip is a tested path, not a documented hope (ADR-0003 condition 2).
@@ -417,8 +385,6 @@ ACCOUNT EXPORT — what travels, and how
 
 > This section is the *testing/CI architecture* that hosts the EV spec, not a re-derivation of the EV design.
 
-**Changed from the TypeScript edition:** the testing stack is **ExUnit + Ecto sandbox** (+ Testcontainers for Postgres) with `stream_data` property tests and port-level cassettes (replacing Vitest/fast-check); the determinism seam is now the ReqLLM provider layer; the injected `Clock` replaces direct `System`/`DateTime` calls. Benchmark replay targets (LongMemEval / LoCoMo / ConvoMem) and the two-tier split are unchanged. `bitcrowd/rag`'s eval metrics (groundedness / context-relevance / answer-relevance) are an additional in-tree signal.
-
 - **AD-EVAL-1 — The model provider layer is the determinism seam.** Because every LLM call goes through the ReqLLM provider behaviour, tests inject a stubbed or replayed model adapter and *everything except the model call becomes deterministic* — gating, conflict, dedup, temporal logic, projection assembly, RBAC. This is the single biggest enabler of fast, deterministic CI and a direct payoff of the ports architecture (here, Ash + behaviours).
 
 ```
@@ -444,8 +410,6 @@ NIGHTLY / RELEASE  (live or pinned models · graded · reported separately)
 ---
 
 ## 16. Non-functional targets, SLOs & resilience
-
-**Changed from the TypeScript edition:** the latency/throughput/availability/durability *targets and benchmarks are unchanged*. What changes is that **BEAM in-process concurrency, ETS/`persistent_term` projection caching, and in-VM assembly make them more comfortably achievable** — the `get_context` hot path has no network hop, and the sync fan-out is `Task.async_stream` across cores rather than RPC to a separate worker tier.
 
 - **NFR-1 — Latency targets (measured, revisable — not hard gates).** These are targets the eval framework and benchmarks measure against (EV §7.4); they are revisited as data arrives, not frozen into the contract.
 
@@ -480,8 +444,6 @@ LATENCY TARGETS  (warm path · p95 · both backends unless noted)
 ---
 
 ## 17. Recommended technology stack (concrete)
-
-**Changed from the TypeScript edition:** this table is fully re-expressed for the Elixir/Ash stack.
 
 | Concern | Choice | Notes |
 |---|---|---|
@@ -526,7 +488,7 @@ LATENCY TARGETS  (warm path · p95 · both backends unless noted)
 
 ## 18. Open & deferred decisions
 
-Carried forward for explicit resolution (parallels FR §12 and blueprint §17). **Changed from the TypeScript edition:** several items are now **resolved** by the platform swap (marked ✅ RESOLVED); still-open items carry forward.
+Resolved items are retained for decision history; unmarked items remain open.
 
 - ✅ **RESOLVED — Job queue.** Now **Oban via AshOban** on the **Postgres engine in every mode** (ADR-0003 retired `Oban.Engines.Lite`); **Redis/BullMQ dropped**. One job system, one engine.
 - ✅ **RESOLVED — Local storage tier (ADR-0003).** The SQLite tier and its in-memory HNSW index are retired. **AshPostgres + pgvector + PG-FTS everywhere**, with **pg0** as the pinned zero-dependency local Postgres. This supersedes the earlier "SQLite-tier vectors → `hnswlib`" resolution and closes the HNSW-persistence question below.
@@ -566,7 +528,8 @@ Carried forward for explicit resolution (parallels FR §12 and blueprint §17). 
 
 ## 19. References
 
-Cited inline as `[n]`. The FR spec (§13) carries the fuller, design-level bibliography; this list covers the references load-bearing for *architectural* decisions. (Unchanged from the TypeScript edition — these are research/precedent citations, not platform choices.)
+Cited inline as `[n]`. The FR spec (§13) has the fuller bibliography; this list
+contains references used by architecture decisions.
 
 1. Rasmussen, P., Paliychuk, P., Beauvais, T., Ryan, J., Chalef, D. *Zep: A Temporal Knowledge Graph Architecture for Agent Memory.* 2025. arXiv:2501.13956. — bi-temporal edge dating and invalidation-not-deletion (Graphiti); the convergent precedent for AD-DATA-1.
 2. Chhikara, P., Khant, D., Aryan, S., Singh, T., Yadav, D. *Mem0: Building Production-Ready AI Agents with Scalable Long-Term Memory.* ECAI 2025. arXiv:2504.19413. — two-phase extract/update pipeline; the production precedent for the fast lane (AD-PIPE-2).
@@ -584,7 +547,3 @@ Cited inline as `[n]`. The FR spec (§13) carries the fuller, design-level bibli
 14. Maharana, A., et al. *Evaluating Very Long-Term Conversational Memory of LLM Agents (LoCoMo).* 2024. arXiv:2402.17753. — replay target (AD-EVAL-3).
 15. Vectorize. *The Best AI Agent Memory Systems.* 2026. https://vectorize.io/articles/best-ai-agent-memory-systems — the Extract → Resolve → Store → Index ingestion shape and entity matching as a third retrieval signal (AD-DATA-10, AD-SEAM-3); the benchmark-insufficiency critique behind the engine-versus-product split (AD-EVAL-3).
 16. Mem0. *State of AI Agent Memory 2026* and *Research.* 2026. https://mem0.ai/blog/state-of-ai-agent-memory-2026 · https://mem0.ai/research — graph-style entity linking replacing external graph DBs while keeping the multi-hop gain (§18, ADR-0006); token-efficiency figures (NFR-11); BEAM's large-corpus degradation curve (AD-EVAL-3); cross-session identity as an open field problem (§18).
-
----
-
-*End of v1.0, Elixir/Ash edition. Supersedes the TypeScript edition for the how-it's-built layer; product semantics, invariants, gates, temporal model, and NFR envelope are unchanged. Pairs with the FR spec (the requirements it realises) and the EV spec (the framework that validates it). `AD-*`, `NFR-*`, and `AINV-*` ids are stable anchors for review and traceability.*

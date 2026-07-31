@@ -4,22 +4,14 @@ defmodule Cartulary.Pipeline.Idempotency do
   @moduledoc """
   The deterministic keys that make every background job replay-safe.
 
-  Each durable pipeline run is unique on its Account plus its key, so a key is
-  the answer to "is this the same unit of work?". Ask twice for the same work
-  and the second enqueue upserts onto the first row instead of processing the
-  input again; retries, reconciler sweeps, duplicate events, and connector
-  redeliveries all converge rather than duplicating knowledge.
+  Pipeline runs are unique by Account and key. Retries, reconciliation, duplicate events, and
+  connector redelivery therefore converge on one run.
 
   ## What makes a good key
 
-  A key is built from a key-family name plus the *immutable* identity of what is
-  being processed — an id together with a content hash, or a scope together with
-  a watermark. The family name is not the queue lane: the `extraction` lane, for
-  instance, is fed by both `message_extraction` and `document_extraction` keys.
-  Never mix in anything that changes between calls: a timestamp
-  taken at enqueue time, a random id, an attempt counter, or a mutable status
-  all defeat the mechanism silently, because the code still works and simply
-  processes everything twice.
+  Keys combine a family with immutable input identity, such as id plus content hash or scope plus
+  watermark. Families are not lanes. Never include per-call timestamps, random ids, attempts, or
+  mutable state.
 
   A content hash in the key is what makes changed input *new* work: the same
   message id with different bytes is a different key, so an edit is processed
@@ -27,18 +19,12 @@ defmodule Cartulary.Pipeline.Idempotency do
 
   ## Content safety
 
-  Keys are durable and appear in job arguments and operator tooling. Hashing is
-  therefore not only for compactness: components such as a connector cursor are
-  reduced to a digest so remote paths, queries, and other content never end up
-  in a queue row. Never build a key out of raw statements, message text, or
-  secrets.
+  Keys are durable and operator-visible. Digest cursors and other sensitive components; never use
+  raw statements, messages, or secrets.
 
   ## Stability
 
-  Key strings are persisted. Changing how a key family is built means existing
-  rows no longer match new enqueues, and work that already ran can run a second
-  time — so treat the encoding here as a durable format, not an implementation
-  detail.
+  Key encoding is a durable format. Changing it can rerun completed work.
   """
 
   @doc """

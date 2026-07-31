@@ -4,49 +4,30 @@
 
 Status: implemented
 
-The browser console is the human-facing read and self-governance surface. It
-turns the durable model — scopes, statements, provenance, lifecycle, consent —
-into something a person can inspect and act on without an HTTP client, and it
-does so without introducing a second writer, a second authorization model, or a
-second definition of what is visible.
+The browser console exposes human read and self-governance without adding a
+writer, authorization model, or visibility definition.
 
 It implements the human-surface obligations of `FR-UI-1` through `FR-UI-4`,
 `FR-KN-9`, `FR-KN-14`, `FR-GOV-3`, `FR-GOV-8`, `AD-SEAM-2`, `AINV-2`,
 `AINV-4`, `AINV-7`, `AINV-8`, and `NFR-9`, and it is bound by the entity-cache
 non-exposure rule of `AINV-6`.
 
-## Why a second browser surface was not created
+## One browser surface
 
-Before this change the only browser page was the curator queue at
-`/governance`, behind a mount hook that admitted the `curator` and
-`account-admin` roles. Two designs were possible: a separate application for
-reading, or one console with the queue inside it.
+One console keeps decisions beside provenance, lifecycle, conflicts, and raw
+observations without duplicating panels across applications.
 
-One console was chosen. The deciding argument is that a decision and the
-evidence for it belong on the same page: a curator judging a proposal needs its
-provenance, its lifecycle, its conflicts, and the raw observation behind it,
-and a separate reading application would have meant either duplicating those
-panels or asking a curator to hold two tabs open.
-
-`/governance` therefore stayed exactly where it was, kept its own stricter
-mount hook, and gained the shared console frame. Its route, its module name,
-its event names, and its rendered heading are unchanged, because
+`/governance` keeps its stricter mount hook and shared frame. Its route, module,
+events, and heading remain unchanged because
 `test/cartulary/f4_real_gate_a_b_governance_test.exs` and
 `test/cartulary/f9_skill_readiness_procedural_memory_test.exs` assert on all
 four. The console's per-statement page offers the same decisions through the
 same operation-layer calls; the queue remains the place for working a backlog,
 including the bulk actions that only make sense there.
 
-"Its conflicts" above is literal: `CartularyWeb.GovernanceLive.Index` resolves
-a queue row's `conflict_knowledge_ids` to the conflicting statements
-themselves in one batch query and renders them on the card, rather than
-leaving a curator to chase bare ids to another page. Ids that don't resolve
-under the curator's own authorization are dropped rather than shown as dead
-links, matching the same rule the per-statement page's cross-references panel
-already follows. The queue's checkbox selection is itself
-`GovernanceLive.Index`-local render state (`@selected_ids`), not a database
-read — "select all"/"deselect all" only ever widens which already-visible rows
-a bulk decision targets.
+`GovernanceLive.Index` batch-resolves authorized `conflict_knowledge_ids` and
+drops unresolved ids. Checkbox selection is local `@selected_ids` render state;
+bulk selection targets only already-visible rows.
 
 ## Layering
 
@@ -61,10 +42,8 @@ a bulk decision targets.
 | `CartularyWeb.ConsoleComponents` | Shell, navigation, tiles, badges, tables, panels. Stateless. |
 | `CartularyWeb.ConsoleLive.*` | Nine pages: rendering and event dispatch only. |
 
-Both browser surfaces read the session key `governance_token`. The name is
-historical and is deliberately not renamed: two keys would mean a curator
-signing in at one door found the other locked, and renaming it would invalidate
-every live session for no behavioural gain.
+Both browser surfaces retain the historical `governance_token` session key so
+one sign-in opens both and existing sessions remain valid.
 
 ## Visibility
 
@@ -74,11 +53,8 @@ express, and both live in `Access` so that no page can widen them
 independently. Both are narrowing; neither can grant access to a scope the
 actor's grants do not already reach.
 
-**The provisional rule.** `state != "provisional" or subject_peer_id ==
-<viewer>`. This is character-for-character the condition
-`Cartulary.Retrieval.Store` applies to every candidate query. If the console and
-retrieval ever disagree about provisional visibility, one of them is leaking;
-they are intentionally the same expression so a reviewer can compare them.
+**Provisional:** `state != "provisional" or subject_peer_id == <viewer>`.
+`Cartulary.Retrieval.Store` uses the identical condition; divergence is a leak.
 
 **The governance-state rule.** Curators and account admins see every lifecycle
 state. Members and readers see `active`, `needs_revalidation`, `expired`, and
@@ -145,14 +121,11 @@ renders:
   identities only;
 - **password hashes, API key hashes, connector secrets, blob bytes.**
 
-Text rendered here does not travel: nothing in the console writes a statement,
-an observation, or a document title into a log, a telemetry attribute, an audit
-entry, or a job argument.
+Rendered text never enters logs, telemetry, audit entries, or job arguments.
 
 ## Graph rendering
 
-The graph is laid out server-side and emitted as inline SVG. Two constraints
-forced that and would force it again:
+The graph is deterministic server-side inline SVG because:
 
 1. The browser pipeline's Content-Security-Policy allows `script-src 'self'`
    and forbids inline script, and the project has no bundler — the whole client
@@ -162,14 +135,9 @@ forced that and would force it again:
    detail panel show what the reader may see without shipping the corpus to the
    browser.
 
-A force simulation was rejected because it needs either randomness or many
-pairwise iterations: the first makes the picture jump on every render, the
-second makes a page load slow on a large Account, and both would put a
-non-deterministic function on a page a reader uses for navigation. The radial
-layout is a pure function of its input — scopes on concentric rings by
-containment depth, statements in orbits around their scope, cross-references as
-chords — so the same data always draws the same picture and the layout can be
-asserted on directly.
+Force simulation adds randomness or expensive pairwise iterations. The radial
+layout is pure: containment-depth rings, statement orbits, and relation chords
+produce the same testable picture for the same data.
 
 Statement nodes are capped. When the cap drops rows the page says so; a partial
 picture presented as complete is worse than no picture.

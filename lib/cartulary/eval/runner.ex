@@ -2,67 +2,11 @@
 
 defmodule Cartulary.Eval.Runner do
   @moduledoc """
-  Executes a normalized evaluation dataset against the real memory surface and reports it.
+  Runs normalized evaluation cases against the real memory API.
 
-  This is where a benchmark becomes evidence. Each case's messages are written through the
-  ordinary durable ingest path, each question is asked through the ordinary answer path,
-  and the answers are scored. The runner stubs nothing and takes no shortcut around the
-  product code, so the numbers describe the system a user would actually get. An operator
-  may still point the node at local deterministic models before starting, and the report
-  says so, because it records the model-role identities that were actually in force.
-
-  ## Side effects, and why isolation matters
-
-  A run writes real rows — raw messages, extracted knowledge, lifecycle events, retrieval
-  and answer activity — into the configured database, under the Account key it is given.
-  Nothing is cleaned up afterwards. Every case is written beneath a scope root built from
-  the benchmark name and the run id, and each case gets its own child scope under that.
-  Knowledge inherits downward, so that two-level split is what keeps one case's conversation
-  from answering another case's question, and one run's data from leaking into the next.
-  Give concurrent runs distinct run ids: the default is a UTC timestamp compacted to digits,
-  which two runs started in the same second would share.
-
-  Messages are ingested with inline extraction requested. Deferring extraction to the
-  background queue would let questions race the job that produces the knowledge they need,
-  and the run would score a system that had not finished thinking yet.
-
-  ## Report provenance
-
-  The map returned here is the evaluation report, and its provenance fields are not
-  decoration. A quality number means nothing unless a reader can tell which code, which
-  data, and which configuration produced it, so every report records:
-
-    * the application's semantic version and the UTC time it was generated;
-    * the benchmark, the source layout it was parsed from, and the dataset's id, SHA-256,
-      and split;
-    * the retrieval profile by name and the exact profile version that actually ran;
-    * the raw strategy override, if any, and the deadline setting;
-    * provider, model, model version, prompt version, and pipeline version for all four
-      model roles — including the roles a given run did not exercise, because the
-      configuration as a whole is what was under test;
-    * the judge identity, deterministic or model-based;
-    * the case, message, and question limits applied, since a truncated run is not
-      comparable with a full one;
-    * ingest counts, aggregate metrics, and per-question evidence.
-
-  `Cartulary.Eval.Report` re-checks all of that before a report may be published or gate a
-  release. Dropping a field here does not simplify the report; it makes it unpublishable.
-
-  The report carries the schema identity `"f11-1"`. That string versions the report format
-  itself. Changing the shape of this map means changing that identity, which obliges a
-  maintainer to add a changelog entry, regenerate the stored evaluation evidence, and note
-  the change in the closest architecture document.
-
-  ## Reading a report
-
-  `"profile_version"` collapses to a single string when every question ran under the same
-  retrieval profile version. If they disagree it stays a list, which fails report
-  validation on purpose: a mixed-version run cannot be quoted as one measurement.
-
-  `"messages_ingested"` counts only the writes that succeeded. Turns whose ingest did not
-  return successfully are absent from the citation reference map, so they cannot be cited
-  and their evidence is unreachable — compare it against `"messages_attempted"` before
-  trusting a low citation rate.
+  Runs preserve dataset and model provenance, profile and deadline settings, strategy overrides,
+  limits, and deterministic ordering. Failures remain explicit rather than being silently
+  dropped from aggregate metrics.
   """
 
   alias Cartulary.Clock
@@ -72,33 +16,12 @@ defmodule Cartulary.Eval.Runner do
   @doc """
   Runs every case in `dataset` and returns the complete evaluation report.
 
-  `dataset` is the normalized structure produced by `Cartulary.Eval.Adapter`.
+  `dataset` is normalized by `Cartulary.Eval.Adapter`. Options set profile, scratch
+  Account, run id, deadline, strategy override, split, judge, and run limits; every choice
+  is recorded in the string-keyed report.
 
-  Recognized options:
-
-    * `:profile` — retrieval profile name to answer under. Defaults to `"balanced"`.
-    * `:account_key` — Account that owns everything written. Defaults to
-      `"eval-benchmark"`. Point it at a scratch Account; the run writes durable rows.
-    * `:run_id` — identifies the run and seeds the scope root. Defaults to a UTC timestamp.
-    * `:deadline` — `"disabled"` (the default here) removes the profile's latency bound so
-      slow strategies still contribute, which is what makes ablations comparable. A run
-      that is meant to measure production latency must set it otherwise.
-    * `:strategies` — raw retrieval strategy override. Internal and evaluation use only;
-      it is recorded in the report because it changes what is being measured.
-    * `:split` — dataset split label, defaults to `"evaluation"`. Keeping tuning and
-      published splits distinct is what prevents tuned weights from being validated
-      against the same rows they were tuned on.
-    * `:judge` — `"deterministic"` (default) or `"model"`. The model judge adds its own
-      scores beside the deterministic ones and never replaces them.
-    * `:limit_cases`, `:limit_messages`, `:limit_questions` — truncate the run. Accepts an
-      integer or a numeric string; anything else is ignored and no limit applies.
-
-  Returns the string-keyed report map. Failure modes come from the underlying memory path.
-  An ingest that returns something other than a success tuple is counted as not ingested
-  and its turn becomes uncitable, but the run continues; an ingest or answer that raises —
-  the documented behaviour for an authorization or validation failure — aborts the run. A
-  model judge that errors or returns an out-of-range score also raises, because a
-  fabricated judge number would corrupt the evidence rather than merely lower it.
+  Non-success ingest tuples remain scored failures. Raised memory errors or invalid model
+  judge results abort the run rather than producing incomplete evidence.
   """
   def run(dataset, opts \\ []) do
     profile = Keyword.get(opts, :profile, "balanced")

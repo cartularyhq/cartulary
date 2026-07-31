@@ -2,8 +2,7 @@
 
 # Quickstart tutorial
 
-Five minutes, five steps: sign in, record an observation, watch it become
-governed knowledge, read it back, and check what an agent still needs to know.
+Sign in, record an observation, read it back, and check skill readiness.
 
 This assumes a running instance — see [Getting started](index.md) — reachable
 at `http://127.0.0.1:4000`.
@@ -54,10 +53,8 @@ bearer token valid for 12 hours.
       IO.puts("peer=#{r.peer.id} token=#{r.token}")'
     ```
 
-There is deliberately no default password: an installation that came up with a
-known credential would be reachable by anyone who read the source. The printed
-token is not recoverable afterwards — copy it now, keep it out of logs and
-chat, and sign in with the password once it expires.
+There is no default password. Copy the printed token now; it cannot be
+recovered. Keep it out of logs and chat. It expires after 12 hours.
 
 ## 2. Sign in
 
@@ -78,8 +75,7 @@ cannot be used to discover which accounts exist.
 
 ## 3. Record an observation
 
-This is the only write path an agent has. You are not writing knowledge — you
-are recording what was said, and handing it to the pipeline.
+This records a raw observation. Agents cannot write knowledge directly.
 
 ```bash
 curl -fsS -X POST http://127.0.0.1:4000/api/v1/ingest \
@@ -92,8 +88,7 @@ curl -fsS -X POST http://127.0.0.1:4000/api/v1/ingest \
       }'
 ```
 
-Missing scopes, the session, and its links are created on demand, so you do not
-have to provision topology first.
+Missing scopes, sessions, and links are created on demand.
 
 The response is the stored message. Because extraction runs inline by default,
 it also carries a `knowledge` list of the statements the pipeline just proposed
@@ -109,10 +104,8 @@ curl -fsS -X POST http://127.0.0.1:4000/api/v1/search \
   -d '{"query":"when does the roundup go out","scope_path":"/marketing/social"}'
 ```
 
-You get a fused ranking from several independent retrieval strategies, along
-with which strategies contributed and which were dropped against the deadline.
-The order returned *is* the answer — re-sorting by a per-strategy score
-compares numbers from different scoring spaces.
+The response includes the fused ranking and contributed or dropped strategies.
+Do not re-sort it by per-strategy score; those scores are not comparable.
 
 For a written answer with citations:
 

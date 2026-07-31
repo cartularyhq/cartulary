@@ -2,32 +2,10 @@
 
 defmodule Cartulary.Knowledge.Changes.RecordTransition do
   @moduledoc """
-  Ash change that turns a knowledge state change into an evidence-carrying transaction.
+  Ash change that records lifecycle and audit evidence for a state transition.
 
-  Attached to the statement's `transition` action, it appends two records after the update
-  succeeds and before the surrounding transaction commits:
-
-  1. a `LifecycleEvent` naming the state left, the state entered, the caller's reason, and the
-     time of the transition; and
-  2. a hash-chained governance audit entry in the `lifecycle` category.
-
-  Both live inside the caller's transaction. If either write fails, the `with` returns the error
-  and the state change is rolled back with them, so a statement can never quietly change state
-  without leaving a trail. That coupling is the whole point of the change; splitting it into a
-  background job would reintroduce exactly the gap it closes.
-
-  ## Content safety
-
-  The audit entry carries the statement's hash, not its text. The metadata is limited to the two
-  states, the reason code, and the channel that drove the decision. Never add statement text,
-  peer answers, or prompt content to this map — the audit chain is designed to be readable by
-  operators who are not entitled to the underlying knowledge.
-
-  ## Reading the pre-update state
-
-  `from_state` comes from the changeset's loaded record, which is why the action declares itself
-  non-atomic. Making `transition` atomic would remove the loaded row and silently record a wrong
-  or nil origin state.
+  The item update, lifecycle event, audit append, and derived refresh enqueue share the caller's
+  transaction. Audit and job metadata stay content-safe.
   """
 
   use Ash.Resource.Change

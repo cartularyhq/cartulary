@@ -5,10 +5,7 @@ defmodule Cartulary.Retrieval do
   The public boundary for reading governed memory, and the Ash domain that owns
   retrieval profiles.
 
-  Everything that answers "which stored statements are relevant to this text?"
-  enters here. The multi-strategy candidate search lives entirely inside
-  `Cartulary.Retrieval.*`; callers ask this module for candidates and get back
-  a plain map.
+  All multi-strategy candidate search enters here and returns a plain map.
 
   ## What retrieval guarantees
 
@@ -28,9 +25,8 @@ defmodule Cartulary.Retrieval do
 
   ## Entry points
 
-  `retrieve/3` runs a profile's strategies and fuses their results.
-  `rebuild_scope/2` regenerates the derived caches (vectors, entities,
-  mentions, context projections) for one scope; it is safe to run repeatedly.
+  `retrieve/3` fuses profile strategies. `rebuild_scope/2` replay-safely regenerates vectors,
+  entities, mentions, and context projections.
   """
 
   use Ash.Domain
@@ -78,19 +74,15 @@ defmodule Cartulary.Retrieval.RetrievalProfile do
   @moduledoc """
   One durable, operator-authored override of a built-in retrieval profile.
 
-  A row says: "inside this Account, for the profile called `fast`/`balanced`/
-  `thorough`, and for this scope (or Account-wide when `scope_id` is null), use
-  these strategies, these fusion weights, this rerank flag, and this deadline
-  instead of the compiled-in defaults."
+  A row overrides strategies, fusion weights, reranking, and deadline for `fast`, `balanced`, or
+  `thorough` at one scope or Account-wide when `scope_id` is nil.
 
   Overrides inherit down the scope tree and the nearest authorized scope wins;
   an Account-wide row is the fallback. Among the `active` rows that match a
   name and scope, the highest `version` is the one applied.
 
-  These rows are configuration, not knowledge. They never pass the approval
-  pipeline and they hold no user content — putting statement text, examples, or
-  secrets in `strategy_config` would put content somewhere the erasure and
-  audit paths do not look.
+  These rows are configuration, not knowledge. `strategy_config` must not contain content or
+  secrets because erasure does not inspect it.
 
   Changing a profile changes answers, so the version a caller sees is derived,
   not just copied: it combines the authored `version` integer with a digest of

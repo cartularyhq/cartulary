@@ -133,30 +133,12 @@ end
 
 defmodule Cartulary.Retrieval.Strategy do
   @moduledoc """
-  The behaviour every candidate-generation strategy implements, plus the
-  validator the engine runs over whatever a strategy returns.
+  Defines retrieval strategy contracts and validates returned candidates.
 
-  A strategy is a swappable way of proposing relevant records. Adding one is a
-  behaviour change: it alters what callers see, so it needs review, an entry in
-  the strategy registry, and a place in the profiles that should use it.
-
-  ## What an implementation must honour
-
-  * **Filter inside the query.** A strategy is handed an already-authorized
-    `Query` and must restrict its own database work to that Account, those
-    scope ids, active lifecycle state, and provisional statements belonging to
-    the calling peer. Nothing downstream re-checks authorization.
-  * **Return your own scale.** `score` is strategy-local and is never compared
-    with another strategy's. Only rank order within your own list matters.
-  * **Respect the budget.** `candidates/2` receives the shared deadline and
-    candidate cap; honour the cap when querying rather than returning a huge
-    list and letting the validator truncate it.
-  * **Expose no internal caches.** Records derived from the entity index must
-    come back as ordinary statement rows, without entity ids, canonical names,
-    aliases, or surface forms.
-  * **Degrade, do not raise.** A missing embedding provider or an empty corpus
-    should yield an empty list. The request then continues with whatever the
-    other strategies found, and your strategy is still reported as having run.
+  Strategies must filter Account, authorized scopes, lifecycle, and provisional subjects before
+  returning candidates; nothing downstream rechecks access. Scores are strategy-local, budgets
+  and caps are shared, and entity cache details must never escape. Expected absence degrades to an
+  empty list.
 
   ## Callbacks
 

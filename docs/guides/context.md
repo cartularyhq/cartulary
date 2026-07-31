@@ -2,8 +2,8 @@
 
 # Assembling context
 
-`POST /api/v1/context` fills an agent's context window with what it should know
-about a scope, within a character budget, without calling a model.
+`POST /api/v1/context` assembles model-free scope context within a character
+budget.
 
 ```bash
 curl -fsS -X POST http://127.0.0.1:4000/api/v1/context \
@@ -48,8 +48,8 @@ curl -fsS -X POST http://127.0.0.1:4000/api/v1/context \
 
 ## Why this is not just a search
 
-Profiles, scope cards, and session summaries are **projections** recomputed
-from governed knowledge — not a second store, and not model output.
+Profiles, scope cards, and session summaries are cached **projections** of
+governed knowledge, not another durable store.
 
 ```mermaid
 flowchart LR
@@ -60,8 +60,7 @@ flowchart LR
     CTX --> R[Budgeted context payload]
 ```
 
-No generation model is ever called on this path. That is what makes it cheap
-enough to run before every agent turn and repeatable enough to reason about.
+No generation model runs on this path.
 
 ## Interpreting the diagnostic flags
 
@@ -80,8 +79,7 @@ Check queue depth on `/api/ready`.
 governed knowledge and the nearest scope's cards, so a tighter budget loses the
 most distant context first rather than truncating arbitrarily.
 
-Choose a budget that leaves room for the conversation itself — context that
-fills the window is context that pushes out the user's actual question.
+Leave room in the model window for the conversation and user question.
 
 ## When to use context versus search
 

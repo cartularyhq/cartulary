@@ -2,9 +2,8 @@
 
 # Search and ask
 
-Two read operations, two different jobs. `search` returns ranked evidence.
-`ask` returns a written, cited answer over that evidence — and abstains when
-there is none.
+`search` returns ranked evidence. `ask` writes a cited answer over that evidence
+or abstains.
 
 ## search
 
@@ -66,9 +65,8 @@ curl -fsS -X POST http://127.0.0.1:4000/api/v1/ask \
       }'
 ```
 
-`question` is required. Every `search` parameter is also accepted, but
-`profile` defaults to `thorough` — an answer justifies more latency than a bare
-search.
+`question` is required. All `search` parameters apply; `profile` defaults to
+`thorough`.
 
 The response is the search payload plus `answer`, `citations`, and `abstained`.
 
@@ -96,14 +94,10 @@ for the exact strategy sets and weights.
 
 ## Time travel with `as_of`
 
-`as_of` reads memory as it stood at a moment in the past — useful for auditing
-what an agent could have known when it made a decision. It respects belief
-time, not valid time: it answers "what did the system believe then", not "what
-was true then".
+`as_of` reads past belief-time: what the system believed then, not what was true
+then.
 
 ## What you will not find
 
-Entity rows, canonical names, aliases, surface forms, and entity ids are never
-returned by any surface. They are internal caches that improve matching; a
-resolution mistake therefore costs accuracy and can never move information
-across a boundary.
+No surface returns entity rows, names, aliases, surface forms, or ids. These
+internal caches improve matching without affecting authorization boundaries.

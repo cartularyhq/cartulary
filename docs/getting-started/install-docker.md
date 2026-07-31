@@ -2,10 +2,8 @@
 
 # Run with Docker
 
-The container path runs the same release against a stock PostgreSQL image. The
-supervised pg0 binary is deliberately **not** in the container — a container
-host already has a supported way to run a database, and shipping a second one
-inside the image would fork the operational story for no benefit.
+Docker runs the standard release against a PostgreSQL container. The image
+does not include pg0.
 
 ## Start the stack
 
@@ -38,9 +36,8 @@ is forbidden from recording.
 
 ## Configuration
 
-Everything is environment-driven; the Compose file simply passes variables
-through. See [Configuration](../reference/configuration.md) for the full set,
-and in particular:
+Compose passes environment variables through. See
+[Configuration](../reference/configuration.md), especially:
 
 - `CARTULARY_AUTH_SIGNING_SECRET` — at least 64 random bytes, independent of
   `SECRET_KEY_BASE`;

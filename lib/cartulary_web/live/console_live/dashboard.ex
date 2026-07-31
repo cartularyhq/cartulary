@@ -2,32 +2,11 @@
 
 defmodule CartularyWeb.ConsoleLive.Dashboard do
   @moduledoc """
-  The console front page at `/console`: what this Account currently knows, and
-  what is waiting for someone to act on.
+  Read-only `/console` overview of visible memory and pending work.
 
-  The page answers four questions in order, because that is the order a person
-  arriving at a memory system asks them: how much is here, what state is it in,
-  what needs me, and what changed recently.
-
-  ## Everything shown is scoped to the viewer
-
-  There is no Account-wide figure on this page that ignores the reader's role
-  grants. Counts come from queries run as the signed-in actor, so two people
-  looking at the same Account can honestly see different totals — that is the
-  scope tree working, not an inconsistency. The lifecycle-state breakdown is
-  additionally narrowed to the states the viewer may see, so a member's
-  dashboard does not disclose how many proposals are queued behind a gate they
-  cannot open.
-
-  The readiness and cost tiles appear only for account administrators. They
-  read operational state rather than memory, and their underlying resources
-  refuse anyone else outright rather than returning an empty result.
-
-  ## This page performs no writes
-
-  It renders and links. Every action a reader might take from here happens on
-  the page it links to, where the operation layer owns the transaction and the
-  audit entry.
+  All memory counts use the signed-in actor's scopes and lifecycle visibility.
+  Readiness and usage appear only for account administrators. Actions occur on
+  linked pages through their operation layers.
   """
 
   use CartularyWeb, :live_view
@@ -40,18 +19,10 @@ defmodule CartularyWeb.ConsoleLive.Dashboard do
   alias CartularyWeb.Console.Loader
 
   @doc """
-  Loads the overview for the signed-in reader.
+  Loads the actor-scoped overview and administrator-only operational tiles.
 
-  There is no authorization check here. The console mount hook has already
-  verified the session token and the password identity kind and assigned the
-  actor; it redirects rather than letting an unauthenticated socket reach this
-  callback. Do not add a fallback that tolerates a missing `current_actor` —
-  that would turn a hard authentication failure into a silently partial page.
-
-  The operational tiles are loaded only for an account administrator. The
-  readiness probe is cheap and touches no memory; the usage summary reads the
-  ledger, whose policy is a plain role check, so asking as anyone else raises
-  rather than returning nothing.
+  Authentication guarantees `current_actor`; a missing actor must not degrade
+  into a partial page.
   """
   @impl true
   def mount(_params, _session, socket) do
@@ -68,12 +39,7 @@ defmodule CartularyWeb.ConsoleLive.Dashboard do
   end
 
   @doc """
-  Renders the overview.
-
-  The layout is deliberately top-heavy: the numbers a reader needs at a glance
-  come first, the distributions that explain them second, and the recent
-  activity log last, because reading history is a deliberate act rather than a
-  glance.
+  Renders counts, distributions, operational status, and recent activity.
   """
   @impl true
   def render(assigns) do
@@ -223,19 +189,14 @@ defmodule CartularyWeb.ConsoleLive.Dashboard do
     """
   end
 
-  # Largest first, so the shape of the corpus is legible without reading the
-  # numbers. Ties keep their alphabetical order, which stops the chart from
-  # reshuffling between two equal categories on each reload.
+  # Stable ties prevent charts from reshuffling between reloads.
   defp sorted_counts(counts) do
     counts
     |> Enum.sort_by(fn {label, count} -> {-count, label} end)
     |> Enum.map(fn {label, count} -> {label, count} end)
   end
 
-  # A curator sees the whole queue; anyone else sees only the items that are
-  # waiting on them personally, because the queue read filters a non-curator
-  # down to rows where they are the subject. The note names which of the two
-  # the number is, so nobody reads a small figure as an empty queue.
+  # Non-curator queue counts include only items awaiting that subject.
   defp queue_note(actor) do
     if Access.can?(actor, :curate) do
       "Open items in the curator queue"

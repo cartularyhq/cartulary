@@ -4,11 +4,8 @@ defmodule Cartulary.Model.Gateway do
   @moduledoc """
   The one place that invokes a model provider.
 
-  Every structured generation, chat completion, embedding, and rerank in
-  Cartulary passes through here. No other module may call a
-  `Cartulary.Model.Provider` callback, and no other module may talk to a
-  provider SDK at all. Concentrating it here is what guarantees that four things
-  happen on *every* call, including failed calls and retried repair attempts:
+  Every structured generation, chat, embedding, and rerank passes through here. No other module
+  may call a provider. Every attempt, including failures and repairs:
 
   1. The role is resolved to a pinned provider, model, and version set.
   2. A tracing span records safe timings, counts, and identities.
@@ -19,23 +16,14 @@ defmodule Cartulary.Model.Gateway do
 
   ## Provider selection
 
-  The provider module is chosen, in order, from the context's
-  `:model_provider` key (how tests inject a stub), the application-wide
-  `:model_provider` override, and finally the provider name on the resolved
-  role. There is no cascade between real providers: if the configured provider
-  fails, the call fails. A deployment that wants failover puts an
-  OpenAI-compatible proxy in front of the role, so failover policy lives with
-  the operator rather than hidden inside the engine. In particular, a failed
-  live provider call is never retried against the offline deterministic
-  provider — fabricated output must not be presented as a model answer.
+  Selection order is context `:model_provider`, application override, then the resolved role.
+  Provider failure never falls back to another provider or the deterministic adapter. Operators
+  may place a failover proxy in front of a role.
 
   ## Content safety
 
-  Nothing in this module writes prompts, messages, generated text, embedded
-  text, or credentials into a span or a usage record. Only ids, role and
-  provider names, model names and versions, token counts, durations, and error
-  classes leave here. Keep it that way: telemetry and the usage ledger are read
-  by people who are not authorized to read Account content.
+  Spans and usage may contain ids, model identities, counts, durations, and error classes, never
+  prompts, messages, generated or embedded text, or credentials.
 
   ## Failure behaviour
 

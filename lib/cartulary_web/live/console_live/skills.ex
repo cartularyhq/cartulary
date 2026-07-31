@@ -2,49 +2,14 @@
 
 defmodule CartularyWeb.ConsoleLive.Skills do
   @moduledoc """
-  Procedural memory at `/console/skills`: the requirement cards that say what
-  must already be known before a skill runs, and a live check of whether it is.
+  Read-only `/console/skills` view of versioned requirement cards and readiness.
 
-  ## Cards are authored configuration, not knowledge
-
-  This is the distinction the page is built around. Knowledge is extracted from
-  observations and has to clear the governance gates before anyone sees it. A
-  card is written by a person, takes effect the moment it is published, and is
-  versioned plainly: publishing inserts a new immutable version and retires the
-  previous one. A card never enters the gates, and — just as importantly — a
-  card can never *satisfy* a requirement. Only governed knowledge can, so an
-  author cannot declare a skill ready by writing a card that answers itself.
-
-  Every version is listed, not only the active one. A retired version is the
-  record of what a skill used to demand, and is what makes an old readiness
-  result readable after the fact. Exactly one version per scope and skill key
-  is active; the rest are never consulted.
-
-  ## Requirements inherit, nearest scope wins
-
-  Requirements merge by key down the containment tree. A child scope can
-  override an inherited requirement by reusing its key, add new keys, or switch
-  an inherited key off. Descendants therefore carry no copies of their
-  ancestors' cards, which is why reading a single card does not tell you what a
-  deep scope actually demands — the readiness check does.
-
-  ## The readiness check is metadata only
-
-  It runs no model, no text search, and no reasoning: it compares stored fields
-  against each requirement's selector. Only authorized `active` knowledge, or
-  the checked peer's own usable `provisional` knowledge, can satisfy one.
-  Expired and revalidation-due items count as gaps immediately, without waiting
-  for a background sweep, so a delayed job cannot open a window where a stale
-  answer looks current.
-
-  A gap is not permission to write the missing fact. An elicited answer has to
-  return through ordinary observation ingest and pass the gates before
-  readiness improves.
-
-  ## Authoring lives elsewhere
-
-  Publishing a card is a curator act and stays on the curator queue page. This
-  page reads and checks; it publishes nothing.
+  Cards are authored configuration, not knowledge, and cannot satisfy their own
+  requirements. Requirements inherit by key with nearest-scope overrides.
+  Checks are model-free metadata comparisons against authorized active or the
+  subject's usable provisional knowledge; expired or revalidation-due items are
+  gaps. Required gaps block and preferred gaps warn. Missing answers must enter
+  through ordinary ingest and governance. Card publishing happens elsewhere.
   """
 
   use CartularyWeb, :live_view
@@ -68,18 +33,9 @@ defmodule CartularyWeb.ConsoleLive.Skills do
   end
 
   @doc """
-  Runs one readiness check for the signed-in reader.
+  Checks only the signed-in peer's readiness.
 
-  The peer checked is always the reader themselves. Checking somebody else's
-  readiness would disclose which knowledge exists about them in scopes the
-  reader may not hold, so the console does not offer it even to an
-  administrator; the JSON surface, which agents use to check their own peer,
-  is where a different peer can be named.
-
-  A missing skill, an unknown scope, or a scope the reader cannot see raises in
-  the operation layer. That is reported as a flash rather than crashing the
-  socket, because both fields are typed by hand and a typo is an ordinary
-  mistake.
+  Unknown or unauthorized skills and scopes produce a generic flash.
   """
   @impl true
   def handle_event("check", %{"skill" => skill, "scope_path" => scope_path}, socket) do

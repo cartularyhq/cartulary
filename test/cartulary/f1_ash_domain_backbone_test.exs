@@ -2,43 +2,11 @@
 
 defmodule Cartulary.F1AshDomainBackboneTest do
   @moduledoc """
-  Pins the durable-data boundary: every persistent row is owned by an Ash resource, reachable
-  only through an Ash action, and walled off per Account by PostgreSQL row-level security.
+  Pins the durable-data boundary: every persistent row is owned by an Ash resource,
+    reachable only through an Ash action, and walled off per Account by PostgreSQL
+    row-level security.
 
-  The file name and module name are frozen evidence identities and are not renamed; what they
-  guard is the backbone of the data model. Four properties are pinned.
-
-  **The resource inventory is a closed set.** The domain and resource lists below are a
-  deliberate tripwire, not a convenience. Adding a durable resource without adding it here
-  fails this suite, which forces the author to notice that a new table needs a reviewed
-  migration, a snapshot, a tenancy attribute, and a row-level-security policy. The same
-  assertion checks that the configured domain list matches, because a domain module that
-  exists but is not configured produces no code generation and no migrations.
-
-  **Authorization is derived from identity, never from request input.** Pointing a query at
-  another Account's tenant does not grant access; it returns nothing. An actor restricted to a
-  subset of scopes sees only those scopes. Knowledge cannot be minted by an ordinary actor —
-  only the pipeline may create it — and configuration changes need an administrator.
-
-  **Content is create-only and ledgers are append-only.** Observation content may be created
-  and erased but never rewritten, knowledge statements are immutable once minted, and
-  lifecycle and audit rows expose only create and read actions so history cannot be edited
-  away.
-
-  **Row-level security is the last line of defence.** Every table carrying an Account
-  identifier has row-level security enabled *and* forced, with one named policy that compares
-  the row's Account against a transaction-local PostgreSQL setting. Forced mode matters
-  because a plain enabled policy is skipped for the table owner, which is exactly the role a
-  release usually connects as. The policy filters reads and, through its check clause, also
-  refuses writes aimed at another Account.
-
-  ## If a test in this file fails
-
-  A mismatch in the inventory lists means a resource or domain was added or removed: confirm
-  the migration, the resource snapshot, the tenancy attribute, and the row-level-security
-  policy all exist, then update the list in the same patch. A failure in the action, policy,
-  or row-level-security tests is a tenancy or integrity regression — treat it as a security
-  defect and fix the resource, not the assertion.
+    Authorization is derived from identity, never from request input.
   """
 
   use Cartulary.DataCase, async: false

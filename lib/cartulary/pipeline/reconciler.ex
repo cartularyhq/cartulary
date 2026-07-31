@@ -4,21 +4,12 @@ defmodule Cartulary.Pipeline.Reconciler do
   @moduledoc """
   The safety net that finds durable work no job is going to finish.
 
-  Ingest commits the raw observation and its job together, so nothing is
-  accepted without being queued. Jobs can still die between attempts, exhaust
-  their retries, or be lost when a node is destroyed mid-flight — and a durable
-  record with no live job would otherwise sit unprocessed forever. This sweep
-  scans one Account for exactly those records and asks for them again.
+  Jobs can die or exhaust retries after durable ingest. This sweep finds unfinished records in one
+  Account and enqueues them again.
 
-  It is deliberately unconditional about re-asking, because re-asking is cheap
-  and safe: every enqueue carries the same deterministic replay key the original
-  work used, so a record that already has a live run merges onto it rather than
-  being processed twice. That is why running this often, or twice concurrently,
-  cannot duplicate knowledge.
+  Re-enqueueing is safe because the original deterministic key reuses an existing run.
 
-  It writes no knowledge and mutates no observation. Its only effect is
-  scheduling; the ordinary pipeline still does all the work and governance still
-  gates everything it produces.
+  It only schedules work; it does not mutate observations or write knowledge.
 
   What it looks for, per Account:
 

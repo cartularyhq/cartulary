@@ -4,18 +4,12 @@ defmodule Cartulary.Model.Providers.Deterministic do
   @moduledoc """
   An offline stand-in that produces schema-valid output without a model.
 
-  Its purpose is to let the whole system — ingest, governance, retrieval, the
-  HTTP surface, the test suite — run end to end with no network access, no API
-  key, and no cost, while still exercising every code path that a real provider
-  would. Output is deterministic, so tests can assert on it.
+  Supports deterministic end-to-end tests and offline development without network, keys, or cost.
 
   ## This is not a model, and must not be mistaken for one
 
-  Extraction here is regular-expression sentence splitting with keyword-based
-  guesses at kind and sensitivity. Reasoning returns nothing. A question is
-  always answered `"not known"` with the abstention flag set — deliberately, so
-  a deployment that has not configured a real model says so plainly rather than
-  presenting invented reasoning as an answer.
+  Extraction uses sentence splitting and keyword guesses; reasoning is empty; answers abstain as
+  `"not known"`.
 
   Every result is tagged `fallback: true` in metadata, which reaches the usage
   ledger, so it is always visible after the fact which calls were served by this
@@ -23,12 +17,8 @@ defmodule Cartulary.Model.Providers.Deterministic do
 
   ## Selection rules
 
-  It is chosen only by explicit configuration, up front: development may select
-  it when no API key is present and the local-fallback flag is on. Production
-  defaults that flag off. Nothing anywhere switches to this adapter *after* a
-  live provider call fails — a failed call must surface as an error and leave
-  the job retryable. Answering a failure with fabricated content would corrupt
-  the memory the system exists to keep honest.
+  Selection is explicit and production defaults it off. Live provider failures never fall back
+  here; they remain retryable errors.
 
   Callers that would display generated text should ask whether the role resolved
   to this provider and take a grounded, non-model path instead.

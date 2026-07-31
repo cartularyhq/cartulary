@@ -2,9 +2,8 @@
 
 # Skill readiness
 
-Most memory systems answer "what do I know?". Skill readiness answers a
-different and more useful question before an agent acts: **"do I know enough to
-do this properly, and if not, exactly what am I missing?"**
+Skill readiness asks whether an agent has the governed knowledge a task needs
+and reports what is missing.
 
 ```mermaid
 flowchart LR
@@ -22,8 +21,7 @@ flowchart LR
 ## Requirement cards are procedural memory, not knowledge
 
 A skill requirement card is **human-authored** and **plainly versioned**. It
-does not pass Gate A or Gate B, because it is not a claim about the world — it
-is a statement of what a task needs.
+describes task needs, not world facts, so Gate A/B do not apply.
 
 Requirement keys inherit down the scope tree with **nearest-scope overrides**,
 so `/marketing/social` can require something extra that `/marketing` does not,
@@ -38,10 +36,8 @@ Only two things:
 - authorised `active` knowledge, or
 - the calling peer's own usable `provisional` knowledge.
 
-Everything else is a gap. In particular, `expired`, due-for-revalidation, and
-`needs_revalidation` items are gaps **immediately** — not after some background
-sweeper eventually notices. Stale knowledge quietly satisfying a requirement is
-exactly the failure mode this feature exists to prevent.
+Everything else is a gap. `expired`, due-for-revalidation, and
+`needs_revalidation` items become gaps immediately, before a sweeper runs.
 
 ## Blockers and warnings
 
@@ -72,9 +68,8 @@ sequenceDiagram
     C-->>A: ready
 ```
 
-The answer comes back through **ordinary ingest** and passes governance before
-readiness is checked again. There is no path from "an agent asked a question"
-to "a fact is in memory" that skips the pipeline.
+Answers return through ordinary ingest and governance before readiness is
+checked again.
 
 !!! danger "A gap report is not advisory"
     An SDK helper must never override a server blocker, and must never write
@@ -83,9 +78,8 @@ to "a fact is in memory" that skips the pipeline.
 
 ## The report is reasoning-free
 
-Generating a gap report calls no model. It is a deterministic evaluation of
-requirement keys against governed knowledge, which is what makes it cheap
-enough to run before every skill invocation.
+Gap reports call no model. They deterministically compare requirement keys with
+governed knowledge.
 
 The report carries its own contract identity in `report_version`, so a client
 can tell which selector language and report shape it is reading.

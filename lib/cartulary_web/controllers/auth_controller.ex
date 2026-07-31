@@ -2,23 +2,10 @@
 
 defmodule CartularyWeb.AuthController do
   @moduledoc """
-  Exchanges a human's email and password for the bearer token the JSON API expects.
+  Exchanges a human's email and password for a JSON API bearer token.
 
-  This is the only unauthenticated route that produces a credential, and it produces
-  exactly one kind: a token for a *person*. Agent API keys are not minted here — they are
-  provisioned out of band by an account administrator — so no amount of calling this
-  endpoint can create a machine identity.
-
-  The token it returns authenticates the memory routes and, because it was created by a
-  password sign-in, also the human-only self-governance routes. It does not by itself open
-  the curator browser UI: that runs on a separate cookie session which is established by
-  its own sign-in form and additionally requires a curator or account-admin role.
-
-  Tokens are stateless and are trusted on their signature alone, with no server-side
-  session record, so an issued token cannot be revoked before it expires. Its configured
-  12-hour lifetime is therefore the real bound on a leaked credential. Treat the response
-  body as a secret: never log it, and never write it into an audit entry or a trace
-  attribute.
+  This unauthenticated route issues only password identities, never machine API keys.
+  Authentication failures stay opaque to prevent account enumeration.
   """
 
   use CartularyWeb, :controller
@@ -28,18 +15,8 @@ defmodule CartularyWeb.AuthController do
   @doc """
   Signs a human in with email and password.
 
-  On success answers 200 with `%{"data" => %{"token" => ..., "token_type" => "Bearer",
-  "peer_id" => ...}}`. Send the token back as `Authorization: Bearer <token>`.
-
-  Every failure answers 401 with the same opaque `%{"error" => "Unauthorized"}` body: an
-  unknown email, a wrong password, a peer outside this deployment's Account, and a request
-  missing or mistyping the fields are all indistinguishable. That uniformity is the point
-  — a more helpful message would let an attacker enumerate which accounts exist. The
-  second clause is what catches the malformed-body case, so it must keep answering exactly
-  like the first.
-
-  The Account is not a parameter. It is resolved from the deployment's single community
-  Account during sign-in, and a signed subject that does not belong to it is rejected.
+  Returns 200 with the bearer token and peer id, or an opaque 401 for malformed or invalid
+  credentials. The token is secret and must not be logged or audited.
   """
   def password(conn, %{"email" => email, "password" => password}) do
     case Identity.sign_in_password(email, password) do

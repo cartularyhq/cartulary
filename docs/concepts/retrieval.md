@@ -2,9 +2,8 @@
 
 # Retrieval and context
 
-Cartulary does not have "a" retrieval algorithm. It runs several independent
-candidate generators in parallel, merges their rankings, and optionally reranks
-the head of the merged list — all under a hard wall-clock deadline.
+Cartulary runs independent candidate generators in parallel, fuses their ranks,
+and may rerank the fused head under one wall-clock deadline.
 
 ```mermaid
 flowchart LR
@@ -24,23 +23,16 @@ flowchart LR
 
 ## Filtering happens before candidates leave retrieval
 
-Account, authorised scope, lifecycle state, provisional-subject, and source
-filters are applied **inside** each strategy's query, not afterwards. Nothing
-that a caller is not entitled to see is ever materialised and then removed.
-
-This is why the API layer never post-filters, and why adding a post-filter
-would be a symptom of a bug rather than a safety net.
+Each strategy applies Account, scope, lifecycle, provisional-subject, and source
+filters **inside its query**. The API does not post-filter candidates.
 
 ## Why fusion, and why you must not re-sort
 
 Each strategy scores in its own space: cosine distance, full-text rank, time
 relevance, salience, mention confidence. Those numbers are **not comparable**.
 
-Fusion therefore merges *ranks*, not scores. A candidate at rank `r` in one
-strategy's list contributes `weight / (k + r)`, with `k = 60` — the
-conventional value, kept so results stay comparable with recorded evaluation
-baselines. A large `k` flattens the curve so one strategy's single top hit
-cannot dominate the merge.
+Fusion merges ranks, not scores. A candidate at rank `r` contributes
+`weight / (k + r)`, with the baseline-compatible `k = 60`.
 
 !!! warning "The returned order is the answer"
     Re-sorting the returned candidates by a raw per-strategy score compares
@@ -64,10 +56,8 @@ Profiles inherit down the scope tree, nearest-wins, so a scope can tighten or
 loosen retrieval without a global change. The profile version travels back with
 every result as `profile_version`.
 
-`deadline_ms` is a hard ceiling covering strategy execution *and* reranking. A
-strategy that misses it is dropped from the result, never retried, and the
-response reports it as dropped. Raising the deadline trades tail latency for
-recall.
+`deadline_ms` covers strategy execution and reranking. Late strategies are
+dropped, not retried, and reported. Larger deadlines trade latency for recall.
 
 An operator-level allowlist can switch off an expensive strategy across the
 whole deployment: a strategy absent from it never runs, whatever a profile
@@ -78,33 +68,23 @@ callers cannot select strategies directly.
 
 ## Entities are internal
 
-Entity resolution gives statements canonical referents so that "Dana", "Dana R."
-and "our copy lead" can match each other. It runs at dream-time over already
-validated statements.
+Dream-time entity resolution links aliases such as "Dana", "Dana R.", and
+"our copy lead" across validated statements.
 
 Entity rows and mentions are **rebuildable, pipeline-internal caches**, and
 they are exposed through no public surface at all — not HTTP, not MCP, not the
 SDK helpers, not LiveView, not projection payloads, not retrieval responses.
 
-That containment is what bounds the cost of a mistake: a bad resolution costs
-accuracy and can never move information across a scope or Account boundary.
-Erasure and archive import recompute entities from surviving governed
-statements.
+Resolution errors affect accuracy, never scope or Account authorization.
+Erasure and archive import rebuild entities from surviving governed statements.
 
 ### Rebuilding a scope holds no database connection while it works
 
-Re-embedding a scope's statements and re-resolving its entities both use the
-same [read, call the model, write](ingest-pipeline.md#the-model-call-holds-no-database-connection)
-shape as the ingest pipeline, and for the same reason: a rebuild reads
-everything it needs in one short transaction, calls the embedder — and, for an
-ambiguous entity match, the reasoning model — with no transaction open, then
-writes everything it derived in one final short transaction. A scope with many
-distinct names can mean many provider calls in a row; wrapping them in one
-transaction would hold a connection well past what the pool allows and lose
-the record of calls you had already been charged for. Clearing a scope's stale
-entity mentions and writing its rebuilt ones happen in that same final
-transaction, so a rebuild that fails partway leaves the previous index in
-place rather than emptied out.
+Rebuilds use the ingest pipeline's
+[read → model → write](ingest-pipeline.md#the-model-call-holds-no-database-connection)
+shape. Model calls hold no database connection. The final transaction replaces
+old mentions and writes rebuilt ones together, so failure leaves the previous
+index intact.
 
 ## Cross-scope expansion is authorised twice
 
@@ -149,10 +129,8 @@ Two diagnostic flags come back with every response: `projection_cache_hit` says
 a stored projection was reused, and `fast_fallback` says the projection was
 missing and the fastest retrieval profile filled in live.
 
-Projection changes preserve dirty marking, bounded delta compaction, source
-ids, and cache invalidation over PubSub and ETS. Introducing a model call into
-this path would turn a projection read into an inference and break the
-guarantee that context assembly is cheap and repeatable.
+Projection updates preserve dirty marking, bounded delta compaction, source ids,
+and PubSub/ETS invalidation. A model call does not belong on this read path.
 
 ## Ask abstains
 

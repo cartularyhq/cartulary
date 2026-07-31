@@ -4,36 +4,21 @@ defmodule Cartulary.Governance.Audit do
   @moduledoc """
   Writer for the append-only, hash-chained, per-Account audit log.
 
-  Every governed mutation — a gate decision, a lifecycle transition, an
-  erasure, a policy change, an accepted raw observation — appends one row here.
-  Rows are never updated or deleted, and each row stores the hash of the row
-  before it, so recomputing the chain from its first event forward detects any
-  later insertion, edit, reordering, or deletion.
+  Every governed mutation appends one row. Rows are immutable and link to the previous hash, so
+  verification detects insertion, editing, reordering, or deletion.
 
   ## Content safety is the rule this module exists to enforce
 
-  An audit log is read by operators, exported, and retained far longer than the
-  data it describes. It therefore holds *references*, never content. Do not
-  pass raw message text, statement text, prompts, model answers, document
-  bytes, connector cursors, API keys, Account keys, peer keys, or any other
-  secret into `attrs` — not as a field, and above all not inside `metadata`,
-  which is stored verbatim. Record an id, a count, a class name, or a digest
-  from `content_hash/1` instead. A digest proves which value was involved
-  without disclosing it; that trade is the entire design of this log.
+  Audit holds references, never content. `attrs`, especially verbatim `metadata`, may contain ids,
+  counts, class names, or digests. Never pass messages, statements, prompts, answers, document
+  data, cursors, keys, or secrets.
 
   ## Transaction and tenancy
 
-  `append/3` writes through the audit event's `record` action under the given
-  Account tenant, inside whatever transaction the caller is already running.
-  If the surrounding operation rolls back, its audit event rolls back with it,
-  so the chain never records work that did not happen and never gains a gap
-  where work did happen. Chains are per-Account: one Account's events form one
-  chain and are invisible to every other Account.
+  `append/3` uses the Account's `record` action in the caller's transaction. Mutation and evidence
+  therefore commit or roll back together. Each Account has an isolated chain.
 
-  Appends run with the caller's actor copied to a system pipeline actor,
-  because domain code executing as an ordinary member must still be able to
-  leave a trail. That elevation covers the audit insert only; the caller's own
-  actor is unchanged and gains no other permission.
+  Append uses a system-pipeline copy of the caller only for the audit insert.
   """
 
   alias Cartulary.Clock
@@ -110,15 +95,10 @@ defmodule Cartulary.Governance.Audit do
   end
 
   @doc """
-  Hashes any term to lowercase hex SHA-256, so proof of a value can be stored
-  without the value.
+  Hashes a term to lowercase hex SHA-256 for content-free evidence.
 
-  The term is serialised with `:erlang.term_to_binary/2` in `:deterministic`
-  mode, which pins map key order and similar incidental layout so that equal
-  terms always produce the same digest. The encoding is Erlang's own, which
-  makes the result a stable fingerprint *inside* this system rather than a
-  checksum another language can reproduce: compare digests here, never expect
-  an external tool to re-derive one.
+  Deterministic Erlang term encoding makes equal terms hash equally. This is an internal
+  fingerprint, not a cross-language checksum.
   """
   @spec content_hash(term()) :: String.t()
   def content_hash(value) do

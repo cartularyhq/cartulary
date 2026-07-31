@@ -4,13 +4,9 @@ defmodule Cartulary.Model.Config do
   @moduledoc """
   Resolves the one pinned configuration in force for each model role.
 
-  ## What it owns
-
-  There are exactly four Account-level model roles: `:embedder`,
-  `:ingest_extractor`, `:dream_reasoner`, and `:dialectic_agent`. This module is
-  the only place that decides which provider, model, and versions a role runs
-  with, and the only place that turns that decision into the provenance map and
-  the embedding identity that the rest of the system records.
+  It resolves the provider, model, versions, provenance, and embedding identity for exactly four
+  Account-level roles: `:embedder`, `:ingest_extractor`, `:dream_reasoner`, and
+  `:dialectic_agent`.
 
   Resolution order is fixed:
 
@@ -19,8 +15,7 @@ defmodule Cartulary.Model.Config do
   2. Otherwise the compiled runtime defaults under the application's
      `:model_roles` key.
 
-  Only rows with no `scope_id` are selected. Per-scope role overrides are a
-  deliberately deferred feature, so a scoped row is stored but never resolved.
+  Only unscoped rows resolve; per-scope overrides are not implemented.
 
   ## Invariants
 
@@ -60,20 +55,12 @@ defmodule Cartulary.Model.Config do
 
   defmodule Role do
     @moduledoc """
-    One fully resolved model role: everything a provider call and its provenance
-    stamp need, with nothing left to look up.
+    A resolved provider call and provenance configuration.
 
-    All fields except `:embedding_dimensions` are required, because a call must
-    never be made without knowing what to record about it. `:config_version` is
-    the version number of the configuration row this came from, or 1 when the
-    runtime defaults name none, and exists so a change in configuration is
-    distinguishable from a change in the model itself. `:options` is
-    provider-specific and always has string keys, so callers can look up
-    `"base_url"` without worrying about whether the value came from the database
-    or from compiled configuration.
+    All fields except `:embedding_dimensions` are required. `:config_version` is the row version,
+    or 1 for runtime defaults. `:options` has string keys regardless of its source.
 
-    `:options` may hold credential references such as the name of an environment
-    variable; it never holds a credential, and it must not be logged wholesale.
+    `:options` may hold credential references, never credentials, and must not be logged wholesale.
     """
 
     @enforce_keys [

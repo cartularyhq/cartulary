@@ -2,9 +2,8 @@
 
 # Documents and connectors
 
-A document is a second kind of raw observation. Like a message, it is recorded
-first and interpreted second, and the knowledge extracted from it goes through
-exactly the same pipeline and the same gates.
+A document is a raw observation. Cartulary stores it before processing, and
+extracted knowledge follows the same pipeline and gates as messages.
 
 ```mermaid
 flowchart TB
@@ -21,9 +20,8 @@ flowchart TB
 
 ## Versions are immutable and hash-addressed
 
-Changed content **appends** a new version and supersedes the stale derivations
-of the previous one. It never rewrites history. Re-seeing identical content is
-a no-op, identified by content hash.
+Changed content appends an immutable version and supersedes stale derivations.
+An identical content hash is a no-op.
 
 Original bytes go to a content-addressed blob store — a local directory by
 default, or any S3-compatible bucket by configuration. The blob adapter is a
@@ -31,20 +29,14 @@ runtime infrastructure choice and changes nothing about document semantics.
 
 ## Processing holds no database connection while it works
 
-Fetching the bytes, parsing them, embedding the chunks, and extracting
-knowledge all happen between two short database transactions rather than inside
-one long one — the same shape the
+Fetch, parsing, embedding, and extraction run between two short database
+transactions, following the
 [ingest pipeline](ingest-pipeline.md#the-model-call-holds-no-database-connection)
-uses for messages, and for the same reason. Processing a large PDF can take
-minutes across the blob store, the parser, and two model calls; a transaction
-held open across all of it would outlast what the connection pool allows and
-lose the writes at the end.
+shape. Long parsing or model calls therefore hold no database connection.
 
-So one transaction reads the version and what surrounds it, the derivation runs
-holding nothing, and a second transaction writes the chunks, the knowledge, the
-supersession, and the version's processing status together. A version is marked
-complete only when that second transaction commits, so an interrupted run is
-retried rather than left half-applied.
+The first transaction reads; the second atomically writes chunks, knowledge,
+supersession, and processing status. Completion is recorded only after commit,
+so interrupted work retries.
 
 ## Supersession and deletion do not silently retract knowledge
 

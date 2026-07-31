@@ -4,87 +4,24 @@ defmodule Cartulary.Governance.Engine do
   @moduledoc """
   The Gate A/B decision engine: the only place knowledge changes governance state.
 
-  Everything the extraction pipeline produces is written as a *proposal* and handed to this
-  module. Nothing else may activate, reject, hold, supersede, or relocate a knowledge item.
-  Each outcome is paired, in the caller's transaction, with immutable decision history, a
-  hash-chained audit event, and the derived-cache refresh work the new state implies.
+  Gate A decides whether to keep a proposal from its confidence. Gate B decides
+  its visibility from target level, sensitivity, and corroboration. Rules resolve
+  from scope to Account to a conservative human-review fallback.
 
-  ## The two gates
+  Accepted proposals become `active`; rejected rows remain as evidence; deferred
+  peer items become subject-only `provisional`, while wider items remain `held`
+  and absent from retrieval. Wider personal knowledge also requires verified,
+  target-specific subject consent. A curator cannot replace that consent.
 
-  Gate A answers "is this worth keeping at all?" and weighs the item's confidence against the
-  matrix cell that governs it. Gate B answers "how widely may it be exposed?" and weighs how
-  many independent sources corroborate the item against that same cell, which was chosen by the
-  requested target level and the sensitivity. An outstanding subject consent blocks automatic
-  acceptance on top of both. `evaluate_proposal/3` runs both gates in one pass, so one proposal
-  can write two decision rows — one per gate.
+  Only authenticated human curators may approve, edit, reject, merge, or defer.
+  Curator edits create a replacement through the pipeline and pass the gates
+  again. Advisory locks serialize competing decisions.
 
-  Target levels widen in the order `"peer"`, `"scope"`, `"account"`. The level is what the
-  gates judge — how far the item is asking to travel — and is not itself a retrieval filter;
-  what a reader actually sees follows the item's scope and lifecycle state. Because the matrix
-  is keyed by level, the same confidence value can auto-activate a peer-level item and still
-  queue a scope-level one for a human.
-
-  ## The matrix
-
-  A cell is a `Cartulary.Governance.GateRule` row keyed by target level plus sensitivity.
-  Lookup order is: the active rule attached to the item's own scope, then the account-wide
-  rule (`scope_id` is `nil`), then a built-in cell that demands human review at both gates. A
-  missing matrix therefore falls back to human judgment, never to auto-activation.
-
-  Gate A modes are `"auto_keep"` (keep when confidence clears the cell's minimum),
-  `"auto_reject"` (drop unconditionally), and anything else meaning human review. Gate B has
-  `"auto_place"` (place when corroboration clears the cell's minimum) and human review.
-
-  ## Outcomes
-
-  * **accept** — `"active"`, verification `"auto_verified"`, any held scope cleared, and a
-    revalidation date set from the cell. Requires an automatic keep *and* an automatic place
-    *and* no outstanding consent requirement.
-  * **reject** — `"rejected"`, verification `"auto_rejected"`. The row survives as evidence;
-    rejected knowledge is simply never retrieved.
-  * **defer** — a human queue entry. A peer-level item becomes `"provisional"`, which means
-    only the subject peer may see it while validation is pending. A scope- or account-level
-    item becomes `"held"` at its source scope and stays out of retrieval entirely, so an
-    ungoverned claim can never leak upward merely by being proposed.
-
-  ## Consent
-
-  Personal knowledge about a human does not reach a wider scope on a curator's say-so.
-  Approving a scope-level review of a `"personal"` item without a granted, verified consent row
-  parks the queue entry in `"awaiting_consent"` and leaves the knowledge exactly where it was.
-  Consent is granted by the subject, is specific to one target scope, and only counts when it
-  arrived over a verified channel — `subject_consent/6` refuses to record a grant otherwise,
-  while allowing a denial through any channel, because withdrawing exposure should never be
-  harder than granting it.
-
-  ## Human decisions
-
-  `decide/4` and `bulk_decide/4` are the only entry points for approve, edit, reject, merge,
-  and defer. They accept a browser-session human holding an account-admin or curator role;
-  machine credentials are refused. Each call takes a transaction-scoped advisory lock on the
-  queue entry so two curators cannot decide the same item concurrently.
-
-  Curators never write knowledge text directly. An edit mints a replacement row through the
-  pipeline-only create action, supersedes the original, and sends the replacement back
-  through `evaluate_proposal/3`, so curator-authored text passes the same gates as extracted
-  text.
-
-  ## Transactions, actors, and content safety
-
-  `evaluate_proposal/3`, `transition!/4`, and `record_decision!/6` open no transaction of
-  their own and assume the caller is already inside one with the tenant's row-level-security
-  setting applied (which `Cartulary.DataLayer.with_actor/2` does). The state change, the
-  lifecycle event, the audit entry, and the enqueued jobs must commit or roll back together.
-
-  Internally the engine elevates to a pipeline actor for writes that only the pipeline is
-  allowed to perform. That is safe only because the caller-facing entry points — `decide/4`,
-  `bulk_decide/4`, `request_promotion/3`, `contest/3`, `subject_consent/6`, `self_view/1`, and
-  `history/2` — establish who the caller is before any elevation happens. `evaluate_proposal/3`,
-  `transition!/4`, and `record_decision!/6` perform no such check and expect to be handed a
-  pipeline actor by an already-authorized caller.
-
-  Audit metadata and job arguments carry ids, states, levels, channels, flags, and the
-  statement hash — never statement text. Keep it that way when adding fields.
+  The caller owns the Account-scoped transaction. State, lifecycle, audit, and
+  derived-work enqueue must commit together. Internal functions that accept a
+  pipeline actor do not authorize the caller; public entry points must do so
+  before elevation. Audit metadata and job arguments contain hashes and
+  identifiers, never statement text.
   """
 
   alias Cartulary.Clock

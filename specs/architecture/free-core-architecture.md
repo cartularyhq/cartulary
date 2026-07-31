@@ -5,15 +5,11 @@
 Status: durable architecture reference.
 Date: 2026-07-28.
 
-This document describes the architecture of the complete free self-host core:
-one Account, one Mix release, one BEAM node by default, Postgres through pg0 or
-an external connection string, the full governed memory engine, local/offline
-model options, MCP, HTTP, gateway, generated SDKs, basic RBAC, export/import,
-and release-grade evaluation.
-
-It describes the *target shape*, not the delivery order. Outstanding work and
-its acceptance criteria live in `specs/roadmap/beta-roadmap.md`; what runs today
-is recorded in `specs/implementation-status.md`.
+This is the target architecture for the complete free self-host core: one
+Account, one Mix release, one BEAM node by default, pg0 or external Postgres,
+governed memory, local model options, public surfaces, RBAC, portability, and
+release evaluation. See `specs/roadmap/beta-roadmap.md` for delivery and
+`specs/implementation-status.md` for current behavior.
 
 This document is subordinate to the blueprint specs and ADRs. The stable
 anchors remain in:
@@ -103,15 +99,14 @@ Infrastructure
   local FS or S3-compatible blob, runtime config, telemetry
 ```
 
-The dependency rule is simple: surfaces call Ash actions; actions coordinate
-domain modules; domain modules use behaviours and Ash data layers; only
-infrastructure modules know concrete clients such as `Repo`, ReqLLM providers,
-pg0, or blob adapters. Core never imports enterprise modules.
+Surfaces call Ash actions; actions coordinate domains; domains use behaviours
+and Ash data layers; only infrastructure knows `Repo`, ReqLLM providers, pg0,
+or blob adapters. Core never imports enterprise modules.
 
 ## Domain decomposition
 
-The free core is a modular monolith. Each module boundary is a future
-extraction point, not a separate service.
+The free core is a modular monolith; boundaries are extraction points, not
+services.
 
 | Domain | Owns | Main anchors |
 | --- | --- | --- |
@@ -197,10 +192,8 @@ them to each surface:
 
 ## Contract version identities
 
-Several public contracts carry their own version string, independent of the
-application's semantic version. The `f`-prefixed identities are historical
-version tags; they no longer name a roadmap phase and must not be renamed
-casually:
+These public contract versions are independent of application SemVer. The
+`f`-prefixed values are historical tags, not roadmap phases:
 
 | Identity | Covers |
 | --- | --- |
@@ -220,7 +213,7 @@ document.
 
 ## Feature coverage
 
-The free core is complete when all rows below are implemented, tested, and
+Free-core completion requires every row below to be implemented, tested, and
 documented.
 
 | Capability | Required in free core | Enterprise-only or deferred |
@@ -245,7 +238,7 @@ documented.
 
 ## Implementation notes
 
-One note per implemented capability lives beside this document:
+Implemented capability notes:
 
 - `ash-domain-backbone.md`
 - `transactional-writes-audit-jobs.md`
@@ -258,6 +251,5 @@ One note per implemented capability lives beside this document:
 - `portability-packaging-operations.md`
 - `evaluation-ci-release-readiness.md`
 
-The remaining capability — integration surfaces, gateway, and generated SDKs —
-has no note yet because it is not implemented. It is specified in
+Integration surfaces, gateway, and generated SDKs remain unimplemented in
 `specs/roadmap/beta-roadmap.md`.

@@ -5,18 +5,12 @@ defmodule Cartulary.Governance.PeerQueue do
   Asks a person about memory that concerns them, inline, and turns their answer
   into a governed lifecycle change.
 
-  Some questions can only be settled by their subject: is this still true, did
-  you really mean this, may this be shared upward. Rather than build a separate
-  inbox nobody reads, this module piggybacks one question onto a tool response
-  the person's assistant was already fetching, and accepts the answer back
-  through a single tool call.
+  Adds one subject question to an existing tool response and accepts its answer through a tool.
 
   ## Delivery is best effort and must never degrade a read
 
-  `attach/4` runs after the read has already produced its result, in a task with
-  a hard millisecond deadline. Every filtered-out condition and every deadline
-  overrun returns `nil`, so a missed question is a non-event while a slow read
-  would be a real regression. Anything added here must keep that shape.
+  `attach/4` runs after the read under a hard millisecond deadline. Filtering, failure, or timeout
+  returns `nil`; question delivery must never delay or fail the read.
 
   Attachment is filtered before it happens. A question is only offered when the
   peer is not paused, is under both their per-session and rolling 24-hour
@@ -27,36 +21,21 @@ defmodule Cartulary.Governance.PeerQueue do
 
   ## An answer through a tool is a claim, not proof
 
-  The agent calling `resolve/5` is not the person. It could confirm anything on
-  their behalf. So an answer only changes knowledge when the session transcript
-  shows the frozen statement was actually put in front of the human and a human
-  turn followed. Everything else is an "unverified channel": the timer is
-  pushed out, the question goes back in the queue, and nothing is activated,
-  retracted, or consented to. Do not add a shortcut around that check — it is
-  the only thing standing between a chatty agent and self-approved memory.
+  An answer changes knowledge only when the transcript shows the frozen statement followed by a
+  human turn. Unverified answers only defer the timer; they cannot activate, retract, or consent.
 
-  Statement text is frozen into the question when it is created, so what the
-  person is asked cannot drift after the fact, and the comparison is made
-  against exactly what was shown.
+  Question text is frozen at creation and compared with what was shown.
 
   ## Content safety
 
-  Correction text supplied with an answer is recorded only as the boolean fact
-  that a correction was offered; it cannot mint knowledge here and must come
-  back through ordinary ingest and governance. The text the assistant claims it
-  displayed is stored only as a hash plus a conflict flag. Audit metadata
-  carries ids, verification class, and flags — never statement, answer, or
-  correction text.
+  Corrections record only a boolean and must return through ingest. Shown text becomes a hash and
+  conflict flag. Audit keeps ids, verification class, and flags, never answer content.
 
   ## Authorization
 
-  A peer can only ever reach their own question: the lookup in `resolve/5`
-  filters on the caller's own peer id before anything else happens. The question
-  and its delivery row are then written as the peer themself, while the
-  knowledge item, the validation row, and the session transcript are read and
-  written through an elevated pipeline actor — the person answering has no
-  access to any of those. That elevation is scoped to work on the question they
-  already proved is theirs.
+  `resolve/5` first limits lookup to the caller's peer id. Question and delivery writes use the
+  peer; protected knowledge, validation, and transcript work uses a pipeline actor scoped to that
+  question.
   """
 
   alias Cartulary.Clock
@@ -75,13 +54,10 @@ defmodule Cartulary.Governance.PeerQueue do
 
   require Ash.Query
 
-  # Days a peer has to answer before the question decays and the lifecycle
-  # sweeps take over. Long enough to survive a holiday, short enough that stale
-  # memory does not sit unquestioned for a whole quarter.
+  # Answer deadline in days: allows extended absence without leaving memory unquestioned.
   @default_deadline_days 14
 
-  # Days until a freshly confirmed item is questioned again. A confirmation
-  # buys about a quarter of a year of trust, never permanent trust.
+  # Revalidation interval in days: about one quarter, never permanent trust.
   @revalidation_days 90
 
   @doc """

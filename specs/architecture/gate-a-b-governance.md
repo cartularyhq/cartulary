@@ -2,8 +2,8 @@
 
 # Gate A/B Governance
 
-Gate A/B governance replaces the 0.1.0 baseline auto-activation shortcut with a
-durable governance operation layer. It implements `FR-GOV-1` through
+The durable governance operation layer replaces 0.1.0 auto-activation. It
+implements `FR-GOV-1` through
 `FR-GOV-22`, including the ADR-0005 peer-inline path, while preserving
 `AD-GOV-1` through `AD-GOV-5`, `AD-PIPE-2`, `AD-PIPE-8`, `AINV-1`, `AINV-2`,
 and `AINV-5`.
@@ -17,8 +17,7 @@ and `Cartulary.Governance.Erasure` owns subject erasure. All durable mutations
 go through Ash actions under the authenticated Account tenant and PostgreSQL
 RLS.
 
-Gate A/B governance adds eight persisted Ash resources, taking the durable
-resource count from 28 to 36:
+Eight persisted Ash resources raise the durable count from 28 to 36:
 
 | Resource | Purpose |
 | --- | --- |
@@ -56,8 +55,8 @@ target-specific consent through a verified human or transcript-backed channel.
 A curator approval before consent changes the validation state to
 `awaiting_consent`; it does not activate or relocate the knowledge.
 
-All human actions—approve, edit-as-replacement, reject, merge, defer, and
-bulk decisions—enter through `Engine`. Edits mint a pipeline-owned replacement
+All human actions—approve, edit-as-replacement, reject, merge, defer, and bulk
+decisions—enter through `Engine`. Edits mint a pipeline-owned replacement
 and supersede the original; merges retain combined source evidence. Each
 decision writes an immutable `GateDecision`, a content-safe hash-chain audit
 event, a lifecycle event where state changes, and a replay-keyed validation
@@ -65,35 +64,26 @@ continuation.
 
 ## Declared-auto consent (ADR-0007)
 
-`FR-GOV-12` requires the subject's own verified consent, not merely a
-curator's approval, before personal knowledge attributes upward — a
-requirement `consent_required?/3` enforces unconditionally, independent of
-any `GateRule` cell, per its own inline comment. That has no exception for
-accounts with no real human subject at all: a benchmark, evaluation, or
-imported corpus about third parties who never hold a Peer identity. Without
-one, such items are permanently `held`, with no supported path out.
+`FR-GOV-12` always requires verified subject consent before personal knowledge
+moves upward; `GateRule` cannot waive it. Accounts without a human subject
+therefore keep those items `held` unless an operator explicitly declares
+unattended consent.
 
-Two switches, both off by default, let an operator make that declaration
-explicit and auditable: `Cartulary.Accounts.Account.consent_mode` (`"auto"`,
-`account_admin`-only, audited via the same `Cartulary.Governance.Changes.AuditResource`
-pattern `GateRule` uses) and `CARTULARY_GOVERNANCE_UNATTENDED`
-(`Cartulary.Governance.UnattendedMode`, boot-time, deployment-wide, logged
-and reported on `GET /api/ready`). When either is active,
-`Cartulary.Governance.Engine.resolve_consent/5` writes a real `Consent` row
-on the subject's behalf — `status: "granted"`, `verified: true` — via the
-pipeline actor, distinguished from a genuine subject grant only by its
-`channel` (`"auto:account_mode"` / `"auto:unattended_deployment"`). Every
-existing reader of `Consent` needs no special case; the channel value is
-what makes the bypass auditable rather than silent. `GateRule.requires_consent`
-remains exactly as inert as documented — this is a separate mechanism, not a
-matrix waiver.
+Two off-by-default switches enable that declaration:
 
-This also fixes a structural gap in the ordinary (non-`request_promotion`)
-ingestion path: `evaluate_proposal/3`'s real call site never threads a
-`target_scope_id`, and `Consent.target_scope_id` does not allow `nil`, so no
-consent row — pending or granted — could ever be opened there before this
-change, for a real subject or a declared-auto one. `resolve_consent/5` falls
-back to the item's own `scope_id` when no explicit target was supplied.
+- Account-scoped `Account.consent_mode="auto"`, restricted to `account_admin`
+  and audited with `Cartulary.Governance.Changes.AuditResource`.
+- Deployment-wide `CARTULARY_GOVERNANCE_UNATTENDED`, loaded by
+  `Cartulary.Governance.UnattendedMode`, logged at boot, and reported by
+  `GET /api/ready`.
+
+Either makes `Engine.resolve_consent/5` write a real pipeline-owned `Consent`
+with `status: "granted"`, `verified: true`, and channel
+`"auto:account_mode"` or `"auto:unattended_deployment"`. Existing readers need
+no special case, and the channel keeps the declaration auditable.
+
+When ordinary ingest supplies no `target_scope_id`, `resolve_consent/5` uses
+the item's `scope_id`; `Consent.target_scope_id` never receives `nil`.
 
 Full design: `specs/design/2026-07-30-unattended-governance-consent-design.md`.
 Decision record: `specs/adr/0007-unattended-governance-consent.md`.
@@ -124,11 +114,10 @@ The AshAi MCP surface exposes only:
 - `resolve_validation`
 - `set_ask_preference`
 
-There are no curator tools. Read tools may attach at most one topically
-relevant question for the calling peer. Attachment runs after the read under a
-separate 15 ms task deadline; timeout, error, rate limit, or no match returns
-the original read unchanged. Tests raise the deadline only to remove scheduler
-timing from deterministic assertions.
+There are no curator tools. Reads may attach one relevant question for the
+calling peer under a separate 15 ms deadline. Timeout, error, rate limit, or no
+match leaves the read unchanged; tests only raise the deadline for deterministic
+scheduling.
 
 `resolve_validation` treats the tool answer as a claim. Confirmation or
 rejection changes knowledge only when an assistant transcript turn after
@@ -149,23 +138,19 @@ answer-correlation AshOban lanes now call real governance operations:
 - verified confirmation resets the timer and raises confidence; and
 - erasure recomputes or marks affected projections and entity derivations.
 
-The same workflows and database guarantees run in pg0-backed single-node and
-operator-run Postgres modes. Gate A/B governance introduces no alternate queue,
-cache, or deployment implementation.
+The same workflows run with pg0 or operator-run Postgres; there is no alternate
+queue, cache, or governance implementation.
 
 ## `poc-0` transition
 
-Baseline contract HTTP shapes, identity-derived tenancy, downward scope
-inheritance, raw message durability, pipeline-only knowledge creation,
-deterministic fallback, and eval fixture normalization remain regression
-floors. The lifecycle semantics intentionally advance to `f4-1`: ingest records
+HTTP shapes, identity-derived tenancy, downward inheritance, raw durability,
+pipeline-only creation, deterministic fallback, and fixture normalization remain
+regression floors. Lifecycle semantics advance to `f4-1`: ingest records
 `proposed → provisional` by default instead of the removed
 `poc_auto_gate → active` shortcut, and health reports `f4-1`. Extractor and
-retrieval profile versions remain `poc-0` at this checkpoint; that string is a
-historical version tag and no longer names a roadmap phase. The model layer and
-structured extraction subsequently advance extraction and health to `f5-1`;
-retrieval, entity resolution, and context advance retrieval and context
-profiles to `f7-1`.
+retrieval profile versions remain the historical `poc-0` contract here. The
+model layer later advances extraction and health to `f5-1`; retrieval later
+advances retrieval and context profiles to `f7-1`.
 
 ## Evidence
 

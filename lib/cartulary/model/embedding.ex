@@ -6,19 +6,11 @@ defmodule Cartulary.Model.Embedding do
 
   ## Embedding identity
 
-  A vector is only meaningful together with the four things that produced it:
-  the provider, the model, the model version, and the number of dimensions.
-  Coordinates from two different embedders are not comparable, even when the
-  widths happen to match — cosine similarity between them is noise, and a
-  retrieval built on mixed vectors returns confidently wrong results.
+  Provider, model, model version, and dimensions define a vector space. Vectors from different
+  identities are not comparable, even at the same width.
 
-  So every result from this module carries its identity, and callers persist
-  that identity alongside the vectors. A caller that will compare against
-  previously stored vectors may pass their recorded identity back in as
-  `:stored_identity`; if it no longer matches the configured embedder the call
-  fails with an explicit re-embed plan rather than embedding the query in a
-  different space than the corpus. The system never silently substitutes,
-  truncates, or pads a vector to make two identities line up.
+  Results carry this identity. Pass existing identity as `:stored_identity`; mismatch returns an
+  explicit re-embed plan. Vectors are never substituted, truncated, or padded to force a match.
 
   The model version deliberately covers the model artifact, the tokenizer, and
   the pooling strategy, so changing any of them requires a version bump and
@@ -26,9 +18,7 @@ defmodule Cartulary.Model.Embedding do
 
   ## Dimension check
 
-  Returned vectors are checked against the configured width. A provider that
-  returns a different width is an error, not something to adapt to: the stored
-  vector columns and their indexes are built for one width.
+  Returned vectors must match the configured width and installed indexes.
 
   ## Mistakes to avoid
 

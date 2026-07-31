@@ -2,9 +2,8 @@
 
 # Install a packaged release
 
-The packaged release is the no-dependency path: unpack it and run one command.
-It brings its own PostgreSQL — a checksum-pinned pg0 distribution with pgvector
-— and supervises it as part of the application.
+The packaged release includes and supervises a checksum-pinned pg0 PostgreSQL
+distribution with pgvector.
 
 ## Run it
 
@@ -36,10 +35,8 @@ Confirm it is up:
 curl -fsS http://127.0.0.1:4000/api/ready
 ```
 
-A 200 response means the database, the job queues, and the configured model
-roles are all reachable. A 503 lists which component is not — the payload names
-components, counts, versions, and error classes only, never credentials or
-stored content.
+A 200 means the database, job queues, and model roles are ready. A 503 names
+failing components with content-safe counts, versions, and error classes.
 
 !!! warning "It fails closed, on purpose"
     If the port is occupied, or the data directory and configuration are
@@ -61,9 +58,7 @@ The complete list is in [Configuration](../reference/configuration.md).
 
 ## Point it at your own PostgreSQL instead
 
-The same release runs against an operator-run PostgreSQL 18 server with
-pgvector available. Nothing about product behaviour changes — only where the
-database lives.
+The same release can use operator-run PostgreSQL 18 with pgvector:
 
 ```bash
 export CARTULARY_DATABASE_MODE=external

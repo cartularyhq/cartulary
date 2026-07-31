@@ -2,46 +2,11 @@
 
 defmodule Cartulary.Observations do
   @moduledoc """
-  Ash domain for raw observations: what was actually said, and which documents were actually
-  ingested.
+  Ash domain for immutable raw messages and document versions.
 
-  This is the input side of the system. Agents, humans, and connectors submit observations here
-  and nothing else — they cannot write knowledge. The extraction pipeline reads these rows,
-  proposes statements, and those statements go through governance before anyone can retrieve
-  them. Keeping the two sides apart is what makes "the pipeline is the sole writer of knowledge"
-  enforceable rather than aspirational.
-
-  ## What this domain owns
-
-  * `Session` — one conversation or agent run, identified by a caller-supplied external id.
-  * `SessionScope` — which scopes a session touches, and how sure we are about each.
-  * `SessionParticipant` — which peers took part.
-  * `Message` — one raw conversational turn. Content is create-only.
-  * `Document` — one logical source document and its current published version.
-  * `DocumentVersion` — an immutable snapshot of that document's bytes at one point in time.
-
-  ## Invariants
-
-  * Observed content is never edited. A message is written once; a changed document appends a
-    new version rather than mutating the old one. Only bookkeeping fields (processing status,
-    extraction timestamps, a document's pointer to its current version) may change afterwards.
-  * Creating a `Message` or a `DocumentVersion` also appends an audit entry and enqueues the
-    extraction job in the same database transaction, so an accepted observation is always either
-    fully recorded and scheduled, or not recorded at all.
-  * Every resource is tenanted on `account_id`, and every resource that carries a scope also
-    filters reads by the caller's authorized scopes. `SessionParticipant` has no scope column,
-    so Account isolation is its only read guard.
-  * Document bytes live in the blob store, addressed by their content hash. The database keeps
-    the hash, the size, the media type, and a blob reference — not the payload.
-
-  ## Mistakes to avoid
-
-  * Do not add an update action that rewrites `content`, `content_hash`, or a version's bytes.
-    Knowledge, audit entries, and idempotency keys are all derived from those values; changing
-    them retroactively invalidates evidence that has already been committed elsewhere.
-  * Do not enqueue extraction work yourself after creating an observation. The create actions
-    already do it transactionally; a second enqueue outside the transaction can survive a
-    rollback.
+  Agents and connectors write observations, never knowledge. Creation preserves original content
+  and atomically records content-safe audit, idempotency, and extraction work. Document changes
+  append versions or tombstones instead of overwriting history.
   """
 
   use Ash.Domain
@@ -58,20 +23,10 @@ end
 
 defmodule Cartulary.Observations.Session do
   @moduledoc """
-  One conversation or agent run that observations are attached to.
+  One conversation or agent run containing raw observations.
 
-  A session is created lazily. Callers do not allocate session ids: they pass whatever handle
-  their own system uses as `external_id`, and the first observation carrying that handle creates
-  the row. Every later observation with the same handle reuses it. That is why the create action
-  is an upsert rather than a plain create — ingest must be safe to retry and safe to race.
-
-  Sessions are metadata, not content. They may legitimately be updated (a session closes) and
-  they carry no observed text of their own; the turns live in `Message`. The `summary` column is
-  a reserved placeholder: no action accepts it, and the session summary a caller actually
-  receives is assembled from governed statements and cached as a projection.
-
-  Erasure is pipeline-only: a session disappears as part of removing a subject's observations,
-  not because a caller asked to tidy up.
+  Sessions are Account- and scope-bound through explicit links. They preserve source context but
+  do not themselves become knowledge.
   """
 
   use Cartulary.Resource, domain: Cartulary.Observations, table: "sessions"
@@ -151,18 +106,10 @@ end
 
 defmodule Cartulary.Observations.SessionScope do
   @moduledoc """
-  Which scope a session is taking place in, and how certain that association is.
+  Links a session to one scope with an association confidence.
 
-  A session can touch more than one scope, so this is a join row rather than a column on the
-  session. `classification` records confidence in the association: it starts `tentative` when
-  the scope was inferred and becomes `confirmed` once the caller states it explicitly.
-
-  The distinction matters because scope is what determines who inherits access to anything
-  extracted from the session. Treating a tentative association as confirmed would place
-  knowledge in a scope nobody agreed to.
-
-  Rows are upserted on session plus scope, so repeated ingest for the same conversation does not
-  accumulate duplicates.
+  The link is Account-scoped and does not grant access; ordinary scope authorization still
+  applies.
   """
 
   use Cartulary.Resource, domain: Cartulary.Observations, table: "session_scopes"
@@ -228,18 +175,9 @@ end
 
 defmodule Cartulary.Observations.SessionParticipant do
   @moduledoc """
-  Membership of one peer in one session.
+  Records one Peer's membership in a session.
 
-  Each turn already names its own author, so this row is not how authorship is determined. It
-  records the weaker fact that a peer was present at all, with what role and between which
-  times — the audience of a session rather than the speaker of a turn.
-
-  Rows are upserted on session plus peer, so rejoining a session updates the existing row rather
-  than adding a second one. Membership is metadata: it may be updated (a peer leaves) and it
-  holds no observed content.
-
-  Unlike the other resources in this domain, this one has no scope column, so reads are gated by
-  Account alone. Do not put content here on the assumption that scope filtering will protect it.
+  Membership supplies provenance and speaker context but does not create a role grant.
   """
 
   use Cartulary.Resource,
@@ -303,33 +241,10 @@ end
 
 defmodule Cartulary.Observations.Message do
   @moduledoc """
-  One raw conversational turn, exactly as it was observed.
+  One immutable raw conversational turn.
 
-  This is the primary system of record on the input side: the unedited text, who said it, in
-  which session and scope, and when. Everything the system later claims to know traces back to
-  rows like this one.
-
-  ## Create-only content
-
-  There is no action that changes `content` or `content_hash`. A message is written once and
-  then only annotated (`extraction_completed_at`) or erased. That is not squeamishness about
-  mutation: the content hash is the idempotency key of the extraction job and the value recorded
-  in the audit chain, so editing the text afterwards would orphan work that already committed
-  and falsify evidence that has already been hashed into the chain.
-
-  ## One transaction
-
-  Creating a message does four things atomically — insert the row, hash the content, append an
-  audit entry, and enqueue the extraction and reconciliation jobs. Either all of it commits or
-  none of it does, so there is no state in which an observation exists but will never be
-  processed, and none in which a job refers to a message that was rolled back.
-
-  ## Mistakes to avoid
-
-  * Do not enqueue extraction separately after calling `create` — it is already enqueued inside
-    the transaction, and a second enqueue outside it can outlive a rollback.
-  * Do not copy `content` into audit metadata, telemetry, or job arguments. Those channels carry
-    the hash and ids only, and are readable by operators who may not read the message itself.
+  Creation is the external ingest write: it hashes content and atomically appends audit,
+  idempotency, and replay-safe extraction work. Only the pipeline may turn it into knowledge.
   """
 
   use Cartulary.Resource, domain: Cartulary.Observations, table: "messages"
@@ -417,32 +332,10 @@ end
 
 defmodule Cartulary.Observations.Document do
   @moduledoc """
-  One logical source document: the stable identity behind a series of immutable versions.
+  Stable identity for a logical source document.
 
-  The row holds what stays the same across versions — the scope it belongs to, its owner, the
-  connector it came from, its external id and title, and where it currently points. The bytes
-  live in `DocumentVersion` rows and, physically, in the blob store.
-
-  ## Current version pointer
-
-  `current_version_id` and `current_content_hash` name the version in force right now. Sync
-  compares an incoming payload's hash against `current_content_hash`: an identical hash is a
-  no-op, a different hash appends a new version and republishes the pointer. History is never
-  rewritten, so an old version stays readable and the statements derived from it keep their
-  provenance even after they are superseded.
-
-  ## Deletion is a tombstone
-
-  A document removed at the source is tombstoned (`status` plus `tombstoned_at`), not deleted.
-  Knowledge supported only by that document is retracted through governance, while knowledge
-  that other sources also support survives. Hard removal happens only through erasure.
-
-  ## Who may do what
-
-  Uploading and editing metadata is available to scope members, curators, and admins. Publishing
-  a version, tombstoning, erasing, and the private portability restore are pipeline-internal,
-  because each of them has to stay consistent with version rows, blobs, and derived knowledge
-  that only the pipeline maintains.
+  Connectors append immutable versions beneath this row. Remote deletion records a tombstone;
+  history is never overwritten.
   """
 
   use Cartulary.Resource, domain: Cartulary.Observations, table: "documents"
@@ -582,36 +475,11 @@ end
 
 defmodule Cartulary.Observations.DocumentVersion do
   @moduledoc """
-  An immutable snapshot of a document's bytes at one point in time.
+  Immutable snapshot of a document's bytes and metadata.
 
-  Each version records the SHA-256 hash of the payload, its size, its media type, the reference
-  under which the bytes are stored in the blob store, and when the source produced it. The
-  payload itself is not in this table: the blob store holds it, addressed by Account plus
-  content hash, so two documents in the same Account with identical bytes share one object.
-
-  ## Immutable source history
-
-  Versions are appended, never edited. The only fields that change after creation are processing
-  bookkeeping — extraction results, chunk counts, status, and error class. That is what allows a
-  statement extracted from version 3 to keep meaning something after version 4 supersedes it.
-
-  ## Durable versus derived
-
-  Durable: the hash, the size, the media type, the source metadata, the occurrence time, and the
-  blob reference. Derived and rebuildable: `extracted_text`, `extraction_metadata`, the chunk
-  counts, and everything downstream of them (chunks, vectors). A logical export therefore
-  carries version metadata plus checksum-verified blob bytes and deliberately omits the derived
-  fields; import re-runs ordinary ingest, which rebuilds them under the target deployment's own
-  parser and embedder.
-
-  ## Content safety
-
-  Bytes, extracted text, and source metadata must never be copied into audit metadata,
-  telemetry, or job arguments. Those carry ids, hashes, counts, media type, and error classes
-  only. `last_error_class` is a class name, not a provider error message.
-
-  A parser or provider failure leaves the raw version, its blob, its audit entry, and its
-  retryable job in place, so nothing is lost by failing to process a document.
+  Repeated content hashes are no-ops, changed content appends a version, and extraction proceeds
+  through the ordinary governed pipeline. Bytes and connector metadata must not enter audit,
+  telemetry, or job arguments.
   """
 
   use Cartulary.Resource,

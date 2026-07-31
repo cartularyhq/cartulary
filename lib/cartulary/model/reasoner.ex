@@ -5,22 +5,14 @@ defmodule Cartulary.Model.Reasoner do
   The background reasoning capability: re-reads recent knowledge and proposes
   deductions and relations.
 
-  This is the slow lane. Unlike ingest extraction, which runs on the path of a
-  single incoming observation, reasoning revisits a delta and a working set of
-  already-stored knowledge when there is budget to spare.
+  This slow lane revisits a delta and stored working set when budget allows.
 
-  No production caller invokes it yet: the `dream_time` job lane currently runs
-  the governance sweeper, and this module is exercised only by the model-layer
-  tests. It is the capability, not a wired-up pipeline stage.
+  No production caller uses it; `dream_time` currently runs the governance sweeper.
 
   ## What it may and may not produce
 
-  Reasoning proposes; it never decides. Its candidates use the same shape and
-  the same validation as extracted knowledge, so they enter as proposals and
-  pass governance like anything else. Contradictions are returned as typed
-  relation edges rather than applied as corrections: two statements disagreeing
-  is a fact about the knowledge base worth keeping, and overwriting one of them
-  would destroy that.
+  Reasoning proposes schema-validated candidates; governance decides. Contradictions return as
+  typed relation edges and never overwrite statements.
 
   ## Mistakes to avoid
 

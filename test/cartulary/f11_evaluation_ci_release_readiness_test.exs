@@ -2,58 +2,17 @@
 
 defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
   @moduledoc """
-  Pins the release gate: version discipline, evaluation evidence, CI coverage, and the
-  honesty of what the project claims to ship.
+  Pins version discipline, evaluation provenance and floors, CI parity, and
+  shipped-surface claims.
 
-  Most tests check that code works. This one checks that the *process* around the code
-  cannot quietly degrade — that a release cannot be cut without a changelog entry, that a
-  published quality number cannot be stated without the information needed to reproduce it,
-  that CI still runs both database configurations, and that documentation cannot advertise
-  a surface that does not exist.
+  Repository-file assertions protect SemVer/changelog agreement, held-out
+  tuning, benchmark ablations, both database lanes, release/container builds,
+  entity-cache privacy, unavailable-surface inventory, and independent recorded
+  model judging. Removing a gate must fail here rather than weaken a release.
 
-  It reads repository files (workflow definitions, the release matrix, the surface
-  inventory) as data and asserts on their content, so it fails when someone deletes a CI
-  job or relabels an unavailable surface as shipped.
-
-  ## What it pins
-
-  * **Version and changelog agree.** The declared version is valid Semantic Versioning and
-    has a dated changelog entry.
-  * **Evaluation reports fail closed.** A report missing any reproducibility field is
-    invalid, and a result below a committed floor raises. A benchmark number without its
-    exact version, dataset digest, split, deadline, and model identities is unreproducible
-    and therefore not publishable.
-  * **Tuning and published data are separate splits.** Fusion weights may only be tuned on
-    held-out data; tuning on the split you then report is how a benchmark becomes fiction.
-  * **The evaluation matrix covers the shipped benchmarks and their ablations.** For every
-    benchmark there is a named-profile run plus single-strategy variants, so a headline
-    number can always be compared against what one strategy alone achieves.
-  * **CI keeps both database configurations green** — one against an operator-run Postgres,
-    one against the packaged embedded launcher — and still builds both the release and the
-    container. That is what makes "one codebase, two deployment modes" true rather than
-    aspirational. It also asserts a retired database engine has not crept back in.
-  * **The entity cache stays invisible on every public surface**, checked here across routes,
-    the router source, and the client helper sources, independently of the retrieval suite.
-  * **Unimplemented surfaces stay marked unavailable.** Generated API schemas and generated
-    clients do not exist at this version; the inventory says so, and the release must not
-    present the hand-written helper modules as complete clients.
-  * **The evaluation judge is independent and reproducible.** When a model grades answers,
-    it must come from a different provider or model family than the one that produced them,
-    and the graded run is replayed from a recorded script so the score is deterministic.
-
-  ## The contract identity strings
-
-  `f11-1` versions the evaluation report schema; `f11-suite-1` versions the bundle of
-  reports a release ships. `f7-1` (retrieval profile) and `f5-1` (extractor and pipeline)
-  appear inside a report because a result is meaningless without them. All are data that
-  external tooling pins; changing one is a deliberate contract transition requiring a
-  changelog entry and updated evidence.
-
-  ## If this file fails
-
-  Ask what the change removed from the release gate. Deleting a CI step, dropping a
-  reproducibility field, or flipping a surface from `unavailable` to `gated` all make this
-  file green and make a future release claim something untrue.
+  `f11-1` versions reports; `f11-suite-1` versions the release bundle; `f7-1`
+  and `f5-1` identify retrieval and extraction inside reports. These external
+  identities require a changelog and refreshed evidence when changed.
   """
 
   use ExUnit.Case, async: false

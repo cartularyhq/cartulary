@@ -2,39 +2,13 @@
 
 defmodule Cartulary.Skills.Authoring do
   @moduledoc """
-  Publishes new versions of skill requirement cards.
+  Publishes immutable skill requirement card versions.
 
-  Cards are human-authored procedural memory, so they are versioned in the plain way rather than
-  passing through the approval gates that govern extracted knowledge: publishing inserts the
-  next immutable version and retires the previous one, and the new contract is in force
-  immediately.
+  Cards are human-authored configuration, not governed knowledge. Publishing atomically locks the
+  Account/scope/skill key, retires active versions, inserts the next version, and appends audit.
 
-  ## What one publish guarantees
-
-  A publish is a single Account-scoped transaction that acquires a lock, retires every currently
-  active version for the scope and skill, inserts the new version, and appends the audit entry.
-  All of it commits together or none of it does — there is no moment at which a scope has two
-  active cards for one skill, and no moment at which it has none because a retire succeeded and
-  an insert failed.
-
-  Concurrency is handled by a transaction-scoped advisory lock keyed on the Account, the scope,
-  and the skill. Two people publishing the same card at the same time serialize; two people
-  publishing different cards do not block each other.
-
-  ## Version numbers
-
-  The next version is one above the highest existing version, retired ones included, so numbers
-  are never reused and a readiness report citing "version 3" always means the same card.
-
-  ## Mistakes to avoid
-
-  * Do not update a card in place. The whole point of a version is that a past readiness result
-    remains explainable.
-  * Do not offer this to machine credentials. The resource's policies already restrict authoring
-    to Account administrators, curators, and the internal system actor, and an agent that could
-    rewrite its own requirements could declare itself ready.
-  * Do not put statement text or secrets into a requirement. Cards are configuration and are not
-    covered by the erasure paths that clean up knowledge.
+  Versions are never reused, including retired ones. Never update cards in place, expose authoring
+  to machine credentials, or store statement text or secrets in cards.
   """
 
   alias Cartulary.DataLayer
@@ -90,14 +64,8 @@ defmodule Cartulary.Skills.Authoring do
     end
   end
 
-  # Runs inside the caller's Account-scoped transaction. The order matters and must not change:
-  # take the lock, read the existing versions, retire the active ones, then insert the new one.
-  #
-  # The lock is a transaction-scoped Postgres advisory lock, released automatically at commit or
-  # rollback. It is keyed per Account, scope, and skill so that concurrent publishes of the same
-  # card serialize while unrelated publishes proceed in parallel. Without it, two publishes
-  # could read the same highest version and both try to insert it; the resource's uniqueness
-  # constraint would then fail one of them after the retire had already happened.
+  # Order is load-bearing: lock, read, retire, then insert. The transaction-scoped lock serializes
+  # only publishers of the same Account/scope/skill card.
   defp publish_in_scope!(account_id, actor, scope, skill_key, requirements, attrs) do
     Lock.acquire!(account_id, "skill-card:#{scope.id}:#{skill_key}")
 
@@ -115,9 +83,7 @@ defmodule Cartulary.Skills.Authoring do
       |> Ash.update!(actor: actor)
     end)
 
-    # Counted from the highest version that has ever existed for this scope and skill, not from
-    # the highest active one, so retiring a card never lets its number be reused. `existing` is
-    # sorted version-descending, so the head is that maximum.
+    # Include retired versions so numbers are never reused.
     next_version =
       case existing do
         [%{version: version} | _] -> version + 1
@@ -131,8 +97,7 @@ defmodule Cartulary.Skills.Authoring do
       scope_id: scope.id,
       skill_key: skill_key,
       description: blank_to_nil(attrs["description"]),
-      # Stamped from the running build rather than accepted from the caller, so a card can never
-      # claim to be written in a grammar this code does not implement.
+      # Stamp the running grammar; callers cannot claim an unsupported version.
       requirement_schema_version: Selector.schema_version(),
       version: next_version,
       requirements: requirements,
@@ -141,10 +106,7 @@ defmodule Cartulary.Skills.Authoring do
     |> Ash.create!(actor: actor)
   end
 
-  # Scope may be named by id or by path. Either way the lookup is Account-scoped and runs under
-  # the caller's actor, so a scope in another Account, or one this actor may not reach, comes
-  # back as nil and the publish fails with "scope not found or not authorized" rather than
-  # attaching a card somewhere the author cannot see.
+  # Account-scoped actor reads prevent publishing to another or unauthorized scope.
   defp scope(account_id, actor, %{"scope_id" => scope_id}) when is_binary(scope_id) do
     Scope
     |> Ash.Query.filter(id == ^scope_id)
@@ -164,9 +126,7 @@ defmodule Cartulary.Skills.Authoring do
   defp scope(_account_id, _actor, _attrs),
     do: raise(ArgumentError, "scope_id or scope_path is required")
 
-  # Skill keys are lowercase slugs, matching the grammar used for requirement keys. The key is
-  # how cards at different scopes are recognized as governing the same skill, so a case or
-  # whitespace variant would create a second, silently unrelated inheritance chain.
+  # Lowercase slugs keep inheritance keys stable across scopes.
   defp skill_key(value) when is_binary(value) do
     value = String.trim(value)
 
@@ -186,9 +146,7 @@ defmodule Cartulary.Skills.Authoring do
 
   defp blank_to_nil(value), do: to_string(value)
 
-  # Canonical form: exactly one leading slash, no trailing slash, root stays "/". Scope paths are
-  # matched as exact strings, so an unnormalized value would fail to find an existing scope
-  # instead of reporting a malformed path.
+  # Canonical path: one leading slash, no trailing slash, root unchanged.
   defp normalize_path(path) do
     normalized = "/" <> (path |> String.trim() |> String.trim("/"))
     if normalized == "/", do: "/", else: normalized

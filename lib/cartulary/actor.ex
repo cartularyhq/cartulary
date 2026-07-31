@@ -2,58 +2,11 @@
 
 defmodule Cartulary.Actor do
   @moduledoc """
-  The authorization context that every Ash action in Cartulary runs under.
+  Immutable authorization context passed to Ash actions.
 
-  An actor answers three questions for the authorizer: which Account the caller
-  belongs to, which scopes inside that Account the caller may touch, and what
-  the caller may do there. Ash policies reach those answers either through
-  expressions such as `actor(:account_id)` and `actor(:peer_id)` or through the
-  check modules in `Cartulary.Resource` (`Cartulary.Policy.ScopeAccess`,
-  `Cartulary.Policy.RoleIn`, `Cartulary.Policy.HumanRoleIn`, and friends), which
-  read these fields directly. `Cartulary.DataLayer` separately mirrors
-  `account_id` into the transaction-local PostgreSQL setting that row-level
-  security compares against.
-
-  ## The Account is derived, never requested
-
-  `account_id` and `account_key` come from a verified credential — a signed
-  session token or an API key whose hash matched a stored row. They are never
-  taken from a request header, query string, or body. Building an actor from
-  caller-supplied Account data would collapse the isolation wall between
-  Accounts, so any new construction path must start from an authenticated
-  identity or from an explicitly internal bootstrap helper.
-
-  ## Field meanings
-
-  - `peer_id` — the authenticated Peer. `nil` for internal/system actors that
-    act on behalf of the Account rather than a person or agent.
-  - `identity_kind` — how the caller proved who they are: `:password` for a
-    session token, `:api_key` for a machine credential, `:system` for internal
-    work that bypassed authentication because it never left the server.
-  - `assurance` — how strongly that identity is trusted, copied from the linked
-    external identity record and carried through role re-resolution. Nothing in
-    the current codebase branches on it; it is recorded, not yet enforced.
-  - `credential_scope_id` — set when the presented API key was restricted to a
-    single scope subtree. Role resolution intersects the caller's granted
-    scopes with that subtree, so a restricted key can only ever narrow access.
-  - `role` — the highest effective role across all authorized scopes. Coarse
-    checks use it; anything scope-sensitive should consult `scope_roles`.
-  - `scope_ids` — the concrete scopes this actor may read. `:all` means
-    unrestricted within the Account and is reserved for internal/system actors;
-    an authenticated caller always carries an explicit list, and an empty list
-    means no scope access at all.
-  - `scope_roles` — per-scope effective role. A scope missing from this map is
-    not authorized, either because no grant applies or because a deny does.
-  - `pipeline?` — true only for the internal knowledge pipeline. Several
-    resources expose erase/rebuild actions that check this flag, so never set
-    it on an actor derived from an external request.
-
-  ## Mistakes to avoid
-
-  Do not hand-edit `role`, `scope_ids`, or `scope_roles` on an actor that came
-  from authentication in order to widen access; re-resolve it from the Peer's
-  role grants instead. Do not cache an actor across a role change without
-  re-resolving — grants are evaluated at authentication time, not per query.
+  It carries identity-derived Account, role, and authorized scopes as a point-in-time snapshot.
+  Internal system and pipeline capabilities must never be constructed from request input; resolve
+  a fresh actor after grants or topology change.
   """
 
   @enforce_keys [:account_id, :account_key]

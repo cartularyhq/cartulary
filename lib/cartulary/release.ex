@@ -2,36 +2,11 @@
 
 defmodule Cartulary.Release do
   @moduledoc """
-  Operator entry points invoked against a built release, outside the running
-  application.
+  Runs operator commands against a built release.
 
-  A packaged release has no Mix and no build tooling, so migrations and archive
-  handling are plain functions an operator (or a launcher script) evaluates in a
-  short-lived node. Every function here starts only what it needs and shuts it
-  down again; none of them assumes the supervision tree is up.
-
-  ## The same release runs against two kinds of database
-
-  The node either supervises its own embedded PostgreSQL or connects to one the
-  operator runs. That choice is infrastructure, not behaviour: the migrations,
-  schema, and product semantics are identical either way. The only difference
-  visible in this module is that the embedded-database mode must have its
-  database process started before anything opens a connection, and stopped
-  afterwards — nothing here may branch on database mode to change what it
-  actually does.
-
-  ## Migration ordering
-
-  Configuration is validated before a database is started, and the database is
-  started before migrations run. Validating late would mean discovering a bad
-  data directory or an unusable binary after work had already begun; migrating
-  before the database is up simply fails.
-
-  ## Output
-
-  The archive functions print a JSON line to standard output because their
-  caller is a shell script or an operator at a terminal, not Elixir code. That
-  output is a summary of counts and checksums, never archive contents.
+  Migration and other release tasks start only the applications they need, use the configured
+  database mode, and raise on failure so shell exit status is reliable. They do not fork product
+  behavior between embedded and external PostgreSQL.
   """
 
   @app :cartulary
@@ -177,22 +152,10 @@ end
 
 defmodule Cartulary.Release.Migrator do
   @moduledoc """
-  Supervised startup step that brings the schema up to date before the node
-  serves traffic.
+  Runs database migrations before the supervised application serves work.
 
-  Its position in the supervision tree is the entire point: it starts after the
-  repository and before the web endpoint, so migrations have a database to run
-  against and no request can be served against a stale schema. Moving it later
-  would let traffic hit a half-migrated database; moving it earlier would leave
-  it with no connection.
-
-  All the work happens in `init/1` and the process then sits idle. That is
-  deliberate — `init/1` blocks its supervisor, which is exactly the ordering
-  guarantee wanted here.
-
-  Whether it migrates at all is configuration: on by default for the
-  self-supervised database, off by default for an operator-run one, and
-  overridable either way. When it is off this process starts and does nothing.
+  Startup fails if migration fails; later children must never observe a partially upgraded
+  schema.
   """
 
   use GenServer

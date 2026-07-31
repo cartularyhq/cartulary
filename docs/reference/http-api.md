@@ -2,9 +2,8 @@
 
 # HTTP API reference
 
-All JSON. Domain actions answer `{"data": ...}`; the probes answer their
-payload unwrapped, because external probes consume it directly. Refusals are
-`{"error": "..."}`. Every response carries an `x-trace-id` header.
+Domain actions return `{"data": ...}`; probes return unwrapped JSON; refusals
+return `{"error": "..."}`. Every response includes `x-trace-id`.
 
 There is **no generated OpenAPI description** in this release — see
 [Limitations](limitations.md).
@@ -34,9 +33,8 @@ only" rejects an API key with 403 even when it belongs to the same peer.
 
 ### Browser routes
 
-These serve HTML and LiveView rather than JSON, and authenticate with a signed
-session cookie plus CSRF rather than a bearer token. Both sign-in forms write
-the same session, so one sign-in opens whichever surface your role allows.
+Browser routes serve HTML/LiveView and use a signed session cookie plus CSRF.
+Both sign-in forms create the same role-limited session.
 
 | Route | Auth | Purpose |
 | --- | --- | --- |
@@ -55,8 +53,7 @@ the same session, so one sign-in opens whichever surface your role allows.
 | `/governance/sign-in` | none | Curator sign-in |
 | `/governance` | human curator session | Gate queue and skill-card authoring |
 
-An agent API key cannot open a browser session at all: the sign-in forms accept
-only an email and password. See
+Agent API keys cannot open browser sessions. See
 [Exploring memory in the web console](../guides/web-console.md).
 
 **Account is never selected by the request.** An `account_key` body field and
@@ -86,7 +83,7 @@ The body is the whole check map: per-component status, queue depths by queue
 and job state, an error class per failing component, and `"f10-1"` — the
 readiness payload shape identity.
 
-Content-safe by construction: no credentials, no secrets, no stored content.
+The payload contains no credentials, secrets, or stored content.
 
 ---
 
@@ -250,7 +247,5 @@ No curator tool exists. See [Connecting an MCP client](../guides/mcp.md).
 
 ## Errors
 
-These actions deliberately do not rescue. Authorisation, missing-parameter, and
-not-found failures raised by the domain propagate to Phoenix's error handling,
-which answers with an error status and a generic error body — rather than
-returning 200 with a hollow payload.
+Authorization, missing-parameter, and not-found failures propagate to Phoenix,
+which returns an error status and generic body, never 200 with an empty result.

@@ -2,16 +2,9 @@
 
 defmodule Cartulary.Observations.Changes.HashContent do
   @moduledoc """
-  Ash change that derives a message's SHA-256 content hash from its text.
+  Ash change that derives a message's SHA-256 content hash.
 
-  The hash is always recomputed from the content and force-written, so a caller cannot supply
-  one. Three mechanisms depend on that: the extraction job's idempotency key (same message, same
-  bytes, same key, so a retry converges instead of duplicating work), the audit entry, which
-  records this hash *instead of* the text, and any later comparison that asks whether two turns
-  carried identical content.
-
-  If the changeset has no binary content, it is returned untouched and the resource's own
-  `allow_nil?` constraint produces the error.
+  The hash is computed from stored content and is not accepted independently from callers.
   """
 
   use Ash.Resource.Change
@@ -41,22 +34,10 @@ end
 
 defmodule Cartulary.Observations.Changes.HashContentIfMissing do
   @moduledoc """
-  Ash change that fills in a document version's content hash only when the caller did not supply
-  one.
+  Fills a document version's content hash when the caller omitted it.
 
-  This is the deliberate counterpart to the message hashing change, which always recomputes.
-  Document ingest hashes the raw bytes *before* the database transaction, because that digest is
-  the address the payload is stored under in the blob store. The version row must carry exactly
-  that digest, so a supplied hash wins.
-
-  Recomputing here would be actively wrong: the `content` column is usually empty (the bytes are
-  in the blob store) or holds only a legacy inline copy, so a recomputed hash would no longer
-  match the stored object, would break the idempotency key of the extraction job, and would make
-  unchanged-content sync look like a new version.
-
-  The fallback path — hash the inline content — exists for callers that pass text directly.
-  With neither a hash nor content, the changeset is returned untouched and the resource's
-  `allow_nil?` constraint reports the missing hash.
+  A connector-supplied hash is preserved; otherwise the change derives one from the version's
+  stored bytes.
   """
 
   use Ash.Resource.Change
@@ -93,28 +74,10 @@ end
 
 defmodule Cartulary.Observations.Changes.AuditAndEnqueueMessage do
   @moduledoc """
-  Ash change that makes accepting a message, auditing it, and scheduling its extraction one
-  transaction.
+  Atomically audits a new message and schedules extraction.
 
-  After the row is inserted and before the surrounding transaction commits, this hook appends a
-  hash-chained audit entry, creates (or reuses) the durable pipeline run for message extraction
-  and enqueues its job, and enqueues the Account reconciler. All of it runs in the caller's
-  transaction, so an error at any step rolls the message back with everything else.
-
-  That coupling is the point. If the audit entry were appended afterwards, a crash would leave an
-  unaudited observation; if the job were enqueued afterwards, a rollback would leave a job
-  pointing at a message that does not exist, and a commit followed by a crash would leave an
-  observation nobody will ever extract.
-
-  The reconciler enqueue is the safety net for the second case in general: it periodically
-  re-drives durable records that were never processed, which is why the extraction job's
-  idempotency key is derived from the message id and its content hash — re-driving the same
-  observation converges on the same run instead of duplicating knowledge.
-
-  ## Content safety
-
-  The audit entry carries the content hash, the role, and the session id. The message text goes
-  nowhere near audit metadata, telemetry, or job arguments.
+  The message, content-safe audit entry, durable idempotency row, and AshOban enqueue share one
+  transaction. Job arguments contain ids only, never message text.
   """
 
   use Ash.Resource.Change
@@ -180,26 +143,10 @@ end
 
 defmodule Cartulary.Observations.Changes.AuditAndEnqueueDocument do
   @moduledoc """
-  Ash change that makes accepting a document version, auditing it, and scheduling its extraction
-  one transaction.
+  Atomically audits a document version and schedules extraction.
 
-  This is the document counterpart of the message hook: after the version row is inserted and
-  before the transaction commits, it appends a hash-chained audit entry, creates or reuses the
-  durable extraction run and enqueues its job, and enqueues the Account reconciler. A failure at
-  any point rolls the version back with the rest.
-
-  One asymmetry is deliberate. The payload bytes were already written to the blob store *before*
-  this transaction, addressed by their content hash. If the transaction rolls back, that object
-  is left behind as a harmless orphan: because the address is the hash of its contents, the
-  orphan can never shadow or corrupt a different payload, and a later ingest of the same bytes
-  simply reuses it. Trading a rare orphan blob for a guaranteed-consistent database is the
-  intended bargain.
-
-  ## Content safety
-
-  The audit entry carries the content hash plus document id, version number, media type, and
-  byte size. Bytes, extracted text, source metadata, connector cursors, and secrets never enter
-  audit metadata, telemetry, or job arguments.
+  The version, content-safe audit, idempotency record, and enqueue commit together. Document
+  bytes, extracted text, cursors, metadata, and secrets never enter audit or job arguments.
   """
 
   use Ash.Resource.Change

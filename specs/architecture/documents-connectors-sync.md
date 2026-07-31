@@ -4,16 +4,15 @@
 
 Status: implemented
 
-Documents, connectors, and sync makes documents a first-class free-core
-observation path. It implements `FR-TOP-10`, `FR-KN-5`, `FR-FORM-9` through
+Documents are a first-class free-core observation path. This implements
+`FR-TOP-10`, `FR-KN-5`, `FR-FORM-9` through
 `FR-FORM-12`, `FR-FORM-14`, `FR-FORM-17`, `AD-SEAM-1` through `AD-SEAM-4`,
 `AD-DATA-5`, `AD-PIPE-1` through `AD-PIPE-4`, `AD-PORT-1`, `AINV-5`,
 and the document-outage portion of `NFR-8`.
 
 ## Durable and derived boundaries
 
-Documents, connectors, and sync takes the configured boundary to ten Ash
-Domains and 38 Resources.
+The configured boundary contains ten Ash Domains and 38 Resources.
 `Cartulary.Observations.Document` identifies one logical source document and
 its scope. `DocumentVersion` is immutable source history carrying:
 
@@ -38,13 +37,10 @@ rejected. `DocumentChunk` is a rebuildable derived cache: version and byte
 range, chunk hash, text, vector, and pinned embedding identity. Chunks and
 vectors are excluded from logical export and regenerated from version blobs.
 
-The document migration preserves PostgreSQL RLS on both new Account-scoped
-tables, adds foreign keys and scheduling/lookup indexes, retains the existing
-document-version FTS column, and safely represents any pre-existing inline
-document content with a `legacy-db://` reference. Retrieval, entity
-resolution, and context converts chunk embeddings from float arrays to
-PostgreSQL `vector`, adds the chunk HNSW and generated-FTS indexes, and
-retrieves chunks through Semantic and Lexical strategies.
+Both new Account tables retain PostgreSQL RLS, foreign keys, schedule/lookup
+indexes, and document-version FTS. Pre-existing inline content uses a
+`legacy-db://` reference. Chunk embeddings use PostgreSQL `vector`, HNSW, and
+generated FTS indexes for Semantic and Lexical retrieval.
 
 ## Dual ingest
 
@@ -71,16 +67,10 @@ from the document source, provenance links the resulting item to
 `document_version_id`, and every new item enters the unchanged Gate A/B
 lifecycle. Agents and connectors therefore submit raw observations only.
 
-Processing runs in three phases so that no step reaching outside PostgreSQL
-holds a database connection. A short transaction reads the version, its
-document, the owning Peer, the Scope, and the Account's Peer keys. The blob
-fetch, the parse, the embedding call, and the extraction call then run holding
-nothing. A second short transaction writes the chunks, the knowledge, the
-supersession of what only older versions supported, and the version's own
-processing bookkeeping; marking a version failed likewise takes its own short
-transaction. A single transaction across all of it would exceed the connection
-pool's checkout-ownership timeout and lose writes recording work that already
-happened and was already billed.
+Processing uses a short read transaction, connection-free blob/parse/embed/
+extract work, then a short result transaction. Failure marking also uses a
+short transaction. This prevents external work from exceeding connection
+ownership timeouts and losing already-billed results.
 
 Processing records counts, parser name, byte size, and IDs in telemetry. It
 never copies bytes, extracted text, statements, source metadata, cursors, or
@@ -89,38 +79,35 @@ leaves the raw version, blob, audit, and retryable job durable.
 
 ## Incremental sync and history
 
-Connector adapters implement one `pull(config, cursor)` callback and return a
-page of raw items plus the next cursor. The cursor advances only after every
-item is durably versioned, recognized as an unchanged hash, or tombstoned.
+Connector adapters implement `pull(config, cursor)` and return raw items plus
+the next cursor. Advance only after every item is versioned, recognized as an
+unchanged hash, or tombstoned.
 Schedules use a durable next-sync timestamp and deterministic
 connector/cursor/scheduled-time job identity. The Account reconciler also
 re-enqueues due connectors and pending/failed document versions.
 
-For a changed source, unchanged extracted statements merge the new provenance
-into the existing knowledge item. Prior-version statements not reproduced by
-the new version transition to `superseded`, retain their statement, provenance,
-lifecycle, and audit history, and receive a `supersedes` relation when a new
-replacement exists. Prior chunks are marked superseded. A remote deletion
+For changed sources, unchanged statements merge new provenance. Missing
+prior-version statements become `superseded` while retaining statement,
+provenance, lifecycle, and audit history; replacements add a `supersedes`
+relation. Prior chunks are superseded. Remote deletion
 tombstones the document and its chunks. Knowledge supported only by that
 document is retracted without deleting history; items with independent
 provenance remain governed and retrievable.
 
 ## Erasure and portability
 
-`Cartulary.Documents.Portability` is the document component of the account-wide
-portability archive. Its `f6-document-1` bundle carries durable document and
-version metadata plus checksum-verified blob bytes. It explicitly excludes
+`Cartulary.Documents.Portability` contributes documents to the Account archive.
+Its `f6-document-1` bundle contains durable metadata and checksum-verified blob bytes but excludes
 chunks and embeddings; import passes every raw version through ordinary ingest
 and enqueue, so derived data is rebuilt under the target embedder identity.
-Portability, packaging, and operations still owns the complete
-transaction-consistent Account archive, JSONL layout, audit-chain
-verification, and operator-facing commands.
+Portability owns the complete transaction-consistent archive, JSONL layout,
+audit verification, and commands.
 
 Document erasure removes derived chunks, document/version metadata, exclusive
 blob objects, and document provenance. Knowledge supported only by the erased
 document is removed through the Gate A/B governance erasure helper; knowledge
-with surviving provenance remains. Content-addressed blobs shared by another version are not
-deleted. Audit retains only IDs, hashes, actions, and counts.
+with surviving provenance remains. Shared content-addressed blobs remain. Audit
+retains only IDs, hashes, actions, and counts.
 
 ## Evidence and version posture
 
@@ -135,9 +122,6 @@ deleted. Audit retains only IDs, hashes, actions, and counts.
 - Documents acceptance suite:
   `test/cartulary/f6_documents_connectors_sync_test.exs`
 
-Baseline contract HTTP response shapes, the Gate A/B lifecycle contract, and
-model-layer message extraction remain unchanged. The document path is additive
-and does not rename the existing `f5-1` health/message pipeline identity.
-Retrieval, entity resolution, and context subsequently advances retrieval
-profile identity to `f7-1`. Both strings are historical version tags and no
-longer name roadmap phases.
+HTTP shapes, Gate A/B lifecycle, and message extraction remain unchanged. The
+additive document path keeps `f5-1` health/message identity; retrieval later
+advances its profile to `f7-1`. Both are historical contract tags.

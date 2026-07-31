@@ -5,20 +5,13 @@ defmodule Cartulary.Skills do
   Ash domain for procedural memory: what a person or agent must already know before running a
   skill, and whether they know it yet.
 
-  A *skill requirement card* is a human-authored contract attached to a scope. It says, for one
-  named skill, which governed knowledge has to be present — "a preference about this scope, at
-  confidence 0.7 or better, revalidated within the last thirty days" — and whether each
-  requirement blocks the skill or merely warns.
+  A human-authored skill card defines which governed knowledge a scope requires and whether each
+  gap blocks or warns.
 
   ## Cards are authored configuration, not knowledge
 
-  This is the distinction that shapes everything else in this domain. Knowledge is extracted
-  from raw observations and has to pass the approval gates before anyone can see it. Cards are
-  written by a human, take effect the moment they are published, and are versioned in the plain
-  way: publishing inserts a new immutable version and retires the previous one. A card never
-  enters the approval pipeline, and — just as importantly — a card can never *satisfy* a
-  requirement. Only governed knowledge can do that, so an author cannot declare a skill ready by
-  writing a card that answers itself.
+  Cards take effect when published as a new immutable version and do not pass governance. A card
+  cannot satisfy itself; only governed knowledge can satisfy requirements.
 
   ## Inheritance
 
@@ -28,12 +21,9 @@ defmodule Cartulary.Skills do
 
   ## Readiness
 
-  Checking readiness is a pure metadata evaluation over the caller's authorized knowledge. It
-  runs no model, no text search, and no reasoning; it compares stored fields against the
-  selector in each requirement. Missing required knowledge blocks the skill; missing preferred
-  knowledge only warns. Knowledge that has expired or is due for revalidation cannot satisfy a
-  requirement even before the lifecycle sweeper has run, so a delayed background job cannot open
-  a window where a stale answer looks current.
+  Readiness compares selectors with authorized knowledge and runs no model, text search, or
+  reasoning. Required gaps block; preferred gaps warn. Expired or due-for-revalidation knowledge
+  never satisfies a requirement, even before the sweeper runs.
 
   When a requirement permits it, the report may include a prompt to ask the person for the
   missing information. Their answer is not knowledge: it must be submitted as an ordinary raw

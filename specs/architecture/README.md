@@ -1,19 +1,11 @@
 # Architecture notes
 
-Implementation-facing notes about how Cartulary is built and why.
-
-**These notes are not required reading for understanding the code.** Every
-source file in this repository is written to stand on its own: modules document
-what they own and what they guarantee, and comments state rules in place rather
-than pointing here. What these notes add is the *reasoning* — the alternatives
-considered, the trade-offs taken, the evidence behind a decision, and the
-transition history of a contract identity. Read the code to learn what the
-system does; read these notes to learn why it does it that way.
+Implementation decisions, trade-offs, evidence, and contract transitions.
+Source files document current behavior; these notes explain why.
 
 ## Where authority lives
 
-The blueprint specs remain authoritative for product behaviour and stable
-anchors. These notes are subordinate to them.
+Blueprint specs remain authoritative for behavior and stable anchors.
 
 | Source | Authoritative for |
 | --- | --- |
@@ -23,8 +15,8 @@ anchors. These notes are subordinate to them.
 | `specs/memory-system-evaluation-framework.md` | Evaluation methodology and `EV-*` anchors. |
 | `specs/adr/` | Decisions with alternatives weighed and a chosen outcome. |
 
-Keep notes here short and traceable to anchors. Anchors belong in these
-documents and in pull request descriptions — never in source comments.
+Keep notes short and traceable. Anchors belong here and in PR descriptions,
+never source comments.
 
 ## The notes
 
@@ -44,14 +36,11 @@ documents and in pull request descriptions — never in source comments.
 
 ## Related
 
-- `specs/implementation-status.md` — what actually runs today, with verification
-  evidence and real limitations. Treat it as evidence and a debt list, not as a
-  substitute for a spec or an ADR.
+- `specs/implementation-status.md` — current behavior, evidence, and limitations;
+  not a substitute for a spec or ADR.
 - `specs/roadmap/beta-roadmap.md` — the only roadmap: outstanding work with
   acceptance criteria.
 - `specs/observability/README.md` — local OpenTelemetry collection, Langfuse
   forwarding, trace and log safety defaults, and measurement discipline.
-- `docs/concepts/` — the same systems described for users rather than
-  implementers, published on the documentation site. When a note here changes
-  behaviour a user can observe, update the matching page there in the same
-  patch.
+- `docs/concepts/` — user-facing explanations. Update the matching page with
+  every observable behavior change.

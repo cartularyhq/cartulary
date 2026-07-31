@@ -2,14 +2,10 @@
 
 # Acting on your own data
 
-`/api/v1/self/*` is the surface a person uses on knowledge about **themselves**.
-It requires a human password identity: an agent API key gets 403 even when it
-belongs to the same peer, because these are personal decisions a machine may
-not take on someone's behalf.
+`/api/v1/self/*` lets a person act on knowledge about **themselves**. It
+requires a human password identity; agent API keys receive 403.
 
-The subject is always the authenticated caller, read from the credential. No
-parameter can name a different person, so none of these routes can act on
-somebody else.
+The credential fixes the subject. No parameter can select another person.
 
 ## See what the system holds about you
 
@@ -29,11 +25,8 @@ curl -fsS -X POST http://127.0.0.1:4000/api/v1/self/knowledge/<id>/contest \
   -H "authorization: Bearer $TOKEN"
 ```
 
-The item moves to a contested state marked as disputed by its subject, an
-immutable audit entry is written, and a validation item is queued for a human
-curator with a 24-hour deadline — long enough for a curator to answer during a
-working day, short enough that a disputed claim is not left standing for a
-week.
+The item becomes `contested`, writes an immutable audit entry, and queues human
+review with a 24-hour deadline.
 
 Contesting states an objection. It does not delete or rewrite the claim, and
 only a human curator can resolve it.
@@ -76,15 +69,13 @@ flowchart TD
     S2 --> A[Content-safe audit evidence retained]
 ```
 
-Neither mode retracts a claim with surviving independent provenance — somebody
-else's independently sourced statement is not the subject's to delete.
+Neither mode retracts independently supported knowledge.
 
 The response carries only the request's id, mode, and state. Reporting *what*
 was removed would re-disclose the very content you asked to have destroyed.
 
-Content-safe audit evidence — ids, hashes, actions, counts — deliberately
-survives, because proving that an erasure happened must not require keeping
-what was erased.
+Content-safe ids, hashes, actions, and counts survive to prove erasure without
+retaining erased content.
 
 ## Not found means not yours
 

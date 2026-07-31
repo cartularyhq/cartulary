@@ -2,35 +2,11 @@
 
 defmodule Cartulary.Documents.Connector do
   @moduledoc """
-  The contract an external document source must implement to be synced incrementally.
+  Contract for replay-safe incremental document connectors.
 
-  An adapter has exactly one job: given a cursor, return the next page of raw items and the
-  cursor that follows it. It fetches; it does not decide. Whether an item becomes a new version,
-  a no-op, or a tombstone is worked out by the sync service from the bytes themselves, and an
-  adapter must never write documents, chunks, or knowledge of its own.
-
-  ## Implementing `pull/2`
-
-  Return `{:ok, page}` with the items following the given cursor, the cursor that comes after
-  them, and `:has_more?` when further pages are waiting — the service will chain another run
-  rather than looping inside one job.
-
-  Two rules matter more than anything else in an adapter:
-
-  - **Return whole bytes, not diffs.** Sync decides what changed by hashing the payload and
-    comparing it against the document's current hash. Identical bytes are a free no-op, so it
-    costs nothing to re-emit an item the adapter is unsure about, and it is never correct to
-    withhold one.
-  - **The cursor must be replay-safe.** The service applies the whole page before it saves the
-    new cursor, so a crash re-fetches the same page. A cursor that means "everything up to and
-    including what I just handed over" is safe; one that assumes the previous page was consumed
-    exactly once is not.
-
-  ## Content safety
-
-  Items carry document bytes and source metadata, which are content. An adapter must not log
-  them, must not put them in telemetry, and must not resolve a credential into the cursor or
-  the connector's stored settings — connector configuration holds secret *references* only.
+  Adapters fetch whole raw items and the next cursor; they never write documents, chunks, or
+  knowledge. Cursors must tolerate replay because the service saves them only after the page.
+  Never log bytes or metadata, or resolve secrets into cursors or settings.
   """
 
   @typedoc """
@@ -71,10 +47,8 @@ defmodule Cartulary.Documents.Connector do
   @doc """
   Fetches the items following `cursor` for this connector.
 
-  The cursor is the map the adapter itself returned last time, or the empty map on a first run.
-  Return `{:ok, page}` or `{:error, reason}`; on error the service records an error class, backs
-  the connector off by one polling interval, and leaves the cursor untouched so the same page is
-  retried.
+  Receives the prior cursor or `%{}`. Returns `{:ok, page}` or `{:error, reason}`; failures leave
+  the cursor unchanged for replay.
   """
   @callback pull(Cartulary.Documents.ConnectorConfig.t(), map()) ::
               {:ok, page()} | {:error, term()}

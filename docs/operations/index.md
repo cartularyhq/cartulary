@@ -2,9 +2,8 @@
 
 # Operations overview
 
-This section is for whoever runs the instance. The same Mix release supports a
-supervised PostgreSQL and an operator-run one; **database location does not
-select different product behaviour**.
+The same release supports supervised or operator-run PostgreSQL. Database
+location does not change product behavior.
 
 ```mermaid
 flowchart LR
@@ -44,7 +43,7 @@ curl -fsS http://127.0.0.1:4000/api/v1/operations/costs \
 !!! warning "Do not wire liveness to the readiness checks"
     A database blip would then kill containers instead of draining them.
 
-## The three things that must be true
+## Operational rules
 
 **1. Back up the database and the blob store at the same recovery point.**
 The database stores content hashes and blob references, not the bytes.
@@ -72,10 +71,8 @@ blob snapshot *together*, then starting the prior release.
 
 ## Content safety
 
-Operational surfaces stay content-safe. The readiness payload may expose
-component status, queue counts, model identities, versions, and error classes —
-never credentials or stored content, because anyone who can reach the port can
-read it without authenticating.
+Readiness may expose component status, queue counts, model identities, versions,
+and error classes. It must not expose credentials or stored content.
 
 Production structured logs retain only a reviewed metadata allowlist. Exact API
 and model usage lives in the usage ledger; the ETS budget counters in front of
@@ -86,9 +83,7 @@ it are rebuildable.
 Daily token limits are admission control, and **dream-time is throttled first**
 — background reasoning yields before user-facing ingest and retrieval do.
 
-Self-host cost visibility uses operator-provided rates over the local usage
-ledger. There is no hidden billing state: the number you see is arithmetic over
-rows you own.
+Cost estimates use operator-provided rates and the local usage ledger.
 
 ## Release and versioning
 
