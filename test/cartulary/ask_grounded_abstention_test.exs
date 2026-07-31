@@ -161,7 +161,10 @@ defmodule Cartulary.AskGroundedAbstentionTest do
                actor
              )
 
-    knowledge_id = message |> Map.fetch!("knowledge") |> hd() |> Map.fetch!("id")
+    assert {:ok, [knowledge]} =
+             Memory.extract_message_for_account(message["id"], actor.account_id)
+
+    knowledge_id = knowledge["id"]
 
     # The answering contract is independent of Gate timing. Activate the
     # fixture through the ordinary governance engine so every retrieval profile
