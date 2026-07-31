@@ -11,6 +11,27 @@ changelog entry and contract-version transition.
 
 ### Fixed
 
+- A failed extraction reported `:missing_structured_object` no matter why the
+  model call produced nothing, which left an operator reading a trace unable to
+  tell a transient upstream blip from a failure that will repeat on every
+  retry. A hosted aggregator can answer HTTP 200 with a choice whose finish
+  reason is `error` — its own upstream failed part-way through generating —
+  and `Cartulary.Model.Providers.ReqLLM` saw only that the response carried no
+  object. It reported the same name for a response cut off at the output cap
+  and for one the endpoint withheld, and that name became the `error.type` on
+  the model span and the error class on the usage event. Incomplete responses
+  are now classified by how the response ended: `provider_upstream_error`
+  (transient; the job retry is the fix), `provider_output_truncated` (repeats
+  identically until `CARTULARY_MODEL_MAX_TOKENS` is raised or
+  `CARTULARY_MODEL_REASONING_EFFORT` lowered), `provider_content_filtered`
+  (repeats until the input or model changes), and the original
+  `missing_structured_object` / `missing_text_response` for a call that
+  finished normally and simply returned nothing usable. `chat/3` additionally
+  treats blank text as no text, which its documented contract already
+  promised, rather than returning an empty string as a successful answer.
+  Failures remain returned rather than raised and the caller's job remains
+  retryable, so no observation is lost. No route, parameter, response field, or
+  contract identity changes.
 - Nothing ingested through `POST /api/v1/ingest` was ever extracted on a fresh
   install once the database role became one that row-level security actually
   applies to. The request returned `200` and the observation was stored, but the

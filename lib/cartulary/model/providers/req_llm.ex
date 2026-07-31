@@ -33,6 +33,15 @@ defmodule Cartulary.Model.Providers.ReqLLM do
   object or text it should contain is an error too, not an empty success. The
   gateway meters the failure and the caller's job retries; nothing here
   substitutes fabricated output for a failed call.
+
+  A call can also come back as HTTP 200 and still carry nothing usable, which
+  is what an aggregator does when its own upstream failed part-way, when the
+  answer was cut off at the output cap, or when the answer was withheld. Those
+  are three different operator actions — wait for the retry, raise the output
+  cap, change the input or the model — so each returns its own error atom
+  rather than one shared "missing" name. That atom becomes the error class on
+  the usage record and the span, and it is the only diagnostic an operator has
+  when reading a failed run afterwards.
   """
 
   @behaviour Cartulary.Model.Provider
@@ -53,52 +62,88 @@ defmodule Cartulary.Model.Providers.ReqLLM do
   @doc """
   Generates one schema-constrained object.
 
-  Returns `{:error, :missing_structured_object}` when the call succeeds but
-  carries no object: an empty success would be validated as malformed output
-  anyway, and this names the real problem.
+  Returns an error when the call succeeds but carries no object, because an
+  empty success would be validated as malformed output anyway. Which error
+  depends on how the response ended: `:provider_upstream_error`,
+  `:provider_output_truncated`, `:provider_content_filtered`, or
+  `:missing_structured_object` when the model simply answered without calling
+  the tool it was given.
   """
   @impl true
   def structured(%Role{} = config, messages, schema, opts) do
-    with {:ok, response} <-
-           ReqLLM.generate_object(
-             model_spec(config),
-             messages,
-             schema,
-             request_opts(config, opts)
-           ),
-         value when is_map(value) <- ReqLLM.Response.object(response) do
-      {:ok,
-       %Result{
-         value: value,
-         usage: usage(response.usage),
-         metadata: %{response_model: response.model}
-       }}
-    else
-      nil -> {:error, :missing_structured_object}
-      {:error, error} -> {:error, error}
+    case ReqLLM.generate_object(
+           model_spec(config),
+           messages,
+           schema,
+           request_opts(config, opts)
+         ) do
+      {:ok, response} ->
+        case ReqLLM.Response.object(response) do
+          value when is_map(value) ->
+            {:ok,
+             %Result{
+               value: value,
+               usage: usage(response.usage),
+               metadata: %{response_model: response.model}
+             }}
+
+          _unusable ->
+            {:error, incomplete_reason(response.finish_reason, :missing_structured_object)}
+        end
+
+      {:error, error} ->
+        {:error, error}
     end
   end
 
   @doc """
-  Generates free text. Returns `{:error, :missing_text_response}` when the call
-  succeeds but the response carries no text.
+  Generates free text.
+
+  Returns an error when the call succeeds but the response carries no text,
+  with the same four reasons `structured/4` uses and `:missing_text_response`
+  in place of `:missing_structured_object`. Blank text counts as no text: a
+  caller is about to persist or present this string, and an empty one is not
+  an answer.
   """
   @impl true
   def chat(%Role{} = config, messages, opts) do
-    with {:ok, response} <-
-           ReqLLM.generate_text(model_spec(config), messages, request_opts(config, opts)),
-         value when is_binary(value) <- ReqLLM.Response.text(response) do
-      {:ok,
-       %Result{
-         value: value,
-         usage: usage(response.usage),
-         metadata: %{response_model: response.model}
-       }}
-    else
-      nil -> {:error, :missing_text_response}
-      {:error, error} -> {:error, error}
+    case ReqLLM.generate_text(model_spec(config), messages, request_opts(config, opts)) do
+      {:ok, response} ->
+        case ReqLLM.Response.text(response) do
+          value when is_binary(value) and value != "" ->
+            {:ok,
+             %Result{
+               value: value,
+               usage: usage(response.usage),
+               metadata: %{response_model: response.model}
+             }}
+
+          _unusable ->
+            {:error, incomplete_reason(response.finish_reason, :missing_text_response)}
+        end
+
+      {:error, error} ->
+        {:error, error}
     end
   end
+
+  # Names why a call that returned 200 carries nothing usable. `fallback` is the
+  # reason for a response that ended normally and is simply empty, which is a
+  # model or prompt problem rather than a transport one.
+  #
+  # The split matters because the three named reasons need different responses.
+  # An upstream failure, a cancellation, or a truncated stream is transient and
+  # the caller's job retry is the fix. Hitting the output cap repeats
+  # identically on every retry until the cap is raised. A withheld answer
+  # repeats until the input or the model changes. Reporting all of them as one
+  # "missing output" name hides that difference from whoever reads the trace.
+  defp incomplete_reason(finish_reason, _fallback)
+       when finish_reason in [:error, :cancelled, :incomplete],
+       do: :provider_upstream_error
+
+  defp incomplete_reason(:length, _fallback), do: :provider_output_truncated
+  defp incomplete_reason(:content_filter, _fallback), do: :provider_content_filtered
+  defp incomplete_reason(_finish_reason, fallback), do: fallback
 
   @doc """
   Embeds texts through an API-backed embedding endpoint.
