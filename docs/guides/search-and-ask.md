@@ -21,7 +21,7 @@ curl -fsS -X POST http://127.0.0.1:4000/api/v1/search \
 
 | Field | Default | Notes |
 | --- | --- | --- |
-| `query` | `""` | The search text. |
+| `query` | `""` | The search text. A full question works; `"phrase"`, `-term`, and `or` narrow it. |
 | `scope_path` | `"/poc"` | Selects this scope **and its ancestors**. |
 | `profile` | `"balanced"` | `fast`, `balanced`, or `thorough`. |
 | `limit` | `12` | Candidate cap. |

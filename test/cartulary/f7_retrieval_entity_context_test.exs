@@ -154,6 +154,7 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
   alias Cartulary.Actor
   alias Cartulary.Context.Builder
   alias Cartulary.DataLayer
+  alias Cartulary.Documents
   alias Cartulary.Governance.Engine, as: GovernanceEngine
   alias Cartulary.Knowledge.{Entity, EntityMention, KnowledgeItem, KnowledgeRelation}
   alias Cartulary.Memory
@@ -298,6 +299,119 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
                """,
                [Ecto.UUID.dump!(seeded.knowledge.id)]
              )
+  end
+
+  test "lexical retrieval answers a question that no single statement repeats in full" do
+    target =
+      seed_active!(
+        "f7-question",
+        "/f7/question",
+        "Avery publishes the release notes every Friday."
+      )
+
+    # Shares two query words with the question instead of four, so it belongs in the result
+    # set but must not outrank the statement that answers it.
+    distractor =
+      seed_active!("f7-question", "/f7/question", "Avery reviewed the notes.", "session-2")
+
+    unrelated =
+      seed_active!(
+        "f7-question",
+        "/f7/question",
+        "Saturday is the production deployment window.",
+        "session-3"
+      )
+
+    result =
+      Memory.search(%{
+        "account_key" => "f7-question",
+        "scope_path" => target.scope.path,
+        # "day" appears in no statement. A conjunctive parse requires every content word to
+        # occur in one sentence, which a one-sentence statement almost never satisfies, so
+        # the lane returned nothing for any question phrased like this one.
+        "query" => "Which day does Avery publish the release notes?",
+        # Lexical alone: fusion with another strategy could otherwise supply the candidate
+        # this assertion is about.
+        "strategies" => ["lexical"],
+        "deadline" => "disabled"
+      })
+
+    ids = Enum.map(result["candidates"], & &1["id"])
+
+    assert target.knowledge.id in ids
+    assert Enum.all?(result["candidates"], &("lexical" in &1["strategies"]))
+
+    # Sharing more of the question's words has to rank higher; matching any word at all is
+    # only useful if density still decides the order.
+    assert Enum.find_index(ids, &(&1 == target.knowledge.id)) <
+             Enum.find_index(ids, &(&1 == distractor.knowledge.id))
+
+    refute unrelated.knowledge.id in ids
+  end
+
+  test "websearch phrase and negation operators still constrain lexical matching" do
+    friday =
+      seed_active!(
+        "f7-operators",
+        "/f7/operators",
+        "Avery publishes the release notes every Friday."
+      )
+
+    mention =
+      seed_active!(
+        "f7-operators",
+        "/f7/operators",
+        "The release notes mention Avery.",
+        "session-2"
+      )
+
+    lexical_ids = fn query ->
+      %{"account_key" => "f7-operators", "scope_path" => friday.scope.path}
+      |> Map.merge(%{"query" => query, "strategies" => ["lexical"], "deadline" => "disabled"})
+      |> Memory.search()
+      |> Map.fetch!("candidates")
+      |> Enum.map(& &1["id"])
+    end
+
+    # Both statements share words with the phrase, so only phrase semantics can separate them.
+    phrase = lexical_ids.(~s("release notes every Friday"))
+    assert friday.knowledge.id in phrase
+    refute mention.knowledge.id in phrase
+
+    negated = lexical_ids.("Avery -Friday")
+    assert mention.knowledge.id in negated
+    refute friday.knowledge.id in negated
+  end
+
+  test "document chunks answer question-shaped lexical queries like statements do" do
+    seeded = seed_active!("f7-chunks", "/f7/chunks", "Orchid keeps a release handbook.")
+
+    assert {:ok, %{version: version}} =
+             Documents.ingest_bytes(pipeline_actor(seeded.actor), %{
+               scope_id: seeded.scope.id,
+               external_id: "release-handbook",
+               title: "Release handbook",
+               media_type: "text/markdown",
+               bytes: "Avery publishes the release notes every Friday."
+             })
+
+    # Chunks and their vectors are derived caches built by the processing job; running it
+    # inline keeps the assertion independent of job scheduling.
+    assert {:ok, _processed} =
+             Documents.process_version_for_account(version.id, seeded.account.id)
+
+    result =
+      Memory.search(%{
+        "account_key" => "f7-chunks",
+        "scope_path" => seeded.scope.path,
+        "query" => "Which day does Avery publish the release notes?",
+        "strategies" => ["lexical"],
+        "_retrieval_target" => "documents",
+        "deadline" => "disabled"
+      })
+
+    assert [%{"statement" => statement, "strategies" => ["lexical"]} | _] = result["candidates"]
+    assert statement =~ "release notes"
   end
 
   test "relation expansion traverses knowledge relations and shared-entity edges" do
@@ -533,12 +647,12 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
   end
 
   test "Account and authorized scope filters run before candidates leave retrieval" do
-    # Three statements, two traps. The query matches "Juniper handbook", which appears only
-    # in a sibling scope of the same account and in a different account entirely. The one
-    # statement in the searched scope does not match the query.
+    # Three statements, two traps. Both traps carry the query verbatim, so they outrank the
+    # searched scope's own statement on every lexical measure and can only be missing because
+    # the Account and scope filters removed them.
     visible = seed_active!("f7-wall-a", "/f7/team/visible", "Visible Orchid handbook.")
-    _hidden = seed_active!("f7-wall-a", "/f7/team/hidden", "Hidden Juniper handbook.")
-    _foreign = seed_active!("f7-wall-b", "/f7/team/visible", "Foreign Juniper handbook.")
+    hidden = seed_active!("f7-wall-a", "/f7/team/hidden", "Hidden Juniper handbook.")
+    foreign = seed_active!("f7-wall-b", "/f7/team/visible", "Foreign Juniper handbook.")
 
     result =
       Memory.search(%{
@@ -549,10 +663,16 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
         "deadline" => "disabled"
       })
 
-    # Empty is the only correct answer. Scope containment inherits downward, never sideways,
-    # and account isolation is absolute. A non-empty result here is a data-leak bug, not a
-    # ranking bug — do not "fix" it by adjusting the query or the fixtures.
-    assert result["candidates"] == []
+    # Scope containment inherits downward, never sideways, and account isolation is absolute.
+    # Either trap appearing here is a data-leak bug, not a ranking bug — do not "fix" it by
+    # adjusting the query or the fixtures.
+    ids = Enum.map(result["candidates"], & &1["id"])
+    refute hidden.knowledge.id in ids
+    refute foreign.knowledge.id in ids
+
+    # Stated as a whitelist as well, so a candidate arriving from a scope nobody listed here
+    # fails too rather than passing on the two `refute`s alone.
+    assert Enum.all?(result["candidates"], &(&1["scope_path"] == visible.scope.path))
   end
 
   test "nearest-scope profile inheritance, raw overrides, and deadline reporting are explicit" do

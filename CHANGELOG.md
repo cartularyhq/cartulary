@@ -11,6 +11,20 @@ changelog entry and contract-version transition.
 
 ### Fixed
 
+- Lexical retrieval returned nothing for a question. `websearch_to_tsquery`
+  joins bare terms with `AND`, so `search` required every content word of the
+  query to occur in one governed statement — a bar a single sentence almost
+  never clears. The lane that is meant to carry recall when no embedder is
+  configured therefore contributed no candidate to any multi-word question,
+  and fusion cannot re-rank an empty list. A query that spells a `websearch`
+  operator — a quoted phrase, a leading `-`, or `or` — still parses exactly as
+  before; any other query now matches statements sharing any of its terms, with
+  `ts_rank_cd` ordering by how many terms a statement covers and how densely.
+  Document-chunk search changed identically. Matching uses the same lexemes
+  `to_tsvector` stored, so the existing GIN indexes still serve both forms and
+  no reindex is needed. Retrieval stays inside the `f7-1` contract: no route,
+  parameter, response field, or fusion weight changes, and Account, scope, and
+  lifecycle filtering is untouched.
 - A failed extraction reported `:missing_structured_object` no matter why the
   model call produced nothing, which left an operator reading a trace unable to
   tell a transient upstream blip from a failure that will repeat on every
