@@ -34,7 +34,7 @@ Eight tools. This list is exhaustive by design.
 | `ingest` | Submit a raw observation |
 | `get_context` | Assemble reasoning-free context for a scope |
 | `search` | Ranked retrieval over governed memory |
-| `ask` | Cited answer, with abstention |
+| `ask` | Cited answer; an abstention may retain citations when evidence supports a qualified inference |
 | `query_knowledge` | List governed knowledge the caller may read |
 | `check_readiness` | Skill-readiness gap report |
 | `resolve_validation` | Answer the calling peer's own frozen inline question |

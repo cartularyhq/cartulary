@@ -116,7 +116,10 @@ curl -fsS -X POST http://127.0.0.1:4000/api/v1/ask \
   -d '{"question":"Who approves the weekly roundup copy?","scope_path":"/marketing/social"}'
 ```
 
-If nothing supports the question, `abstained` is `true` and there is no answer.
+If nothing supports the question, `abstained` is `true`, `citations` is empty,
+and the answer is `not known`. An abstained response with citations is instead
+a qualified explanation of what those statements support without claiming
+they establish a conclusion.
 That is a correct outcome, not an error.
 
 ## 5. Check readiness before running a skill

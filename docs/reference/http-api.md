@@ -156,6 +156,16 @@ Returns the search payload merged with `answer`, `citations`, and `abstained`.
 Retrieval is restricted to knowledge items, so citations are governed
 statements. `abstained: true` is an ordinary outcome.
 
+| `citations` | `abstained` | Meaning |
+| --- | --- | --- |
+| non-empty | `false` | The cited statements establish the answer. |
+| non-empty | `true` | The cited statements support the qualified answer but do not establish a conclusion. |
+| empty | `true` | Nothing retrieved supports an answer; `answer` is `"not known"`. |
+
+Citation ids not present in the retrieved candidates are removed before the
+response is returned. If none survive, the response uses the empty abstention
+regardless of what the model claimed.
+
 A missing `question` raises rather than answering over an empty query.
 
 ---
