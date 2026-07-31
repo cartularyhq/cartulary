@@ -309,6 +309,80 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
              )
   end
 
+  test "lexical ranks a target above distractors that share only part of the query" do
+    corpus = seed_ranking_corpus!()
+
+    result =
+      Memory.search(%{
+        "account_key" => "f7-rank",
+        "scope_path" => "/f7/rank",
+        # Every content word of the query appears in the target statement; each distractor
+        # holds a strict subset. Ranking, not membership, is what separates them.
+        "query" => "Avery release checklist",
+        # Lexical alone, so the ordering asserted below is the lexical predicate's own and
+        # cannot be supplied by a strategy that ignores the query text.
+        "strategies" => ["lexical"],
+        "deadline" => "disabled"
+      })
+
+    ids = Enum.map(result["candidates"], & &1["id"])
+
+    assert [%{"id" => head_id, "strategies" => strategies} | _] = result["candidates"]
+    assert head_id == corpus.target.knowledge.id
+    # The per-candidate attribution, not `contributed_strategies`: an empty lexical list is
+    # still reported as a contributor, so only this field distinguishes a hit from a miss.
+    assert "lexical" in strategies
+
+    # Sharing no query term is the one thing that must keep a statement out of the lexical
+    # list. Were that to fail, the ordering above would be measuring an unfiltered scan.
+    refute corpus.unrelated.knowledge.id in ids
+
+    # Whichever partial-overlap distractors the predicate admits, none may outrank the only
+    # statement carrying every query term.
+    for distractor <- [corpus.shared_person_and_artifact, corpus.shared_artifact],
+        distractor.knowledge.id in ids do
+      assert Enum.find_index(ids, &(&1 == corpus.target.knowledge.id)) <
+               Enum.find_index(ids, &(&1 == distractor.knowledge.id))
+    end
+  end
+
+  test "fusion ranks the query-matching target above distractors a newer statement outranks" do
+    corpus = seed_ranking_corpus!()
+
+    result =
+      Memory.search(%{
+        "account_key" => "f7-rank",
+        "scope_path" => "/f7/rank",
+        "query" => "Avery release checklist",
+        "deadline" => "disabled"
+      })
+
+    ids = Enum.map(result["candidates"], & &1["id"])
+
+    # The whole corpus is reachable, so the positions below compare candidates that were all
+    # available to be ranked first.
+    assert length(ids) == 5
+
+    assert [%{"id" => head_id, "strategies" => strategies} | _] = result["candidates"]
+    assert head_id == corpus.target.knowledge.id
+    assert "semantic" in strategies
+    assert "lexical" in strategies
+
+    # The target was seeded first, so recency-ordered strategies rank it last of the five.
+    # Its head position therefore comes from the query-dependent strategies outweighing them,
+    # which is the agreement signal fusion exists to produce.
+    target_rank = Enum.find_index(ids, &(&1 == corpus.target.knowledge.id))
+
+    for distractor <- [
+          corpus.shared_person_and_artifact,
+          corpus.shared_artifact,
+          corpus.shared_person,
+          corpus.unrelated
+        ] do
+      assert target_rank < Enum.find_index(ids, &(&1 == distractor.knowledge.id))
+    end
+  end
+
   test "relation expansion traverses knowledge relations and shared-entity edges" do
     first = seed_active!("f7-expand", "/f7/expand", "Orchid uses an append-only ledger.")
 
@@ -1013,7 +1087,9 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
                "content" => statement
              })
 
-    knowledge_id = message["knowledge"] |> hd() |> Map.fetch!("id")
+    assert {:ok, [knowledge]} = Memory.extract_message(message["id"], account_key)
+
+    knowledge_id = Map.fetch!(knowledge, "id")
 
     DataLayer.with_account_key(account_key, fn account, actor ->
       scope =
@@ -1043,6 +1119,68 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
 
       %{account: account, actor: actor, scope: scope, knowledge: knowledge}
     end)
+  end
+
+  # A five-statement corpus for ranking assertions.
+  #
+  # One statement carries every content word of the query "Avery release checklist"; three
+  # carry a strict subset; one carries none. A single-statement fixture cannot tell a ranked
+  # list from an unranked one, nor a conjunctive lexical predicate from a disjunctive one,
+  # because every strategy that returns anything returns the same row.
+  #
+  # The target is seeded first, so the recency-ordered strategies rank it last. Anything that
+  # puts it at the head had to use the query.
+  #
+  # Each statement gets its own session: a peer restating something within one session is a
+  # supersession candidate, which would retire rows this fixture needs kept side by side.
+  defp seed_ranking_corpus! do
+    account_key = "f7-rank"
+    scope_path = "/f7/rank"
+
+    # Shortest of the two statements naming both the person and the artifact, which keeps its
+    # fixture embedding nearest the query's and makes the semantic order predictable.
+    target =
+      seed_active!(account_key, scope_path, "Avery maintains the release checklist.", "rank-1")
+
+    shared_person_and_artifact =
+      seed_active!(
+        account_key,
+        scope_path,
+        "Avery approved the release notes and the changelog on Monday.",
+        "rank-2"
+      )
+
+    shared_artifact =
+      seed_active!(
+        account_key,
+        scope_path,
+        "Priya updated the release checklist template.",
+        "rank-3"
+      )
+
+    shared_person =
+      seed_active!(
+        account_key,
+        scope_path,
+        "Avery scheduled the quarterly retrospective.",
+        "rank-4"
+      )
+
+    unrelated =
+      seed_active!(account_key, scope_path, "The deployment window moved to Saturday.", "rank-5")
+
+    # Embeddings are a rebuildable cache; rebuilding here keeps the fixture independent of
+    # background job timing.
+    assert {:ok, %{indexed: 5}} =
+             Indexer.rebuild_scope(target.account.id, target.scope.id)
+
+    %{
+      target: target,
+      shared_person_and_artifact: shared_person_and_artifact,
+      shared_artifact: shared_artifact,
+      shared_person: shared_person,
+      unrelated: unrelated
+    }
   end
 
   defp read_peer!(account_id, actor, key \\ "avery") do

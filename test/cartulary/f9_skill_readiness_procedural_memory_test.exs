@@ -380,7 +380,10 @@ defmodule Cartulary.F9SkillReadinessProceduralMemoryTest do
                bootstrap.actor
              )
 
-    knowledge_id = message["knowledge"] |> hd() |> Map.fetch!("id")
+    assert {:ok, [knowledge]} =
+             Memory.extract_message_for_account(message["id"], bootstrap.actor.account_id)
+
+    knowledge_id = Map.fetch!(knowledge, "id")
 
     {scope, knowledge} =
       DataLayer.with_actor(bootstrap.actor, fn account, actor ->

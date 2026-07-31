@@ -8,10 +8,15 @@ defmodule Cartulary.Observability.JSONFormatter do
   prompts, answers, keys, and secrets must never be added to the allowlist.
   """
 
-  # Correlation handles and code locations only. Everything else a library
-  # attaches is dropped. Notably absent: anything that could hold a query, an
-  # actor, request parameters, or an Account key.
-  @safe_metadata ~w(request_id trace_id span_id module function line pid application)a
+  # Correlation handles, durable row ids, counters, classifications, and code
+  # locations only. Everything else a library attaches is dropped. Notably
+  # absent: anything that could hold a query, an actor, request parameters, or
+  # an Account key.
+  @safe_metadata ~w(
+    request_id trace_id span_id
+    account_id scope_id pipeline_run_id target_type target_id message_id attempt_count error_class
+    module function line pid application
+  )a
 
   # Matches a credential-looking assignment and everything up to the next comma
   # or whitespace, so the value is removed along with its key. Case-insensitive

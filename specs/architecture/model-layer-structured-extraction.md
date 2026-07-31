@@ -59,9 +59,12 @@ retries and budgets; higher-order result application and projections remain
 separate pipeline work.
 
 The dialectic response schema requires answer text, retrieved knowledge IDs,
-and an explicit abstention flag. `Memory.ask` verifies that every returned
-citation was in the retrieved set and falls back to the existing grounded
-assembler on model error. `get_context` performs no model call.
+and an explicit abstention flag. The flag is independent of citation presence:
+an inconclusive answer may preserve its qualified text and verified citations
+while keeping `abstained` true. `Memory.ask` verifies that every returned
+citation was in the retrieved set; when none survive it returns the empty
+grounded abstention, and on model error it falls back to the existing grounded
+assembler. `get_context` performs no model call.
 
 ## Embeddings
 

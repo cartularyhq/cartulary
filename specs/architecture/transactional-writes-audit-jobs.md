@@ -8,9 +8,8 @@ An accepted raw observation, its immutable audit event, durable processing
 identity, and AshOban job share one PostgreSQL transaction. This implements
 `AD-DATA-8`, `AD-PIPE-1`,
 `AD-PIPE-3`, `AD-PIPE-4`, `AD-SEAM-4.2`, `AD-SEAM-4.3`, `FR-KN-9`,
-`FR-FORM-8`, `FR-GOV-17`, `FR-GOV-20`, and `NFR-8` without changing the frozen
-`poc-0` HTTP surface. `poc-0` is a historical version tag for that frozen
-contract, not a roadmap phase.
+`FR-FORM-8`, `FR-GOV-17`, `FR-GOV-20`, and `NFR-8`. `poc-0` is a historical
+version tag for the frozen baseline, not a roadmap phase.
 
 ## Transaction boundary
 
@@ -24,13 +23,18 @@ contract, not a roadmap phase.
 4. insert its AshOban trigger job.
 
 All four writes use the caller's `Cartulary.Repo` transaction; any error rolls
-back all four. Message ingest is always asynchronous. The synchronous `poc-0`
-extraction response runs only after commit and remains replay-safe.
+back all four. Message ingest is always asynchronous: HTTP and MCP acknowledge
+with the message id after commit and never run a model in the caller. The
+Account- and scope-authorised HTTP status read exposes pending, failed, or
+completed processing and only knowledge visible to that actor.
 
 `PipelineRun` is durable processing state, not a second queue. Its unique
 `{account_id, idempotency_key}` identity lets the reconciler and event sources
 request the same work repeatedly. Oban remains the single execution engine in
 both deployment modes.
+
+The account-admin reconciliation operation enqueues the Account sweep directly,
+so recovery does not depend on another ingest request arriving.
 
 ## A background job declares its own Account
 

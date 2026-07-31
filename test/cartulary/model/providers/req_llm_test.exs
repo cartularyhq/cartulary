@@ -50,6 +50,7 @@ defmodule Cartulary.Model.Providers.ReqLLMTest do
   use ExUnit.Case, async: true
 
   alias Cartulary.Model.Config.Role
+  alias Cartulary.Model.Provider.Result
   alias Cartulary.Model.Providers.ReqLLM, as: Adapter
   alias Cartulary.Model.Providers.ReqLLMTest.StubPlug
 
@@ -119,15 +120,12 @@ defmodule Cartulary.Model.Providers.ReqLLMTest do
   defp silent_assistant, do: %{"role" => "assistant", "content" => ""}
 
   test "a string reasoning_effort from configuration does not fail NimbleOptions validation" do
-    config = role(%{"reasoning_effort" => "low"})
+    config =
+      stubbed_role(completion("stop", %{"role" => "assistant", "content" => "hello"}))
+      |> update_in([Access.key!(:options)], &Map.put(&1, "reasoning_effort", "low"))
 
-    # `reasoning_effort` validation happens before credential resolution, so a
-    # missing API key here (this role has no `api_key_ref`) proves the option
-    # cleared NimbleOptions validation and the call reached the next stage,
-    # rather than failing on this option's type as it did before the fix.
-    assert_raise ReqLLM.Error.Invalid.Parameter, ~r/api_key/, fn ->
-      Adapter.chat(config, [%{role: "user", content: "hi"}], [])
-    end
+    assert {:ok, %Result{value: "hello"}} =
+             Adapter.chat(config, [%{role: "user", content: "hi"}], [])
   end
 
   describe "structured/4 on a 200 response with no object" do

@@ -137,7 +137,10 @@ defmodule CartularyWeb.GovernanceLive.IndexTest do
         actor
       )
 
-    message["knowledge"] |> hd() |> Map.fetch!("id") |> knowledge_for!(actor)
+    {:ok, [knowledge]} =
+      Memory.extract_message_for_account(message["id"], actor.account_id)
+
+    knowledge |> Map.fetch!("id") |> knowledge_for!(actor)
   end
 
   defp knowledge_for!(id, actor) do

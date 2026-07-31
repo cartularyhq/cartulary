@@ -31,6 +31,7 @@ defmodule Cartulary.Pipeline do
 
   alias Cartulary.Actor
   alias Cartulary.Clock
+  alias Cartulary.DataLayer
   alias Cartulary.Operations.PipelineRun
   alias Cartulary.Pipeline.Idempotency
 
@@ -157,6 +158,23 @@ defmodule Cartulary.Pipeline do
       },
       actor
     )
+  end
+
+  @doc """
+  Requests an Account reconciliation sweep from an authenticated operator.
+
+  The actor selects the Account. The enqueue runs inside an Account-scoped
+  transaction so row-level security applies and the durable run and Oban job
+  commit together. The controller authorizes the operator role; this function
+  preserves Account selection and transactional enqueue guarantees.
+
+  Returns `{:ok, run}` or `{:error, reason}`.
+  """
+  @spec request_reconciliation(Actor.t()) :: {:ok, PipelineRun.t()} | {:error, term()}
+  def request_reconciliation(%Actor{} = actor) do
+    DataLayer.with_actor(actor, fn account, scoped_actor ->
+      enqueue_reconciler(account.id, scoped_actor)
+    end)
   end
 
   @doc """
