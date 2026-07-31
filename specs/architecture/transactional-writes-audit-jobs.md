@@ -34,6 +34,41 @@ queued job later executes.
 request the same work repeatedly. Oban remains the single execution engine in
 both deployment modes.
 
+## A background job declares its own Account
+
+A job has no request behind it, so nothing upstream of it has installed the
+transaction-local Account settings that the row-level-security policies on
+every tenant table compare against. Since `AD-DATA-1` isolation became
+enforced at the database (the application connects as a role that cannot
+bypass row-level security), an undeclared connection sees no `pipeline_runs`
+row and may write none.
+
+That matters because AshOban touches the run row twice outside anything
+Cartulary controls: the worker reads the row back to confirm its trigger still
+applies, and the error handler writes the failed attempt. Undeclared, the read
+returns nothing and the runner cancels the job as `trigger_no_longer_applies`,
+and the write matches nothing and surfaces as a stale record — both of which
+look identical to "this work was already handled" while the work is in fact
+outstanding.
+
+The declaration therefore belongs to the actions themselves, not to their
+callers:
+
+- `PipelineRun.for_trigger` is a transactional read used by every trigger's
+  `worker_read_action`. `Cartulary.Pipeline.Preparations.DeclareAccount`
+  installs the query's tenant before the statement runs.
+- `PipelineRun.execute` and `PipelineRun.mark_failed` carry
+  `Cartulary.Pipeline.Changes.DeclareAccount`, which installs the updated row's
+  own Account inside the action's transaction.
+- `Cartulary.DataLayer.declare_account!/1` performs the installation and never
+  overwrites a declaration already in force, so an enclosing Account-scoped
+  transaction still wins and the change can never switch or widen tenancy.
+
+`execute` is transactional for that write only. Its Ash change runs the lane's
+Reactor in a `before_transaction` hook, which keeps the long-running work
+outside the transaction exactly as before while the short status write gains
+the declaration it needs.
+
 ## No external call inside an Account transaction
 
 A transaction owns a pooled PostgreSQL connection for its whole duration, and
@@ -151,7 +186,9 @@ actions will use the same append API.
 - actual AshOban execution through the ingest Reactor;
 - replay-safe knowledge/provenance/lifecycle behavior;
 - raw persistence while a configured model provider is unavailable;
-- deterministic audit-chain recomputation with no raw content in metadata; and
+- deterministic audit-chain recomputation with no raw content in metadata;
+- trigger execution and failure recording on a connection with no Account
+  declared, which is the state every background job actually starts from; and
 - registration of every transactional trigger, Reactor, category, and key
   family.
 

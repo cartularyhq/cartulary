@@ -143,6 +143,8 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
   alias Cartulary.Operations.PipelineRun
   alias Cartulary.Pipeline.Idempotency
 
+  require Ash.Query
+
   # Clears every credential a provider could pick up, so nothing here can reach a network
   # endpoint. The provider-outage test below deliberately writes a broken configuration back.
   # Both values are global to the node, so this module is not async and both are restored
@@ -293,6 +295,101 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
              )
 
     assert %NaiveDateTime{} = completed_at
+  end
+
+  test "a background job finds and finishes its run on a connection with no Account declared" do
+    assert {:ok, message} =
+             Memory.ingest_message(
+               ingest_attrs("f2-undeclared", "undeclared-session", sync_extract: false)
+             )
+
+    # The condition every background job actually meets, and the one nothing else in this
+    # file reproduces. A job runs with no request behind it, so the pooled connection its
+    # first query lands on has never had an Account declared to it, and the row-level
+    # security policy on `pipeline_runs` compares every row — read or written — against
+    # exactly that declaration.
+    #
+    # Under the SQL sandbox the ingest above leaves its declaration installed for the rest of
+    # this test, which hides that condition completely. Clearing it is what puts the
+    # connection back into the state the job runner meets in production.
+    clear_account_declaration!()
+
+    # Undeclared, the job's opening read of its own run row returns nothing. The job runner
+    # reads an empty result as "this record no longer matches the trigger" and cancels
+    # cleanly, so the queue reports neither a success nor a failure and the work is silently
+    # abandoned: ingest returns 200, nothing is ever extracted, and nothing is searchable.
+    assert %{success: 1, failure: 0, cancelled: 0, discard: 0} = Oban.drain_queue(queue: :ingest)
+
+    # Proof the job saw the row and wrote back to it: the observation is marked extracted,
+    # knowledge came out of it, and the run reached `completed`. The status write is the half
+    # that the read fix alone would not cover — an undeclared UPDATE matches no row, which
+    # Ash raises as a stale record and the runner also turns into a cancellation.
+    assert %{rows: [[completed_at, 1, "completed"]]} =
+             Ecto.Adapters.SQL.query!(
+               Repo,
+               """
+               SELECT message.extraction_completed_at,
+                      (SELECT count(*) FROM knowledge_items
+                       WHERE $1 = ANY(source_message_ids)),
+                      run.status
+               FROM messages AS message
+               JOIN pipeline_runs AS run ON run.target_id = message.id
+               WHERE message.id = $1 AND run.kind = 'extraction'
+               """,
+               [Ecto.UUID.dump!(message["id"])]
+             )
+
+    assert %NaiveDateTime{} = completed_at
+  end
+
+  test "the failure path records an attempt on a connection with no Account declared" do
+    assert {:ok, message} =
+             Memory.ingest_message(
+               ingest_attrs("f2-undeclared-failure", "undeclared-failure-session",
+                 sync_extract: false
+               )
+             )
+
+    account_id = account_id!("f2-undeclared-failure")
+
+    # Loading the run and its internal actor through the ordinary scoped helper, so the only
+    # thing this test changes about the write below is whether an Account is declared.
+    {run, actor} =
+      DataLayer.with_account_id(account_id, [role: :system, pipeline?: true], fn _account,
+                                                                                 actor ->
+        run =
+          PipelineRun
+          |> Ash.Query.set_tenant(account_id)
+          |> Ash.Query.filter(kind == "extraction")
+          |> Ash.read_one!(actor: actor)
+
+        {run, actor}
+      end)
+
+    assert run.target_id == message["id"]
+
+    # The job runner invokes this action from its error handler, which runs after the work
+    # has already failed and outside any transaction of ours — the same undeclared connection
+    # as the trigger read. If the attempt cannot be recorded there, a run that exhausted its
+    # retries is left looking pending forever and the reconciler keeps re-queueing it.
+    clear_account_declaration!()
+
+    # The job runner marks this context on everything it does, and the resource's policy
+    # bypasses role checks for it — a background job carries no authenticated caller. Setting
+    # it here is what leaves the database wall as the only thing the write still has to
+    # satisfy, which is the thing under test.
+    assert {:ok, failed} =
+             run
+             |> Ash.Changeset.new()
+             |> Ash.Changeset.set_tenant(account_id)
+             |> Ash.Changeset.set_context(%{private: %{ash_oban?: true}})
+             |> Ash.Changeset.for_action(:mark_failed, %{error: %RuntimeError{message: "boom"}})
+             |> Ash.update(actor: actor)
+
+    assert failed.status == "failed"
+    assert failed.attempt_count == run.attempt_count + 1
+    # Only a classification is stored; the message the error carried never reaches the row.
+    assert failed.last_error_class == "RuntimeError"
   end
 
   test "pipeline replay merges provenance and never duplicates knowledge or lifecycle" do
@@ -580,6 +677,16 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
       "content" => "Avery prefers concise weekly release summaries."
     }
     |> Map.merge(Map.new(overrides, fn {key, value} -> {to_string(key), value} end))
+  end
+
+  # Puts this connection back into the state a freshly checked-out one is in: no Account
+  # declared, so every row-level-security policy on a tenant table denies until something
+  # declares one. That is the state every background job starts from, and the sandbox
+  # otherwise hides it, because the seeding transaction's declaration lasts for the whole
+  # test. The settings are transaction-local, so this affects only the running test.
+  defp clear_account_declaration! do
+    Ecto.Adapters.SQL.query!(Repo, "SELECT set_config('cartulary.account_id', '', true)", [])
+    Ecto.Adapters.SQL.query!(Repo, "SELECT set_config('cartulary.account_key', '', true)", [])
   end
 
   # Resolves the Account identifier as text, because the counting queries below compare it
