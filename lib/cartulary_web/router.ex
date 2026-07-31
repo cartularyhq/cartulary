@@ -60,12 +60,14 @@ defmodule CartularyWeb.Router do
 
       # This surface accepts raw observations; only the pipeline writes knowledge.
       post "/ingest", MemoryController, :ingest
+      get "/ingest/:message_id", MemoryController, :ingest_status
       post "/ask", MemoryController, :ask
       post "/search", MemoryController, :search
       post "/context", MemoryController, :context
       post "/readiness", MemoryController, :readiness
       get "/knowledge", MemoryController, :knowledge
       get "/operations/costs", MemoryController, :costs
+      post "/operations/reconcile", MemoryController, :reconcile
     end
   end
 

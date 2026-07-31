@@ -9,8 +9,9 @@ defmodule Cartulary.Retrieval.Engine do
   candidates, then a model may rerank the fused head.
 
   The budget includes profile resolution, strategies, and reranking. Timeouts are killed without
-  retry and reported as dropped; reranker failure preserves fusion order. Strategies normally run
-  concurrently; tests may run them serially against one sandbox connection.
+  retry and reported as dropped, as is a strategy whose dependency was unavailable; reranker
+  failure preserves fusion order. Strategies normally run concurrently; tests may run them
+  serially against one sandbox connection.
 
   Each strategy runs in its own Account transaction and must filter scope, lifecycle, and
   provisional subjects before returning candidates. This module does no post-filtering.
@@ -39,7 +40,8 @@ defmodule Cartulary.Retrieval.Engine do
 
   Raises `ArgumentError` for an unknown profile or strategy name, or for a
   strategy list from a non-internal caller. A strategy killed by the deadline
-  never raises; it is reported as dropped. On the concurrent path an exception
+  never raises, nor does one that reported itself unable to run; both are
+  reported as dropped. On the concurrent path an exception
   inside a strategy is likewise reported as a dropped strategy, because the
   task exit is indistinguishable from a timeout; on the serial path it
   propagates to the caller.
@@ -126,7 +128,14 @@ defmodule Cartulary.Retrieval.Engine do
 
       completed =
         for {:ok, {strategy, candidates}} <- results,
+            is_list(candidates),
             do: {strategy, candidates}
+
+      # A strategy that could not run at all — an unavailable embedder, say — is
+      # degradation, not absence, so it joins the dropped list rather than
+      # contributing an empty result the caller would read as "nothing matched".
+      unavailable =
+        for {:ok, {strategy, {:error, _reason}}} <- results, do: strategy
 
       # Task exits lack strategy names. Ordered results make this positional lookup safe; changing
       # result order would misattribute drops. Concurrent crashes are also reported as dropped.
@@ -138,7 +147,7 @@ defmodule Cartulary.Retrieval.Engine do
           {{:exit, _reason}, index} -> [Enum.at(applicable, index).name()]
         end)
 
-      {completed, timed_out}
+      {completed, unavailable ++ timed_out}
     end
   end
 

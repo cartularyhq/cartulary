@@ -18,7 +18,7 @@ flowchart LR
         D[Oban extraction job]
     end
     REQ[POST /api/v1/ingest] --> TX
-    TX --> RESP[200 with the stored message]
+    TX --> RESP[202 with message id and accepted status]
 ```
 
 All four commit or roll back together, preventing observations without audit
@@ -27,8 +27,7 @@ participates in the transaction.
 
 ## What happens after the response
 
-Extraction runs inline by default and can be moved to the background with
-`sync_extract: false`. Either way, the work is the same:
+Extraction always runs after the response in the durable `ingest` job lane:
 
 ```mermaid
 sequenceDiagram
@@ -74,7 +73,7 @@ failure.
 
 Every background job declares the Account from its queue row before accessing
 Account-owned data. Without that transaction-local Account, row-level security
-returns no rows: ingest could return `200` while extraction finds nothing. This
+returns no rows: ingest could return `202` while extraction finds nothing. This
 is automatic and has no operator setting.
 
 ### Structured extraction, not free text
@@ -95,7 +94,8 @@ Extraction also does three things a naive extractor gets wrong:
 
 Deterministic idempotency keys make replay merge provenance instead of creating
 duplicate statements. The reconciler finds durable records whose jobs never
-ran.
+ran. Account administrators can enqueue it independently with
+`POST /api/v1/operations/reconcile`.
 
 ### A provider outage delays freshness; it does not lose data
 

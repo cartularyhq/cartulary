@@ -91,11 +91,14 @@ defmodule Cartulary.Eval.Runner do
           |> Map.update!(:session_id, &"#{scope_path}:#{&1}")
           |> Map.put(:scope_path, scope_path)
           |> Map.put(:account_key, account_key)
-          # Extraction must finish before this case is questioned. Leaving it to the
-          # background queue would race the questions against the knowledge they need.
-          |> Map.put(:sync_extract, true)
 
-        {message, Memory.ingest_message(attrs)}
+        result =
+          with {:ok, stored} <- Memory.ingest_message(attrs),
+               {:ok, _knowledge} <- Memory.extract_message(stored["id"], account_key) do
+            {:ok, stored}
+          end
+
+        {message, result}
       end)
 
     ref_map = build_ref_map(ingested)

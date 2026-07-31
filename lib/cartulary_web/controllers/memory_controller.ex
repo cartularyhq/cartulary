@@ -12,6 +12,7 @@ defmodule CartularyWeb.MemoryController do
 
   alias Cartulary.Memory
   alias Cartulary.Operations.Health
+  alias Cartulary.Pipeline
 
   @doc """
   Liveness probe. Unauthenticated, and touches no database or queue.
@@ -47,15 +48,36 @@ defmodule CartularyWeb.MemoryController do
   end
 
   @doc """
+  Enqueues a reconciliation sweep for the authenticated operator's Account.
+
+  Returns 202 with the durable run id. Only account administrators and internal
+  system actors may request the sweep; the Account never comes from parameters.
+  """
+  def reconcile(conn, _params) do
+    actor = conn.assigns.current_actor
+
+    if actor.role in [:account_admin, :system] do
+      {:ok, run} = Pipeline.request_reconciliation(actor)
+
+      conn
+      |> put_status(:accepted)
+      |> json(%{data: %{run_id: run.id, status: "accepted"}})
+    else
+      conn |> put_status(:forbidden) |> json(%{error: "Forbidden"})
+    end
+  end
+
+  @doc """
   Records one raw observation. This is the only write path an agent has.
 
-    Body fields: `session_id` and `scope_path` and `content` are required; `role`
-    defaults to `"user"`, and `occurred_at` and `sync_extract` are optional. Missing
-    scopes, the session, and its scope/participant links are created on demand, so a
-    client does not have to provision topology before speaking.
+    Body fields: `session_id`, `scope_path`, and `content` are required; `role`
+    defaults to `"user"`, and `occurred_at` is optional. Missing scopes, the
+    session, and its scope/participant links are created on demand, so a client
+    does not have to provision topology before speaking.
 
-    Returns `%{"data" => message}`. Unless `sync_extract` is `false`, extraction runs
-    inline and the message also carries a `knowledge` list of the items just proposed.
+    Returns 202 with `%{"data" => %{"message_id" => id, "status" =>
+    "accepted"}}` after the observation and extraction job commit. No model call
+    runs in the request.
 
     Raises when a required field is absent, which surfaces as a server-error status
     rather than a partially written session.
@@ -65,7 +87,26 @@ defmodule CartularyWeb.MemoryController do
       params
       |> Memory.ingest_message(conn.assigns.current_actor)
 
-    json(conn, %{data: message})
+    conn
+    |> put_status(:accepted)
+    |> json(%{data: %{message_id: message["id"], status: "accepted"}})
+  end
+
+  @doc """
+  Reports extraction status for one accepted observation.
+
+  Returns pending, failed, or completed state with the completion timestamp,
+  visible governed knowledge, the last content-safe error class, and the durable
+  attempt count. A missing or unauthorized message returns 404.
+  """
+  def ingest_status(conn, %{"message_id" => message_id}) do
+    case Memory.ingest_status(message_id, conn.assigns.current_actor) do
+      {:ok, status} ->
+        json(conn, %{data: Map.put(status, "message_id", message_id)})
+
+      {:error, :not_found} ->
+        conn |> put_status(:not_found) |> json(%{error: "Not found"})
+    end
   end
 
   @doc """

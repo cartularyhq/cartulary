@@ -34,6 +34,7 @@ defmodule Cartulary.Memory do
   alias Cartulary.Observations.Session
   alias Cartulary.Observations.SessionParticipant
   alias Cartulary.Observations.SessionScope
+  alias Cartulary.Operations.PipelineRun
   alias Cartulary.Pipeline.Extractor
   alias Cartulary.Pipeline.Idempotency
   alias Cartulary.Pipeline.Lock
@@ -49,7 +50,7 @@ defmodule Cartulary.Memory do
   @default_limit 12
 
   @doc """
-  Persists one raw observation and, by default, returns the knowledge extracted from it.
+  Persists one raw observation and enqueues extraction before returning.
 
   `attrs` may use atom or string keys; they are normalized to strings.
   `"scope_path"`, `"session_id"`, and `"content"` are required and a missing
@@ -60,8 +61,6 @@ defmodule Cartulary.Memory do
   - `"role"` — speaker role, defaults to `"user"`.
   - `"occurred_at"` — `DateTime` or ISO 8601 string. Anything unparseable
     becomes the current time rather than failing the request.
-  - `"sync_extract"` — pass `false` to return as soon as the observation is
-    durable and leave extraction entirely to the queued job.
   - `"account_key"` or `"account_id"` — internal Account selection, consulted
     only when `identity_actor` is `nil`.
 
@@ -71,29 +70,22 @@ defmodule Cartulary.Memory do
   `"peer_key"` path creates a Peer that does not exist yet.
 
   Returns `{:ok, message}`, where `message` holds the message's public
-  attributes with string keys plus a `"knowledge"` list when extraction ran
-  inline.
+  attributes with string keys. Extraction never runs in the caller. The
+  observation, content-safe audit entry, pipeline run, and Oban job commit
+  together before this function returns.
 
   Failure modes: the durable writes use raising Ash calls, so an authorization
-  or validation failure raises instead of returning an error tuple. If inline
-  extraction fails — an unreachable model provider being the common case — this
-  raises `MatchError`. The observation itself is already committed together
-  with its queued extraction job at that point, so nothing is lost and the job
-  retries the work.
+  or validation failure raises instead of returning an error tuple. Model
+  provider failures happen later in the durable job and cannot turn an accepted
+  observation into a caller-visible ingest error.
   """
   def ingest_message(attrs, identity_actor \\ nil) do
     Observability.with_span(:memory, "cartulary.memory.ingest_message", fn ->
       attrs = attrs |> normalize_attrs() |> put_identity_actor(identity_actor)
-      sync_extract? = Map.get(attrs, "sync_extract", true)
-      # Creating the message always enqueues a durable extraction job in the same
-      # transaction, so this trace attribute is a constant recording that fact.
-      # "sync_extract" only decides whether the caller also waits for an inline run.
-      enqueue_extract? = true
 
       # Content-safe tracing: the message's role and length, never its text.
       Observability.set_attributes(:memory, %{
-        "cartulary.ingest.sync_extract" => sync_extract?,
-        "cartulary.ingest.enqueue_extract" => enqueue_extract?,
+        "cartulary.ingest.enqueue_extract" => true,
         "cartulary.message.role" => Map.get(attrs, "role", "user"),
         "cartulary.message.content_length" =>
           String.length(to_string(Map.get(attrs, "content", "")))
@@ -142,33 +134,39 @@ defmodule Cartulary.Memory do
         end)
 
       Observability.set_attribute(:memory, "cartulary.message.id", message["id"])
+      {:ok, message}
+    end)
+  end
 
-      # The observation is durable from here on. Inline extraction runs in its own
-      # transaction and is replay-safe: the queued job hashes the same statement,
-      # takes the same advisory lock, and merges instead of writing a duplicate.
-      if sync_extract? do
-        {:ok, knowledge} =
-          case identity_actor(attrs) do
-            %Actor{account_id: account_id} ->
-              extract_message_for_account(message["id"], account_id)
+  @doc """
+  Reports durable extraction state for one raw message visible to the caller.
 
-            # Internal callers that supplied only an Account id and asked for
-            # inline extraction hit this `Map.fetch!` and raise: pass
-            # "account_key", or let the queued job do the extraction.
-            nil ->
-              extract_message(message["id"], Map.fetch!(attrs, "account_key"))
-          end
+  The Account comes from `identity_actor`. Message and pipeline-run reads use
+  the same scope policy as ordinary message reads. Completed results include
+  only governed knowledge the caller may currently read: active knowledge and
+  the calling peer's own provisional knowledge.
 
-        Observability.set_attribute(
-          :memory,
-          "cartulary.knowledge.created_count",
-          length(knowledge)
-        )
+  Returns `{:ok, status}` with `"status"`, `"extraction_completed_at"`,
+  `"knowledge"`, `"last_error_class"`, and `"attempt_count"`, or
+  `{:error, :not_found}` when the message does not exist or is outside the
+  caller's Account or authorized scopes.
+  """
+  def ingest_status(message_id, %Actor{} = identity_actor) when is_binary(message_id) do
+    case Ecto.UUID.cast(message_id) do
+      {:ok, message_id} -> do_ingest_status(message_id, identity_actor)
+      :error -> {:error, :not_found}
+    end
+  end
 
-        {:ok, Map.put(message, "knowledge", knowledge)}
-      else
-        {:ok, message}
-      end
+  defp do_ingest_status(message_id, identity_actor) do
+    Observability.with_span(:memory, "cartulary.memory.ingest_status", fn ->
+      Observability.set_attribute(:memory, "cartulary.message.id", message_id)
+
+      %{}
+      |> put_identity_actor(identity_actor)
+      |> with_account(fn account, actor ->
+        read_ingest_status(account.id, actor, message_id)
+      end)
     end)
   end
 
@@ -459,8 +457,10 @@ defmodule Cartulary.Memory do
   The answer is grounded twice over: the model sees nothing but the retrieved
   statements, and every citation it returns is dropped unless it matches an id
   that was actually retrieved for this question. An answer whose citations all
-  fail that check is replaced by an abstention, so a caller may rely on every
-  id in `"citations"` being real and retrieved.
+  fail that check is replaced by an empty abstention, so a caller may rely on
+  every id in `"citations"` being real and retrieved. A cited answer may also
+  carry `"abstained" => true`; that combination means the statements support
+  the returned qualification or inference but do not establish a conclusion.
 
   When the deployment has no real model configured, and when a configured
   provider errors, the reply falls back to concatenating the top retrieved
@@ -1216,6 +1216,55 @@ defmodule Cartulary.Memory do
     |> Ash.Query.filter(scope_id in ^scope_ids and state == ^state)
   end
 
+  defp ingest_run_status(%{extraction_completed_at: completed_at}, _run)
+       when not is_nil(completed_at),
+       do: "completed"
+
+  defp ingest_run_status(_message, %{status: "failed"}), do: "failed"
+  defp ingest_run_status(_message, _run), do: "pending"
+
+  defp read_ingest_status(account_id, actor, message_id) do
+    message =
+      Message
+      |> Ash.Query.filter(id == ^message_id)
+      |> Ash.Query.set_tenant(account_id)
+      |> Ash.read_one!(actor: actor)
+
+    if message do
+      {:ok, ingest_status_map(account_id, actor, message)}
+    else
+      {:error, :not_found}
+    end
+  end
+
+  defp ingest_status_map(account_id, actor, message) do
+    run =
+      PipelineRun
+      |> Ash.Query.for_read(:ingest_status, %{message_id: message.id})
+      |> Ash.Query.set_tenant(account_id)
+      |> Ash.read_one!(actor: actor)
+
+    %{
+      "status" => ingest_run_status(message, run),
+      "extraction_completed_at" => message.extraction_completed_at,
+      "knowledge" => ingest_status_knowledge(account_id, actor, message),
+      "last_error_class" => run && run.last_error_class,
+      "attempt_count" => (run && run.attempt_count) || 0
+    }
+  end
+
+  defp ingest_status_knowledge(_account_id, _actor, %{extraction_completed_at: nil}), do: []
+
+  defp ingest_status_knowledge(account_id, actor, message) do
+    [message.scope_id]
+    |> knowledge_read_query("active", actor)
+    |> Ash.Query.filter(^message.id in source_message_ids)
+    |> Ash.Query.sort(inserted_at: :asc, id: :asc)
+    |> Ash.Query.set_tenant(account_id)
+    |> Ash.read!(actor: actor)
+    |> Enum.map(&record_to_map/1)
+  end
+
   defp identity_actor(%{"_cartulary_actor" => %Actor{} = actor}), do: actor
   defp identity_actor(_attrs), do: nil
 
@@ -1282,7 +1331,9 @@ defmodule Cartulary.Memory do
     prompt = """
     Answer the question using only the cited Cartulary memory statements.
     Return JSON: {"answer":"...", "citations":["knowledge-id"], "abstained":false}.
-    If the statements do not answer the question, return {"answer":"not known", "citations":[], "abstained":true}.
+    If the statements support a conclusion but do not establish it, return one sentence: {"answer":"The recorded statements do not establish this, but <what they do support>.", "citations":["knowledge-id"], "abstained":true}.
+    Keep the qualifier and supported inference in that one sentence, and cite every statement the inference rests on.
+    If no statement bears on the question, return {"answer":"not known", "citations":[], "abstained":true}.
 
     Question: #{question}
 
@@ -1310,15 +1361,18 @@ defmodule Cartulary.Memory do
         cited_ids = candidates |> MapSet.new(& &1["id"])
         citations = Enum.filter(decoded.citations, &MapSet.member?(cited_ids, &1))
 
-        # An answer with no surviving citation is unsupported prose, so it is
-        # replaced by an abstention rather than returned uncited.
-        if decoded.abstained or citations == [] do
+        # An answer with no surviving citation is unsupported prose, whatever
+        # the model claimed about certainty, so it is replaced rather than
+        # returned uncited. With grounding intact, abstention remains an
+        # independent admission that the evidence supports the qualified text
+        # without establishing a conclusion.
+        if citations == [] do
           fallback_answer(question, [])
         else
           %{
             "answer" => decoded.answer,
             "citations" => citations,
-            "abstained" => false
+            "abstained" => decoded.abstained
           }
         end
 

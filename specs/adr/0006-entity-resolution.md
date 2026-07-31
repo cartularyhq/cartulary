@@ -6,6 +6,10 @@ Accepted. One sub-question is inherited from ADR 0004 and left open for the
 maintainer: whether any retrieval strategy may be enterprise-gated (see the Open
 question section).
 
+The public-surface boundary was reconsidered in
+[#73](https://github.com/cartularyhq/cartulary/issues/73) and retained. A
+reader-projected entity browser is not an exception to this decision.
+
 This ADR adds two derived resources, one dream-time pipeline stage, and one
 retrieval strategy. It adds nothing to the public API surface — the new
 resources are deliberately unreadable through every external surface — so this
@@ -62,6 +66,27 @@ LiveView endpoint returns entity rows, alias lists, or canonical names. An
 entity from a restricted statement could otherwise leak its referent. Entities
 are retrieval-internal only, enforced by a deterministic PR-gate test
 (`AD-EVAL-3`).
+
+### Reader-projected entity browsing is rejected
+
+Recomputing labels and aliases from only the statements a reader may see would
+prevent direct disclosure of stored entity fields. It would still disclose the
+resolver's clustering: that two otherwise separate statements refer to the
+same thing. That relationship is new information, not a restatement of either
+authorized statement.
+
+The projection would also require an actor-specific live query over an
+account-global cache. It could not be reused between readers, and every change
+to scope resolution, policies, or entity resolution would expand the audit
+surface. Most importantly, it would replace the structural rule that entity
+read actions are pipeline-only with a review-dependent exception.
+
+Public investigation therefore stays statement-shaped. Authorized readers may
+search and browse knowledge, then follow visible provenance, supersession, and
+knowledge relations. `EntityMatch` may use clustering internally to rank those
+statements, but no response groups them by entity or returns a stable or opaque
+entity handle. This preserves `FR-KN-21` while serving the curator workflow
+through the governed atom.
 
 **Erasure recomputes entities.** `FR-GOV-15` and `FR-GOV-16` recompute every
 entity derived from an erased statement and prune entities with no surviving
@@ -154,6 +179,8 @@ reserved.
   does not depend on entities, so disclosure risk does not expand.
 - Public invisibility is enforced by an exhaustive PR-gate test rather than the
   stronger structural defenses used for account isolation.
+- Curator investigations use authorized statements and their visible
+  provenance and relations; there is no entity-grouped browse view.
 
 ## Staging
 

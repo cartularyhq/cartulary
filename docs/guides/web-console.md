@@ -21,7 +21,7 @@ Agent API keys work on JSON and MCP, never the console.
 | `/console` | Overview: totals, lifecycle and sensitivity mix, what is waiting, recent activity |
 | `/console/knowledge` | The explorer: filter, page, and search every statement you can read |
 | `/console/knowledge/<id>` | One statement in full, with its evidence, history, and the actions open to you |
-| `/console/scopes` | The containment tree as a directory, with counts, your role, and lateral links |
+| `/console/scopes` | The containment tree as a directory, with counts, index coverage, your role, and lateral links |
 | `/console/graph` | The same data drawn as a graph of scopes, statements, and cross-references |
 | `/console/sources` | Documents, their versions, connectors, sessions, and raw observations |
 | `/console/skills` | Skill requirement cards, and a live readiness check for yourself |
@@ -62,6 +62,22 @@ not enumerate.
 
 Retrieval requires a scope. Searching `/team/project` also searches `/team`
 and `/`. A miss means nothing ranked, not that the exhaustive browser is empty.
+
+## Index coverage
+
+`/console/scopes` reports, per scope, how many of its statements carry an
+embedding (**Indexed**) and how many entity mentions were resolved from them
+(**Mentions**), plus the embedding model in use.
+
+Statements are durable; those two are derived caches rebuilt in the background.
+A scope can therefore hold every statement and answer nothing semantically —
+word-based search keeps working, which is what makes the gap easy to miss. When
+Indexed is lower than Statements the figure is highlighted, and semantic and
+entity recall are degraded for that scope until its refresh runs again. Two
+embedding models listed for one scope means part of it predates a model change
+and must be re-embedded before those statements are comparable again.
+
+Coverage counts only. Mentions is a number, never a list of names.
 
 ## The statement page
 
@@ -154,7 +170,10 @@ complete.
   whose rows span every scope that ever mentioned a name. Showing them would
   carry names across the boundary the scope tree exists to keep, so no
   canonical name, alias, surface form, or entity identifier appears anywhere in
-  the console — including the graph.
+  the console — including the graph. To investigate a subject's visible
+  footprint, use scoped retrieval in the knowledge explorer, then inspect each
+  statement's provenance, supersession chain, and visible relations. The
+  console never groups those results by a resolved entity.
 - **Embedding vectors and document chunks.** Rebuildable derived caches with no
   meaning to a reader. Chunk counts are shown; chunk contents are not.
 - **Credentials.** Password hashes, API key hashes, and connector secrets are
