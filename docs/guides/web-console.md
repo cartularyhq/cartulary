@@ -20,13 +20,13 @@ Agent API keys work on JSON and MCP, never the console.
 | --- | --- |
 | `/console` | Overview: totals, lifecycle and sensitivity mix, what is waiting, recent activity |
 | `/console/knowledge` | The explorer: filter, page, and search every statement you can read |
-| `/console/knowledge/<id>` | One statement in full, with its evidence, history, and the actions open to you |
+| `/console/knowledge/<id>` | One statement in full, with its evidence, history, readable shared-entity neighbours, and available actions |
 | `/console/scopes` | The containment tree as a directory, with counts, your role, and lateral links |
 | `/console/graph` | The same data drawn as a graph of scopes, statements, and cross-references |
 | `/console/sources` | Documents, their versions, connectors, sessions, and raw observations |
 | `/console/skills` | Skill requirement cards, and a live readiness check for yourself |
 | `/console/me` | Everything recorded about you, and your consent and erasure controls |
-| `/console/operations` | Account admins only: readiness, usage and cost, gate rules, retrieval tunings |
+| `/console/operations` | Account admins only: readiness, usage and cost, entity-resolution quality, gate rules, retrieval tunings |
 | `/governance` | Curators and account admins only: the gate queue and skill-card authoring |
 
 Navigation hides inaccessible pages, but every destination independently
@@ -77,6 +77,8 @@ Everything the system holds about one claim is on `/console/knowledge/<id>`:
 - the raw observations and document versions it was extracted from, in full;
 - its lifecycle timeline, and for curators the immutable gate decisions;
 - its relations in both directions and the supersession chain it belongs to.
+- the count and links for other statements that share a resolved entity and
+  pass your scope and lifecycle visibility rules.
 
 Unreadable cross-references are omitted. Missing and unauthorized statement ids
 both return "not found".
@@ -154,7 +156,9 @@ complete.
   whose rows span every scope that ever mentioned a name. Showing them would
   carry names across the boundary the scope tree exists to keep, so no
   canonical name, alias, surface form, or entity identifier appears anywhere in
-  the console — including the graph.
+  the console — including the graph. Account admins see only aggregate cache
+  quality signals on the operations page. Statement detail may link readable
+  statements that share an entity without naming that entity.
 - **Embedding vectors and document chunks.** Rebuildable derived caches with no
   meaning to a reader. Chunk counts are shown; chunk contents are not.
 - **Credentials.** Password hashes, API key hashes, and connector secrets are

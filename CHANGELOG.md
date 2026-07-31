@@ -184,6 +184,15 @@ changelog entry and contract-version transition.
 
 ### Added
 
+- Entity-resolution quality is now observable without making the private
+  entity cache public. The account-admin operations page reports entity and
+  mention counts, observed-alias buckets, singleton-entity rate, and
+  mentions-per-entity p50/p95. Statement detail reports and links only the
+  other statements that share an entity and pass the reader's scope,
+  lifecycle, soft-delete, and provisional-subject filters. The reviewed
+  read-only store returns aggregates or authorized statement ids only; entity
+  ids, canonical names, aliases, and surface forms remain pipeline-internal.
+  No route or contract identity changed.
 - Two off-by-default switches let an operator declare an Account or a whole
   deployment has no real human governance participant, and auto-grant the
   subject-consent step `Cartulary.Governance.Engine` otherwise blocks on for

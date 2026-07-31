@@ -155,6 +155,11 @@ Details: `specs/architecture/documents-connectors-sync.md`.
 - Entity and EntityMention rows are internal rebuildable caches. They are never
   exposed through HTTP, MCP, SDK, LiveView, projections, or retrieval
   responses.
+- The account-admin operations page exposes content-free resolution health:
+  cache counts, observed-alias buckets, singleton rate, and
+  mentions-per-entity p50/p95. Statement detail exposes only the count and
+  links for co-mentioned statements that the reader can already read; no
+  entity identity or surface form crosses the retrieval boundary.
 - Incremental peer profile, scope card, and session summary projections with
   dirty marking, bounded delta compaction, and PubSub-backed ETS invalidation.
 - `get_context` assembles its budget from clean projections and stays

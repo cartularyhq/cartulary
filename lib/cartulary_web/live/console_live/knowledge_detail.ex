@@ -390,6 +390,49 @@ defmodule CartularyWeb.ConsoleLive.KnowledgeDetail do
       </.panel>
 
       <.panel
+        title="Shared-entity neighbors"
+        description="Statements that share at least one resolved entity with this one. The count and links include only scopes and lifecycle states you may read."
+      >
+        <div class="tiles">
+          <.tile
+            label="Other statements"
+            value={@detail.co_mentions_count}
+            note="sharing a resolved entity"
+          />
+        </div>
+
+        <.empty
+          :if={@detail.co_mentions == []}
+          message="No other readable statement shares a resolved entity with this one."
+        />
+
+        <table :if={@detail.co_mentions != []} class="grid">
+          <thead>
+            <tr>
+              <th>Statement</th>
+              <th>Scope</th>
+              <th>State</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={item <- @detail.co_mentions}>
+              <td>
+                <.link navigate={~p"/console/knowledge/#{item.id}"}>
+                  {truncate(item.statement, 160)}
+                </.link>
+              </td>
+              <td class="nowrap">{item.scope_path || "(unreadable scope)"}</td>
+              <td><.badge family="state" value={item.state} /></td>
+            </tr>
+          </tbody>
+        </table>
+        <p :if={@detail.co_mentions_truncated?} class="hint">
+          Showing the first {length(@detail.co_mentions)} readable statements. The count includes
+          every readable match.
+        </p>
+      </.panel>
+
+      <.panel
         title="Cross-references"
         description="Relations, conflicts, and the supersession chain. A link to a statement you cannot read is omitted entirely rather than shown as a dead id."
       >

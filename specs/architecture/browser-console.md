@@ -123,6 +123,15 @@ renders:
 
 Rendered text never enters logs, telemetry, audit entries, or job arguments.
 
+The entity non-exposure rule permits two content-free diagnostics. The
+account-admin operations page receives only Account-wide counts, rates,
+quantiles, and alias-count buckets from the reviewed retrieval store. Statement
+detail receives only a count and capped ids of other statements sharing an
+entity after the store applies the reader's authorized scopes and console
+lifecycle rules; the loader then reads those statements through ordinary Ash
+policies. Entity ids, names, aliases, surface forms, and mention rows never
+reach a LiveView.
+
 ## Graph rendering
 
 The graph is deterministic server-side inline SVG because:
