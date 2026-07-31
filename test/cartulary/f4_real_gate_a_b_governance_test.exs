@@ -870,8 +870,8 @@ defmodule Cartulary.F4RealGateABGovernanceTest do
   end
 
   # Submits one observation as the given human and returns the single knowledge item it
-  # produced. Extraction runs inline here, so the gates have already run by the time the item
-  # comes back — every test in this file starts from a governed item, never a raw row.
+  # produced. The direct extraction entrypoint runs the gates before the item comes back, so
+  # every test in this file starts from a governed item, never a raw row.
   defp ingest!(actor, session_id, scope_path, content) do
     {:ok, message} =
       Memory.ingest_message(
@@ -884,7 +884,10 @@ defmodule Cartulary.F4RealGateABGovernanceTest do
         actor
       )
 
-    message["knowledge"] |> hd() |> Map.fetch!("id") |> knowledge_for!(actor)
+    {:ok, [knowledge]} =
+      Memory.extract_message_for_account(message["id"], actor.account_id)
+
+    knowledge |> Map.fetch!("id") |> knowledge_for!(actor)
   end
 
   # Proposes a personal item directly at the given target level, the way real structured

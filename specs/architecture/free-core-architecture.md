@@ -178,7 +178,9 @@ The complete free core exposes these operations once as Ash actions and adapts
 them to each surface:
 
 - Agent-facing writes: `ingest`, `add_message`, document ingest, connector sync
-  submit. These persist raw observations only.
+  submit. These persist raw observations only and return before model work.
+- Observation progress: the Account- and scope-authorised ingest-status read;
+  operators can enqueue an Account reconciliation sweep independently.
 - Reads: `get_context`, `ask`, `search`, `query_knowledge`, `check_readiness`.
 - Peer inline validation over MCP: `resolve_validation` and
   `set_ask_preference`, restricted to the calling peer's own pending questions

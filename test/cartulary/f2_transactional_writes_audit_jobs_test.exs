@@ -77,6 +77,8 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
 
   use Cartulary.DataCase, async: false
 
+  import ExUnit.CaptureLog
+
   alias Cartulary.Clock
   alias Cartulary.DataLayer
   alias Cartulary.Governance.Audit
@@ -114,9 +116,7 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
 
   test "raw observation, content-safe audit, pipeline run, and AshOban job commit together" do
     assert {:ok, message} =
-             Memory.ingest_message(
-               ingest_attrs("f2-commit", "commit-session", sync_extract: false)
-             )
+             Memory.ingest_message(ingest_attrs("f2-commit", "commit-session"))
 
     account_id = account_id!("f2-commit")
 
@@ -167,9 +167,7 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
 
   test "forced failure after audit and enqueue rolls back raw write, audit, run, and job" do
     assert {:ok, _seed} =
-             Memory.ingest_message(
-               ingest_attrs("f2-rollback", "seed-session", sync_extract: false)
-             )
+             Memory.ingest_message(ingest_attrs("f2-rollback", "seed-session"))
 
     # Snapshot of message, audit, processing-record, and job counts taken before the doomed
     # write. The seed ingest above exists so these counts start non-zero and a rollback that
@@ -210,10 +208,10 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
   end
 
   test "AshOban extraction executes the ingest Reactor and marks durable processing complete" do
-    # `sync_extract: false` returns as soon as the observation is durable, leaving the work to
-    # the queue, so this test exercises the real background path rather than the inline one.
+    # Ingest returns as soon as the observation is durable, leaving the work to the queue, so
+    # this test exercises the normal background path.
     assert {:ok, message} =
-             Memory.ingest_message(ingest_attrs("f2-drain", "drain-session", sync_extract: false))
+             Memory.ingest_message(ingest_attrs("f2-drain", "drain-session"))
 
     # Runs the queued job in this process. It can see the test's uncommitted rows only because
     # the sandbox connection is shared, which is why this module cannot be async.
@@ -242,9 +240,7 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
 
   test "a background job finds and finishes its run on a connection with no Account declared" do
     assert {:ok, message} =
-             Memory.ingest_message(
-               ingest_attrs("f2-undeclared", "undeclared-session", sync_extract: false)
-             )
+             Memory.ingest_message(ingest_attrs("f2-undeclared", "undeclared-session"))
 
     # The condition every background job actually meets, and the one nothing else in this
     # file reproduces. A job runs with no request behind it, so the pooled connection its
@@ -288,9 +284,7 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
   test "the failure path records an attempt on a connection with no Account declared" do
     assert {:ok, message} =
              Memory.ingest_message(
-               ingest_attrs("f2-undeclared-failure", "undeclared-failure-session",
-                 sync_extract: false
-               )
+               ingest_attrs("f2-undeclared-failure", "undeclared-failure-session")
              )
 
     account_id = account_id!("f2-undeclared-failure")
@@ -321,18 +315,49 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
     # bypasses role checks for it — a background job carries no authenticated caller. Setting
     # it here is what leaves the database wall as the only thing the write still has to
     # satisfy, which is the thing under test.
-    assert {:ok, failed} =
-             run
-             |> Ash.Changeset.new()
-             |> Ash.Changeset.set_tenant(account_id)
-             |> Ash.Changeset.set_context(%{private: %{ash_oban?: true}})
-             |> Ash.Changeset.for_action(:mark_failed, %{error: %RuntimeError{message: "boom"}})
-             |> Ash.update(actor: actor)
+    log =
+      capture_log(
+        [
+          level: :error,
+          metadata: [
+            :account_id,
+            :scope_id,
+            :pipeline_run_id,
+            :target_type,
+            :target_id,
+            :message_id,
+            :attempt_count,
+            :error_class
+          ]
+        ],
+        fn ->
+          result =
+            run
+            |> Ash.Changeset.new()
+            |> Ash.Changeset.set_tenant(account_id)
+            |> Ash.Changeset.set_context(%{private: %{ash_oban?: true}})
+            |> Ash.Changeset.for_action(:mark_failed, %{
+              error: %RuntimeError{message: "secret provider detail"}
+            })
+            |> Ash.update(actor: actor)
+
+          send(self(), {:failed_run, result})
+        end
+      )
+
+    assert_receive {:failed_run, {:ok, failed}}
 
     assert failed.status == "failed"
     assert failed.attempt_count == run.attempt_count + 1
     # Only a classification is stored; the message the error carried never reaches the row.
     assert failed.last_error_class == "RuntimeError"
+    assert log =~ "pipeline extraction failed"
+    assert log =~ "account_id=#{account_id}"
+    assert log =~ "pipeline_run_id=#{run.id}"
+    assert log =~ "message_id=#{message["id"]}"
+    assert log =~ "attempt_count=#{run.attempt_count + 1}"
+    assert log =~ "error_class=RuntimeError"
+    refute log =~ "secret provider detail"
   end
 
   test "pipeline replay merges provenance and never duplicates knowledge or lifecycle" do
@@ -341,11 +366,14 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
 
     account_id = account_id!("f2-replay")
 
-    # The ingest above already extracted inline, so the baseline is taken after that first run.
+    assert {:ok, [_knowledge]} =
+             Memory.extract_message_for_account(message["id"], account_id)
+
+    # The baseline is taken after the first extraction.
     before = knowledge_counts(account_id)
 
     # Two more extractions of the same observation stand in for the ways replay really happens:
-    # a retried job, a reconciler sweep, and an inline run racing the queued one. Each returns
+    # a retried job or a reconciler sweep. Each returns
     # the knowledge as if it had just produced it — replay is a normal outcome, not an error.
     assert {:ok, [_knowledge]} =
              Memory.extract_message_for_account(message["id"], account_id)
@@ -362,7 +390,7 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
   test "provider unavailability cannot prevent raw persistence and transactional enqueue" do
     # Points the legacy `:models` credential and base URL at a port nothing listens on, so any
     # provider call made under this configuration would fail on connect rather than hang. The
-    # ingest below passes `sync_extract: false`, so no model call is attempted here; what the
+    # ingest below returns before extraction, so no model call is attempted here; what the
     # assertions prove is that the durable observation and its processing record do not depend
     # on extraction having produced anything.
     models =
@@ -376,11 +404,9 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
     Application.put_env(:cartulary, :models, models)
 
     assert {:ok, message} =
-             Memory.ingest_message(
-               ingest_attrs("f2-provider-down", "provider-session", sync_extract: false)
-             )
+             Memory.ingest_message(ingest_attrs("f2-provider-down", "provider-session"))
 
-    # `sync_extract: false` returns the observation with no "knowledge" key at all, so the
+    # Ingest returns the observation with no "knowledge" key at all, so the
     # caller is never handed a fabricated or fallback result while extraction is still pending.
     refute Map.has_key?(message, "knowledge")
 
@@ -406,10 +432,13 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
   test "per-Account audit events form a verifiable content-safe hash chain" do
     content = "Hash-chain evidence never stores this raw statement in audit metadata."
 
-    assert {:ok, _message} =
+    assert {:ok, message} =
              Memory.ingest_message(
                ingest_attrs("f2-audit-chain", "audit-session", content: content)
              )
+
+    assert {:ok, [_knowledge]} =
+             Memory.extract_message_for_account(message["id"], account_id!("f2-audit-chain"))
 
     # Reading audit needs an admin, curator, or system role; ordinary members and readers have
     # no route to it. Sorting by insertion order with the id as a tiebreak reproduces the order
@@ -534,9 +563,7 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
 
   test "a billed model call stays metered when the write that follows it fails" do
     assert {:ok, message} =
-             Memory.ingest_message(
-               ingest_attrs("f2-metered-failure", "metered-failure-session", sync_extract: false)
-             )
+             Memory.ingest_message(ingest_attrs("f2-metered-failure", "metered-failure-session"))
 
     account_id = account_id!("f2-metered-failure")
 
