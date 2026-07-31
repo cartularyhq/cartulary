@@ -156,7 +156,9 @@ Details: `specs/architecture/documents-connectors-sync.md`.
   exposed through HTTP, MCP, SDK, LiveView, projections, or retrieval
   responses.
 - Incremental peer profile, scope card, and session summary projections with
-  dirty marking, bounded delta compaction, and PubSub-backed ETS invalidation.
+  dirty marking, bounded delta compaction, versioned audience keys, and
+  PubSub-backed ETS invalidation. Shared scope/session projections are
+  active-only; provisional knowledge appears only in its subject's peer slice.
 - `get_context` assembles its budget from clean projections and stays
   reasoning-free; its only live retrieval work is the allowed `:fast` fallback
   after a cache miss.

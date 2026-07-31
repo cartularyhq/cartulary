@@ -11,6 +11,14 @@ changelog entry and contract-version transition.
 
 ### Fixed
 
+- Scope cards and session summaries no longer persist peer-private
+  `provisional` statements. Shared projections now contain active knowledge
+  only, while a subject-keyed peer profile retains that peer's active and
+  provisional knowledge. Context projection keys use a new private audience
+  namespace, so clean pre-fix projections are ignored immediately and the
+  subject-filtered `fast` fallback covers reads until rebuilt. The public
+  `f7-1` payload contract is unchanged; this restores its intended governance
+  boundary.
 - A failed extraction reported `:missing_structured_object` no matter why the
   model call produced nothing, which left an operator reading a trace unable to
   tell a transient upstream blip from a failure that will repeat on every
