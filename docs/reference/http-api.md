@@ -16,12 +16,14 @@ There is **no generated OpenAPI description** in this release — see
 | `GET /api/ready` | none | Component readiness |
 | `POST /api/auth/password` | none | Human sign-in |
 | `POST /api/v1/ingest` | any identity | Submit a raw observation |
+| `GET /api/v1/ingest/:message_id` | any identity | Read extraction status and visible results |
 | `POST /api/v1/search` | any identity | Ranked retrieval |
 | `POST /api/v1/ask` | any identity | Cited answer |
 | `POST /api/v1/context` | any identity | Projection-backed context |
 | `POST /api/v1/readiness` | any identity | Skill-readiness gap report |
 | `GET /api/v1/knowledge` | any identity | Governed knowledge query |
 | `GET /api/v1/operations/costs` | account-admin | Usage and estimated cost |
+| `POST /api/v1/operations/reconcile` | account-admin | Enqueue an Account reconciliation sweep |
 | `GET /api/v1/self/knowledge` | human only | Your own record |
 | `POST /api/v1/self/knowledge/:id/contest` | human only | Dispute a statement about you |
 | `POST /api/v1/self/knowledge/:id/redact` | human only | Withdraw a statement about you |
@@ -109,17 +111,46 @@ Records one raw observation. The only write path an agent has.
 | `content` | yes | — | The observation text |
 | `role` | no | `"user"` | Speaker role |
 | `occurred_at` | no | now | For backfill |
-| `sync_extract` | no | `true` | `false` defers extraction to the background |
 
-Returns `{"data": message}`. With inline extraction the message also carries a
-`knowledge` list of the items just **proposed** — pipeline output, not caller
-input.
+Returns **202** after the raw observation and extraction job commit:
+
+```json
+{"data":{"message_id":"c479dd01-36a8-4f27-964e-27d425534b18","status":"accepted"}}
+```
+
+The request never calls a model or returns knowledge. Extraction always runs in
+the durable `ingest` job lane.
 
 The acting peer comes from the credential. A `peer_key` in the body is honoured
 only for internal callers that carry no peer of their own.
 
 A missing required field raises, which surfaces as an error status rather than
 a partially written session.
+
+---
+
+## `GET /api/v1/ingest/:message_id`
+
+Reads the extraction state of an observation the caller may access. Pending and
+failed responses carry an empty `knowledge` list. A completed response includes
+only governed knowledge visible to that caller.
+
+```json
+{
+  "data": {
+    "message_id": "c479dd01-36a8-4f27-964e-27d425534b18",
+    "status": "pending",
+    "extraction_completed_at": null,
+    "knowledge": [],
+    "last_error_class": null,
+    "attempt_count": 0
+  }
+}
+```
+
+`status` is `pending`, `failed`, or `completed`. `last_error_class` is a
+content-safe exception class, never a provider message. Missing and unauthorised
+message ids both return the same opaque **404**.
 
 ---
 
@@ -162,6 +193,16 @@ Returns the search payload merged with `answer`, `citations`, and `abstained`.
 Retrieval is restricted to knowledge items, so citations are governed
 statements. `abstained: true` is an ordinary outcome.
 
+| `citations` | `abstained` | Meaning |
+| --- | --- | --- |
+| non-empty | `false` | The cited statements establish the answer. |
+| non-empty | `true` | The cited statements support the qualified answer but do not establish a conclusion. |
+| empty | `true` | Nothing retrieved supports an answer; `answer` is `"not known"`. |
+
+Citation ids not present in the retrieved candidates are removed before the
+response is returned. If none survive, the response uses the empty abstention
+regardless of what the model claimed.
+
 A missing `question` raises rather than answering over an empty query.
 
 ---
@@ -194,6 +235,20 @@ Returns `{"data": report}` with `report_version` (`"f9-1"`), the resolved
 skill/peer/scope, a per-requirement `requirements` list, and unsatisfied items
 split into `blockers` and `warnings`. `ready` is true exactly when there are no
 blockers.
+
+---
+
+## `POST /api/v1/operations/reconcile`
+
+Account administrators can enqueue a reconciliation sweep without submitting a
+new observation. The Account comes from the credential. The response is **202**:
+
+```json
+{"data":{"run_id":"e303e6b4-686c-4dc6-b076-29d6addcb3fd","status":"accepted"}}
+```
+
+The sweep finds durable observations whose extraction did not finish and
+re-enqueues their replay-safe work.
 
 ---
 

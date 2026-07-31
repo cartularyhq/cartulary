@@ -99,8 +99,10 @@ defmodule Cartulary.Retrieval.Strategies.Semantic do
   @doc """
   Embeds the query and returns the nearest authorized records.
 
-  Embedding failure returns `[]`. Identity is resolved from the same Account role that embedded
-  the query.
+  Embedding failure returns `{:error, reason}`, which the engine reports as a dropped strategy.
+  Returning `[]` there would be indistinguishable from a corpus with no near neighbours, and the
+  two call for opposite responses: fix the embedder, or accept the answer. Identity is resolved
+  from the same Account role that embedded the query.
   """
   @impl true
   def candidates(query, budget) do
@@ -118,8 +120,8 @@ defmodule Cartulary.Retrieval.Strategies.Semantic do
           query.source_filters
         )
 
-      {:error, _error} ->
-        []
+      {:error, error} ->
+        {:error, error}
     end
   end
 end

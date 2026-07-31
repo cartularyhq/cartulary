@@ -74,6 +74,32 @@ defmodule Cartulary.Eval.ScorerTest do
     assert score["abstained"]
   end
 
+  test "scores cited inconclusive prose by text when an answer is expected" do
+    question = %{
+      expected: ["concise weekly release summaries"],
+      evidence_refs: ["D1:2"],
+      evidence_granularity: "turn",
+      abstention_expected: false
+    }
+
+    result = %{
+      "answer" =>
+        "The recorded statements do not establish this, but they support concise weekly release summaries.",
+      "abstained" => true
+    }
+
+    score = Scorer.score_question(question, result, ["D1:2"])
+
+    # The flag records inconclusiveness, but answerable cases continue to use
+    # answer text for correctness. This lets a qualified, useful inference earn
+    # credit without pretending the evidence established it.
+    assert score["abstained"]
+    assert score["correct"]
+    assert score["contains_expected"]
+    assert score["citation_hit"]
+    assert score["citation_recall"] == 1.0
+  end
+
   # Two identical questions answered at different context lengths: right at
   # 128K, wrong at 1M. That is exactly the shape the degradation curve exists
   # to expose, so the fixture is built to make the buckets differ.

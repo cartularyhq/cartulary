@@ -44,6 +44,12 @@ all three read only the lists that came back non-empty, so a strategy that
 returned nothing leaves no trace in them, and a scope ranked by `temporal` and
 `salience_recency` alone reports the same health as an answered query.
 
+`candidates/2` returns candidates or `{:error, reason}`. The second means the
+strategy never ran — an unavailable embedder, say — and the engine reports it
+as dropped. An empty list keeps its own meaning: the strategy ran and matched
+nothing. Collapsing the two would make a broken dependency indistinguishable
+from an honest miss, which is the same confusion an unindexed corpus creates.
+
 `Cartulary.Retrieval.Store` is the reviewed read-only data-layer helper for
 the operations Ash does not express as ordinary resource reads: PG-FTS,
 pgvector ANN order, and hop-one expansion. Its static parameterized statements
@@ -102,6 +108,20 @@ silently reused.
 vectors, resolves entities, and refreshes projections. Document import already
 re-enters ordinary document ingest, which rebuilds chunk vectors and causes
 governed knowledge to enqueue the same derived-cache jobs.
+
+Because vectors and mentions are written by that job alone and no longer ride
+the knowledge-write transaction, they are eventually consistent: a refresh that
+was cancelled or never enqueued leaves a scope holding every governed statement
+with no vectors, while lexical search keeps answering from its generated
+column. `Cartulary.Retrieval.Coverage` is the read that distinguishes the two —
+per-scope statement, embedded, and mention counts plus the embedding identities
+in use, under the same authorization and provisional-subject rules as any other
+retrieval query, and reporting mentions as a count so the entity cache stays
+internal. Every completed refresh emits
+`[:cartulary, :retrieval, :projection_refresh]` with those counts and the
+resulting ratio. Nothing re-enqueues a stale scope automatically; making the
+state observable comes first, since a sweeper would repair the symptom while
+leaving the state unknowable.
 
 `Indexer.rebuild_scope/2` and `EntityResolver.rebuild_scope/2` use a short read
 transaction, connection-free model calls, and one final write transaction. The

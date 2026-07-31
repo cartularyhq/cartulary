@@ -50,8 +50,10 @@ curl -fsS -X POST http://127.0.0.1:4000/api/v1/search \
 - `candidates` is **already in the right order.** Do not re-sort by a
   per-strategy score: those scores live in different spaces and comparing them
   degrades results.
-- `dropped_strategies` lists strategies that missed the deadline. Frequent
-  drops mean the profile's budget is too tight for your data size.
+- `dropped_strategies` lists strategies that did not run: they missed the
+  deadline or a dependency was unavailable. `semantic` appears here when the
+  embedder failed. Frequent deadline drops mean the profile's budget is too
+  tight for your data size.
 - `empty_strategies` lists strategies that ran and matched nothing. That is a
   result, not a failure — but a strategy in this list did not vote on the order.
 
@@ -84,12 +86,16 @@ curl -fsS -X POST http://127.0.0.1:4000/api/v1/ask \
 The response is the search payload plus `answer`, `citations`, and `abstained`.
 
 !!! tip "Abstention is a feature"
-    When nothing supports the question, `abstained` is `true` and there is no
-    answer. Treat it as an ordinary outcome. An answer invented from an empty
-    candidate set is worse than silence, and much harder to notice.
+    Treat `abstained` as an ordinary outcome. With non-empty `citations`, the
+    answer explains what the cited evidence supports while admitting that it
+    does not establish a conclusion. With an empty citation list, the answer is
+    `not known`. An answer invented from an empty candidate set is worse than
+    silence, and much harder to notice.
 
 Retrieval for `ask` is restricted to knowledge items, so every citation is a
-governed statement rather than a raw message.
+governed statement rather than a raw message. Citation ids the model invented
+or did not retrieve are removed; if none survive, the answer becomes the empty
+abstention.
 
 ## Choosing a profile
 

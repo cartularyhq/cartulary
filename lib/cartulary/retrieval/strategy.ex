@@ -155,7 +155,11 @@ defmodule Cartulary.Retrieval.Strategy do
     expands from seeds inherits whatever dependence the seeds had.
   * `applicable?/1` — cheap precondition check. Returning false means the
     strategy is skipped for this query rather than run and discarded.
-  * `candidates/2` — the actual work, returning `Candidate` structs.
+  * `candidates/2` — the actual work, returning `Candidate` structs, or
+    `{:error, reason}` when the strategy could not run at all. The two are not
+    interchangeable: an empty list means the strategy searched and found
+    nothing, an error means it never searched, and only the second is reported
+    to the caller as a dropped strategy.
   """
 
   alias Cartulary.Retrieval.{Budget, Candidate, Query}
@@ -165,7 +169,7 @@ defmodule Cartulary.Retrieval.Strategy do
   @callback stage() :: :seed | :expand
   @callback query_dependent?() :: boolean()
   @callback applicable?(Query.t()) :: boolean()
-  @callback candidates(Query.t(), Budget.t()) :: [Candidate.t()]
+  @callback candidates(Query.t(), Budget.t()) :: [Candidate.t()] | {:error, term()}
 
   @doc """
   Truncates, renumbers, and sanity-checks the candidates a strategy returned.
@@ -179,20 +183,25 @@ defmodule Cartulary.Retrieval.Strategy do
   `max_candidates` is the smaller of the query's cap and the budget's cap;
   anything beyond it is dropped.
 
+  An `{:error, reason}` result passes through unchanged for the engine to report
+  as a dropped strategy; there is nothing to rank.
+
   Raises `ArgumentError` when the module reports an unknown cost class or
   stage, or when a returned element is not a `Candidate` with a binary id, a
   numeric score, and a map record. Raising is deliberate: malformed candidates
   indicate a broken strategy, and silently skipping them would degrade recall
   invisibly.
   """
+  def validate!(module, candidates, max_candidates)
+
+  def validate!(module, {:error, reason}, _max_candidates) do
+    validate_declarations!(module)
+    {:error, reason}
+  end
+
   def validate!(module, candidates, max_candidates) do
     name = module.name()
-
-    unless module.cost_class() in [:cheap, :moderate, :expensive],
-      do: raise(ArgumentError, "#{inspect(module)} returned an invalid cost_class")
-
-    unless module.stage() in [:seed, :expand],
-      do: raise(ArgumentError, "#{inspect(module)} returned an invalid stage")
+    validate_declarations!(module)
 
     candidates
     |> Enum.take(max_candidates)
@@ -206,5 +215,15 @@ defmodule Cartulary.Retrieval.Strategy do
         raise ArgumentError,
               "#{inspect(module)} returned an invalid candidate: #{inspect(invalid)}"
     end)
+  end
+
+  defp validate_declarations!(module) do
+    unless module.cost_class() in [:cheap, :moderate, :expensive],
+      do: raise(ArgumentError, "#{inspect(module)} returned an invalid cost_class")
+
+    unless module.stage() in [:seed, :expand],
+      do: raise(ArgumentError, "#{inspect(module)} returned an invalid stage")
+
+    :ok
   end
 end

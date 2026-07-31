@@ -72,6 +72,8 @@ defmodule Cartulary.Pipeline.Changes.MarkRunFailed do
 
   use Ash.Resource.Change
 
+  require Logger
+
   @doc """
   Marks the run failed and increments its attempt count.
 
@@ -83,6 +85,20 @@ defmodule Cartulary.Pipeline.Changes.MarkRunFailed do
   def change(changeset, _opts, _context) do
     error = Ash.Changeset.get_argument(changeset, :error)
     class = error_class(error)
+    run = changeset.data
+
+    if run.kind == "extraction" do
+      Logger.error("pipeline extraction failed",
+        account_id: run.account_id,
+        scope_id: run.scope_id,
+        pipeline_run_id: run.id,
+        target_type: run.target_type,
+        target_id: run.target_id,
+        message_id: if(run.target_type == "message", do: run.target_id),
+        attempt_count: run.attempt_count + 1,
+        error_class: class
+      )
+    end
 
     changeset
     |> Ash.Changeset.force_change_attribute(:status, "failed")

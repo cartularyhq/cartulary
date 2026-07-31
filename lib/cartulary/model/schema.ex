@@ -503,6 +503,8 @@ defmodule Cartulary.Model.Schema.DialecticAnswer do
   The structured shape for a grounded answer to a question.
 
   Requires answer text, knowledge-id citations, and explicit `abstained` status.
+  The status is independent of citation presence: a cited answer may abstain
+  from a conclusion while explaining what the cited evidence does support.
 
   This module checks citation shape. The caller must separately verify every id was shown to the
   model.

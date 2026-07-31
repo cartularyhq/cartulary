@@ -2,7 +2,7 @@
 
 # Implementation Status
 
-Application version: `0.2.0` (community beta).
+Application version: `0.3.0` (community beta).
 Last verified: 2026-07-28.
 
 Current behavior, evidence, and real limitations. Target architecture:
@@ -53,6 +53,10 @@ Details: `specs/architecture/ash-domain-backbone.md`.
   processed.
 - The raw write and the job commit before any model call, so a provider outage
   delays freshness rather than losing observations.
+- HTTP and MCP ingest return an accepted message id without running extraction.
+  The HTTP status read reports pending, failed, or completed state through the
+  Message's Account and scope policies. Account administrators can enqueue the
+  reconciler without creating another observation.
 
 Details: `specs/architecture/transactional-writes-audit-jobs.md`.
 
@@ -156,6 +160,12 @@ Details: `specs/architecture/documents-connectors-sync.md`.
 - Entity and EntityMention rows are internal rebuildable caches. They are never
   exposed through HTTP, MCP, SDK, LiveView, projections, or retrieval
   responses.
+- Per-scope index coverage is readable and reported: statement, embedded, and
+  mention counts plus embedding identities, on `/console/scopes` and as a
+  telemetry event on every completed projection refresh. Those indexes are
+  eventually consistent, so a refresh that never ran leaves a scope with
+  statements and no vectors; coverage is what makes that state observable.
+  Re-enqueuing a stale scope's refresh is still manual.
 - Incremental peer profile, scope card, and session summary projections with
   dirty marking, bounded delta compaction, and PubSub-backed ETS invalidation.
 - `get_context` assembles its budget from clean projections and stays
@@ -224,10 +234,12 @@ Details: `specs/architecture/evaluation-ci-release-readiness.md` and
 
 - `GET /api/health`, `GET /api/ready`
 - `POST /api/v1/ingest`, `/search`, `/ask`, `/context`, `/readiness`
+- `GET /api/v1/ingest/:message_id`
 - `GET /api/v1/knowledge`
 - `POST /api/auth/password`
 - `/api/v1/self/*` peer self-service, human credentials only
-- `/api/v1/operations/costs`, account-admin only
+- `/api/v1/operations/costs` and `POST /api/v1/operations/reconcile`,
+  account-admin only
 - `/mcp` AshAi MCP endpoint
 
 ### Browser surface

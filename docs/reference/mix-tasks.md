@@ -155,7 +155,7 @@ Provenance only — it re-runs nothing and compares nothing to a floor.
 
 ```bash
 mix cartulary.release.check --eval-report /private/tmp/cartulary-release-eval.json
-mix cartulary.release.check --tag v0.2.0 --eval-report /private/tmp/...
+mix cartulary.release.check --tag v0.3.0 --eval-report /private/tmp/...
 ```
 
 Fails unless `mix.exs`, changelog, documentation, git tag, and evaluation

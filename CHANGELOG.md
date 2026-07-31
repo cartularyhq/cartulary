@@ -9,6 +9,8 @@ changelog entry and contract-version transition.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-31
+
 ### Fixed
 
 - A search response reported a healthy run when every strategy that reads the
@@ -38,6 +40,25 @@ changelog entry and contract-version transition.
   supplies the missing input for. No contract identity changes: `f7-1` still
   names retrieval behaviour, and the addition is backward compatible for a
   caller reading fields by name.
+- `ask` no longer discards grounded answer text and validated citations when
+  the dialectic model marks its conclusion inconclusive. A response may now
+  combine `abstained: true` with non-empty `citations`: the cited statements
+  support the qualified text but do not establish a conclusion. Responses with
+  no surviving retrieved citation still return the empty `not known`
+  abstention, so invented citation ids cannot make unsupported prose public.
+  This changes the response shape that API and MCP consumers may observe without
+  changing its fields or the `f7-1` retrieval/context contract identity.
+- Made observation ingest strictly asynchronous. HTTP and MCP now acknowledge
+  with the durable message id before any model call, and the removed
+  `sync_extract` option can no longer run extraction in the request. HTTP
+  callers can poll the Account- and scope-authorised ingest-status route for
+  pending, failed, or completed work and visible governed knowledge. Operators
+  can enqueue reconciliation independently of ingest. Evaluation and smoke
+  commands invoke their direct extraction entrypoint explicitly. Extraction
+  failure logs retain only ids, attempt count, and error class. This is the
+  intentional pre-1.0 ingest response-contract transition tracked by issue
+  #65; the `f5-1` pipeline identity is unchanged because its governed extraction
+  semantics did not change.
 - A failed extraction reported `:missing_structured_object` no matter why the
   model call produced nothing, which left an operator reading a trace unable to
   tell a transient upstream blip from a failure that will repeat on every
@@ -211,6 +232,20 @@ changelog entry and contract-version transition.
 
 ### Added
 
+- Scope index coverage, so a scope that holds every governed statement and no
+  embeddings is finally visible. Embeddings and entity mentions are written by
+  the projection refresh alone; a refresh that was cancelled or never enqueued
+  left semantic and entity recall permanently empty while full-text search kept
+  answering — its index is a generated column no queue failure can lose — and
+  nothing anywhere reported the gap. `Cartulary.Retrieval.index_coverage/3`
+  returns per-scope statement, embedded, and entity-mention counts plus the
+  embedding identities in use, filtered by Account and authorized scopes and
+  narrowing provisional statements to their subject like every other retrieval
+  query. Mentions are reported as a count, so the entity cache stays internal.
+  `/console/scopes` shows the counts and highlights a shortfall, and every
+  completed refresh emits `[:cartulary, :retrieval, :projection_refresh]` with
+  `indexed`, `statements`, `embedded`, `mentions`, and `coverage` so an
+  operator can alert on the ratio. No new table, route, or contract identity.
 - Two off-by-default switches let an operator declare an Account or a whole
   deployment has no real human governance participant, and auto-grant the
   subject-consent step `Cartulary.Governance.Engine` otherwise blocks on for
@@ -270,6 +305,16 @@ changelog entry and contract-version transition.
 
 ### Changed
 
+- A retrieval strategy that could not run is now reported in
+  `dropped_strategies` rather than as a contributing strategy that found
+  nothing. `search` with a failed embedder previously returned an empty
+  `semantic` result, which reads identically to a query with no near
+  neighbours; the two call for opposite responses. Strategies may now return
+  `{:error, reason}` from `candidates/2`, which the engine reports as
+  degradation — matching how it already treats a deadline kill and a reranker
+  failure. Response fields are unchanged; `semantic` simply now appears in
+  `dropped_strategies` where it previously appeared in
+  `contributed_strategies`.
 - The curator queue at `/governance` now renders inside the shared console
   frame and takes its appearance from `priv/static/assets/console.css` instead
   of inline styles. Its route, module, events, decisions, and rendered heading
