@@ -76,6 +76,26 @@ Model spans carry operation, role, provider, model, version, duration, and
 token usage. Document spans carry version id, parser, byte/chunk/knowledge
 counts, connector id, item count, and duration.
 
+## Reading a failed model call
+
+A failed model call sets `error.type` on its span and writes the same string as
+the error class on its usage event. When the call itself failed — a timeout, a
+rejected credential, a rate limit — that string is the exception's module name.
+
+A call can also return HTTP 200 and still carry no usable answer, which is what
+a hosted aggregator does when its own upstream failed part-way. These four
+classes name that case, and they call for different responses:
+
+| Error class | What happened | What to do |
+| --- | --- | --- |
+| `provider_upstream_error` | The endpoint accepted the request and then failed, cancelled, or cut the response short | Nothing. The job retries and normally succeeds. Investigate only if the rate is high or sustained |
+| `provider_output_truncated` | The answer hit the output cap before it was complete | Raise `CARTULARY_MODEL_MAX_TOKENS`, or lower `CARTULARY_MODEL_REASONING_EFFORT` so less of the budget goes to reasoning. Retrying alone repeats this identically |
+| `provider_content_filtered` | The endpoint withheld the answer | Retrying repeats it. The input or the model has to change |
+| `missing_structured_object` / `missing_text_response` | The call finished normally and returned nothing usable — typically a model answering in prose instead of returning the structured result it was asked for | Check that the configured model supports tool calling or structured output |
+
+An extraction that fails this way leaves the raw observation stored and the
+knowledge simply not yet extracted; the job retries and nothing is lost.
+
 ## Span controls
 
 Tune noise per debugging session:
