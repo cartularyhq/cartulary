@@ -160,6 +160,11 @@ Details: `specs/architecture/documents-connectors-sync.md`.
 - Entity and EntityMention rows are internal rebuildable caches. They are never
   exposed through HTTP, MCP, SDK, LiveView, projections, or retrieval
   responses.
+- The account-admin operations page exposes content-free resolution health:
+  cache counts, observed-alias buckets, singleton rate, and
+  mentions-per-entity p50/p95. Statement detail exposes only the count and
+  links for co-mentioned statements that the reader can already read; no
+  entity identity or surface form crosses the retrieval boundary.
 - Per-scope index coverage is readable and reported: statement, embedded, and
   mention counts plus embedding identities, on `/console/scopes` and as a
   telemetry event on every completed projection refresh. Those indexes are

@@ -28,6 +28,7 @@ defmodule CartularyWeb.Console.Loader do
   alias Cartulary.Observations.Message
   alias Cartulary.Observations.Session
   alias Cartulary.Retrieval.RetrievalProfile
+  alias Cartulary.Retrieval.Store
   alias Cartulary.Skills.SkillRequirementCard
   alias Cartulary.Topology.RoleGrant
   alias Cartulary.Topology.Scope
@@ -163,10 +164,11 @@ defmodule CartularyWeb.Console.Loader do
     names nothing this actor may see.
 
     Returns a map holding the knowledge row (with `:scope_path`), its provenance rows,
-    its attributions, its outgoing and incoming relations, the source messages and
-    document versions named by its provenance, its lifecycle timeline, the open queue
-    entry if one exists, its gate decisions when the viewer is a curator, the statement
-    it supersedes and the statements that supersede it, and the scope path lookup.
+    its attributions, its outgoing and incoming relations, other readable statements
+    that share a resolved entity, the source messages and document versions named by
+    its provenance, its lifecycle timeline, the open queue entry if one exists, its
+    gate decisions when the viewer is a curator, the statement it supersedes and the
+    statements that supersede it, and the scope path lookup.
   """
   def knowledge_detail(%Actor{} = actor, knowledge_id) when is_binary(knowledge_id) do
     DataLayer.with_actor(actor, fn account, current_actor ->
@@ -455,7 +457,7 @@ defmodule CartularyWeb.Console.Loader do
 
   @doc """
   The administrator's operations view: gate rules and retrieval profiles as
-  stored, plus the queue of open validations.
+  stored, plus aggregate entity-resolution quality signals.
 
   Raises `Ash.Error.Forbidden` if called by anyone who is not a
   password-authenticated account administrator. That is deliberate: gate rules
@@ -464,6 +466,8 @@ defmodule CartularyWeb.Console.Loader do
   `CartularyWeb.Console.Access.can?(actor, :administer)` first.
   """
   def operations(%Actor{} = actor) do
+    unless Access.can?(actor, :administer), do: raise(Ash.Error.Forbidden, errors: [])
+
     DataLayer.with_actor(actor, fn account, current_actor ->
       paths = scope_paths(scopes(account.id, current_actor))
 
@@ -479,7 +483,12 @@ defmodule CartularyWeb.Console.Loader do
         |> Ash.Query.set_tenant(account.id)
         |> Ash.read!(actor: current_actor)
 
-      %{gate_rules: gate_rules, retrieval_profiles: profiles, scope_paths: paths}
+      %{
+        gate_rules: gate_rules,
+        retrieval_profiles: profiles,
+        entity_resolution: Store.entity_resolution_metrics(account.id),
+        scope_paths: paths
+      }
     end)
   end
 
@@ -646,6 +655,21 @@ defmodule CartularyWeb.Console.Loader do
       |> Enum.flat_map(&[&1.source_knowledge_id, &1.target_knowledge_id])
       |> Enum.reject(&(&1 == item.id))
 
+    co_mentioned =
+      Store.co_mentioned_knowledge(
+        account.id,
+        item.id,
+        authorized_scope_ids(actor),
+        Access.visible_states(actor),
+        actor.peer_id,
+        @panel_limit
+      )
+
+    co_mentions =
+      account.id
+      |> related_knowledge(actor, current_actor, co_mentioned.ids, paths)
+      |> Enum.sort_by(& &1.id)
+
     %{
       item: with_scope_path(item, paths),
       provenance: provenance,
@@ -653,6 +677,9 @@ defmodule CartularyWeb.Console.Loader do
       lifecycle: lifecycle,
       relations: relations,
       related: related_knowledge(account.id, actor, current_actor, related_ids, paths),
+      co_mentions: co_mentions,
+      co_mentions_count: co_mentioned.count,
+      co_mentions_truncated?: co_mentioned.count > length(co_mentions),
       messages: messages,
       document_versions: document_versions,
       validation: validation,
@@ -697,6 +724,11 @@ defmodule CartularyWeb.Console.Loader do
   end
 
   defp scope_paths(scopes), do: Map.new(scopes, &{&1.id, &1.path})
+
+  # `:all` is an internal capability, never authority for a browser read. A
+  # malformed or widened human actor therefore produces no co-mention ids.
+  defp authorized_scope_ids(%Actor{scope_ids: scope_ids}) when is_list(scope_ids), do: scope_ids
+  defp authorized_scope_ids(%Actor{}), do: []
 
   defp with_scope_path(item, paths), do: Map.put(item, :scope_path, Map.get(paths, item.scope_id))
 

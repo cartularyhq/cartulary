@@ -254,6 +254,15 @@ changelog entry and contract-version transition.
 
 ### Added
 
+- Entity-resolution quality is now observable without making the private
+  entity cache public. The account-admin operations page reports entity and
+  mention counts, observed-alias buckets, singleton-entity rate, and
+  mentions-per-entity p50/p95. Statement detail reports and links only the
+  other statements that share an entity and pass the reader's scope,
+  lifecycle, soft-delete, and provisional-subject filters. The reviewed
+  read-only store returns aggregates or authorized statement ids only; entity
+  ids, canonical names, aliases, and surface forms remain pipeline-internal.
+  No route or contract identity changed.
 - Scope index coverage, so a scope that holds every governed statement and no
   embeddings is finally visible. Embeddings and entity mentions are written by
   the projection refresh alone; a refresh that was cancelled or never enqueued

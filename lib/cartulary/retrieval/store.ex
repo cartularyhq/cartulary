@@ -540,6 +540,139 @@ defmodule Cartulary.Retrieval.Store do
   end
 
   @doc """
+  Summarizes the Account's private entity-resolution cache without returning
+  an entity, mention, name, alias, surface form, or identifier.
+
+  The alias histogram counts observed spellings per entity. The singleton rate
+  is the share of entities linked to exactly one statement mention. Mention
+  percentiles use discrete values so every reported number describes an
+  actual entity in the cache.
+
+  This query is for the account-administrator console only. Its caller must
+  establish that authorization before entering this reviewed read-only store.
+  Returns a content-free map. Raises `Postgrex.Error` if the statement fails.
+  """
+  def entity_resolution_metrics(account_id) do
+    sql = """
+    WITH per_entity AS (
+      SELECT e.id,
+             cardinality(e.aliases)::bigint AS alias_count,
+             count(m.id)::bigint AS mention_count
+      FROM entities AS e
+      LEFT JOIN entity_mentions AS m
+        ON m.account_id = e.account_id AND m.entity_id = e.id
+      WHERE e.account_id = $1
+      GROUP BY e.id, e.aliases
+    )
+    SELECT count(*)::bigint AS entity_count,
+           coalesce(sum(mention_count), 0)::bigint AS mention_count,
+           coalesce(
+             count(*) FILTER (WHERE mention_count = 1)::float8 /
+               nullif(count(*), 0),
+             0.0
+           )::float8 AS singleton_entity_rate,
+           coalesce(
+             percentile_disc(0.50) WITHIN GROUP (ORDER BY mention_count),
+             0
+           )::bigint AS mentions_per_entity_p50,
+           coalesce(
+             percentile_disc(0.95) WITHIN GROUP (ORDER BY mention_count),
+             0
+           )::bigint AS mentions_per_entity_p95,
+           count(*) FILTER (WHERE alias_count = 0)::bigint AS aliases_0,
+           count(*) FILTER (WHERE alias_count = 1)::bigint AS aliases_1,
+           count(*) FILTER (WHERE alias_count BETWEEN 2 AND 3)::bigint AS aliases_2_3,
+           count(*) FILTER (WHERE alias_count BETWEEN 4 AND 7)::bigint AS aliases_4_7,
+           count(*) FILTER (WHERE alias_count >= 8)::bigint AS aliases_8_plus
+    FROM per_entity
+    """
+
+    [row] = all(sql, [db_uuid!(account_id)])
+
+    %{
+      entity_count: row["entity_count"],
+      mention_count: row["mention_count"],
+      singleton_entity_rate: row["singleton_entity_rate"],
+      mentions_per_entity_p50: row["mentions_per_entity_p50"],
+      mentions_per_entity_p95: row["mentions_per_entity_p95"],
+      aliases_per_entity: [
+        %{range: "0", entity_count: row["aliases_0"]},
+        %{range: "1", entity_count: row["aliases_1"]},
+        %{range: "2–3", entity_count: row["aliases_2_3"]},
+        %{range: "4–7", entity_count: row["aliases_4_7"]},
+        %{range: "8+", entity_count: row["aliases_8_plus"]}
+      ]
+    }
+  end
+
+  @doc """
+  Counts other visible statements sharing an entity with one seed and returns
+  up to `limit` of their ids.
+
+  Account, authorized scope, lifecycle, soft-delete, and provisional-subject
+  filters are applied before an id is counted or leaves this boundary. The
+  result contains only the total and statement ids; no entity or mention
+  identity is returned. An empty authorized-scope list fails closed.
+  """
+  def co_mentioned_knowledge(
+        account_id,
+        knowledge_id,
+        scope_ids,
+        visible_states,
+        peer_id,
+        limit
+      )
+      when is_list(scope_ids) and is_list(visible_states) and is_integer(limit) and limit > 0 do
+    sql = """
+    WITH seed_entities AS (
+      SELECT DISTINCT entity_id
+      FROM entity_mentions
+      WHERE account_id = $1 AND knowledge_item_id = $2
+    ), visible AS (
+      SELECT DISTINCT k.id
+      FROM seed_entities AS seed
+      JOIN entity_mentions AS mention
+        ON mention.account_id = $1 AND mention.entity_id = seed.entity_id
+      JOIN knowledge_items AS k
+        ON k.account_id = mention.account_id AND k.id = mention.knowledge_item_id
+      WHERE k.id <> $2
+        AND k.scope_id = ANY($3)
+        AND (k.state = ANY($4) OR ($5::uuid IS NOT NULL AND k.subject_peer_id = $5))
+        AND (k.state <> 'provisional' OR ($5::uuid IS NOT NULL AND k.subject_peer_id = $5))
+        AND k.deleted_at IS NULL
+    )
+    SELECT id, count(*) OVER()::bigint AS total_count
+    FROM visible
+    ORDER BY id
+    LIMIT $6
+    """
+
+    rows =
+      all(sql, [
+        db_uuid!(account_id),
+        db_uuid!(knowledge_id),
+        db_uuids!(scope_ids),
+        visible_states,
+        db_uuid(peer_id),
+        limit
+      ])
+
+    count = if rows == [], do: 0, else: rows |> hd() |> Map.fetch!("total_count")
+
+    %{count: count, ids: Enum.map(rows, &Map.fetch!(&1, "id"))}
+  end
+
+  def co_mentioned_knowledge(
+        _account_id,
+        _knowledge_id,
+        _scope_ids,
+        _states,
+        _peer_id,
+        _limit
+      ),
+      do: %{count: 0, ids: []}
+
+  @doc """
   Counts, per scope, how much of the retrievable corpus is actually indexed.
 
   Embeddings and entity mentions are written by a background rebuild, so a scope

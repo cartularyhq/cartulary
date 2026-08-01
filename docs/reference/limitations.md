@@ -44,10 +44,13 @@ the scope directory, but granting, revoking, and provisioning are Mix tasks.
 25 at a time. A complete copy of an Account is the portability archive — see
 [Export and import](../operations/portability.md).
 
-**It never shows resolved entities.** Entity and mention rows are a private
-recall cache whose rows span every scope that mentioned a name, so no canonical
-name, alias, surface form, or entity identifier appears in the console,
-including in the graph. This is a permanent design rule, not a missing feature.
+**It never shows resolved entity identities.** Entity and mention rows are a
+private recall cache whose rows span every scope that mentioned a name, so no
+canonical name, alias, surface form, or entity identifier appears in the
+console, including in the graph. Account admins see aggregate resolution
+quality signals, and statement detail links only co-mentioned statements the
+reader may already read. This is a permanent design rule, not a missing
+feature.
 
 **It shows no embedding vectors or chunk contents,** only their counts and
 identities. They are rebuildable caches.

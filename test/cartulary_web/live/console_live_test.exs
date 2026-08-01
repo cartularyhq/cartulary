@@ -15,8 +15,15 @@ defmodule CartularyWeb.ConsoleLiveTest do
   alias Cartulary.Actor
   alias Cartulary.Clock
   alias Cartulary.DataLayer
+  alias Cartulary.Governance.Engine, as: GovernanceEngine
   alias Cartulary.Identity
+  alias Cartulary.Knowledge.Entity
+  alias Cartulary.Knowledge.EntityMention
+  alias Cartulary.Knowledge.KnowledgeItem
   alias Cartulary.Memory
+  alias CartularyWeb.Console.Loader
+
+  require Ash.Query
 
   @password "correct horse battery staple"
 
@@ -186,15 +193,33 @@ defmodule CartularyWeb.ConsoleLiveTest do
       assert html =~ "Erasure"
     end
 
-    test "operations reports readiness and the rules in force", %{
+    test "operations reports content-free entity resolution quality signals", %{
       conn: conn,
-      admin_token: token
+      admin: admin,
+      admin_token: token,
+      knowledge_id: knowledge_id
     } do
+      seed_resolution_metrics!(admin, knowledge_id)
+
+      metrics = Loader.operations(admin).entity_resolution
+
+      assert metrics.entity_count == 2
+      assert metrics.mention_count == 3
+      assert metrics.singleton_entity_rate == 0.5
+      assert metrics.mentions_per_entity_p50 == 1
+      assert metrics.mentions_per_entity_p95 == 2
+      assert %{range: "1", entity_count: 1} in metrics.aliases_per_entity
+      assert %{range: "2–3", entity_count: 1} in metrics.aliases_per_entity
+
       html = conn |> sign_in(token) |> get("/console/operations") |> html_response(200)
 
       assert html =~ "Readiness"
+      assert html =~ "Entity resolution quality"
+      assert html =~ "Singleton entity rate"
+      assert html =~ "50.0%"
       assert html =~ "Gate matrix"
       assert html =~ "Retrieval tunings"
+      refute html =~ "NeverRenderAlias71"
     end
   end
 
@@ -215,6 +240,9 @@ defmodule CartularyWeb.ConsoleLiveTest do
       # ungated render would raise. The redirect is the evidence that the gate
       # runs before the first query.
       assert redirected_to(conn |> sign_in(token) |> get("/console/operations")) == "/console"
+
+      assert {:ok, member} = Identity.authenticate_bearer(token)
+      assert_raise Ash.Error.Forbidden, fn -> Loader.operations(member) end
     end
 
     test "the explorer offers no undecided lifecycle state as a filter", %{
@@ -247,6 +275,60 @@ defmodule CartularyWeb.ConsoleLiveTest do
 
       refute explorer =~ statement
     end
+
+    test "co-mention neighbors include only readable scopes", %{
+      conn: conn,
+      admin: admin,
+      member_id: member_id,
+      member_token: member_token,
+      knowledge_id: knowledge_id
+    } do
+      readable =
+        ingest_statement!(
+          admin,
+          "console-shared-readable",
+          "/console-test",
+          "The release owner publishes the weekly checklist."
+        )
+
+      hidden =
+        ingest_statement!(
+          admin,
+          "console-shared-hidden",
+          "/console-hidden",
+          "The private review also names the release owner."
+        )
+
+      activate_knowledge!(admin, [knowledge_id, readable.id, hidden.id])
+      link_shared_entity!(admin, [knowledge_id, readable.id, hidden.id])
+      admin = Identity.refresh_actor(admin)
+
+      Identity.grant_role(admin, %{
+        "scope_path" => "/console-test",
+        "peer_id" => member_id,
+        "role" => "reader",
+        "propagate" => false
+      })
+
+      assert {:ok, member} = Identity.authenticate_bearer(member_token)
+      detail = Loader.knowledge_detail(member, knowledge_id)
+
+      assert detail.co_mentions_count == 1
+      refute detail.co_mentions_truncated?
+      assert Enum.map(detail.co_mentions, & &1.id) == [readable.id]
+
+      html =
+        conn
+        |> sign_in(member_token)
+        |> get("/console/knowledge/#{knowledge_id}")
+        |> html_response(200)
+
+      assert html =~ "Shared-entity neighbors"
+      assert html =~ "Other statements"
+      assert html =~ readable.statement
+      refute html =~ hidden.statement
+      refute html =~ "NeverRenderSharedEntity71"
+    end
   end
 
   # ----------------------------------------------------------------------------
@@ -276,11 +358,12 @@ defmodule CartularyWeb.ConsoleLiveTest do
     {:ok, [knowledge]} =
       Memory.extract_message_for_account(message["id"], admin.account_id)
 
-    member_token = create_member!(admin)
+    %{id: member_id, token: member_token} = create_member!(admin)
 
     Map.merge(context, %{
       admin: admin,
       admin_token: admin_token,
+      member_id: member_id,
       member_token: member_token,
       observation: observation,
       knowledge_id: Map.fetch!(knowledge, "id"),
@@ -305,48 +388,194 @@ defmodule CartularyWeb.ConsoleLiveTest do
   # propagating grant would hide the difference between "no access" and "no
   # rows".
   defp create_member!(admin) do
-    DataLayer.with_actor(admin, fn account, actor ->
-      peer =
-        Peer
+    peer_id =
+      DataLayer.with_actor(admin, fn account, actor ->
+        peer =
+          Peer
+          |> Ash.Changeset.new()
+          |> Ash.Changeset.set_tenant(account.id)
+          |> Ash.Changeset.for_create(:register_with_password, %{
+            key: "console-member",
+            name: "Console Member",
+            kind: "human",
+            email: "member@example.test",
+            password: @password,
+            password_confirmation: @password
+          })
+          |> Ash.create!(actor: Actor.for_account(account, role: :system))
+
+        ExternalIdentity
         |> Ash.Changeset.new()
         |> Ash.Changeset.set_tenant(account.id)
-        |> Ash.Changeset.for_create(:register_with_password, %{
-          key: "console-member",
-          name: "Console Member",
-          kind: "human",
+        |> Ash.Changeset.for_create(:create, %{
+          peer_id: peer.id,
+          provider: "password",
+          subject: "member@example.test",
           email: "member@example.test",
-          password: @password,
-          password_confirmation: @password
+          assurance: "medium",
+          linked_at: Clock.utc_now(),
+          active: true
         })
-        |> Ash.create!(actor: Actor.for_account(account, role: :system))
+        |> Ash.create!(actor: actor)
 
-      ExternalIdentity
-      |> Ash.Changeset.new()
-      |> Ash.Changeset.set_tenant(account.id)
-      |> Ash.Changeset.for_create(:create, %{
-        peer_id: peer.id,
-        provider: "password",
-        subject: "member@example.test",
-        email: "member@example.test",
-        assurance: "medium",
-        linked_at: Clock.utc_now(),
-        active: true
-      })
-      |> Ash.create!(actor: actor)
+        peer.id
+      end)
 
-      peer.id
-    end)
-    |> then(fn peer_id ->
-      Identity.grant_role(admin, %{
-        "scope_path" => "/",
-        "peer_id" => peer_id,
-        "role" => "member",
-        "propagate" => false
-      })
-    end)
+    Identity.grant_role(admin, %{
+      "scope_path" => "/",
+      "peer_id" => peer_id,
+      "role" => "member",
+      "propagate" => false
+    })
 
     {:ok, %{token: token}} = Identity.sign_in_password("member@example.test", @password)
-    token
+    %{id: peer_id, token: token}
+  end
+
+  defp seed_resolution_metrics!(admin, knowledge_id) do
+    DataLayer.with_actor(admin, fn account, actor ->
+      pipeline = pipeline_actor(actor)
+
+      first =
+        create!(
+          Entity,
+          :create_from_pipeline,
+          %{
+            canonical_name: "NeverRenderAlias71",
+            kind: "person",
+            aliases: ["NeverRenderAlias71", "NRA71"],
+            derived_from: [knowledge_id]
+          },
+          account.id,
+          pipeline
+        )
+
+      second =
+        create!(
+          Entity,
+          :create_from_pipeline,
+          %{
+            canonical_name: "NeverRenderSingleton71",
+            kind: "concept",
+            aliases: ["NeverRenderSingleton71"],
+            derived_from: [knowledge_id]
+          },
+          account.id,
+          pipeline
+        )
+
+      create_mention!(account.id, pipeline, knowledge_id, first.id, "NeverRenderAlias71")
+      create_mention!(account.id, pipeline, knowledge_id, first.id, "NRA71")
+      create_mention!(account.id, pipeline, knowledge_id, second.id, "NeverRenderSingleton71")
+    end)
+  end
+
+  defp ingest_statement!(admin, session_id, scope_path, content) do
+    {:ok, message} =
+      Memory.ingest_message(
+        %{
+          "session_id" => session_id,
+          "scope_path" => scope_path,
+          "role" => "user",
+          "content" => content
+        },
+        admin
+      )
+
+    {:ok, [knowledge]} =
+      Memory.extract_message_for_account(message["id"], admin.account_id)
+
+    knowledge
+    |> then(&%{id: Map.fetch!(&1, "id"), statement: Map.fetch!(&1, "statement")})
+  end
+
+  defp activate_knowledge!(admin, knowledge_ids) do
+    DataLayer.with_actor(admin, fn account, actor ->
+      pipeline = pipeline_actor(actor)
+
+      Enum.each(knowledge_ids, fn knowledge_id ->
+        item =
+          KnowledgeItem
+          |> Ash.Query.filter(id == ^knowledge_id)
+          |> Ash.Query.set_tenant(account.id)
+          |> Ash.read_one!(actor: pipeline)
+
+        if item.state != "active" do
+          GovernanceEngine.transition!(
+            item,
+            pipeline,
+            %{state: "active", verification: "auto_verified"},
+            reason: "console_entity_observability_test",
+            channel: "pipeline"
+          )
+        end
+      end)
+    end)
+  end
+
+  defp link_shared_entity!(admin, knowledge_ids) do
+    DataLayer.with_actor(admin, fn account, actor ->
+      pipeline = pipeline_actor(actor)
+
+      entity =
+        create!(
+          Entity,
+          :create_from_pipeline,
+          %{
+            canonical_name: "NeverRenderSharedEntity71",
+            kind: "concept",
+            aliases: ["NeverRenderSharedEntity71"],
+            derived_from: knowledge_ids
+          },
+          account.id,
+          pipeline
+        )
+
+      knowledge_ids
+      |> Enum.with_index()
+      |> Enum.each(fn {knowledge_id, index} ->
+        create_mention!(
+          account.id,
+          pipeline,
+          knowledge_id,
+          entity.id,
+          "NeverRenderSharedSurface71-#{index}"
+        )
+      end)
+    end)
+  end
+
+  defp create_mention!(account_id, actor, knowledge_id, entity_id, surface_form) do
+    knowledge =
+      KnowledgeItem
+      |> Ash.Query.filter(id == ^knowledge_id)
+      |> Ash.Query.set_tenant(account_id)
+      |> Ash.read_one!(actor: actor)
+
+    create!(
+      EntityMention,
+      :create_from_pipeline,
+      %{
+        knowledge_item_id: knowledge.id,
+        scope_id: knowledge.scope_id,
+        entity_id: entity_id,
+        surface_form: surface_form,
+        confidence: 1.0
+      },
+      account_id,
+      actor
+    )
+  end
+
+  defp pipeline_actor(%Actor{} = actor),
+    do: %{actor | role: :system, scope_ids: :all, pipeline?: true}
+
+  defp create!(resource, action, attrs, account_id, actor) do
+    resource
+    |> Ash.Changeset.new()
+    |> Ash.Changeset.set_tenant(account_id)
+    |> Ash.Changeset.for_create(action, attrs)
+    |> Ash.create!(actor: actor)
   end
 
   defp sign_in(conn, token), do: init_test_session(conn, governance_token: token)

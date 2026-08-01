@@ -52,10 +52,13 @@ from an honest miss, which is the same confusion an unindexed corpus creates.
 
 `Cartulary.Retrieval.Store` is the reviewed read-only data-layer helper for
 the operations Ash does not express as ordinary resource reads: PG-FTS,
-pgvector ANN order, and hop-one expansion. Its static parameterized statements
-apply Account, authorized scope, lifecycle, and caller-provisional filters
-before returning content. `Cartulary.Memory.Query` has been removed. Durable
-writes remain Ash-action-only.
+pgvector ANN order, hop-one expansion, content-free entity-cache aggregates,
+and co-mention statement ids. Its static parameterized statements apply
+Account, authorized scope, lifecycle, soft-delete, and caller-provisional
+filters before returning content or a statement id. The aggregate query is
+reachable only after the browser's account-admin gate and returns counts,
+rates, and quantiles without entity identities. `Cartulary.Memory.Query` has
+been removed. Durable writes remain Ash-action-only.
 
 ## Profiles and configuration
 
@@ -146,6 +149,15 @@ surface forms, or entity ids. No Phoenix route, MCP resource, or public
 resource action exposes the caches. Erasure removes affected mentions,
 recomputes/prunes entities, and rebuilds affected projections. Logical import
 excludes the cache and recreates it from governed statements.
+
+Two diagnostic projections preserve that rule. `/console/operations` reports
+Account-wide counts, an observed-alias histogram, singleton-entity rate, and
+mentions-per-entity p50/p95 to a password-authenticated account administrator.
+`/console/knowledge/:id` asks the store only for the count and capped ids of
+co-mentioned statements after applying the reader's authorized scope and
+console lifecycle filters, then loads those statements through the ordinary
+Ash read policy. Neither path returns an entity or mention row to the web
+layer.
 
 ## Context projections
 
