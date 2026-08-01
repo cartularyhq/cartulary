@@ -148,6 +148,11 @@ defmodule Cartulary.Retrieval.Strategy do
     it documents the relative price of running the strategy.
   * `stage/0` — `:seed` runs first against the query text; `:expand` runs
     afterwards and may only widen from the seed ids the first phase produced.
+  * `query_dependent?/0` — whether the strategy reads `query.text`. When every
+    query-dependent strategy comes back empty, what survives ranked the scope
+    rather than the question, and retrieval reports that as its own signal.
+    Answer "true" only for reading the text directly: a strategy that merely
+    expands from seeds inherits whatever dependence the seeds had.
   * `applicable?/1` — cheap precondition check. Returning false means the
     strategy is skipped for this query rather than run and discarded.
   * `candidates/2` — the actual work, returning `Candidate` structs, or
@@ -162,6 +167,7 @@ defmodule Cartulary.Retrieval.Strategy do
   @callback name() :: atom()
   @callback cost_class() :: :cheap | :moderate | :expensive
   @callback stage() :: :seed | :expand
+  @callback query_dependent?() :: boolean()
   @callback applicable?(Query.t()) :: boolean()
   @callback candidates(Query.t(), Budget.t()) :: [Candidate.t()] | {:error, term()}
 

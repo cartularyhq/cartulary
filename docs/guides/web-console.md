@@ -56,9 +56,13 @@ subject — and pages through the result. It is exhaustive: what is not listed i
 either filtered out or not visible to you, never merely ranked low.
 
 **Retrieval** runs the same multi-strategy engine that answers an agent's
-`search` call, and shows its working: which strategies contributed, which were
-dropped against the deadline, and what each candidate scored. It ranks; it does
-not enumerate.
+`search` call, and shows its working: which strategies contributed, which found
+nothing, which were dropped against the deadline, and what each candidate
+scored. It ranks; it does not enumerate.
+
+Read the strategy tile before the results. A search where the strategies that
+read your words all found nothing still returns a full page — of whatever is
+most recent in the scope. It looks like an answer and is not one.
 
 Retrieval requires a scope. Searching `/team/project` also searches `/team`
 and `/`. A miss means nothing ranked, not that the exhaustive browser is empty.

@@ -31,9 +31,18 @@ comparable scores. The `:thorough` profile optionally reranks only the fused
 head through `Cartulary.Model.Gateway`. Reranking and grounded answers hold no
 transaction; the model layer scopes its own configuration read and usage write.
 A hard remaining-time budget wraps strategies and reranking. Timeouts are
-dropped, not retried, and every
-response reports contributed and dropped strategies plus pre-fusion
-cross-strategy disagreement.
+dropped, not retried, and every response reports contributed, empty, and
+dropped strategies plus pre-fusion cross-strategy disagreement.
+
+The three strategy sets are disjoint and carry distinct facts: contributed
+returned candidates, empty ran and matched nothing, dropped never produced a
+result. Each strategy declares `query_dependent?/0` — true only for reading
+`query.text`, so expansion inherits nothing from its seeds — and disagreement
+reports `query_dependent_empty` when no such strategy contributed. That is the
+FR-API-29 signal `strategy_count`, `disjoint`, and `low_score` cannot carry:
+all three read only the lists that came back non-empty, so a strategy that
+returned nothing leaves no trace in them, and a scope ranked by `temporal` and
+`salience_recency` alone reports the same health as an answered query.
 
 `candidates/2` returns candidates or `{:error, reason}`. The second means the
 strategy never ran — an unavailable embedder, say — and the engine reports it

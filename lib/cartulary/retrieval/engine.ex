@@ -13,6 +13,10 @@ defmodule Cartulary.Retrieval.Engine do
   failure preserves fusion order. Strategies normally run concurrently; tests may run them
   serially against one sandbox connection.
 
+  Every response separates three per-strategy outcomes: contributed, empty, and dropped. A
+  strategy that ran and found nothing is not degradation, but it is also not a contribution, and
+  a caller cannot tell a ranked answer from a recency dump without seeing the difference.
+
   Each strategy runs in its own Account transaction and must filter scope, lifecycle, and
   provisional subjects before returning candidates. This module does no post-filtering.
   """
@@ -35,8 +39,9 @@ defmodule Cartulary.Retrieval.Engine do
     to server-side and evaluation callers; profile resolution raises otherwise.
   * `:inherit?` — set false to ignore any stored per-scope profile override.
 
-  Returns profile metadata, latency in milliseconds, contributed and dropped strategies,
-  pre-fusion disagreement, and ranked records with `rrf_score` and contributing strategies.
+  Returns profile metadata, latency in milliseconds, contributed, empty, and dropped
+  strategies, pre-fusion disagreement, and ranked records with `rrf_score` and contributing
+  strategies.
 
   Raises `ArgumentError` for an unknown profile or strategy name, or for a
   strategy list from a non-internal caller. A strategy killed by the deadline
@@ -92,12 +97,19 @@ defmodule Cartulary.Retrieval.Engine do
     fused = Fusion.reciprocal_rank(lists, profile.weights, query.max_candidates)
     {ranked, rerank_dropped?} = maybe_rerank(fused, query, profile, budget, concurrent?)
 
-    contributed = Enum.map(lists, fn {strategy, _candidates} -> strategy end)
+    # Running to completion is not contributing. A strategy that returned nothing is reported
+    # separately, because collapsing it into either other set hides the run that ranked the
+    # scope instead of the query.
+    {contributing_lists, empty_lists} =
+      Enum.split_with(lists, fn {_strategy, candidates} -> candidates != [] end)
 
     # Include disabled, timed-out, and failed work so callers can distinguish degradation.
     dropped =
       profile.disabled_strategies ++
         seed_dropped ++ expand_dropped ++ if(rerank_dropped?, do: [:reranker], else: [])
+
+    query_dependent =
+      for module <- profile.strategy_modules, module.query_dependent?(), do: module.name()
 
     %{
       query: query.text,
@@ -105,12 +117,19 @@ defmodule Cartulary.Retrieval.Engine do
       profile_version: profile.version,
       deadline: if(deadline?, do: "enabled", else: "disabled"),
       latency_ms: Cartulary.Clock.monotonic_ms() - started_at,
-      contributed_strategies: contributed |> Enum.uniq() |> Enum.map(&Atom.to_string/1),
+      contributed_strategies: strategy_names(contributing_lists),
+      empty_strategies: strategy_names(empty_lists),
       dropped_strategies: dropped |> Enum.uniq() |> Enum.map(&Atom.to_string/1),
       # Fusion destroys evidence of strategy disagreement.
-      disagreement: Fusion.disagreement(seed_lists),
+      disagreement: Fusion.disagreement(seed_lists, query_dependent),
       candidates: Enum.map(ranked, &candidate_map/1)
     }
+  end
+
+  defp strategy_names(lists) do
+    lists
+    |> Enum.map(fn {strategy, _candidates} -> Atom.to_string(strategy) end)
+    |> Enum.uniq()
   end
 
   # Inapplicable strategies are skipped, not reported as degraded.

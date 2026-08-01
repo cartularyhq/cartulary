@@ -262,6 +262,17 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     assert Enum.all?(@strategies, &(&1.stage() in [:seed, :expand]))
     assert Strategies.RelationExpand.stage() == :expand
 
+    # Query dependence is what separates "found nothing about your question" from "ranked the
+    # scope for you". Expansion is not query-dependent: it walks out from seeds that may
+    # themselves have ignored the query, so counting it would launder that.
+    assert Enum.all?(@strategies, &is_boolean(&1.query_dependent?()))
+    assert Strategies.Semantic.query_dependent?()
+    assert Strategies.Lexical.query_dependent?()
+    assert Strategies.EntityMatch.query_dependent?()
+    refute Strategies.Temporal.query_dependent?()
+    refute Strategies.SalienceRecency.query_dependent?()
+    refute Strategies.RelationExpand.query_dependent?()
+
     # Applicability must be a cheap, total predicate: it is consulted for every query, so it
     # cannot query the database or raise on an unusual query shape.
     query = %Query{text: "release", target: :knowledge, seed_ids: ["seed"]}
@@ -292,6 +303,12 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     assert result["dropped_strategies"] == []
     assert "semantic" in result["contributed_strategies"]
     assert "lexical" in result["contributed_strategies"]
+
+    # Contributing means "returned candidates", so a strategy cannot be in both lists, and
+    # the strategies that read the query text are the ones that answered it.
+    refute "semantic" in result["empty_strategies"]
+    refute "lexical" in result["empty_strategies"]
+    refute result["disagreement"]["query_dependent_empty"]
 
     # The same statement found by two independent strategies is reported once, carrying the
     # list of strategies that found it. Callers use that as an agreement signal.
@@ -327,6 +344,52 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
              )
   end
 
+  test "a run where no query-reading strategy matched is reported as query-independent" do
+    # Deliberately skip Indexer.rebuild_scope and EntityResolver.rebuild_scope. Both caches are
+    # rebuildable and are populated by background jobs, so this is the state a real deployment
+    # sits in between ingest and the next rebuild — not an artificial one.
+    seeded =
+      seed_active!("f7-degraded", "/f7/degraded", "Avery prefers concise release summaries.")
+
+    result =
+      Memory.search(%{
+        "account_key" => "f7-degraded",
+        "scope_path" => seeded.scope.path,
+        # None of these words occur in the corpus, so full-text search cannot match either.
+        "query" => "kayak tariff schedule",
+        "deadline" => "disabled"
+      })
+
+    # Three strategies read the query text. Every one of them came back with nothing: semantic
+    # has no vectors to compare, entity matching has no resolved mentions, and full-text search
+    # found no term in common.
+    assert Enum.sort(result["empty_strategies"]) == ["entity_match", "lexical", "semantic"]
+    assert result["contributed_strategies"] == ["temporal"]
+
+    # Running and finding nothing is not degradation. Nothing was disabled, timed out, or
+    # failed, so the dropped list stays empty and keeps its narrower meaning.
+    assert result["dropped_strategies"] == []
+
+    # The point of the flag: what came back is the scope in time order, not an answer, and the
+    # response says so even though its shape is identical to a good result.
+    #
+    # These two also pin the signal to pre-fusion (FR-API-29). Fusion always emits a ranked
+    # list, so anything derived from the fused output could not report "nothing was found"
+    # while candidates are being returned. They can only hold together if it was measured
+    # before the merge.
+    assert result["disagreement"]["query_dependent_empty"]
+    assert result["candidates"] != []
+
+    # The pre-existing signals cannot express this state, which is why the new one exists.
+    # All three read only the strategies that returned something. `low_score` is false because
+    # temporal's scores are fixed steps well above the floor. `disjoint` is true, but vacuously:
+    # with one non-empty list there is no pair to overlap, and it says the same for a healthy
+    # single-strategy run. `strategy_count` counts what survived, never what vanished.
+    refute result["disagreement"]["low_score"]
+    assert result["disagreement"]["disjoint"]
+    assert result["disagreement"]["strategy_count"] == 1
+  end
+
   test "lexical ranks a target above distractors that share only part of the query" do
     corpus = seed_ranking_corpus!()
 
@@ -347,8 +410,8 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
 
     assert [%{"id" => head_id, "strategies" => strategies} | _] = result["candidates"]
     assert head_id == corpus.target.knowledge.id
-    # The per-candidate attribution, not `contributed_strategies`: an empty lexical list is
-    # still reported as a contributor, so only this field distinguishes a hit from a miss.
+    # The per-candidate attribution identifies which strategies found this statement;
+    # `contributed_strategies` only identifies which strategies returned any candidate.
     assert "lexical" in strategies
 
     # Sharing no query term is the one thing that must keep a statement out of the lexical
@@ -757,6 +820,11 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     # is distinguishable from a genuinely empty corpus.
     assert result["candidates"] == []
     assert "lexical" in result["dropped_strategies"]
+
+    # A strategy that never ran is only dropped. Reporting it as having found nothing would
+    # claim the corpus was searched and came back empty, which is the opposite of what happened.
+    refute "lexical" in result["empty_strategies"]
+    refute "lexical" in result["contributed_strategies"]
   end
 
   test "projection refresh, bounded deltas, session resolution, and ETS invalidation stay model-free" do

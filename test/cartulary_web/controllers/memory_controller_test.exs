@@ -237,11 +237,14 @@ defmodule CartularyWeb.MemoryControllerTest do
                # admits that results are partial, which is why the field exists
                # at all. Here it names `semantic` because this suite runs on
                # the deterministic fallback, which refuses to invent vectors
-               # and therefore has no embedder: the strategy could not run. It
-               # must not be reported as a strategy that ran and matched
-               # nothing, because that is what an unindexed corpus looks like
-               # too, and the two need opposite responses.
+               # and therefore has no embedder: the strategy could not run.
                "dropped_strategies" => ["semantic"],
+               # A separate list for strategies that ran and matched nothing.
+               # Without it a caller cannot tell this page from one where every
+               # strategy that reads the query text came back empty and the
+               # rest ranked the scope by recency.
+               "empty_strategies" => _empty,
+               "disagreement" => %{"query_dependent_empty" => false},
                "candidates" => [%{"statement" => statement} | _]
              }
            } = json_response(conn, 200)

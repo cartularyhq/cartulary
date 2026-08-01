@@ -13,6 +13,33 @@ changelog entry and contract-version transition.
 
 ### Fixed
 
+- A search response reported a healthy run when every strategy that reads the
+  query text had come back empty. `contributed_strategies` was built from every
+  strategy that finished, so one that matched nothing was still named a
+  contributor, and `disagreement` discarded empty lists before measuring
+  anything, so that strategy left no trace in `strategy_count`, `disjoint`, or
+  `low_score` either. When only `temporal` and `salience_recency` survived —
+  neither of which reads the query — `search` returned the scope in recency
+  order, the same page for every question, in a payload whose shape and health
+  signals matched a good result. Retrieval now reports three disjoint
+  per-strategy outcomes instead of two: `contributed_strategies` (returned
+  candidates), the new `empty_strategies` (ran, matched nothing), and
+  `dropped_strategies` (disabled, timed out, or failed, unchanged). Each
+  strategy declares `query_dependent?/0`, and `disagreement` gains
+  `query_dependent_empty`, true when no query-reading strategy contributed.
+  It is still computed before fusion (FR-API-29), which is what lets it say
+  "nothing was found" while a full ranked list is being returned.
+  `strategy_count`, `disjoint`, and `low_score` keep their current meanings and
+  values. `search` and `ask` responses carry one new top-level field and one new
+  `disagreement` key; a caller counting `contributed_strategies` will now see
+  only the strategies that actually voted on the order. The `search` telemetry
+  span adds `cartulary.retrieval.empty_strategy_count` and
+  `cartulary.retrieval.query_dependent_empty`, and the console retrieval preview
+  names empty strategies alongside dropped ones. `ask` does not yet abstain on
+  the new signal; that remains the tracked roadmap item, which this change
+  supplies the missing input for. No contract identity changes: `f7-1` still
+  names retrieval behaviour, and the addition is backward compatible for a
+  caller reading fields by name.
 - `ask` no longer discards grounded answer text and validated citations when
   the dialectic model marks its conclusion inconclusive. A response may now
   combine `abstained: true` with non-empty `citations`: the cited statements
