@@ -519,16 +519,16 @@ defmodule Cartulary.Memory do
   Assembles the cached context projections for a scope, without calling a model.
 
   This is the read an agent performs at the start of a turn: session summary,
-  scope cards, peer profiles, and a bounded slice of knowledge, trimmed to a
-  character budget. It performs no reasoning. A normal assembly must never
+  scope cards, entity cards, peer profiles, and a bounded slice of knowledge,
+  trimmed to a character budget. It performs no reasoning. A normal assembly must never
   invoke a model, because it sits on the latency-sensitive path of every turn;
   a projection miss may fall back to a live retrieval run, and that fallback is
   reported in the result rather than hidden.
 
   `attrs` accepts `"scope_path"` (defaults to `"/poc"`), `"session_id"`, and
   `"budget_chars"`. Returns a string-keyed map including `"session_summary"`,
-  `"scope_cards"`, `"peer_profile"`, `"knowledge"`, `"projection_cache_hit"`,
-  and `"fast_fallback"` — the last two describing how the answer was produced:
+  `"scope_cards"`, `"entity_cards"`, `"peer_profile"`, `"knowledge"`,
+  `"projection_cache_hit"`, and `"fast_fallback"` — the last two describing how the answer was produced:
   whether any stored projection was reused, and whether a miss fell back to
   live retrieval.
 

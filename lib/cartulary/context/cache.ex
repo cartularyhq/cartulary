@@ -4,9 +4,10 @@ defmodule Cartulary.Context.Cache do
   @moduledoc """
   Node-local in-memory cache of clean context projections, with cluster-wide invalidation.
 
-  Keys include Account, scope, and projection key to preserve tenancy. Only clean projections may
-  be cached. Invalidation deletes locally and broadcasts to every node. The GenServer owns the
-  public ETS table and receives broadcasts; losing the derived table is harmless.
+  Keys include Account, scope, and projection key to preserve tenancy. Values are one clean
+  projection or the clean entity-card contents for a scope. Invalidation deletes locally and
+  broadcasts to every node. The GenServer owns the public ETS table and receives broadcasts;
+  losing the derived table is harmless.
   """
 
   use GenServer
@@ -21,7 +22,7 @@ defmodule Cartulary.Context.Cache do
   def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
 
   @doc """
-  Looks up one cached projection.
+  Looks up one cached projection value.
 
   Returns `{:ok, projection}` or `:error` for an Account/scope/projection key.
   """
@@ -33,7 +34,8 @@ defmodule Cartulary.Context.Cache do
   end
 
   @doc """
-  Stores one projection under the `{account id, scope id, projection cache key}` triple.
+  Stores one clean projection value under the `{account id, scope id, projection cache key}`
+  triple.
 
   Callers must reject dirty projections before calling. Returns `:ok`.
   """

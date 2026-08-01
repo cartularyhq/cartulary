@@ -162,7 +162,7 @@ The system of record is:
 
 Derived and rebuildable data is:
 
-- peer profiles, scope cards, session summaries, context projection fragments;
+- peer profiles, scope cards, entity cards, session summaries, context projection fragments;
 - entity and entity-mention caches;
 - document chunks when they can be regenerated from durable document versions;
 - vector and lexical indices;

@@ -164,11 +164,15 @@ layer.
 `projection_refresh` runs `:thorough` retrieval at dream-time, then updates:
 
 - one active-only scope card per scope;
+- one entity card per scope/entity with at least three distinct active source statements;
 - one peer profile slice per subject Peer/scope, containing active knowledge
   plus only that subject's provisional knowledge; and
 - one active-only session summary per session.
 
-Projection keys are Account-local and unique. Updates carry a watermark,
+Projection keys are Account-local and unique. Entity-card keys use a private
+entity id only as a grouping coordinate; payloads expose no entity-cache field.
+Cards carry the strictest source sensitivity, a bounded summary with model
+provenance, and the governed source statements. Updates carry a watermark,
 delta count, source ids, dirty state, and a bounded full-compaction cadence.
 Lifecycle changes mark affected projections dirty and enqueue deterministic
 entity/projection jobs in the same transaction as the state change.
@@ -179,8 +183,8 @@ cannot serve a clean projection written under the older rule while its rebuild
 is pending. A miss uses the already subject-filtered `:fast` retrieval path.
 
 `Cartulary.Context` reserves the caller's character budget in the required
-order: session summary, peer profile, scope cards, then salience-ranked
-knowledge. Clean projections are cached in ETS. Invalidation is broadcast
+order: session summary, peer profile, scope cards, entity cards, then
+salience-ranked knowledge. Clean projections are cached in ETS. Invalidation is broadcast
 through Phoenix PubSub so queue-mode nodes evict the same Account/scope key.
 On a miss, and only on a miss, `get_context` uses the `:fast` retrieval profile.
 It never invokes dialectic or dream reasoning on the live context path.

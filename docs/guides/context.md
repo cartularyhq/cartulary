@@ -30,6 +30,13 @@ curl -fsS -X POST http://127.0.0.1:4000/api/v1/context \
     "knowledge": [ ... ],
     "session_summary": { ... },
     "scope_cards": [ ... ],
+    "entity_cards": [
+      {
+        "summary": "The billing service owns invoice generation and pages finance after failed settlement.",
+        "sensitivity": "internal",
+        "knowledge": [ ... ]
+      }
+    ],
     "peer_profile": { ... },
     "profile_version": "f7-1",
     "projection_cache_hit": true,
@@ -42,6 +49,8 @@ curl -fsS -X POST http://127.0.0.1:4000/api/v1/context \
   provisional statements, within budget.
 - **`session_summary`** — active statements used to warm this session.
 - **`scope_cards`** — active statements each ancestor scope contributes.
+- **`entity_cards`** — short per-entity briefs built from at least three active
+  governed statements in one scope. Cards expose no entity-cache metadata.
 - **`peer_profile`** — active and provisional statements about the calling
   peer. Another peer's provisional statements are never included.
 - **`projection_cache_hit`** — a stored projection was reused.
@@ -50,8 +59,10 @@ curl -fsS -X POST http://127.0.0.1:4000/api/v1/context \
 
 ## Why this is not just a search
 
-Profiles, scope cards, and session summaries are cached **projections** of
-governed knowledge, not another durable store.
+Profiles, scope cards, entity cards, and session summaries are cached
+**projections** of governed knowledge, not another durable store. Entity-card
+summaries are generated during background refresh; no model runs during this
+request.
 
 Scope cards and session summaries are shared within their authorized scope, so
 they contain active knowledge only. A provisional statement is visible through

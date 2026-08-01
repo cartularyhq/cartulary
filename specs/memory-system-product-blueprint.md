@@ -88,7 +88,7 @@ The eight invariants from the FR spec, restated as promises every contributor up
 1. **Context flows down freely; knowledge flows up only through a governance gate.**
 2. **Agents submit observations only; the pipeline is the sole writer of knowledge.**
 3. **Blast radius scales the bar** — the wider a fact's exposure, the higher the bar to attribute it there.
-4. **Knowledge is the only atom;** profiles, scope cards, and summaries are projections of it.
+4. **Knowledge is the only atom;** profiles, scope cards, entity cards, and summaries are projections of it.
 5. **Reasoned artifacts pass validation gates; authored artifacts use plain versioning.**
 6. **Belief-time ≠ valid-time ≠ salience; confidence ≠ sensitivity; subject ≠ source.**
 7. **Everything scoped inherits down the tree, nearest-wins.**

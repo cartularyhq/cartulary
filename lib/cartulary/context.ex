@@ -4,8 +4,8 @@ defmodule Cartulary.Context do
   @moduledoc """
   Assembles the context payload an agent reads at the start of a turn, without calling a model.
 
-  For authorized scopes, it combines session summary, scope cards, the caller's peer-profile
-  slice, and governed knowledge within a character budget.
+  For authorized scopes, it combines session summary, scope cards, entity cards, the caller's
+  peer-profile slice, and governed knowledge within a character budget.
 
   ## Reasoning-free by construction
 
@@ -21,17 +21,16 @@ defmodule Cartulary.Context do
 
   ## Budget
 
-  The character budget is spent in a fixed order — session summary, then peer profile slices,
-  then scope cards, then knowledge. The order encodes what is most valuable to a caller with
-  little room: the immediate conversation first, the person second, the place third, and
-  individual statements last. Shrinking the budget therefore drops the least specific material.
+  The character budget is spent in a fixed order — session summary, peer profile slices, scope
+  cards, entity cards, then knowledge. The order preserves the established conversation, person,
+  and place guarantees before adding entity briefs; individual statements remain last.
 
   ## Mistakes to avoid
 
   * Do not add a model call, a rerank, or an entity lookup to this path.
   * Do not relax the `dirty == false` filter to raise the cache hit rate.
-  * Do not expose entity rows, canonical names, or entity ids here; the projections deliberately
-    carry statement fields only.
+  * Do not expose entity rows, canonical names, aliases, surface forms, or entity ids here; entity
+    cards deliberately carry only a summary and governed statement fields.
   """
 
   alias Cartulary.Context.Cache
@@ -53,7 +52,8 @@ defmodule Cartulary.Context do
   budget.
 
   Returns a string-keyed map with `"profile_version"`, `"session_summary"`, `"scope_cards"`,
-  `"peer_profile"`, `"knowledge"`, `"projection_cache_hit"`, and `"fast_fallback"`.
+  `"entity_cards"`, `"peer_profile"`, `"knowledge"`, `"projection_cache_hit"`, and
+  `"fast_fallback"`.
   `"projection_cache_hit"` reports whether at least one projection was served from the
   node-local in-memory cache rather than re-read from the database; `"fast_fallback"` reports
   whether no projection carried knowledge and a live retrieval pass filled the gap.
@@ -71,21 +71,23 @@ defmodule Cartulary.Context do
     session_id = resolve_session_id(account.id, actor, scope_ids, attrs["session_id"])
     {scope_cards, scope_hits} = scope_cards(account.id, actor, scopes)
     {peer_profiles, peer_hits} = peer_profiles(account.id, actor, scopes)
+    {entity_cards, entity_hits} = entity_cards(account.id, actor, scopes)
     {session_summary, session_hit} = session_summary(account.id, actor, scopes, session_id)
 
     projection_knowledge =
-      projection_knowledge(scope_cards, peer_profiles)
+      projection_knowledge(scope_cards, peer_profiles, entity_cards)
 
     {knowledge, fallback?} =
       knowledge(account.id, actor, scope_ids, attrs, projection_knowledge)
 
     budget = parse_int(Map.get(attrs, "budget_chars"), retrieval_config(:context_budget_chars))
 
-    {summary, profiles, cards, knowledge} =
+    {summary, profiles, cards, entity_cards, knowledge} =
       fit_budget(
         session_summary,
         List.flatten(peer_profiles),
         Enum.reject(scope_cards, &is_nil/1),
+        List.flatten(entity_cards),
         knowledge,
         budget
       )
@@ -94,11 +96,46 @@ defmodule Cartulary.Context do
       "profile_version" => "f7-1",
       "session_summary" => summary,
       "scope_cards" => cards,
+      "entity_cards" => entity_cards,
       "peer_profile" => profiles,
       "knowledge" => knowledge,
-      "projection_cache_hit" => scope_hits + peer_hits + if(session_hit, do: 1, else: 0) > 0,
+      "projection_cache_hit" =>
+        scope_hits + peer_hits + entity_hits + if(session_hit, do: 1, else: 0) > 0,
       "fast_fallback" => fallback?
     }
+  end
+
+  # The grouping coordinate remains private. Context reads all clean cards for one authorized
+  # scope and returns only their content, ordered by source coverage and confidence. The list is
+  # cached under a synthetic scope key so repeated requests do not enumerate projection rows.
+  defp entity_cards(account_id, actor, scopes) do
+    Enum.map_reduce(scopes, 0, fn scope, hits ->
+      cache_key = {account_id, scope.id, "entity_cards"}
+
+      case Cache.fetch(cache_key) do
+        {:ok, cards} ->
+          {cards, hits + if(cards == [], do: 0, else: 1)}
+
+        :error ->
+          cards =
+            Projection
+            |> Ash.Query.filter(
+              scope_id == ^scope.id and kind == "entity_card" and dirty == false
+            )
+            |> Ash.Query.set_tenant(account_id)
+            |> Ash.read!(actor: actor)
+            |> Enum.sort_by(&entity_card_order/1, :desc)
+            |> Enum.map(& &1.content)
+
+          Cache.put(cache_key, cards)
+          {cards, hits}
+      end
+    end)
+  end
+
+  defp entity_card_order(projection) do
+    confidences = Enum.map(projection.content["knowledge"] || [], &(&1["confidence"] || 0.0))
+    {length(projection.source_ids), Enum.max(confidences, fn -> 0.0 end), projection.cache_key}
   end
 
   # One card per authorized scope, in the order the caller's scopes were resolved (nearest
@@ -145,9 +182,12 @@ defmodule Cartulary.Context do
   # Statements already carried by the cards and profile slices. Deduplicated by statement id so
   # a claim that appears in both a scope card and the peer's own slice is not billed twice
   # against the character budget.
-  defp projection_knowledge(scope_cards, peer_profiles) do
+  defp projection_knowledge(scope_cards, peer_profiles, entity_cards) do
     (Enum.flat_map(scope_cards, &Map.get(&1 || %{}, "knowledge", [])) ++
-       List.flatten(peer_profiles))
+       List.flatten(peer_profiles) ++
+       (entity_cards
+        |> List.flatten()
+        |> Enum.flat_map(&Map.get(&1, "knowledge", []))))
     |> Enum.uniq_by(& &1["id"])
   end
 
@@ -231,15 +271,16 @@ defmodule Cartulary.Context do
   end
 
   # Spending order is the priority order and must not be rearranged: the session summary is
-  # reserved first, then the caller's profile slices, then scope cards, then individual
-  # statements. A tight budget therefore keeps the conversation and the person and drops the
-  # least specific material.
-  defp fit_budget(summary, profiles, cards, knowledge, budget) do
+  # reserved first, then the caller's profile slices, scope cards, entity cards, and individual
+  # statements. A tight budget therefore keeps the conversation, person, and place before the
+  # newer entity briefs and least-specific material.
+  defp fit_budget(summary, profiles, cards, entity_cards, knowledge, budget) do
     {summary, remaining} = reserve(summary, budget)
     {profiles, remaining} = take_values(profiles, remaining)
     {cards, remaining} = take_values(cards, remaining)
+    {entity_cards, remaining} = take_values(entity_cards, remaining)
     {knowledge, _remaining} = take_values(knowledge, remaining)
-    {summary, profiles, cards, knowledge}
+    {summary, profiles, cards, entity_cards, knowledge}
   end
 
   defp reserve(nil, budget), do: {nil, budget}

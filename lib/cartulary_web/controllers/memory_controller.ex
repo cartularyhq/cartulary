@@ -161,7 +161,7 @@ defmodule CartularyWeb.MemoryController do
     session summary, and an optional `budget_chars` that caps the assembled size.
 
     Returns `%{"data" => context}` with `knowledge`, `session_summary`, `scope_cards`,
-    `peer_profile`, the context contract identity in `profile_version`, and two
+    `entity_cards`, `peer_profile`, the context contract identity in `profile_version`, and two
     diagnostic flags: `projection_cache_hit` says a stored projection was reused,
     `fast_fallback` says the projection was missing and the fastest retrieval profile
     filled in live.

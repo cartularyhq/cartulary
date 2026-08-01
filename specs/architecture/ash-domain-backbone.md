@@ -39,6 +39,9 @@ This map implements `FR-TOP-*`, `FR-KN-*`, `FR-FORM-*`, `FR-GOV-*`,
   require a governance or system role.
 - Entity and entity-mention actions are pipeline-internal and have no public
   route, preserving `FR-KN-21`.
+- Projection writes are pipeline-only. Entity cards may store a private entity
+  id as a cache coordinate, but their public context payload contains only a
+  summary, sensitivity, provenance, and governed statement fields.
 
 `Cartulary.Memory` remains a compatibility facade for the HTTP and eval
 surfaces, but its durable reads and writes call Ash actions. Retrieval, entity
