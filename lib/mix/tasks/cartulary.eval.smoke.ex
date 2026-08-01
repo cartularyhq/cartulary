@@ -55,10 +55,12 @@ defmodule Mix.Tasks.Cartulary.Eval.Smoke do
         # `put`, not `put_new`: the switch decides which Account is written to, so a
         # dataset file can never redirect a smoke run into somebody else's tenant.
         |> Map.put("account_key", account_key)
-        # Extraction runs inline instead of via a background job, so the questions below
-        # can see the resulting knowledge within this single command.
-        |> Map.put("sync_extract", true)
-        |> Memory.ingest_message()
+        |> then(fn attrs ->
+          with {:ok, stored} <- Memory.ingest_message(attrs),
+               {:ok, _knowledge} <- Memory.extract_message(stored["id"], account_key) do
+            {:ok, stored}
+          end
+        end)
       end)
 
     answers =

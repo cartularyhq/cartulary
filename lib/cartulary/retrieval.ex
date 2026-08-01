@@ -47,8 +47,8 @@ defmodule Cartulary.Retrieval do
   `:internal?`, and `:strategies` to name strategies explicitly.
 
   Returns a map with the query text, the profile name and version, the measured
-  latency, the strategies that contributed, the strategies that were dropped,
-  a pre-fusion disagreement summary, and the ranked candidates.
+  latency, the strategies that contributed, ran empty, and were dropped, a
+  pre-fusion disagreement summary, and the ranked candidates.
 
   Raises `ArgumentError` when the profile name is unknown, or when
   `:strategies` is supplied without `internal?: true` — hand-picked strategy
@@ -68,6 +68,25 @@ defmodule Cartulary.Retrieval do
   stage. Raises if an underlying Ash read or write fails.
   """
   defdelegate rebuild_scope(account_id, scope_id), to: Cartulary.Retrieval.Rebuild, as: :scope
+
+  @doc """
+  Reports how many of each scope's retrievable statements carry an embedding and
+  an entity mention, and under which embedding identity.
+
+  Embeddings are written by the projection refresh alone. A scope whose refresh
+  was cancelled keeps every statement and loses semantic and entity recall
+  indefinitely, while full-text search — a generated column — keeps answering.
+  This read is how that is noticed.
+
+  `scope_ids` must already be authorized; `peer_id` narrows provisional
+  statements to their subject and is nil only for system callers.
+
+  Returns a map keyed by scope id, each value carrying `statement_count`,
+  `embedded_count`, `mention_count`, `coverage`, and `embedding_identities`.
+  """
+  defdelegate index_coverage(account_id, scope_ids, peer_id \\ nil),
+    to: Cartulary.Retrieval.Coverage,
+    as: :scopes
 end
 
 defmodule Cartulary.Retrieval.RetrievalProfile do

@@ -188,11 +188,25 @@ defmodule CartularyWeb.Console.Loader do
 
   @doc """
   The scope containment tree, as a flat list in path order.
+
+  Each row also carries index coverage — statement, embedded, and mention counts
+  — because a scope whose projection refresh never ran looks identical to a
+  healthy one from every other panel.
   """
   def scope_directory(%Actor{} = actor) do
     DataLayer.with_actor(actor, fn account, current_actor ->
       scopes = scopes(account.id, current_actor)
       paths = scope_paths(scopes)
+
+      # Vectors and mentions are written by the projection refresh alone, so a
+      # scope can hold every statement and answer nothing semantically. Reading
+      # coverage here is what makes that state visible to an operator.
+      coverage =
+        Cartulary.Retrieval.index_coverage(
+          account.id,
+          Enum.map(scopes, & &1.id),
+          actor.peer_id
+        )
 
       rows =
         Enum.map(scopes, fn scope ->
@@ -200,6 +214,7 @@ defmodule CartularyWeb.Console.Loader do
             scope: scope,
             depth: depth(scope.path),
             role: Access.scope_role(actor, scope.id),
+            coverage: Map.fetch!(coverage, scope.id),
             knowledge_count:
               count(
                 knowledge_base_query(actor, scope_ids: [scope.id]),

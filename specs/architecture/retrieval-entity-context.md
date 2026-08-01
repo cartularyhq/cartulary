@@ -31,9 +31,24 @@ comparable scores. The `:thorough` profile optionally reranks only the fused
 head through `Cartulary.Model.Gateway`. Reranking and grounded answers hold no
 transaction; the model layer scopes its own configuration read and usage write.
 A hard remaining-time budget wraps strategies and reranking. Timeouts are
-dropped, not retried, and every
-response reports contributed and dropped strategies plus pre-fusion
-cross-strategy disagreement.
+dropped, not retried, and every response reports contributed, empty, and
+dropped strategies plus pre-fusion cross-strategy disagreement.
+
+The three strategy sets are disjoint and carry distinct facts: contributed
+returned candidates, empty ran and matched nothing, dropped never produced a
+result. Each strategy declares `query_dependent?/0` — true only for reading
+`query.text`, so expansion inherits nothing from its seeds — and disagreement
+reports `query_dependent_empty` when no such strategy contributed. That is the
+FR-API-29 signal `strategy_count`, `disjoint`, and `low_score` cannot carry:
+all three read only the lists that came back non-empty, so a strategy that
+returned nothing leaves no trace in them, and a scope ranked by `temporal` and
+`salience_recency` alone reports the same health as an answered query.
+
+`candidates/2` returns candidates or `{:error, reason}`. The second means the
+strategy never ran — an unavailable embedder, say — and the engine reports it
+as dropped. An empty list keeps its own meaning: the strategy ran and matched
+nothing. Collapsing the two would make a broken dependency indistinguishable
+from an honest miss, which is the same confusion an unindexed corpus creates.
 
 `Cartulary.Retrieval.Store` is the reviewed read-only data-layer helper for
 the operations Ash does not express as ordinary resource reads: PG-FTS,
@@ -97,6 +112,20 @@ vectors, resolves entities, and refreshes projections. Document import already
 re-enters ordinary document ingest, which rebuilds chunk vectors and causes
 governed knowledge to enqueue the same derived-cache jobs.
 
+Because vectors and mentions are written by that job alone and no longer ride
+the knowledge-write transaction, they are eventually consistent: a refresh that
+was cancelled or never enqueued leaves a scope holding every governed statement
+with no vectors, while lexical search keeps answering from its generated
+column. `Cartulary.Retrieval.Coverage` is the read that distinguishes the two —
+per-scope statement, embedded, and mention counts plus the embedding identities
+in use, under the same authorization and provisional-subject rules as any other
+retrieval query, and reporting mentions as a count so the entity cache stays
+internal. Every completed refresh emits
+`[:cartulary, :retrieval, :projection_refresh]` with those counts and the
+resulting ratio. Nothing re-enqueues a stale scope automatically; making the
+state observable comes first, since a sweeper would repair the symptom while
+leaving the state unknowable.
+
 `Indexer.rebuild_scope/2` and `EntityResolver.rebuild_scope/2` use a short read
 transaction, connection-free model calls, and one final write transaction. The
 entity resolver matches surface forms against an in-memory set seeded by the
@@ -134,14 +163,20 @@ layer.
 
 `projection_refresh` runs `:thorough` retrieval at dream-time, then updates:
 
-- one scope card per scope;
-- one peer profile slice per subject Peer/scope; and
-- one session summary per session.
+- one active-only scope card per scope;
+- one peer profile slice per subject Peer/scope, containing active knowledge
+  plus only that subject's provisional knowledge; and
+- one active-only session summary per session.
 
 Projection keys are Account-local and unique. Updates carry a watermark,
 delta count, source ids, dirty state, and a bounded full-compaction cadence.
 Lifecycle changes mark affected projections dirty and enqueue deterministic
 entity/projection jobs in the same transaction as the state change.
+
+Projection keys also carry a private audience-contract namespace. A stricter
+stored-content rule advances that namespace, so nodes running the new code
+cannot serve a clean projection written under the older rule while its rebuild
+is pending. A miss uses the already subject-filtered `:fast` retrieval path.
 
 `Cartulary.Context` reserves the caller's character budget in the required
 order: session summary, peer profile, scope cards, then salience-ranked

@@ -18,13 +18,30 @@ flowchart LR
     RRF --> RR{Rerank?}
     RR -->|thorough profile| M[Model-backed rerank<br/>of the fused head]
     RR -->|otherwise| OUT
-    M --> OUT[Ranked candidates<br/>+ contributed and dropped strategies]
+    M --> OUT[Ranked candidates<br/>+ contributed, empty, and dropped strategies]
 ```
 
 ## Filtering happens before candidates leave retrieval
 
 Each strategy applies Account, scope, lifecycle, provisional-subject, and source
 filters **inside its query**. The API does not post-filter candidates.
+
+## How the lexical strategy reads your query
+
+Plain text matches statements sharing **any** of its terms, ranked by how many
+of them a statement covers and how closely together. Ask a full question: it
+does not need every content word to appear in one statement.
+
+Three operators override that, following PostgreSQL `websearch` syntax.
+
+| Syntax | Meaning |
+| --- | --- |
+| `"exact phrase"` | Only statements containing that phrase, in order |
+| `-term` | Excludes statements containing the term |
+| `a or b` | Either term |
+
+Using any of them switches the whole query to `websearch` parsing, where bare
+terms must **all** appear in one statement.
 
 ## Why fusion, and why you must not re-sort
 
@@ -39,7 +56,19 @@ Fusion merges ranks, not scores. A candidate at rank `r` contributes
     numbers from different scoring spaces and silently degrades results.
 
 Strategy disagreement is computed *before* fusion, so it measures what the
-strategies actually thought rather than an artefact of the merge.
+strategies actually thought rather than an artefact of the merge. Fusion always
+emits a ranked list, including from lists that are all bad, so a fused rank
+cannot say "nothing was found".
+
+## Three per-strategy outcomes
+
+A response separates strategies that **contributed** candidates, strategies that
+ran and found **nothing**, and strategies that were **dropped** — disabled,
+timed out, or failed. Collapsing the middle case into either of the others hides
+the run worth knowing about: `temporal` and `salience_recency` read no query
+text, so when the text-reading strategies all come back empty, retrieval still
+returns a full page ranked by recency alone.
+`disagreement.query_dependent_empty` is the flag for exactly that state.
 
 ## Profiles
 
@@ -136,8 +165,12 @@ and PubSub/ETS invalidation. A model call does not belong on this read path.
 
 `ask` retrieves with the `thorough` profile, restricts retrieval to knowledge
 items so that citations are governed statements, and answers over what it
-found. When nothing supports the question it sets `abstained` and returns no
-answer.
+found. It may set `abstained` while retaining a qualified answer and citations:
+that means the evidence supports what the answer says but does not establish a
+conclusion. When nothing supports the question it returns `not known`, an empty
+citation list, and `abstained == true`.
 
 Treat `abstained == true` as an ordinary outcome. An answer invented from an
-empty candidate set would be worse than silence.
+empty candidate set would be worse than silence. Every model citation is
+intersected with the retrieved candidate ids before the response leaves the
+server, and no surviving citation means the empty abstention wins.

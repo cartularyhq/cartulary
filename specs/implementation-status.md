@@ -2,7 +2,7 @@
 
 # Implementation Status
 
-Application version: `0.2.0` (community beta).
+Application version: `0.3.0` (community beta).
 Last verified: 2026-07-28.
 
 Current behavior, evidence, and real limitations. Target architecture:
@@ -53,6 +53,10 @@ Details: `specs/architecture/ash-domain-backbone.md`.
   processed.
 - The raw write and the job commit before any model call, so a provider outage
   delays freshness rather than losing observations.
+- HTTP and MCP ingest return an accepted message id without running extraction.
+  The HTTP status read reports pending, failed, or completed state through the
+  Message's Account and scope policies. Account administrators can enqueue the
+  reconciler without creating another observation.
 
 Details: `specs/architecture/transactional-writes-audit-jobs.md`.
 
@@ -145,8 +149,9 @@ Details: `specs/architecture/documents-connectors-sync.md`.
   computed before fusion and optional reranking of the fused head.
 - Named versioned profiles that inherit nearest-wins from scope configuration,
   honour deployment strategy constraints, enforce a hard deadline, and report
-  contributed and dropped strategies. `search` defaults to `:balanced`; `ask`
-  defaults to `:thorough`.
+  contributed, empty, and dropped strategies separately, plus a
+  `query_dependent_empty` flag for a run no query-reading strategy answered.
+  `search` defaults to `:balanced`; `ask` defaults to `:thorough`.
 - Account, authorized scope, lifecycle, provisional subject, and source filters
   are applied before any candidate leaves retrieval internals.
 - Knowledge and document chunks use PostgreSQL `vector` values with pinned
@@ -160,8 +165,16 @@ Details: `specs/architecture/documents-connectors-sync.md`.
   mentions-per-entity p50/p95. Statement detail exposes only the count and
   links for co-mentioned statements that the reader can already read; no
   entity identity or surface form crosses the retrieval boundary.
+- Per-scope index coverage is readable and reported: statement, embedded, and
+  mention counts plus embedding identities, on `/console/scopes` and as a
+  telemetry event on every completed projection refresh. Those indexes are
+  eventually consistent, so a refresh that never ran leaves a scope with
+  statements and no vectors; coverage is what makes that state observable.
+  Re-enqueuing a stale scope's refresh is still manual.
 - Incremental peer profile, scope card, and session summary projections with
-  dirty marking, bounded delta compaction, and PubSub-backed ETS invalidation.
+  dirty marking, bounded delta compaction, versioned audience keys, and
+  PubSub-backed ETS invalidation. Shared scope/session projections are
+  active-only; provisional knowledge appears only in its subject's peer slice.
 - `get_context` assembles its budget from clean projections and stays
   reasoning-free; its only live retrieval work is the allowed `:fast` fallback
   after a cache miss.
@@ -228,10 +241,12 @@ Details: `specs/architecture/evaluation-ci-release-readiness.md` and
 
 - `GET /api/health`, `GET /api/ready`
 - `POST /api/v1/ingest`, `/search`, `/ask`, `/context`, `/readiness`
+- `GET /api/v1/ingest/:message_id`
 - `GET /api/v1/knowledge`
 - `POST /api/auth/password`
 - `/api/v1/self/*` peer self-service, human credentials only
-- `/api/v1/operations/costs`, account-admin only
+- `/api/v1/operations/costs` and `POST /api/v1/operations/reconcile`,
+  account-admin only
 - `/mcp` AshAi MCP endpoint
 
 ### Browser surface

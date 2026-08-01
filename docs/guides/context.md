@@ -38,10 +38,12 @@ curl -fsS -X POST http://127.0.0.1:4000/api/v1/context \
 }
 ```
 
-- **`knowledge`** — governed statements in scope, within budget.
-- **`session_summary`** — a projection of this session so far.
-- **`scope_cards`** — what each ancestor scope contributes.
-- **`peer_profile`** — a projection about the calling peer.
+- **`knowledge`** — active statements in scope plus the calling peer's own
+  provisional statements, within budget.
+- **`session_summary`** — active statements used to warm this session.
+- **`scope_cards`** — active statements each ancestor scope contributes.
+- **`peer_profile`** — active and provisional statements about the calling
+  peer. Another peer's provisional statements are never included.
 - **`projection_cache_hit`** — a stored projection was reused.
 - **`fast_fallback`** — the projection was missing, so the `fast` retrieval
   profile filled in live.
@@ -50,6 +52,10 @@ curl -fsS -X POST http://127.0.0.1:4000/api/v1/context \
 
 Profiles, scope cards, and session summaries are cached **projections** of
 governed knowledge, not another durable store.
+
+Scope cards and session summaries are shared within their authorized scope, so
+they contain active knowledge only. A provisional statement is visible through
+the subject-keyed peer profile until a human decision settles it.
 
 ```mermaid
 flowchart LR

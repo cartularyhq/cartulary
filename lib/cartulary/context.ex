@@ -35,6 +35,7 @@ defmodule Cartulary.Context do
   """
 
   alias Cartulary.Context.Cache
+  alias Cartulary.Context.ProjectionKey
   alias Cartulary.Knowledge.Projection
   alias Cartulary.Observations.Session
   alias Cartulary.Retrieval.Query
@@ -105,7 +106,7 @@ defmodule Cartulary.Context do
   # is not an error, it means the refresh job has not built that card yet or the card is dirty.
   defp scope_cards(account_id, actor, scopes) do
     Enum.map_reduce(scopes, 0, fn scope, hits ->
-      {projection, hit?} = projection(account_id, actor, scope.id, "scope:#{scope.id}")
+      {projection, hit?} = projection(account_id, actor, scope.id, ProjectionKey.scope(scope.id))
       content = projection && projection.content
       {content, hits + if(hit?, do: 1, else: 0)}
     end)
@@ -121,7 +122,7 @@ defmodule Cartulary.Context do
   defp peer_profiles(account_id, actor, scopes) do
     Enum.map_reduce(scopes, 0, fn scope, hits ->
       {projection, hit?} =
-        projection(account_id, actor, scope.id, "peer:#{scope.id}:#{actor.peer_id}")
+        projection(account_id, actor, scope.id, ProjectionKey.peer(scope.id, actor.peer_id))
 
       knowledge = projection && Map.get(projection.content, "knowledge", [])
       {knowledge || [], hits + if(hit?, do: 1, else: 0)}
@@ -134,7 +135,7 @@ defmodule Cartulary.Context do
 
   defp session_summary(account_id, actor, scopes, session_id) do
     Enum.find_value(scopes, {nil, false}, fn scope ->
-      case projection(account_id, actor, scope.id, "session:#{scope.id}:#{session_id}") do
+      case projection(account_id, actor, scope.id, ProjectionKey.session(scope.id, session_id)) do
         {nil, false} -> nil
         {projection, hit?} -> {projection.content, hit?}
       end

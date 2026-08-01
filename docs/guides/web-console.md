@@ -21,7 +21,7 @@ Agent API keys work on JSON and MCP, never the console.
 | `/console` | Overview: totals, lifecycle and sensitivity mix, what is waiting, recent activity |
 | `/console/knowledge` | The explorer: filter, page, and search every statement you can read |
 | `/console/knowledge/<id>` | One statement in full, with its evidence, history, readable shared-entity neighbours, and available actions |
-| `/console/scopes` | The containment tree as a directory, with counts, your role, and lateral links |
+| `/console/scopes` | The containment tree as a directory, with counts, index coverage, your role, and lateral links |
 | `/console/graph` | The same data drawn as a graph of scopes, statements, and cross-references |
 | `/console/sources` | Documents, their versions, connectors, sessions, and raw observations |
 | `/console/skills` | Skill requirement cards, and a live readiness check for yourself |
@@ -56,12 +56,32 @@ subject — and pages through the result. It is exhaustive: what is not listed i
 either filtered out or not visible to you, never merely ranked low.
 
 **Retrieval** runs the same multi-strategy engine that answers an agent's
-`search` call, and shows its working: which strategies contributed, which were
-dropped against the deadline, and what each candidate scored. It ranks; it does
-not enumerate.
+`search` call, and shows its working: which strategies contributed, which found
+nothing, which were dropped against the deadline, and what each candidate
+scored. It ranks; it does not enumerate.
+
+Read the strategy tile before the results. A search where the strategies that
+read your words all found nothing still returns a full page — of whatever is
+most recent in the scope. It looks like an answer and is not one.
 
 Retrieval requires a scope. Searching `/team/project` also searches `/team`
 and `/`. A miss means nothing ranked, not that the exhaustive browser is empty.
+
+## Index coverage
+
+`/console/scopes` reports, per scope, how many of its statements carry an
+embedding (**Indexed**) and how many entity mentions were resolved from them
+(**Mentions**), plus the embedding model in use.
+
+Statements are durable; those two are derived caches rebuilt in the background.
+A scope can therefore hold every statement and answer nothing semantically —
+word-based search keeps working, which is what makes the gap easy to miss. When
+Indexed is lower than Statements the figure is highlighted, and semantic and
+entity recall are degraded for that scope until its refresh runs again. Two
+embedding models listed for one scope means part of it predates a model change
+and must be re-embedded before those statements are comparable again.
+
+Coverage counts only. Mentions is a number, never a list of names.
 
 ## The statement page
 

@@ -35,7 +35,7 @@ defmodule Cartulary.F10PortabilityPackagingOperationsTest do
     # satisfy the assertions below.
     account_key = "f10-export-#{System.unique_integer([:positive])}"
 
-    assert {:ok, _message} =
+    assert {:ok, message} =
              Memory.ingest_message(%{
                "account_key" => account_key,
                "session_id" => "portable-session",
@@ -44,6 +44,8 @@ defmodule Cartulary.F10PortabilityPackagingOperationsTest do
                "role" => "user",
                "content" => "Avery prefers portable weekly summaries."
              })
+
+    assert {:ok, [_knowledge]} = Memory.extract_message(message["id"], account_key)
 
     {_account, actor} =
       DataLayer.with_account_key(
@@ -233,6 +235,8 @@ defmodule Cartulary.F10PortabilityPackagingOperationsTest do
           meta: %{
             time: System.system_time(:microsecond),
             request_id: "request-1",
+            account_id: "account-1",
+            error_class: "RuntimeError",
             content: "private knowledge"
           }
         },
@@ -244,7 +248,12 @@ defmodule Cartulary.F10PortabilityPackagingOperationsTest do
     # Metadata is an allowlist, asserted by equality rather than by checking the bad key is
     # absent: only reviewed keys survive, so a field added anywhere in the system cannot
     # start appearing in logs merely because nobody thought to exclude it.
-    assert line["metadata"] == %{"request_id" => "request-1"}
+    assert line["metadata"] == %{
+             "request_id" => "request-1",
+             "account_id" => "account-1",
+             "error_class" => "RuntimeError"
+           }
+
     assert line["message"] =~ "[REDACTED]"
     refute line["message"] =~ "secret-token"
     refute line["message"] =~ "hunter2"

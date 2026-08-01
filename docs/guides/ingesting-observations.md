@@ -27,7 +27,6 @@ curl -fsS -X POST http://127.0.0.1:4000/api/v1/ingest \
 | `content` | yes | — | The raw text of the observation. |
 | `role` | no | `"user"` | Who was speaking. |
 | `occurred_at` | no | now | When it was said, if backfilling. |
-| `sync_extract` | no | `true` | `false` moves extraction to the background. |
 
 Missing scopes, the session, and its links are created on demand.
 
@@ -39,9 +38,16 @@ somebody else.
 
 ## What comes back
 
-The response is `{"data": {...}}` holding the stored message. Unless you set
-`sync_extract: false`, it also carries a `knowledge` list — the statements the
-pipeline just proposed.
+The response is **202 Accepted** after the message and extraction job are
+durable. It does not wait for a model:
+
+```json
+{"data":{"message_id":"c479dd01-36a8-4f27-964e-27d425534b18","status":"accepted"}}
+```
+
+Poll `GET /api/v1/ingest/:message_id`. It reports `pending`, `failed`, or
+`completed`; a completed result includes the governed knowledge visible to your
+identity.
 
 !!! note "That list is output, not input"
     Nothing in your request body can mint knowledge. Each proposed item still
@@ -69,10 +75,10 @@ decision; narrowing later means the information already travelled.
 
 ## Backfilling history
 
-To load past conversations, ingest each message with its real `occurred_at` and
-`sync_extract: false`, then let the `ingest` job lane work through them. The
-belief-time and valid-time distinction means a backfilled message is correctly
-treated as newly *learned* but possibly long *true*.
+To load past conversations, ingest each message with its real `occurred_at`,
+then let the `ingest` job lane work through them. The belief-time and valid-time
+distinction means a backfilled message is correctly treated as newly *learned*
+but possibly long *true*.
 
 ## Replaying is safe
 
@@ -82,7 +88,8 @@ statements.
 ## When the model provider is down
 
 The durable observation remains and extraction retries. Production never falls
-back silently to a deterministic adapter.
+back silently to a deterministic adapter. An account administrator can enqueue
+a recovery sweep with `POST /api/v1/operations/reconcile`.
 
 ## Ingesting documents
 

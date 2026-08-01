@@ -9,8 +9,78 @@ changelog entry and contract-version transition.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-31
+
 ### Fixed
 
+- Scope cards and session summaries no longer persist peer-private
+  `provisional` statements. Shared projections now contain active knowledge
+  only, while a subject-keyed peer profile retains that peer's active and
+  provisional knowledge. Context projection keys use a new private audience
+  namespace, so clean pre-fix projections are ignored immediately and the
+  subject-filtered `fast` fallback covers reads until rebuilt. The public
+  `f7-1` payload contract is unchanged; this restores its intended governance
+  boundary.
+- Lexical retrieval returned nothing for a question. `websearch_to_tsquery`
+  joins bare terms with `AND`, so `search` required every content word of the
+  query to occur in one governed statement — a bar a single sentence almost
+  never clears. The lane that is meant to carry recall when no embedder is
+  configured therefore contributed no candidate to any multi-word question,
+  and fusion cannot re-rank an empty list. A query that spells a `websearch`
+  operator — a quoted phrase, a leading `-`, or `or` — still parses exactly as
+  before; any other query now matches statements sharing any of its terms, with
+  `ts_rank_cd` ordering by how many terms a statement covers and how densely.
+  Document-chunk search changed identically. Matching uses the same lexemes
+  `to_tsvector` stored, so the existing GIN indexes still serve both forms and
+  no reindex is needed. Retrieval stays inside the `f7-1` contract: no route,
+  parameter, response field, or fusion weight changes, and Account, scope, and
+  lifecycle filtering is untouched.
+- A search response reported a healthy run when every strategy that reads the
+  query text had come back empty. `contributed_strategies` was built from every
+  strategy that finished, so one that matched nothing was still named a
+  contributor, and `disagreement` discarded empty lists before measuring
+  anything, so that strategy left no trace in `strategy_count`, `disjoint`, or
+  `low_score` either. When only `temporal` and `salience_recency` survived —
+  neither of which reads the query — `search` returned the scope in recency
+  order, the same page for every question, in a payload whose shape and health
+  signals matched a good result. Retrieval now reports three disjoint
+  per-strategy outcomes instead of two: `contributed_strategies` (returned
+  candidates), the new `empty_strategies` (ran, matched nothing), and
+  `dropped_strategies` (disabled, timed out, or failed, unchanged). Each
+  strategy declares `query_dependent?/0`, and `disagreement` gains
+  `query_dependent_empty`, true when no query-reading strategy contributed.
+  It is still computed before fusion (FR-API-29), which is what lets it say
+  "nothing was found" while a full ranked list is being returned.
+  `strategy_count`, `disjoint`, and `low_score` keep their current meanings and
+  values. `search` and `ask` responses carry one new top-level field and one new
+  `disagreement` key; a caller counting `contributed_strategies` will now see
+  only the strategies that actually voted on the order. The `search` telemetry
+  span adds `cartulary.retrieval.empty_strategy_count` and
+  `cartulary.retrieval.query_dependent_empty`, and the console retrieval preview
+  names empty strategies alongside dropped ones. `ask` does not yet abstain on
+  the new signal; that remains the tracked roadmap item, which this change
+  supplies the missing input for. No contract identity changes: `f7-1` still
+  names retrieval behaviour, and the addition is backward compatible for a
+  caller reading fields by name.
+- `ask` no longer discards grounded answer text and validated citations when
+  the dialectic model marks its conclusion inconclusive. A response may now
+  combine `abstained: true` with non-empty `citations`: the cited statements
+  support the qualified text but do not establish a conclusion. Responses with
+  no surviving retrieved citation still return the empty `not known`
+  abstention, so invented citation ids cannot make unsupported prose public.
+  This changes the response shape that API and MCP consumers may observe without
+  changing its fields or the `f7-1` retrieval/context contract identity.
+- Made observation ingest strictly asynchronous. HTTP and MCP now acknowledge
+  with the durable message id before any model call, and the removed
+  `sync_extract` option can no longer run extraction in the request. HTTP
+  callers can poll the Account- and scope-authorised ingest-status route for
+  pending, failed, or completed work and visible governed knowledge. Operators
+  can enqueue reconciliation independently of ingest. Evaluation and smoke
+  commands invoke their direct extraction entrypoint explicitly. Extraction
+  failure logs retain only ids, attempt count, and error class. This is the
+  intentional pre-1.0 ingest response-contract transition tracked by issue
+  #65; the `f5-1` pipeline identity is unchanged because its governed extraction
+  semantics did not change.
 - A failed extraction reported `:missing_structured_object` no matter why the
   model call produced nothing, which left an operator reading a trace unable to
   tell a transient upstream blip from a failure that will repeat on every
@@ -193,6 +263,20 @@ changelog entry and contract-version transition.
   read-only store returns aggregates or authorized statement ids only; entity
   ids, canonical names, aliases, and surface forms remain pipeline-internal.
   No route or contract identity changed.
+- Scope index coverage, so a scope that holds every governed statement and no
+  embeddings is finally visible. Embeddings and entity mentions are written by
+  the projection refresh alone; a refresh that was cancelled or never enqueued
+  left semantic and entity recall permanently empty while full-text search kept
+  answering — its index is a generated column no queue failure can lose — and
+  nothing anywhere reported the gap. `Cartulary.Retrieval.index_coverage/3`
+  returns per-scope statement, embedded, and entity-mention counts plus the
+  embedding identities in use, filtered by Account and authorized scopes and
+  narrowing provisional statements to their subject like every other retrieval
+  query. Mentions are reported as a count, so the entity cache stays internal.
+  `/console/scopes` shows the counts and highlights a shortfall, and every
+  completed refresh emits `[:cartulary, :retrieval, :projection_refresh]` with
+  `indexed`, `statements`, `embedded`, `mentions`, and `coverage` so an
+  operator can alert on the ratio. No new table, route, or contract identity.
 - Two off-by-default switches let an operator declare an Account or a whole
   deployment has no real human governance participant, and auto-grant the
   subject-consent step `Cartulary.Governance.Engine` otherwise blocks on for
@@ -252,6 +336,16 @@ changelog entry and contract-version transition.
 
 ### Changed
 
+- A retrieval strategy that could not run is now reported in
+  `dropped_strategies` rather than as a contributing strategy that found
+  nothing. `search` with a failed embedder previously returned an empty
+  `semantic` result, which reads identically to a query with no near
+  neighbours; the two call for opposite responses. Strategies may now return
+  `{:error, reason}` from `candidates/2`, which the engine reports as
+  degradation — matching how it already treats a deadline kill and a reranker
+  failure. Response fields are unchanged; `semantic` simply now appears in
+  `dropped_strategies` where it previously appeared in
+  `contributed_strategies`.
 - The curator queue at `/governance` now renders inside the shared console
   frame and takes its appearance from `priv/static/assets/console.css` instead
   of inline styles. Its route, module, events, decisions, and rendered heading

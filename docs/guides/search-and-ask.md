@@ -21,7 +21,7 @@ curl -fsS -X POST http://127.0.0.1:4000/api/v1/search \
 
 | Field | Default | Notes |
 | --- | --- | --- |
-| `query` | `""` | The search text. |
+| `query` | `""` | The search text. A full question works; `"phrase"`, `-term`, and `or` narrow it. |
 | `scope_path` | `"/poc"` | Selects this scope **and its ancestors**. |
 | `profile` | `"balanced"` | `fast`, `balanced`, or `thorough`. |
 | `limit` | `12` | Candidate cap. |
@@ -40,7 +40,9 @@ curl -fsS -X POST http://127.0.0.1:4000/api/v1/search \
     "profile_version": "f7-1",
     "candidates": [ ... ],
     "contributed_strategies": ["semantic", "lexical", "entity_match"],
-    "dropped_strategies": ["temporal"]
+    "empty_strategies": [],
+    "dropped_strategies": ["temporal"],
+    "disagreement": { "query_dependent_empty": false }
   }
 }
 ```
@@ -48,8 +50,21 @@ curl -fsS -X POST http://127.0.0.1:4000/api/v1/search \
 - `candidates` is **already in the right order.** Do not re-sort by a
   per-strategy score: those scores live in different spaces and comparing them
   degrades results.
-- `dropped_strategies` lists strategies that missed the deadline. Frequent
-  drops mean the profile's budget is too tight for your data size.
+- `dropped_strategies` lists strategies that did not run: they missed the
+  deadline or a dependency was unavailable. `semantic` appears here when the
+  embedder failed. Frequent deadline drops mean the profile's budget is too
+  tight for your data size.
+- `empty_strategies` lists strategies that ran and matched nothing. That is a
+  result, not a failure — but a strategy in this list did not vote on the order.
+
+!!! warning "A full page is not proof the query was understood"
+    `temporal` and `salience_recency` never read your query text. When
+    `disagreement.query_dependent_empty` is `true`, none of the strategies that
+    do read it produced a candidate, so what came back is the scope in recency
+    order — the same shape, the same field count, the same `latency_ms`, for
+    every question you could have asked. Check the flag before treating the
+    result as an answer. A run in that state usually means embeddings or entity
+    mentions have not been rebuilt for the scope yet.
 - Account, scope authorisation, and lifecycle filtering already happened inside
   retrieval. You do not need to post-filter.
 
@@ -71,12 +86,16 @@ curl -fsS -X POST http://127.0.0.1:4000/api/v1/ask \
 The response is the search payload plus `answer`, `citations`, and `abstained`.
 
 !!! tip "Abstention is a feature"
-    When nothing supports the question, `abstained` is `true` and there is no
-    answer. Treat it as an ordinary outcome. An answer invented from an empty
-    candidate set is worse than silence, and much harder to notice.
+    Treat `abstained` as an ordinary outcome. With non-empty `citations`, the
+    answer explains what the cited evidence supports while admitting that it
+    does not establish a conclusion. With an empty citation list, the answer is
+    `not known`. An answer invented from an empty candidate set is worse than
+    silence, and much harder to notice.
 
 Retrieval for `ask` is restricted to knowledge items, so every citation is a
-governed statement rather than a raw message.
+governed statement rather than a raw message. Citation ids the model invented
+or did not retrieve are removed; if none survive, the answer becomes the empty
+abstention.
 
 ## Choosing a profile
 
