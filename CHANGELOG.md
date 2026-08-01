@@ -13,6 +13,14 @@ changelog entry and contract-version transition.
 
 ### Fixed
 
+- Scope cards and session summaries no longer persist peer-private
+  `provisional` statements. Shared projections now contain active knowledge
+  only, while a subject-keyed peer profile retains that peer's active and
+  provisional knowledge. Context projection keys use a new private audience
+  namespace, so clean pre-fix projections are ignored immediately and the
+  subject-filtered `fast` fallback covers reads until rebuilt. The public
+  `f7-1` payload contract is unchanged; this restores its intended governance
+  boundary.
 - Lexical retrieval returned nothing for a question. `websearch_to_tsquery`
   joins bare terms with `AND`, so `search` required every content word of the
   query to occur in one governed statement — a bar a single sentence almost

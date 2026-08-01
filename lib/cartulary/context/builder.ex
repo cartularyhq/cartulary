@@ -14,6 +14,7 @@ defmodule Cartulary.Context.Builder do
 
   alias Cartulary.Clock
   alias Cartulary.Context.Cache
+  alias Cartulary.Context.ProjectionKey
   alias Cartulary.DataLayer
   alias Cartulary.Knowledge.{KnowledgeItem, Projection}
   alias Cartulary.Observations.Session
@@ -25,8 +26,9 @@ defmodule Cartulary.Context.Builder do
   @doc """
   Rebuilds every projection belonging to one scope and clears their dirty flags.
 
-  Runs as the internal pipeline actor in one Account transaction. Includes active and provisional
-  statements, but not soft-deleted rows.
+  Runs as the internal pipeline actor in one Account transaction. Shared scope cards and session
+  summaries contain active statements only. A subject's peer-profile slice additionally contains
+  that subject's provisional statements. Soft-deleted rows are excluded from every projection.
 
   Returns `{:ok, map}` with the scope card's id and the number of peer profile and session
   summary projections written. Raises if the transaction fails or an underlying Ash call fails.
@@ -40,47 +42,55 @@ defmodule Cartulary.Context.Builder do
       fn _account, actor ->
         scope = read_one!(Scope, scope_id, account_id, actor)
 
-        # Use confidence ordering when retrieval contributes no ranking.
-        knowledge =
+        # Shared projections may only contain settled knowledge. Provisional rows are read
+        # separately for the subject-keyed peer channel below.
+        scope_knowledge =
+          KnowledgeItem
+          |> Ash.Query.filter(scope_id == ^scope_id and state == "active" and is_nil(deleted_at))
+          |> Ash.Query.sort(confidence: :desc, updated_at: :desc)
+          |> Ash.Query.set_tenant(account_id)
+          |> Ash.read!(actor: actor)
+          |> dream_rank(scope, account_id, actor)
+
+        peer_knowledge =
           KnowledgeItem
           |> Ash.Query.filter(
-            scope_id == ^scope_id and state in ["active", "provisional"] and is_nil(deleted_at)
+            scope_id == ^scope_id and state in ["active", "provisional"] and
+              not is_nil(subject_peer_id) and is_nil(deleted_at)
           )
           |> Ash.Query.sort(confidence: :desc, updated_at: :desc)
           |> Ash.Query.set_tenant(account_id)
           |> Ash.read!(actor: actor)
-
-        knowledge = dream_rank(knowledge, scope, account_id, actor)
+          |> dream_rank(scope, account_id, actor)
 
         scope_projection =
           upsert_projection!(
             account_id,
             actor,
             %{
-              cache_key: "scope:#{scope_id}",
+              cache_key: ProjectionKey.scope(scope_id),
               scope_id: scope_id,
               kind: "scope_card",
               content: %{
                 "scope_id" => scope_id,
                 "path" => scope.path,
                 "name" => scope.name,
-                "knowledge" => Enum.map(knowledge, &knowledge_map/1)
+                "knowledge" => Enum.map(scope_knowledge, &knowledge_map/1)
               },
-              source_ids: Enum.map(knowledge, & &1.id)
+              source_ids: Enum.map(scope_knowledge, & &1.id)
             }
           )
 
         # Group profiles by statement subject, not source.
         peer_projections =
-          knowledge
-          |> Enum.filter(&is_binary(&1.subject_peer_id))
+          peer_knowledge
           |> Enum.group_by(& &1.subject_peer_id)
           |> Enum.map(fn {peer_id, items} ->
             upsert_projection!(
               account_id,
               actor,
               %{
-                cache_key: "peer:#{scope_id}:#{peer_id}",
+                cache_key: ProjectionKey.peer(scope_id, peer_id),
                 scope_id: scope_id,
                 peer_id: peer_id,
                 kind: "peer_profile",
@@ -101,7 +111,7 @@ defmodule Cartulary.Context.Builder do
               account_id,
               actor,
               %{
-                cache_key: "session:#{scope_id}:#{session.id}",
+                cache_key: ProjectionKey.session(scope_id, session.id),
                 scope_id: scope_id,
                 peer_id: session.peer_id,
                 session_id: session.id,
@@ -109,9 +119,9 @@ defmodule Cartulary.Context.Builder do
                 content: %{
                   "session_id" => session.id,
                   "status" => session.status,
-                  "knowledge" => Enum.map(knowledge, &knowledge_map/1)
+                  "knowledge" => Enum.map(scope_knowledge, &knowledge_map/1)
                 },
-                source_ids: Enum.map(knowledge, & &1.id)
+                source_ids: Enum.map(scope_knowledge, & &1.id)
               }
             )
           end)

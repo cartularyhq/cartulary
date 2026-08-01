@@ -151,14 +151,20 @@ excludes the cache and recreates it from governed statements.
 
 `projection_refresh` runs `:thorough` retrieval at dream-time, then updates:
 
-- one scope card per scope;
-- one peer profile slice per subject Peer/scope; and
-- one session summary per session.
+- one active-only scope card per scope;
+- one peer profile slice per subject Peer/scope, containing active knowledge
+  plus only that subject's provisional knowledge; and
+- one active-only session summary per session.
 
 Projection keys are Account-local and unique. Updates carry a watermark,
 delta count, source ids, dirty state, and a bounded full-compaction cadence.
 Lifecycle changes mark affected projections dirty and enqueue deterministic
 entity/projection jobs in the same transaction as the state change.
+
+Projection keys also carry a private audience-contract namespace. A stricter
+stored-content rule advances that namespace, so nodes running the new code
+cannot serve a clean projection written under the older rule while its rebuild
+is pending. A miss uses the already subject-filtered `:fast` retrieval path.
 
 `Cartulary.Context` reserves the caller's character budget in the required
 order: session summary, peer profile, scope cards, then salience-ranked

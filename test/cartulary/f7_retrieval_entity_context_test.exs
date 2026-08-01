@@ -183,8 +183,17 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
   alias Cartulary.DataLayer
   alias Cartulary.Documents
   alias Cartulary.Governance.Engine, as: GovernanceEngine
-  alias Cartulary.Knowledge.{Entity, EntityMention, KnowledgeItem, KnowledgeRelation}
+
+  alias Cartulary.Knowledge.{
+    Entity,
+    EntityMention,
+    KnowledgeItem,
+    KnowledgeRelation,
+    Projection
+  }
+
   alias Cartulary.Memory
+  alias Cartulary.Observations.Session
   alias Cartulary.Retrieval.{EntityResolver, Indexer, Profile, Query}
   alias Cartulary.Retrieval.Strategies
   alias Cartulary.Topology.{Scope, ScopeRelation}
@@ -1018,6 +1027,178 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     assert dirty["fast_fallback"] == true
   end
 
+  test "scope and session projections keep provisional statements private to their subject" do
+    account_key = "f7-private-provisional"
+    scope_path = "/f7/private-provisional"
+    secret = "Avery is under investigation for expensing a personal trip."
+    blake_statement = "Blake prefers async standups."
+
+    assert {:ok, avery_message} =
+             Memory.ingest_message(%{
+               "account_key" => account_key,
+               "session_id" => "session-avery",
+               "scope_path" => scope_path,
+               "peer_key" => "avery",
+               "peer_name" => "Avery",
+               "content" => secret
+             })
+
+    assert {:ok, blake_message} =
+             Memory.ingest_message(%{
+               "account_key" => account_key,
+               "session_id" => "session-blake",
+               "scope_path" => scope_path,
+               "peer_key" => "blake",
+               "peer_name" => "Blake",
+               "content" => blake_statement
+             })
+
+    assert {:ok, [avery_knowledge]} = Memory.extract_message(avery_message["id"], account_key)
+    assert {:ok, [blake_knowledge]} = Memory.extract_message(blake_message["id"], account_key)
+
+    DataLayer.with_account_key(account_key, fn account, actor ->
+      pipeline = pipeline_actor(actor)
+
+      scope =
+        Scope
+        |> Ash.Query.filter(path == ^scope_path)
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read_one!(actor: pipeline)
+
+      avery = read_peer!(account.id, pipeline, "avery")
+      blake = read_peer!(account.id, pipeline, "blake")
+
+      avery_item =
+        KnowledgeItem
+        |> Ash.Query.filter(id == ^avery_knowledge["id"])
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read_one!(actor: pipeline)
+
+      blake_item =
+        KnowledgeItem
+        |> Ash.Query.filter(id == ^blake_knowledge["id"])
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read_one!(actor: pipeline)
+
+      for item <- [avery_item, blake_item] do
+        provisional =
+          GovernanceEngine.transition!(
+            item,
+            pipeline,
+            %{state: "provisional", verification: "pending"},
+            reason: "f7_test_defer",
+            channel: "pipeline"
+          )
+
+        assert provisional.state == "provisional"
+      end
+
+      blake_session =
+        Session
+        |> Ash.Query.filter(scope_id == ^scope.id and external_id == "session-blake")
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read_one!(actor: pipeline)
+
+      leaked = %{
+        "id" => avery_item.id,
+        "scope_id" => scope.id,
+        "statement" => secret,
+        "kind" => "fact",
+        "confidence" => 0.55,
+        "sensitivity" => "internal",
+        "state" => "provisional"
+      }
+
+      # These keys reproduce clean projections written before the visibility fix. New code must
+      # never read this poisoned namespace, even before the background rebuild has run.
+      for attrs <- [
+            %{
+              cache_key: "scope:#{scope.id}",
+              kind: "scope_card",
+              content: %{"knowledge" => [leaked]},
+              source_ids: [avery_item.id]
+            },
+            %{
+              cache_key: "session:#{scope.id}:#{blake_session.id}",
+              kind: "session_summary",
+              peer_id: blake.id,
+              session_id: blake_session.id,
+              content: %{"session_id" => blake_session.id, "knowledge" => [leaked]},
+              source_ids: [avery_item.id]
+            }
+          ] do
+        create!(
+          Projection,
+          :upsert_from_pipeline,
+          Map.merge(attrs, %{
+            scope_id: scope.id,
+            version: 1,
+            dirty: false,
+            watermark: DateTime.utc_now(),
+            delta_count: 0
+          }),
+          account.id,
+          pipeline
+        )
+      end
+
+      blake_actor = %{
+        actor
+        | role: :member,
+          pipeline?: false,
+          peer_id: blake.id,
+          scope_ids: [scope.id]
+      }
+
+      before_rebuild =
+        Memory.get_context(
+          %{
+            "scope_path" => scope_path,
+            "session_id" => "session-blake",
+            "budget_chars" => 20_000
+          },
+          blake_actor
+        )
+
+      refute Jason.encode!(before_rebuild) =~ secret
+      assert before_rebuild["fast_fallback"] == true
+
+      assert {:ok, _counts} = Builder.refresh_scope(account.id, scope.id)
+
+      blake_context =
+        Memory.get_context(
+          %{
+            "scope_path" => scope_path,
+            "session_id" => "session-blake",
+            "budget_chars" => 20_000
+          },
+          blake_actor
+        )
+
+      refute Jason.encode!(blake_context) =~ secret
+      assert blake_context["fast_fallback"] == false
+      assert blake_context["session_summary"]["knowledge"] == []
+      assert Enum.all?(blake_context["scope_cards"], &(&1["knowledge"] == []))
+      assert Enum.any?(blake_context["peer_profile"], &(&1["statement"] == blake_statement))
+
+      avery_actor = %{
+        actor
+        | role: :member,
+          pipeline?: false,
+          peer_id: avery.id,
+          scope_ids: [scope.id]
+      }
+
+      avery_context =
+        Memory.get_context(
+          %{"scope_path" => scope_path, "budget_chars" => 20_000},
+          avery_actor
+        )
+
+      assert Enum.any?(avery_context["peer_profile"], &(&1["statement"] == secret))
+    end)
+  end
+
   test "index coverage separates an unindexed scope from an empty one and reports the identity" do
     seeded = seed_active!("f7-coverage", "/f7/coverage", "Avery tracks the release checklist.")
 
@@ -1321,9 +1502,9 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     }
   end
 
-  defp read_peer!(account_id, actor) do
+  defp read_peer!(account_id, actor, key \\ "avery") do
     Cartulary.Accounts.Peer
-    |> Ash.Query.filter(key == "avery")
+    |> Ash.Query.filter(key == ^key)
     |> Ash.Query.set_tenant(account_id)
     |> Ash.read_one!(actor: actor)
   end
