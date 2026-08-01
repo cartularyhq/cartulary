@@ -85,6 +85,8 @@ defmodule Cartulary.Retrieval.Strategies.Semantic do
   def cost_class, do: :moderate
   @impl true
   def stage, do: :seed
+  @impl true
+  def query_dependent?, do: true
 
   @doc """
   True only for a non-blank query string.
@@ -97,8 +99,10 @@ defmodule Cartulary.Retrieval.Strategies.Semantic do
   @doc """
   Embeds the query and returns the nearest authorized records.
 
-  Embedding failure returns `[]`. Identity is resolved from the same Account role that embedded
-  the query.
+  Embedding failure returns `{:error, reason}`, which the engine reports as a dropped strategy.
+  Returning `[]` there would be indistinguishable from a corpus with no near neighbours, and the
+  two call for opposite responses: fix the embedder, or accept the answer. Identity is resolved
+  from the same Account role that embedded the query.
   """
   @impl true
   def candidates(query, budget) do
@@ -116,8 +120,8 @@ defmodule Cartulary.Retrieval.Strategies.Semantic do
           query.source_filters
         )
 
-      {:error, _error} ->
-        []
+      {:error, error} ->
+        {:error, error}
     end
   end
 end
@@ -139,6 +143,8 @@ defmodule Cartulary.Retrieval.Strategies.Lexical do
   def cost_class, do: :cheap
   @impl true
   def stage, do: :seed
+  @impl true
+  def query_dependent?, do: true
 
   @doc "True only for a non-blank query string; there are no terms to match otherwise."
   @impl true
@@ -175,6 +181,8 @@ defmodule Cartulary.Retrieval.Strategies.Temporal do
   def cost_class, do: :cheap
   @impl true
   def stage, do: :seed
+  @impl true
+  def query_dependent?, do: false
 
   @doc """
   True whenever the query wants governed statements.
@@ -214,6 +222,8 @@ defmodule Cartulary.Retrieval.Strategies.SalienceRecency do
   def cost_class, do: :cheap
   @impl true
   def stage, do: :seed
+  @impl true
+  def query_dependent?, do: false
 
   @doc """
   True for governed statements; chunks lack its scoring metadata.
@@ -251,6 +261,8 @@ defmodule Cartulary.Retrieval.Strategies.EntityMatch do
   def cost_class, do: :cheap
   @impl true
   def stage, do: :seed
+  @impl true
+  def query_dependent?, do: true
 
   @doc """
   True for governed statements with non-empty text; whitespace tokenizes to no candidates.
@@ -288,6 +300,16 @@ defmodule Cartulary.Retrieval.Strategies.RelationExpand do
   def cost_class, do: :moderate
   @impl true
   def stage, do: :expand
+
+  @doc """
+  False: expansion never reads the query text.
+
+  It walks outward from whatever the seed phase produced, so it is only as
+  query-relevant as those seeds were. Claiming otherwise would let a hop from a
+  recency dump pass for evidence that the question was understood.
+  """
+  @impl true
+  def query_dependent?, do: false
 
   @doc """
   True only when the query wants governed statements and the seed phase

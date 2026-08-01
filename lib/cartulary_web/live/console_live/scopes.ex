@@ -40,7 +40,7 @@ defmodule CartularyWeb.ConsoleLive.Scopes do
 
       <.panel
         title="Directory"
-        description="Counts are of what is attached directly to each scope, not to its descendants. A scope you cannot read is absent rather than shown empty."
+        description="Counts are of what is attached directly to each scope, not to its descendants. A scope you cannot read is absent rather than shown empty. Indexed and Mentions are derived caches rebuilt in the background: fewer indexed than statements means semantic and entity recall are degraded for that scope until its refresh runs again."
       >
         <.empty
           :if={@directory.rows == []}
@@ -54,6 +54,8 @@ defmodule CartularyWeb.ConsoleLive.Scopes do
               <th>Your role</th>
               <th>State</th>
               <th>Statements</th>
+              <th>Indexed</th>
+              <th>Mentions</th>
               <th>Documents</th>
               <th>Sessions</th>
             </tr>
@@ -75,6 +77,11 @@ defmodule CartularyWeb.ConsoleLive.Scopes do
               </td>
               <td><.badge family="state" value={row.scope.state} /></td>
               <td class="nowrap">{row.knowledge_count}</td>
+              <td class={["nowrap", index_gap?(row.coverage) && "coverage-gap"]}>
+                {row.coverage.embedded_count}
+                <span class="muted">{embedding_identity(row.coverage)}</span>
+              </td>
+              <td class="nowrap">{row.coverage.mention_count}</td>
               <td class="nowrap">{row.document_count}</td>
               <td class="nowrap">{row.session_count}</td>
             </tr>
@@ -140,4 +147,20 @@ defmodule CartularyWeb.ConsoleLive.Scopes do
   # Distinguish the root when narrow layouts compress indentation.
   defp tree_glyph(0), do: "●"
   defp tree_glyph(_depth), do: "└"
+
+  # Any shortfall is worth colouring: a partially indexed scope answers some
+  # questions and silently misses others, which is harder to notice than none.
+  defp index_gap?(coverage), do: coverage.coverage < 1.0
+
+  # Two identities in one scope mean an embedder change left part of it in the
+  # old space, where it cannot be compared and needs re-embedding.
+  defp embedding_identity(%{embedding_identities: []}), do: ""
+
+  defp embedding_identity(%{embedding_identities: [identity]}) do
+    "#{identity.model}@#{identity.version} (#{identity.dimensions}d)"
+  end
+
+  defp embedding_identity(%{embedding_identities: identities}) do
+    "#{length(identities)} embedding identities — re-embed needed"
+  end
 end

@@ -162,7 +162,8 @@ dialectic loop specified by the blueprint is not implemented. Anchors:
 - [ ] Verify every citation against ids actually retrieved in-loop; reject an
   answer that cites anything else.
 - [ ] Feed cross-strategy disagreement (already computed before fusion) into
-  the loop as an explicit signal.
+  the loop as an explicit signal, `query_dependent_empty` included: a run no
+  query-reading strategy answered is abstention evidence, not a thin answer.
 - [ ] Handle stale and `needs_revalidation` knowledge explicitly rather than
   answering from it silently.
 - [ ] Abstain when the relevant knowledge is absent, held, or stale, and say

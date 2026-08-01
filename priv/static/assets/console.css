@@ -261,6 +261,12 @@ code {
   white-space: nowrap;
 }
 
+/* A scope whose vectors never arrived looks healthy in every other column, so
+   colour is what makes the shortfall noticeable while scanning the tree. */
+.coverage-gap {
+  color: var(--warn);
+}
+
 @media (max-width: 900px) {
   .body {
     flex-direction: column;
