@@ -22,11 +22,20 @@ defmodule Cartulary.Retrieval.Store do
   k.extracting_provider, k.pipeline_version, k.corroboration_count
   """
 
+  # The websearch operators a caller can spell: a quoted phrase, a term-leading `-` for NOT, and
+  # a standalone `or`. Spelling one means the caller asked for that exact parse, so the query
+  # keeps `websearch_to_tsquery` rather than being widened to a disjunction.
+  @websearch_operators ~r/"|(?:^|\s)-\S|(?:^|\s)or(?:\s|$)/i
+
   @doc """
   Full-text search over governed statements and document chunks.
 
-  Searches requested targets with PostgreSQL `websearch` syntax and `ts_rank_cd`, then merges and
-  truncates to `limit`.
+  Searches requested targets and ranks with `ts_rank_cd`, then merges and truncates to `limit`.
+
+  A query spelling a websearch operator keeps the documented `websearch` parse. Any other query
+  matches the disjunction of its own terms, because `websearch_to_tsquery` joins bare terms with
+  `AND` and a one-sentence statement rarely carries every content word of a question. `ts_rank_cd`
+  still orders by how many query terms a row covers and how densely.
 
   Returns a list of column-keyed maps with a `score` and a `candidate_type`.
   Raises `Postgrex.Error` if the statement fails.
@@ -34,9 +43,11 @@ defmodule Cartulary.Retrieval.Store do
   def lexical(query, limit) do
     knowledge =
       if query.target in [:knowledge, :all] do
+        tsquery = tsquery(query.text, "$4")
+
         sql = """
         SELECT #{@knowledge_columns},
-               ts_rank_cd(k.search_vector, websearch_to_tsquery('english', $4)) AS score,
+               ts_rank_cd(k.search_vector, #{tsquery}) AS score,
                'knowledge' AS candidate_type
         FROM knowledge_items AS k
         JOIN scopes AS s ON s.id = k.scope_id AND s.account_id = k.account_id
@@ -47,7 +58,7 @@ defmodule Cartulary.Retrieval.Store do
             OR (k.state = 'provisional' AND ($3::uuid IS NULL OR k.subject_peer_id = $3))
           )
           AND k.deleted_at IS NULL
-          AND k.search_vector @@ websearch_to_tsquery('english', $4)
+          AND k.search_vector @@ #{tsquery}
         ORDER BY score DESC, k.confidence DESC, k.inserted_at DESC
         LIMIT $5
         """
@@ -67,13 +78,15 @@ defmodule Cartulary.Retrieval.Store do
     # changing it requires a documented contract transition.
     documents =
       if query.target in [:documents, :all] do
+        tsquery = tsquery(query.text, "$3")
+
         sql = """
         SELECT c.id, c.scope_id, s.path AS scope_path, c.text AS statement,
                'document_chunk' AS kind, 1.0::float8 AS confidence,
                'internal' AS sensitivity, c.status AS state,
                ARRAY[]::uuid[] AS source_message_ids,
                NULL::text AS extracting_model, 'f7-1' AS pipeline_version,
-               ts_rank_cd(c.search_vector, websearch_to_tsquery('english', $3)) AS score,
+               ts_rank_cd(c.search_vector, #{tsquery}) AS score,
                'document_chunk' AS candidate_type,
                c.document_id, c.document_version_id, c.position
         FROM document_chunks AS c
@@ -81,7 +94,7 @@ defmodule Cartulary.Retrieval.Store do
         WHERE c.account_id = $1
           AND c.scope_id = ANY($2)
           AND c.status = 'active'
-          AND c.search_vector @@ websearch_to_tsquery('english', $3)
+          AND c.search_vector @@ #{tsquery}
         ORDER BY score DESC, c.position ASC
         LIMIT $4
         """
@@ -507,6 +520,22 @@ defmodule Cartulary.Retrieval.Store do
       ])
     else
       []
+    end
+  end
+
+  # Builds the `tsquery` SQL for one bound parameter, given the caller's raw query text.
+  #
+  # Only the disjunctive branch reaches for the lexemes directly: `to_tsvector` normalizes them
+  # the same way the stored `search_vector` was normalized, `tsquery` input is taken verbatim
+  # rather than stemmed a second time, and `quote_literal` stops a lexeme holding `&`, `|`, or a
+  # quote from being read as an operator. Text with no lexemes aggregates to NULL, which matches
+  # nothing — the same outcome `websearch_to_tsquery` gives for stopwords alone.
+  defp tsquery(text, parameter) do
+    if Regex.match?(@websearch_operators, text) do
+      "websearch_to_tsquery('english', #{parameter})"
+    else
+      "(SELECT string_agg(quote_literal(lexeme), ' | ') " <>
+        "FROM unnest(to_tsvector('english', #{parameter})))::tsquery"
     end
   end
 

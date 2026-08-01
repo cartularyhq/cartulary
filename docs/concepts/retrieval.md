@@ -26,6 +26,23 @@ flowchart LR
 Each strategy applies Account, scope, lifecycle, provisional-subject, and source
 filters **inside its query**. The API does not post-filter candidates.
 
+## How the lexical strategy reads your query
+
+Plain text matches statements sharing **any** of its terms, ranked by how many
+of them a statement covers and how closely together. Ask a full question: it
+does not need every content word to appear in one statement.
+
+Three operators override that, following PostgreSQL `websearch` syntax.
+
+| Syntax | Meaning |
+| --- | --- |
+| `"exact phrase"` | Only statements containing that phrase, in order |
+| `-term` | Excludes statements containing the term |
+| `a or b` | Either term |
+
+Using any of them switches the whole query to `websearch` parsing, where bare
+terms must **all** appear in one statement.
+
 ## Why fusion, and why you must not re-sort
 
 Each strategy scores in its own space: cosine distance, full-text rank, time

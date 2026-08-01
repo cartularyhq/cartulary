@@ -160,7 +160,7 @@ All fields optional.
 
 | Field | Default | Notes |
 | --- | --- | --- |
-| `query` | `""` | |
+| `query` | `""` | Terms match individually; `"phrase"`, `-term`, and `or` narrow. See [Retrieval and context](../concepts/retrieval.md) |
 | `scope_path` | `"/poc"` | Selects the scope **and its ancestors** |
 | `profile` | `"balanced"` | `fast`, `balanced`, `thorough` |
 | `limit` | `12` | Candidate cap |
