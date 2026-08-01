@@ -45,13 +45,13 @@ Both sign-in forms create the same role-limited session.
 | `DELETE /sign-out` | session | Ends the browser session |
 | `/console` | any human session | Overview dashboard |
 | `/console/knowledge` | any human session | Knowledge explorer, filters and retrieval preview |
-| `/console/knowledge/:id` | any human session | One statement: evidence, history, available actions |
+| `/console/knowledge/:id` | any human session | One statement: evidence, history, readable co-mention links, available actions |
 | `/console/scopes` | any human session | Scope directory, relations, role grants |
 | `/console/graph` | any human session | Scopes and statements drawn as a graph |
 | `/console/sources` | any human session | Documents, versions, connectors, observations |
 | `/console/skills` | any human session | Skill cards and a readiness check |
 | `/console/me` | any human session | Statements about you, consent, erasure |
-| `/console/operations` | account-admin | Readiness, usage, gate rules, retrieval tunings |
+| `/console/operations` | account-admin | Readiness, usage, entity-resolution aggregates, gate rules, retrieval tunings |
 | `/governance/sign-in` | none | Curator sign-in |
 | `/governance` | human curator session | Gate queue and skill-card authoring |
 
@@ -160,7 +160,7 @@ All fields optional.
 
 | Field | Default | Notes |
 | --- | --- | --- |
-| `query` | `""` | |
+| `query` | `""` | Terms match individually; `"phrase"`, `-term`, and `or` narrow. See [Retrieval and context](../concepts/retrieval.md) |
 | `scope_path` | `"/poc"` | Selects the scope **and its ancestors** |
 | `profile` | `"balanced"` | `fast`, `balanced`, `thorough` |
 | `limit` | `12` | Candidate cap |
@@ -171,7 +171,13 @@ All fields optional.
 | `deadline` | profile default | `"disabled"` removes the budget; offline only |
 
 Returns `{"data": result}` with the profile name, `profile_version` (`"f7-1"`),
-the fused `candidates`, and which strategies contributed or were dropped.
+the fused `candidates`, and three per-strategy outcomes:
+`contributed_strategies` (returned candidates), `empty_strategies` (ran, matched
+nothing), and `dropped_strategies` (disabled, timed out, or failed).
+
+`disagreement.query_dependent_empty` is `true` when no strategy that reads the
+query text produced a candidate. The remaining candidates then rank the scope,
+not the question, in a response otherwise shaped like any other.
 
 Account, authorised-scope, lifecycle, and source filtering happen **inside**
 retrieval. A raw `strategies` override is refused for external callers.

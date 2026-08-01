@@ -23,6 +23,55 @@ changelog entry and contract-version transition.
 
 ### Fixed
 
+- Scope cards and session summaries no longer persist peer-private
+  `provisional` statements. Shared projections now contain active knowledge
+  only, while a subject-keyed peer profile retains that peer's active and
+  provisional knowledge. Context projection keys use a new private audience
+  namespace, so clean pre-fix projections are ignored immediately and the
+  subject-filtered `fast` fallback covers reads until rebuilt. The public
+  `f7-1` payload contract is unchanged; this restores its intended governance
+  boundary.
+- Lexical retrieval returned nothing for a question. `websearch_to_tsquery`
+  joins bare terms with `AND`, so `search` required every content word of the
+  query to occur in one governed statement — a bar a single sentence almost
+  never clears. The lane that is meant to carry recall when no embedder is
+  configured therefore contributed no candidate to any multi-word question,
+  and fusion cannot re-rank an empty list. A query that spells a `websearch`
+  operator — a quoted phrase, a leading `-`, or `or` — still parses exactly as
+  before; any other query now matches statements sharing any of its terms, with
+  `ts_rank_cd` ordering by how many terms a statement covers and how densely.
+  Document-chunk search changed identically. Matching uses the same lexemes
+  `to_tsvector` stored, so the existing GIN indexes still serve both forms and
+  no reindex is needed. Retrieval stays inside the `f7-1` contract: no route,
+  parameter, response field, or fusion weight changes, and Account, scope, and
+  lifecycle filtering is untouched.
+- A search response reported a healthy run when every strategy that reads the
+  query text had come back empty. `contributed_strategies` was built from every
+  strategy that finished, so one that matched nothing was still named a
+  contributor, and `disagreement` discarded empty lists before measuring
+  anything, so that strategy left no trace in `strategy_count`, `disjoint`, or
+  `low_score` either. When only `temporal` and `salience_recency` survived —
+  neither of which reads the query — `search` returned the scope in recency
+  order, the same page for every question, in a payload whose shape and health
+  signals matched a good result. Retrieval now reports three disjoint
+  per-strategy outcomes instead of two: `contributed_strategies` (returned
+  candidates), the new `empty_strategies` (ran, matched nothing), and
+  `dropped_strategies` (disabled, timed out, or failed, unchanged). Each
+  strategy declares `query_dependent?/0`, and `disagreement` gains
+  `query_dependent_empty`, true when no query-reading strategy contributed.
+  It is still computed before fusion (FR-API-29), which is what lets it say
+  "nothing was found" while a full ranked list is being returned.
+  `strategy_count`, `disjoint`, and `low_score` keep their current meanings and
+  values. `search` and `ask` responses carry one new top-level field and one new
+  `disagreement` key; a caller counting `contributed_strategies` will now see
+  only the strategies that actually voted on the order. The `search` telemetry
+  span adds `cartulary.retrieval.empty_strategy_count` and
+  `cartulary.retrieval.query_dependent_empty`, and the console retrieval preview
+  names empty strategies alongside dropped ones. `ask` does not yet abstain on
+  the new signal; that remains the tracked roadmap item, which this change
+  supplies the missing input for. No contract identity changes: `f7-1` still
+  names retrieval behaviour, and the addition is backward compatible for a
+  caller reading fields by name.
 - `ask` no longer discards grounded answer text and validated citations when
   the dialectic model marks its conclusion inconclusive. A response may now
   combine `abstained: true` with non-empty `citations`: the cited statements
@@ -215,6 +264,15 @@ changelog entry and contract-version transition.
 
 ### Added
 
+- Entity-resolution quality is now observable without making the private
+  entity cache public. The account-admin operations page reports entity and
+  mention counts, observed-alias buckets, singleton-entity rate, and
+  mentions-per-entity p50/p95. Statement detail reports and links only the
+  other statements that share an entity and pass the reader's scope,
+  lifecycle, soft-delete, and provisional-subject filters. The reviewed
+  read-only store returns aggregates or authorized statement ids only; entity
+  ids, canonical names, aliases, and surface forms remain pipeline-internal.
+  No route or contract identity changed.
 - Scope index coverage, so a scope that holds every governed statement and no
   embeddings is finally visible. Embeddings and entity mentions are written by
   the projection refresh alone; a refresh that was cancelled or never enqueued

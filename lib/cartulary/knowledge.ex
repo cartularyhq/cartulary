@@ -666,8 +666,8 @@ defmodule Cartulary.Knowledge.Projection do
       authorize_if expr(account_id == ^actor(:account_id))
     end
 
-    # A projection is readable by anyone who may read its scope. Its content is assembled only
-    # from statements the same authorization would have allowed.
+    # A projection is readable by anyone who may read its scope. Shared scope/session content is
+    # active-only; provisional content is stored only in a subject-keyed peer-profile projection.
     policy action_type(:read) do
       authorize_if {Cartulary.Policy.ScopeAccess, attribute: :scope_id}
     end

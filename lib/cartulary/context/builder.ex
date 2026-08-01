@@ -18,6 +18,7 @@ defmodule Cartulary.Context.Builder do
 
   alias Cartulary.Clock
   alias Cartulary.Context.Cache
+  alias Cartulary.Context.ProjectionKey
   alias Cartulary.DataLayer
   alias Cartulary.Knowledge.{EntityMention, KnowledgeItem, Projection}
   alias Cartulary.Model.Config
@@ -39,9 +40,9 @@ defmodule Cartulary.Context.Builder do
   @doc """
   Rebuilds every projection belonging to one scope and clears their dirty flags.
 
-  Runs as the internal pipeline actor. Scope, peer, and session projections include active and
-  provisional statements. Entity cards use active statements only because a card has no subject
-  Peer whose provisional visibility it could safely inherit.
+  Runs as the internal pipeline actor. Shared scope cards, entity cards, and session
+  summaries contain active statements only. A subject's peer-profile slice additionally contains
+  that subject's provisional statements. Soft-deleted rows are excluded from every projection.
 
   Returns `{:ok, map}` with the scope card's id and the number of entity card, peer profile, and
   session summary projections written. Raises if the transaction fails, a required entity summary
@@ -50,11 +51,16 @@ defmodule Cartulary.Context.Builder do
   Replays are safe because projections are upserted by cache key.
   """
   def refresh_scope(account_id, scope_id) do
-    {scope, knowledge, mentions, actor} = read_scope!(account_id, scope_id)
-    knowledge = dream_rank(knowledge, scope, account_id, actor)
-    entity_attrs = build_entity_card_attrs!(scope, knowledge, mentions, account_id, actor)
+    {scope, scope_knowledge, peer_knowledge, mentions, actor} =
+      read_scope!(account_id, scope_id)
 
-    write_projections!(account_id, scope, knowledge, entity_attrs)
+    scope_knowledge = dream_rank(scope_knowledge, scope, account_id, actor)
+    peer_knowledge = dream_rank(peer_knowledge, scope, account_id, actor)
+
+    entity_attrs =
+      build_entity_card_attrs!(scope, scope_knowledge, mentions, account_id, actor)
+
+    write_projections!(account_id, scope, scope_knowledge, peer_knowledge, entity_attrs)
   end
 
   # Phase one reads one consistent source snapshot and returns the plain actor for the model phase.
@@ -66,11 +72,20 @@ defmodule Cartulary.Context.Builder do
       fn _account, actor ->
         scope = read_one!(Scope, scope_id, account_id, actor)
 
-        # Use confidence ordering when retrieval contributes no ranking.
-        knowledge =
+        # Shared projections may only contain settled knowledge. Provisional rows are read
+        # separately for the subject-keyed peer channel below.
+        scope_knowledge =
+          KnowledgeItem
+          |> Ash.Query.filter(scope_id == ^scope_id and state == "active" and is_nil(deleted_at))
+          |> Ash.Query.sort(confidence: :desc, updated_at: :desc)
+          |> Ash.Query.set_tenant(account_id)
+          |> Ash.read!(actor: actor)
+
+        peer_knowledge =
           KnowledgeItem
           |> Ash.Query.filter(
-            scope_id == ^scope_id and state in ["active", "provisional"] and is_nil(deleted_at)
+            scope_id == ^scope_id and state in ["active", "provisional"] and
+              not is_nil(subject_peer_id) and is_nil(deleted_at)
           )
           |> Ash.Query.sort(confidence: :desc, updated_at: :desc)
           |> Ash.Query.set_tenant(account_id)
@@ -82,14 +97,14 @@ defmodule Cartulary.Context.Builder do
           |> Ash.Query.set_tenant(account_id)
           |> Ash.read!(actor: actor)
 
-        {scope, knowledge, mentions, actor}
+        {scope, scope_knowledge, peer_knowledge, mentions, actor}
       end
     )
   end
 
   # Phase three commits the projection set. No provider call may be added to this callback: a
   # slow external request here would hold a pooled connection and could discard billed work.
-  defp write_projections!(account_id, scope, knowledge, entity_attrs) do
+  defp write_projections!(account_id, scope, scope_knowledge, peer_knowledge, entity_attrs) do
     DataLayer.with_account_id(
       account_id,
       [role: :system, pipeline?: true],
@@ -109,30 +124,29 @@ defmodule Cartulary.Context.Builder do
             account_id,
             actor,
             %{
-              cache_key: "scope:#{scope.id}",
+              cache_key: ProjectionKey.scope(scope.id),
               scope_id: scope.id,
               kind: "scope_card",
               content: %{
                 "scope_id" => scope.id,
                 "path" => scope.path,
                 "name" => scope.name,
-                "knowledge" => Enum.map(knowledge, &knowledge_map/1)
+                "knowledge" => Enum.map(scope_knowledge, &knowledge_map/1)
               },
-              source_ids: Enum.map(knowledge, & &1.id)
+              source_ids: Enum.map(scope_knowledge, & &1.id)
             }
           )
 
         # Group profiles by statement subject, not source.
         peer_projections =
-          knowledge
-          |> Enum.filter(&is_binary(&1.subject_peer_id))
+          peer_knowledge
           |> Enum.group_by(& &1.subject_peer_id)
           |> Enum.map(fn {peer_id, items} ->
             upsert_projection!(
               account_id,
               actor,
               %{
-                cache_key: "peer:#{scope.id}:#{peer_id}",
+                cache_key: ProjectionKey.peer(scope.id, peer_id),
                 scope_id: scope.id,
                 peer_id: peer_id,
                 kind: "peer_profile",
@@ -153,7 +167,7 @@ defmodule Cartulary.Context.Builder do
               account_id,
               actor,
               %{
-                cache_key: "session:#{scope.id}:#{session.id}",
+                cache_key: ProjectionKey.session(scope.id, session.id),
                 scope_id: scope.id,
                 peer_id: session.peer_id,
                 session_id: session.id,
@@ -161,9 +175,9 @@ defmodule Cartulary.Context.Builder do
                 content: %{
                   "session_id" => session.id,
                   "status" => session.status,
-                  "knowledge" => Enum.map(knowledge, &knowledge_map/1)
+                  "knowledge" => Enum.map(scope_knowledge, &knowledge_map/1)
                 },
-                source_ids: Enum.map(knowledge, & &1.id)
+                source_ids: Enum.map(scope_knowledge, & &1.id)
               }
             )
           end)

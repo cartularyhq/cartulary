@@ -31,9 +31,18 @@ comparable scores. The `:thorough` profile optionally reranks only the fused
 head through `Cartulary.Model.Gateway`. Reranking and grounded answers hold no
 transaction; the model layer scopes its own configuration read and usage write.
 A hard remaining-time budget wraps strategies and reranking. Timeouts are
-dropped, not retried, and every
-response reports contributed and dropped strategies plus pre-fusion
-cross-strategy disagreement.
+dropped, not retried, and every response reports contributed, empty, and
+dropped strategies plus pre-fusion cross-strategy disagreement.
+
+The three strategy sets are disjoint and carry distinct facts: contributed
+returned candidates, empty ran and matched nothing, dropped never produced a
+result. Each strategy declares `query_dependent?/0` — true only for reading
+`query.text`, so expansion inherits nothing from its seeds — and disagreement
+reports `query_dependent_empty` when no such strategy contributed. That is the
+FR-API-29 signal `strategy_count`, `disjoint`, and `low_score` cannot carry:
+all three read only the lists that came back non-empty, so a strategy that
+returned nothing leaves no trace in them, and a scope ranked by `temporal` and
+`salience_recency` alone reports the same health as an answered query.
 
 `candidates/2` returns candidates or `{:error, reason}`. The second means the
 strategy never ran — an unavailable embedder, say — and the engine reports it
@@ -43,10 +52,13 @@ from an honest miss, which is the same confusion an unindexed corpus creates.
 
 `Cartulary.Retrieval.Store` is the reviewed read-only data-layer helper for
 the operations Ash does not express as ordinary resource reads: PG-FTS,
-pgvector ANN order, and hop-one expansion. Its static parameterized statements
-apply Account, authorized scope, lifecycle, and caller-provisional filters
-before returning content. `Cartulary.Memory.Query` has been removed. Durable
-writes remain Ash-action-only.
+pgvector ANN order, hop-one expansion, content-free entity-cache aggregates,
+and co-mention statement ids. Its static parameterized statements apply
+Account, authorized scope, lifecycle, soft-delete, and caller-provisional
+filters before returning content or a statement id. The aggregate query is
+reachable only after the browser's account-admin gate and returns counts,
+rates, and quantiles without entity identities. `Cartulary.Memory.Query` has
+been removed. Durable writes remain Ash-action-only.
 
 ## Profiles and configuration
 
@@ -138,14 +150,24 @@ resource action exposes the caches. Erasure removes affected mentions,
 recomputes/prunes entities, and rebuilds affected projections. Logical import
 excludes the cache and recreates it from governed statements.
 
+Two diagnostic projections preserve that rule. `/console/operations` reports
+Account-wide counts, an observed-alias histogram, singleton-entity rate, and
+mentions-per-entity p50/p95 to a password-authenticated account administrator.
+`/console/knowledge/:id` asks the store only for the count and capped ids of
+co-mentioned statements after applying the reader's authorized scope and
+console lifecycle filters, then loads those statements through the ordinary
+Ash read policy. Neither path returns an entity or mention row to the web
+layer.
+
 ## Context projections
 
 `projection_refresh` runs `:thorough` retrieval at dream-time, then updates:
 
-- one scope card per scope;
+- one active-only scope card per scope;
 - one entity card per scope/entity with at least three distinct active source statements;
-- one peer profile slice per subject Peer/scope; and
-- one session summary per session.
+- one peer profile slice per subject Peer/scope, containing active knowledge
+  plus only that subject's provisional knowledge; and
+- one active-only session summary per session.
 
 Projection keys are Account-local and unique. Entity-card keys use a private
 entity id only as a grouping coordinate; payloads expose no entity-cache field.
@@ -154,6 +176,11 @@ provenance, and the governed source statements. Updates carry a watermark,
 delta count, source ids, dirty state, and a bounded full-compaction cadence.
 Lifecycle changes mark affected projections dirty and enqueue deterministic
 entity/projection jobs in the same transaction as the state change.
+
+Projection keys also carry a private audience-contract namespace. A stricter
+stored-content rule advances that namespace, so nodes running the new code
+cannot serve a clean projection written under the older rule while its rebuild
+is pending. A miss uses the already subject-filtered `:fast` retrieval path.
 
 `Cartulary.Context` reserves the caller's character budget in the required
 order: session summary, peer profile, scope cards, entity cards, then

@@ -2,8 +2,8 @@
 
 defmodule CartularyWeb.ConsoleLive.Operations do
   @moduledoc """
-  Read-only, account-administrator view of readiness, usage, gate rules, and
-  retrieval profiles at `/console/operations`.
+  Read-only, account-administrator view of readiness, usage, entity-resolution
+  quality signals, gate rules, and retrieval profiles at `/console/operations`.
 
   Check the role before querying resources that refuse unauthorized reads.
   Render only content-safe status, counts, model identities, versions, error
@@ -114,6 +114,49 @@ defmodule CartularyWeb.ConsoleLive.Operations do
       </.panel>
 
       <.panel
+        title="Entity resolution quality"
+        description="Content-free cache signals. A high singleton rate can indicate fragmented referents; a high mentions-per-entity tail can indicate distinct referents were folded together."
+      >
+        <div class="tiles">
+          <.tile label="Resolved entities" value={@operations.entity_resolution.entity_count} />
+          <.tile label="Entity mentions" value={@operations.entity_resolution.mention_count} />
+          <.tile
+            label="Singleton entity rate"
+            value={percent(@operations.entity_resolution.singleton_entity_rate)}
+            note="one mention only"
+          />
+          <.tile
+            label="Mentions per entity p50"
+            value={@operations.entity_resolution.mentions_per_entity_p50}
+          />
+          <.tile
+            label="Mentions per entity p95"
+            value={@operations.entity_resolution.mentions_per_entity_p95}
+          />
+        </div>
+
+        <table class="grid">
+          <thead>
+            <tr>
+              <th>Observed aliases per entity</th>
+              <th>Entities</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={bucket <- @operations.entity_resolution.aliases_per_entity}>
+              <td>{bucket.range}</td>
+              <td>{bucket.entity_count}</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="hint">
+          These aggregates contain no entity identifiers, canonical names, aliases, or surface
+          forms. Compare them over time or after an extractor or resolver change; they are
+          diagnostic proxies, not correctness thresholds.
+        </p>
+      </.panel>
+
+      <.panel
         title="Gate matrix"
         description="Which combinations of target level, sensitivity, and confidence are decided automatically and which wait for a person. The most specific matching rule with the highest priority wins."
       >
@@ -203,4 +246,6 @@ defmodule CartularyWeb.ConsoleLive.Operations do
     </div>
     """
   end
+
+  defp percent(rate), do: "#{Float.round(rate * 100.0, 1)}%"
 end

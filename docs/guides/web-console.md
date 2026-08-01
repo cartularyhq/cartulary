@@ -20,13 +20,13 @@ Agent API keys work on JSON and MCP, never the console.
 | --- | --- |
 | `/console` | Overview: totals, lifecycle and sensitivity mix, what is waiting, recent activity |
 | `/console/knowledge` | The explorer: filter, page, and search every statement you can read |
-| `/console/knowledge/<id>` | One statement in full, with its evidence, history, and the actions open to you |
+| `/console/knowledge/<id>` | One statement in full, with its evidence, history, readable shared-entity neighbours, and available actions |
 | `/console/scopes` | The containment tree as a directory, with counts, index coverage, your role, and lateral links |
 | `/console/graph` | The same data drawn as a graph of scopes, statements, and cross-references |
 | `/console/sources` | Documents, their versions, connectors, sessions, and raw observations |
 | `/console/skills` | Skill requirement cards, and a live readiness check for yourself |
 | `/console/me` | Everything recorded about you, and your consent and erasure controls |
-| `/console/operations` | Account admins only: readiness, usage and cost, gate rules, retrieval tunings |
+| `/console/operations` | Account admins only: readiness, usage and cost, entity-resolution quality, gate rules, retrieval tunings |
 | `/governance` | Curators and account admins only: the gate queue and skill-card authoring |
 
 Navigation hides inaccessible pages, but every destination independently
@@ -56,9 +56,13 @@ subject — and pages through the result. It is exhaustive: what is not listed i
 either filtered out or not visible to you, never merely ranked low.
 
 **Retrieval** runs the same multi-strategy engine that answers an agent's
-`search` call, and shows its working: which strategies contributed, which were
-dropped against the deadline, and what each candidate scored. It ranks; it does
-not enumerate.
+`search` call, and shows its working: which strategies contributed, which found
+nothing, which were dropped against the deadline, and what each candidate
+scored. It ranks; it does not enumerate.
+
+Read the strategy tile before the results. A search where the strategies that
+read your words all found nothing still returns a full page — of whatever is
+most recent in the scope. It looks like an answer and is not one.
 
 Retrieval requires a scope. Searching `/team/project` also searches `/team`
 and `/`. A miss means nothing ranked, not that the exhaustive browser is empty.
@@ -93,6 +97,8 @@ Everything the system holds about one claim is on `/console/knowledge/<id>`:
 - the raw observations and document versions it was extracted from, in full;
 - its lifecycle timeline, and for curators the immutable gate decisions;
 - its relations in both directions and the supersession chain it belongs to.
+- the count and links for other statements that share a resolved entity and
+  pass your scope and lifecycle visibility rules.
 
 Unreadable cross-references are omitted. Missing and unauthorized statement ids
 both return "not found".
@@ -170,10 +176,9 @@ complete.
   whose rows span every scope that ever mentioned a name. Showing them would
   carry names across the boundary the scope tree exists to keep, so no
   canonical name, alias, surface form, or entity identifier appears anywhere in
-  the console — including the graph. To investigate a subject's visible
-  footprint, use scoped retrieval in the knowledge explorer, then inspect each
-  statement's provenance, supersession chain, and visible relations. The
-  console never groups those results by a resolved entity.
+  the console — including the graph. Account admins see only aggregate cache
+  quality signals on the operations page. Statement detail may link readable
+  statements that share an entity without naming that entity.
 - **Embedding vectors and document chunks.** Rebuildable derived caches with no
   meaning to a reader. Chunk counts are shown; chunk contents are not.
 - **Credentials.** Password hashes, API key hashes, and connector secrets are
