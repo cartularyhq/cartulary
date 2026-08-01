@@ -62,7 +62,9 @@ defmodule Cartulary.Retrieval.Fusion do
   @doc """
   Summarises how much the strategies disagreed, from their pre-fusion lists.
 
-  Accepts the original strategy lists; a fused list has already lost this information.
+  Accepts the original strategy lists; a fused list has already lost this
+  information. `query_dependent` names the strategies of this request's profile
+  that read the query text.
 
   Returns a map with:
 
@@ -70,11 +72,19 @@ defmodule Cartulary.Retrieval.Fusion do
   * `"disjoint"` — true when non-empty strategies share no candidate.
   * `"low_score"` — true when every strategy's best local score is below 0.2. This is a
     per-strategy hint, not a cross-strategy comparison or filter.
+  * `"query_dependent_empty"` — true when no strategy that reads the query text
+    produced a candidate, so what survives ranked the scope rather than the
+    question. Also true, vacuously, when the profile runs no such strategy at
+    all: in both cases the result is query-independent.
 
   With no non-empty lists, `"disjoint"` is false and `"low_score"` is true,
   because a vacuous `Enum.all?/2` holds.
+
+  The first three measure the strategies that returned something and therefore
+  cannot see one that returned nothing; `"query_dependent_empty"` is the only
+  member that can express that absence.
   """
-  def disagreement(lists) do
+  def disagreement(lists, query_dependent) do
     non_empty =
       for {strategy, candidates} <- lists, candidates != [] do
         {strategy, MapSet.new(candidates, & &1.id), Enum.max_by(candidates, & &1.score).score}
@@ -88,11 +98,14 @@ defmodule Cartulary.Retrieval.Fusion do
         MapSet.intersection(left_ids, right_ids) |> MapSet.size()
       end
 
+    contributing = MapSet.new(non_empty, fn {strategy, _ids, _score} -> strategy end)
+
     %{
       "strategy_count" => length(non_empty),
       "disjoint" => non_empty != [] and Enum.all?(overlaps, &(&1 == 0)),
       # 0.2 is a fixed per-strategy hint, never a filter.
-      "low_score" => Enum.all?(non_empty, fn {_strategy, _ids, score} -> score < 0.2 end)
+      "low_score" => Enum.all?(non_empty, fn {_strategy, _ids, score} -> score < 0.2 end),
+      "query_dependent_empty" => not Enum.any?(query_dependent, &MapSet.member?(contributing, &1))
     }
   end
 

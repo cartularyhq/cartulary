@@ -233,11 +233,18 @@ defmodule CartularyWeb.MemoryControllerTest do
                # written against. Like the other identity strings here it is a
                # contract version, not the release version.
                "profile_version" => "f7-1",
-               # Empty means every retrieval strategy finished inside the
-               # deadline. A non-empty list is not an error — it is how the
-               # response admits that results are partial, which is why the
-               # field exists at all.
-               "dropped_strategies" => [],
+               # A non-empty list is not an error — it is how the response
+               # admits that results are partial, which is why the field exists
+               # at all. Here it names `semantic` because this suite runs on
+               # the deterministic fallback, which refuses to invent vectors
+               # and therefore has no embedder: the strategy could not run.
+               "dropped_strategies" => ["semantic"],
+               # A separate list for strategies that ran and matched nothing.
+               # Without it a caller cannot tell this page from one where every
+               # strategy that reads the query text came back empty and the
+               # rest ranked the scope by recency.
+               "empty_strategies" => _empty,
+               "disagreement" => %{"query_dependent_empty" => false},
                "candidates" => [%{"statement" => statement} | _]
              }
            } = json_response(conn, 200)

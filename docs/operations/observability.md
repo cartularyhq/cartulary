@@ -108,6 +108,23 @@ Tune noise per debugging session:
 | `CARTULARY_OTEL_ECTO_SPANS_ENABLED` | `false` | Deep database spans — many, low-level |
 | `CARTULARY_OTEL_DB_STATEMENT_ENABLED` | `false` | SQL statement text; off because statements can carry sensitive values |
 
+## Knowing when a scope lost its indexes
+
+Every completed projection refresh emits the telemetry event
+`[:cartulary, :retrieval, :projection_refresh]`, measuring `indexed`,
+`statements`, `embedded`, `mentions`, and `coverage` (embedded ÷ statements,
+`1.0` when the scope has nothing to index), tagged with `account_id` and
+`scope_id`.
+
+Alert on `coverage` below your threshold. Embeddings and entity mentions are
+written by this lane alone, so a refresh that was cancelled or never enqueued
+leaves the scope holding every statement while semantic and entity recall stay
+silently empty — word-based search keeps answering, because its index is a
+generated column no queue failure can lose.
+
+The current figures for any scope are also on
+[`/console/scopes`](../guides/web-console.md).
+
 ## Traces are sampled; the ledger is exact
 
 For exact token totals, request counts, and cost, read the `UsageEvent` ledger

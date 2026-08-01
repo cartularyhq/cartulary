@@ -133,6 +133,33 @@ defmodule Cartulary.F7RetrievalEntityContextTest.VanishingProvider do
   def rerank(_config, _query, _documents, _opts), do: {:error, :not_supported}
 end
 
+defmodule Cartulary.F7RetrievalEntityContextTest.UnavailableEmbedderProvider do
+  @moduledoc """
+  Provider whose embedder is down and whose other capabilities are not.
+
+  Used to prove that a failed embedding call degrades one strategy and is
+  reported, rather than passing as a query that legitimately matched nothing.
+  """
+
+  @behaviour Cartulary.Model.Provider
+
+  alias Cartulary.Model.Providers.Deterministic
+
+  @impl true
+  def structured(config, messages, schema, opts),
+    do: Deterministic.structured(config, messages, schema, opts)
+
+  @impl true
+  def chat(config, messages, opts), do: Deterministic.chat(config, messages, opts)
+
+  @impl true
+  def embed(_config, _texts, _opts), do: {:error, :embedder_unavailable}
+
+  @impl true
+  def rerank(config, query, documents, opts),
+    do: Deterministic.rerank(config, query, documents, opts)
+end
+
 defmodule Cartulary.F7RetrievalEntityContextTest do
   @moduledoc """
   Pins retrieval, private entity caches, and reasoning-free context assembly.
@@ -236,6 +263,17 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     assert Enum.all?(@strategies, &(&1.stage() in [:seed, :expand]))
     assert Strategies.RelationExpand.stage() == :expand
 
+    # Query dependence is what separates "found nothing about your question" from "ranked the
+    # scope for you". Expansion is not query-dependent: it walks out from seeds that may
+    # themselves have ignored the query, so counting it would launder that.
+    assert Enum.all?(@strategies, &is_boolean(&1.query_dependent?()))
+    assert Strategies.Semantic.query_dependent?()
+    assert Strategies.Lexical.query_dependent?()
+    assert Strategies.EntityMatch.query_dependent?()
+    refute Strategies.Temporal.query_dependent?()
+    refute Strategies.SalienceRecency.query_dependent?()
+    refute Strategies.RelationExpand.query_dependent?()
+
     # Applicability must be a cheap, total predicate: it is consulted for every query, so it
     # cannot query the database or raise on an unusual query shape.
     query = %Query{text: "release", target: :knowledge, seed_ids: ["seed"]}
@@ -266,6 +304,12 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     assert result["dropped_strategies"] == []
     assert "semantic" in result["contributed_strategies"]
     assert "lexical" in result["contributed_strategies"]
+
+    # Contributing means "returned candidates", so a strategy cannot be in both lists, and
+    # the strategies that read the query text are the ones that answered it.
+    refute "semantic" in result["empty_strategies"]
+    refute "lexical" in result["empty_strategies"]
+    refute result["disagreement"]["query_dependent_empty"]
 
     # The same statement found by two independent strategies is reported once, carrying the
     # list of strategies that found it. Callers use that as an agreement signal.
@@ -414,6 +458,52 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     assert statement =~ "release notes"
   end
 
+  test "a run where no query-reading strategy matched is reported as query-independent" do
+    # Deliberately skip Indexer.rebuild_scope and EntityResolver.rebuild_scope. Both caches are
+    # rebuildable and are populated by background jobs, so this is the state a real deployment
+    # sits in between ingest and the next rebuild — not an artificial one.
+    seeded =
+      seed_active!("f7-degraded", "/f7/degraded", "Avery prefers concise release summaries.")
+
+    result =
+      Memory.search(%{
+        "account_key" => "f7-degraded",
+        "scope_path" => seeded.scope.path,
+        # None of these words occur in the corpus, so full-text search cannot match either.
+        "query" => "kayak tariff schedule",
+        "deadline" => "disabled"
+      })
+
+    # Three strategies read the query text. Every one of them came back with nothing: semantic
+    # has no vectors to compare, entity matching has no resolved mentions, and full-text search
+    # found no term in common.
+    assert Enum.sort(result["empty_strategies"]) == ["entity_match", "lexical", "semantic"]
+    assert result["contributed_strategies"] == ["temporal"]
+
+    # Running and finding nothing is not degradation. Nothing was disabled, timed out, or
+    # failed, so the dropped list stays empty and keeps its narrower meaning.
+    assert result["dropped_strategies"] == []
+
+    # The point of the flag: what came back is the scope in time order, not an answer, and the
+    # response says so even though its shape is identical to a good result.
+    #
+    # These two also pin the signal to pre-fusion (FR-API-29). Fusion always emits a ranked
+    # list, so anything derived from the fused output could not report "nothing was found"
+    # while candidates are being returned. They can only hold together if it was measured
+    # before the merge.
+    assert result["disagreement"]["query_dependent_empty"]
+    assert result["candidates"] != []
+
+    # The pre-existing signals cannot express this state, which is why the new one exists.
+    # All three read only the strategies that returned something. `low_score` is false because
+    # temporal's scores are fixed steps well above the floor. `disjoint` is true, but vacuously:
+    # with one non-empty list there is no pair to overlap, and it says the same for a healthy
+    # single-strategy run. `strategy_count` counts what survived, never what vanished.
+    refute result["disagreement"]["low_score"]
+    assert result["disagreement"]["disjoint"]
+    assert result["disagreement"]["strategy_count"] == 1
+  end
+
   test "lexical ranks a target above distractors that share only part of the query" do
     corpus = seed_ranking_corpus!()
 
@@ -434,8 +524,8 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
 
     assert [%{"id" => head_id, "strategies" => strategies} | _] = result["candidates"]
     assert head_id == corpus.target.knowledge.id
-    # The per-candidate attribution, not `contributed_strategies`: an empty lexical list is
-    # still reported as a contributor, so only this field distinguishes a hit from a miss.
+    # The per-candidate attribution identifies which strategies found this statement;
+    # `contributed_strategies` only identifies which strategies returned any candidate.
     assert "lexical" in strategies
 
     # Sharing no query term is the one thing that must keep a statement out of the lexical
@@ -850,6 +940,11 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     # is distinguishable from a genuinely empty corpus.
     assert result["candidates"] == []
     assert "lexical" in result["dropped_strategies"]
+
+    # A strategy that never ran is only dropped. Reporting it as having found nothing would
+    # claim the corpus was searched and came back empty, which is the opposite of what happened.
+    refute "lexical" in result["empty_strategies"]
+    refute "lexical" in result["contributed_strategies"]
   end
 
   test "projection refresh, bounded deltas, session resolution, and ETS invalidation stay model-free" do
@@ -921,6 +1016,107 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     # On a miss the caller still gets an answer, from the cheapest retrieval profile, and the
     # response says so. Silently serving a stale projection would be the worse failure.
     assert dirty["fast_fallback"] == true
+  end
+
+  test "index coverage separates an unindexed scope from an empty one and reports the identity" do
+    seeded = seed_active!("f7-coverage", "/f7/coverage", "Avery tracks the release checklist.")
+
+    # The scope holds a governed statement and no vectors — exactly the state a cancelled
+    # projection refresh leaves behind, and the state that was previously unobservable.
+    before = Cartulary.Retrieval.index_coverage(seeded.account.id, [seeded.scope.id])
+
+    assert %{
+             statement_count: 1,
+             embedded_count: 0,
+             mention_count: 0,
+             coverage: +0.0,
+             embedding_identities: []
+           } = Map.fetch!(before, seeded.scope.id)
+
+    # A scope that was never written to reads as zeros rather than as an absent key, and
+    # counts as covered: there is nothing to index, so an alert on the ratio must not fire.
+    empty_scope_id = Ecto.UUID.generate()
+    empty = Cartulary.Retrieval.index_coverage(seeded.account.id, [empty_scope_id])
+
+    assert %{statement_count: 0, embedded_count: 0, coverage: 1.0} =
+             Map.fetch!(empty, empty_scope_id)
+
+    events = attach_projection_refresh_telemetry!()
+
+    assert {:ok, %{index: %{indexed: 1}}} =
+             Cartulary.Retrieval.rebuild_scope(seeded.account.id, seeded.scope.id)
+
+    after_rebuild = Cartulary.Retrieval.index_coverage(seeded.account.id, [seeded.scope.id])
+    coverage = Map.fetch!(after_rebuild, seeded.scope.id)
+
+    assert coverage.statement_count == 1
+    assert coverage.embedded_count == 1
+    assert coverage.coverage == 1.0
+    # Mentions are reported as a count. Naming the entity, its aliases, or the matched surface
+    # form here would create a second, ungoverned view of who an Account knows about.
+    assert coverage.mention_count >= 1
+
+    assert Map.keys(coverage) |> Enum.sort() == [
+             :coverage,
+             :embedded_count,
+             :embedding_identities,
+             :mention_count,
+             :statement_count
+           ]
+
+    # The identity is what decides whether stored vectors are comparable at all; two of them
+    # in one scope means part of it needs re-embedding.
+    assert [%{provider: "fixture", model: "f7-fixture", version: "1", dimensions: 3}] =
+             coverage.embedding_identities
+
+    assert_receive {^events, measurements, metadata}
+    assert measurements.indexed == 1
+    assert measurements.statements == 1
+    assert measurements.embedded == 1
+    assert measurements.coverage == 1.0
+    assert metadata.scope_id == seeded.scope.id
+    assert metadata.account_id == seeded.account.id
+  end
+
+  test "an unavailable embedder drops the semantic strategy instead of reporting no matches" do
+    seeded = seed_active!("f7-drop", "/f7/drop", "Avery reviews the release checklist.")
+
+    assert {:ok, %{indexed: 1}} = Indexer.rebuild_scope(seeded.account.id, seeded.scope.id)
+
+    original_provider = Application.get_env(:cartulary, :model_provider)
+
+    on_exit(fn ->
+      if original_provider do
+        Application.put_env(:cartulary, :model_provider, original_provider)
+      else
+        Application.delete_env(:cartulary, :model_provider)
+      end
+    end)
+
+    Application.put_env(
+      :cartulary,
+      :model_provider,
+      Cartulary.F7RetrievalEntityContextTest.UnavailableEmbedderProvider
+    )
+
+    result =
+      Memory.search(%{
+        "account_key" => "f7-drop",
+        "scope_path" => seeded.scope.path,
+        "query" => "release checklist",
+        "strategies" => ["semantic", "lexical"],
+        "deadline" => "disabled"
+      })
+
+    # Semantic never ran, so it is degradation and must be reported as such. Counting it as a
+    # contributing strategy that happened to find nothing is what makes an unindexed corpus
+    # and a broken embedder indistinguishable from a genuinely unmatched query.
+    assert "semantic" in result["dropped_strategies"]
+    refute "semantic" in result["contributed_strategies"]
+    # The request still answers from the strategies that did run.
+    assert "lexical" in result["contributed_strategies"]
+    assert [%{"id" => id} | _] = result["candidates"]
+    assert id == seeded.knowledge.id
   end
 
   # The index names below are frozen: they are what the hand-written migration DDL created,
@@ -1147,6 +1343,28 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     |> Ash.Changeset.set_tenant(account_id)
     |> Ash.Changeset.for_create(action, attrs)
     |> Ash.create!(actor: actor)
+  end
+
+  # Forwards the projection-refresh event to the test process and returns the handler id used
+  # as the message tag, so an assertion can prove the event fired with the counts an operator
+  # would alert on.
+  defp attach_projection_refresh_telemetry! do
+    handler_id = {__MODULE__, :projection_refresh, System.unique_integer()}
+    test_process = self()
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        [:cartulary, :retrieval, :projection_refresh],
+        fn _event, measurements, metadata, _config ->
+          send(test_process, {handler_id, measurements, metadata})
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    handler_id
   end
 
   # One-column, one-row raw query, for asserting on tables no Ash action reads back — the

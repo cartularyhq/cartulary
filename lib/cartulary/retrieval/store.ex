@@ -539,6 +539,70 @@ defmodule Cartulary.Retrieval.Store do
     end
   end
 
+  @doc """
+  Counts, per scope, how much of the retrievable corpus is actually indexed.
+
+  Embeddings and entity mentions are written by a background rebuild, so a scope
+  can hold every governed statement and still answer nothing semantically. This
+  is the query that makes that state visible.
+
+  The visible set is the one the indexer covers — active plus provisional, minus
+  soft deletions — narrowed by the same provisional-subject rule every other
+  query here applies, so a caller never learns the count of provisional
+  statements about someone else. A nil `peer_id` disables that narrowing and is
+  for system callers only.
+
+  Returns one map per scope that has at least one visible statement, carrying
+  `scope_id`, `statement_count`, `embedded_count`, `mention_count`, and
+  `embedding_identities` (the distinct provider/model/version/dimensions tuples
+  in use; more than one means part of the scope needs re-embedding). Scopes with
+  nothing visible are absent rather than zero-filled. Raises `Postgrex.Error` if
+  the statement fails.
+  """
+  def index_coverage(account_id, scope_ids, peer_id) do
+    sql = """
+    WITH visible AS (
+      SELECT k.id, k.scope_id,
+             (k.embedding IS NOT NULL) AS embedded,
+             k.embedding_provider, k.embedding_model,
+             k.embedding_version, k.embedding_dimensions
+      FROM knowledge_items AS k
+      WHERE k.account_id = $1
+        AND k.scope_id = ANY($2)
+        AND (
+          k.state = 'active'
+          OR (k.state = 'provisional' AND ($3::uuid IS NULL OR k.subject_peer_id = $3))
+        )
+        AND k.deleted_at IS NULL
+    ),
+    mentions AS (
+      SELECT visible.scope_id, count(*) AS mention_count
+      FROM entity_mentions AS m
+      JOIN visible ON visible.id = m.knowledge_item_id
+      WHERE m.account_id = $1
+      GROUP BY visible.scope_id
+    )
+    SELECT visible.scope_id,
+           count(*)::bigint AS statement_count,
+           count(*) FILTER (WHERE visible.embedded)::bigint AS embedded_count,
+           coalesce(max(mentions.mention_count), 0)::bigint AS mention_count,
+           coalesce(
+             jsonb_agg(DISTINCT jsonb_build_object(
+               'provider', visible.embedding_provider,
+               'model', visible.embedding_model,
+               'version', visible.embedding_version,
+               'dimensions', visible.embedding_dimensions
+             )) FILTER (WHERE visible.embedded),
+             '[]'::jsonb
+           ) AS embedding_identities
+    FROM visible
+    LEFT JOIN mentions ON mentions.scope_id = visible.scope_id
+    GROUP BY visible.scope_id
+    """
+
+    all(sql, [db_uuid!(account_id), db_uuids!(scope_ids), db_uuid(peer_id)])
+  end
+
   # Merge only halves scored by the same function, then restore the shared cap.
   defp top(rows, limit),
     do: rows |> Enum.sort_by(&(&1["score"] || 0.0), :desc) |> Enum.take(limit)

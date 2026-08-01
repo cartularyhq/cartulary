@@ -169,7 +169,7 @@ defmodule CartularyWeb.ConsoleLive.Knowledge do
             label="Strategies used"
             value={length(@search["contributed_strategies"])}
             note={strategy_note(@search)}
-            tone={if @search["dropped_strategies"] == [], do: "neutral", else: "warn"}
+            tone={strategy_tone(@search)}
           />
         </div>
 
@@ -273,11 +273,29 @@ defmodule CartularyWeb.ConsoleLive.Knowledge do
 
   defp retrieval_preview(_actor, _filters), do: nil
 
-  # Name dropped strategies so deadline loss is not mistaken for empty indexes.
-  defp strategy_note(%{"dropped_strategies" => []}), do: "none dropped"
+  # Separate deadline loss from empty indexes, and both from a healthy run. A search where the
+  # text-reading strategies all found nothing still returns a full page — of whatever is most
+  # recent — so the count above cannot be read alone.
+  defp strategy_note(search) do
+    case Enum.reject(
+           [
+             strategy_group("dropped", search["dropped_strategies"]),
+             strategy_group("found nothing", search["empty_strategies"])
+           ],
+           &is_nil/1
+         ) do
+      [] -> "all contributed"
+      notes -> Enum.join(notes, "; ")
+    end
+  end
 
-  defp strategy_note(%{"dropped_strategies" => dropped}) do
-    "dropped: " <> Enum.map_join(dropped, ", ", &to_string/1)
+  defp strategy_group(_label, []), do: nil
+  defp strategy_group(label, names), do: "#{label}: " <> Enum.map_join(names, ", ", &to_string/1)
+
+  defp strategy_tone(search) do
+    if search["dropped_strategies"] == [] and search["empty_strategies"] == [],
+      do: "neutral",
+      else: "warn"
   end
 
   defp page_params(filters, page), do: Map.put(filters, "page", Integer.to_string(page))
