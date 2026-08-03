@@ -52,6 +52,9 @@ mix cartulary.release.check \
 
 ## Publish
 
+- [ ] Configure `CARTULARY_RELEASE_SIGNING_KEY` as the protected base64 Ed25519
+  private key matching the updater's embedded public key; never place it in the
+  repository or a release asset.
 - [ ] In GitHub, create and publish a release for the gated `v<version>` tag,
   using GitHub's generated release notes. The release workflow then runs every
   gate, builds and boot-tests all packages, uploads their SHA-256 files and the

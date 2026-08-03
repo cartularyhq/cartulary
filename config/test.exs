@@ -11,6 +11,9 @@
 
 import Config
 
+# Tests must not make release-feed requests just because the application starts.
+config :cartulary, :update, enabled: false
+
 # Configure your database
 #
 # The MIX_TEST_PARTITION environment variable can be used

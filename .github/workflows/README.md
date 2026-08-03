@@ -53,6 +53,11 @@ Workflow-run copies remain available for 90 days for debugging. GitHub generates
 the release notes when the maintainer creates the release; the workflow uploads
 only generated artifacts and never edits those notes.
 
+The repository secret `CARTULARY_RELEASE_SIGNING_KEY` is the base64-encoded raw
+Ed25519 private key matching Cartulary's embedded updater public key. The fan-in
+job signs `release-manifest-v1.json`; standalone updaters reject assets unless
+that detached signature and the manifest's per-platform SHA-256 both verify.
+
 Configure the CI job names as required checks only after they have reported
 successfully. See `specs/process/release-checklist.md`.
 

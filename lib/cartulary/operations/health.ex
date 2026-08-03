@@ -63,6 +63,7 @@ defmodule Cartulary.Operations.Health do
       app: "cartulary",
       version: "f10-1",
       checks: checks,
+      update: Cartulary.Update.status(),
       # Not a pass/fail check like the others above: this is disclosure, not a readiness
       # gate, so it never affects `status`. An operator or auditor can tell whether subject
       # consent is being auto-granted for this whole process without reading source.

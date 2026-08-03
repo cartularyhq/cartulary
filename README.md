@@ -81,7 +81,8 @@ curl -fsS http://127.0.0.1:4000/api/ready
 
 The launcher creates its data directory, starts pg0, migrates the database, and
 starts the API. The [release installation guide](https://cartularyhq.github.io/cartulary/getting-started/install-release/)
-has architecture selection, download, checksum, Windows, and macOS Gatekeeper steps.
+has architecture selection, download, checksum, Windows, macOS Gatekeeper, and
+a recommended local setup block with signed automatic patch/minor updates.
 
 ### Source checkout
 

@@ -253,19 +253,45 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+    env:
+      CARTULARY_RELEASE_SIGNING_KEY: ${{ secrets.CARTULARY_RELEASE_SIGNING_KEY }}
     steps:
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          elixir-version: "1.18"
       - uses: actions/download-artifact@v8
         with:
           path: /tmp/cartulary-release
           pattern: cartulary-release-*-${{ github.run_id }}
           merge-multiple: true
-      - name: Upload generated artifacts to GitHub Release
+      - name: Sign update manifest and upload generated artifacts
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           tag="${{ github.event.release.tag_name }}"
+          version="${tag#v}"
+          test -n "$CARTULARY_RELEASE_SIGNING_KEY"
+          cd /tmp/cartulary-release
+          jq -n \
+            --arg version "$version" \
+            --arg linux "$(cut -d' ' -f1 cartulary-linux-x86_64.tar.gz.sha256)" \
+            --arg mac_arm "$(cut -d' ' -f1 cartulary-macos-arm64.tar.gz.sha256)" \
+            --arg mac_intel "$(cut -d' ' -f1 cartulary-macos-x86_64.tar.gz.sha256)" \
+            --arg windows "$(cut -d' ' -f1 cartulary-windows-x86_64.zip.sha256)" \
+            '{schema: "cartulary-release-1", version: $version, automatic_eligible: true, assets: [
+              {platform: "linux-x86_64", name: "cartulary-linux-x86_64.tar.gz", sha256: $linux},
+              {platform: "macos-arm64", name: "cartulary-macos-arm64.tar.gz", sha256: $mac_arm},
+              {platform: "macos-x86_64", name: "cartulary-macos-x86_64.tar.gz", sha256: $mac_intel},
+              {platform: "windows-x86_64", name: "cartulary-windows-x86_64.zip", sha256: $windows}
+            ]}' > release-manifest-v1.json
+          elixir -e '
+            key = System.fetch_env!("CARTULARY_RELEASE_SIGNING_KEY") |> Base.decode64!()
+            bytes = File.read!("release-manifest-v1.json")
+            :crypto.sign(:eddsa, :none, bytes, [key, :ed25519]) |> Base.encode64() |> IO.write()
+          ' > release-manifest-v1.json.sig
           assets=(
             /tmp/cartulary-release/cartulary-linux-x86_64.tar.gz
             /tmp/cartulary-release/cartulary-linux-x86_64.tar.gz.sha256
@@ -276,6 +302,8 @@ jobs:
             /tmp/cartulary-release/cartulary-windows-x86_64.zip
             /tmp/cartulary-release/cartulary-windows-x86_64.zip.sha256
             /tmp/cartulary-release/cartulary-f11-release.json
+            /tmp/cartulary-release/release-manifest-v1.json
+            /tmp/cartulary-release/release-manifest-v1.json.sig
           )
           for asset in "${assets[@]}"; do
             test -s "$asset"
