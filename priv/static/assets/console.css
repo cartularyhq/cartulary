@@ -280,13 +280,18 @@ code {
     overflow-x: auto;
   }
 
-  .tool-grid,
-  .tool-form {
-    grid-template-columns: 1fr;
+  /* The row scrolls, so the page you are on slides out of sight as soon as you
+     look for another one. Pinning it to the leading edge holds it there once
+     it has been reached, instead of losing it behind the scroll. */
+  .sidebar .nav-item.is-active {
+    position: sticky;
+    left: 0;
+    background: var(--accent-soft);
+    box-shadow: 0 0 0 4px var(--bg);
   }
 
-  .tool-form .full {
-    grid-column: auto;
+  .sidebar .nav-item {
+    white-space: nowrap;
   }
 }
 
@@ -337,6 +342,23 @@ code {
   gap: 1.1rem;
 }
 
+/* ------------------------------------------------------ tool workbench -- */
+
+.tool-group {
+  margin-bottom: 1.6rem;
+}
+
+.group-head {
+  margin-bottom: 0.65rem;
+}
+
+.group-head p {
+  color: var(--muted);
+  font-size: 0.88rem;
+  margin: 0;
+  max-width: 80ch;
+}
+
 .tool-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(390px, 1fr));
@@ -346,6 +368,13 @@ code {
 
 .tool-panel {
   margin-bottom: 0;
+}
+
+/* A card that changes durable state carries a heavier edge as well as its
+   badge and acknowledgement, so the difference survives a colour-blind or
+   monochrome reading of the page. */
+.tool-panel.is-write {
+  border-left: 3px solid var(--warn);
 }
 
 .tool-head,
@@ -360,8 +389,12 @@ code {
 .tool-head p {
   color: var(--muted);
   font-size: 0.88rem;
-  margin: 0;
+  margin: 0.15rem 0 0;
   max-width: 58ch;
+}
+
+.tool-head .badge {
+  flex: none;
 }
 
 .tool-form {
@@ -374,14 +407,162 @@ code {
   grid-column: 1 / -1;
 }
 
-.tool-result {
-  max-height: 34rem;
+.field label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.field-label {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.field-help {
+  color: var(--muted);
+  font-size: 0.75rem;
 }
 
 .optional {
   color: var(--muted);
   font-size: 0.75rem;
   font-weight: 400;
+  margin-left: 0.35rem;
+}
+
+.consequence {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin: 0.2rem 0 0;
+}
+
+.ack {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  background: var(--warn-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.65rem;
+  font-size: 0.82rem;
+}
+
+.ack input {
+  width: auto;
+  flex: none;
+  margin-top: 0.2rem;
+}
+
+.context-bar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0.7rem;
+}
+
+.context-override > summary {
+  cursor: pointer;
+  font-size: 0.78rem;
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.context-override > summary code {
+  overflow-wrap: anywhere;
+}
+
+.override-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.7rem;
+  margin-top: 0.5rem;
+}
+
+.technical {
+  color: var(--muted);
+  font-size: 0.78rem;
+  margin: 0;
+}
+
+.run-summary {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0 0 0.75rem;
+}
+
+.run-row {
+  display: grid;
+  grid-template-columns: 12rem minmax(0, 1fr);
+  gap: 0.6rem;
+  align-items: baseline;
+}
+
+.run-row dt {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.run-row dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.run-context > summary,
+.run-raw > summary,
+.earlier-run > summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.run-context,
+.run-raw {
+  margin-bottom: 0.6rem;
+}
+
+.earlier-run {
+  border-top: 1px solid var(--border);
+  padding-top: 0.6rem;
+  margin-top: 0.6rem;
+}
+
+.earlier-run:first-child {
+  border-top: 0;
+  padding-top: 0;
+  margin-top: 0;
+}
+
+.earlier-run .run-title {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.tool-result {
+  max-height: 34rem;
+  overflow: auto;
+}
+
+/* Placed after the workbench rules rather than in the shell's narrow block:
+   these override grid templates declared above, and an earlier media query of
+   equal specificity would lose to them. */
+@media (max-width: 900px) {
+  .tool-grid,
+  .tool-form,
+  .context-bar,
+  .override-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .tool-form .full {
+    grid-column: auto;
+  }
+
+  .run-row {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
 }
 
 .empty {
