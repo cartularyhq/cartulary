@@ -42,6 +42,11 @@ generation followed by Ash-backed validation. Invalid output gets at most two
 content-safe repair attempts. Exhaustion returns an error to the pipeline so
 AshOban can retry; it never turns malformed output into knowledge.
 
+OpenRouter structured calls use its native strict JSON-schema response format,
+not a forced synthetic tool call. This avoids models that complete their
+reasoning without emitting the forced tool call; ordinary chat retains normal
+tool calling.
+
 The extraction JSON schema is derived from `KnowledgeItem` attributes and the
 candidate is validated against `create_from_pipeline`. Each candidate includes:
 

@@ -65,7 +65,7 @@ defmodule Cartulary.Model.Providers.ReqLLM do
            model_spec(config),
            messages,
            schema,
-           request_opts(config, opts)
+           structured_request_opts(config, opts)
          ) do
       {:ok, response} ->
         case ReqLLM.Response.object(response) do
@@ -226,6 +226,19 @@ defmodule Cartulary.Model.Providers.ReqLLM do
     |> maybe_put(:api_key, resolve_api_key(options))
     |> Keyword.merge(Keyword.take(overrides, @request_option_keys))
   end
+
+  # OpenRouter's forced synthetic tool is not reliable for gpt-oss models: it
+  # may finish after reasoning without making the required call. Its native
+  # JSON-schema response path returns the same object while avoiding that
+  # model-level failure mode. This is limited to structured generation; chat
+  # continues to use normal tool calling where callers explicitly need tools.
+  defp structured_request_opts(%Role{provider: "openrouter"} = config, overrides) do
+    config
+    |> request_opts(overrides)
+    |> Keyword.put(:provider_options, openrouter_structured_output_mode: :json_schema)
+  end
+
+  defp structured_request_opts(%Role{} = config, overrides), do: request_opts(config, overrides)
 
   # Role options are always string-valued so they stay printable/exportable
   # regardless of source (see `Cartulary.Model.Config.Role`), but req_llm's

@@ -86,6 +86,10 @@ There are exactly four Account-level model roles: `embedder`,
 `ingest_extractor`, `dream_reasoner`, and `dialectic_agent`. Only secret
 *references* are persisted, never secret values.
 
+When `CARTULARY_MODEL_PROVIDER=openrouter`, structured extraction and reasoning
+use OpenRouter's strict JSON-schema response format. This is automatic; it
+avoids models that intermittently ignore forced tool calls.
+
 !!! warning "The local fallback is a test aid"
     Production defaults it off and never switches to it after a live provider
     error. A silent downgrade from a real model to a deterministic stand-in

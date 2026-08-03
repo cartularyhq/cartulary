@@ -15,6 +15,16 @@ defmodule Cartulary.Model.Providers.ReqLLMTest.StubPlug do
 
   @impl Plug
   def call(conn, opts) do
+    if test_pid = Keyword.get(opts, :test_pid) do
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      send(test_pid, {:req_llm_request, Jason.decode!(body)})
+      respond(conn, opts)
+    else
+      respond(conn, opts)
+    end
+  end
+
+  defp respond(conn, opts) do
     conn
     |> Plug.Conn.put_resp_content_type("application/json")
     |> Plug.Conn.send_resp(200, Jason.encode!(Keyword.fetch!(opts, :body)))
@@ -90,10 +100,14 @@ defmodule Cartulary.Model.Providers.ReqLLMTest do
   # Starts a stub endpoint on an ephemeral port and returns a role pointed at
   # it. Port 0 lets the OS pick, so these tests stay async-safe; the bound port
   # is read back from the listener rather than guessed.
-  defp stubbed_role(body) do
+  defp stubbed_role(body, plug_opts \\ []) do
     pid =
       start_supervised!(
-        {Bandit, plug: {StubPlug, body: body}, port: 0, scheme: :http, startup_log: false}
+        {Bandit,
+         plug: {StubPlug, Keyword.merge([body: body], plug_opts)},
+         port: 0,
+         scheme: :http,
+         startup_log: false}
       )
 
     {:ok, {_address, port}} = ThousandIsland.listener_info(pid)
@@ -129,6 +143,25 @@ defmodule Cartulary.Model.Providers.ReqLLMTest do
   end
 
   describe "structured/4 on a 200 response with no object" do
+    test "OpenRouter structured generation uses its native JSON-schema response path" do
+      config =
+        stubbed_role(
+          completion("stop", %{"role" => "assistant", "content" => ~s({"ok":true})}),
+          test_pid: self()
+        )
+
+      assert {:ok, %Result{value: %{"ok" => true}}} =
+               Adapter.structured(config, @messages, @schema, [])
+
+      assert_receive {:req_llm_request, request}
+
+      assert %{"type" => "json_schema", "json_schema" => %{"strict" => true}} =
+               request["response_format"]
+
+      refute Map.has_key?(request, "tools")
+      refute Map.has_key?(request, "tool_choice")
+    end
+
     test "an upstream failure is named as one, not as missing output" do
       config = stubbed_role(completion("error", silent_assistant()))
 
