@@ -117,14 +117,16 @@ the knowledge-write transaction, they are eventually consistent: a refresh that
 was cancelled or never enqueued leaves a scope holding every governed statement
 with no vectors, while lexical search keeps answering from its generated
 column. `Cartulary.Retrieval.Coverage` is the read that distinguishes the two —
-per-scope statement, embedded, and mention counts plus the embedding identities
-in use, under the same authorization and provisional-subject rules as any other
-retrieval query, and reporting mentions as a count so the entity cache stays
-internal. Every completed refresh emits
+per-scope statement, embedded, mention, and mentioned-statement counts plus the
+embedding identities in use, under the same authorization and
+provisional-subject rules as any other retrieval query. Mentions remain counts
+so the entity cache stays internal. Every completed refresh emits
 `[:cartulary, :retrieval, :projection_refresh]` with those counts and the
-resulting ratio. Nothing re-enqueues a stale scope automatically; making the
-state observable comes first, since a sweeper would repair the symptom while
-leaving the state unknowable.
+resulting ratio. The Account reconciler detects an active scope with no mention
+rows and enqueues the same full refresh using a corpus-derived replay key.
+Request-local diagnostics classify partial coverage and distinguish no resolved
+entity from a resolved entity with no authorized statements without returning
+cache identities or content.
 
 `Indexer.rebuild_scope/2` and `EntityResolver.rebuild_scope/2` use a short read
 transaction, connection-free model calls, and one final write transaction. The

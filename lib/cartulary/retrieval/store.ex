@@ -377,11 +377,7 @@ defmodule Cartulary.Retrieval.Store do
   yields no usable terms. Raises `Postgrex.Error` if the statement fails.
   """
   def entity_match(query, limit) do
-    terms =
-      query.text
-      |> String.downcase()
-      |> String.split(~r/[^[:alnum:]@._-]+/u, trim: true)
-      |> Enum.uniq()
+    terms = entity_terms(query.text)
 
     sql = """
     SELECT #{@knowledge_columns},
@@ -686,7 +682,8 @@ defmodule Cartulary.Retrieval.Store do
   for system callers only.
 
   Returns one map per scope that has at least one visible statement, carrying
-  `scope_id`, `statement_count`, `embedded_count`, `mention_count`, and
+  `scope_id`, `statement_count`, `embedded_count`, `mention_count`,
+  `mentioned_statement_count`, and
   `embedding_identities` (the distinct provider/model/version/dimensions tuples
   in use; more than one means part of the scope needs re-embedding). Scopes with
   nothing visible are absent rather than zero-filled. Raises `Postgrex.Error` if
@@ -709,7 +706,9 @@ defmodule Cartulary.Retrieval.Store do
         AND k.deleted_at IS NULL
     ),
     mentions AS (
-      SELECT visible.scope_id, count(*) AS mention_count
+      SELECT visible.scope_id,
+             count(*) AS mention_count,
+             count(DISTINCT visible.id) AS mentioned_statement_count
       FROM entity_mentions AS m
       JOIN visible ON visible.id = m.knowledge_item_id
       WHERE m.account_id = $1
@@ -719,6 +718,8 @@ defmodule Cartulary.Retrieval.Store do
            count(*)::bigint AS statement_count,
            count(*) FILTER (WHERE visible.embedded)::bigint AS embedded_count,
            coalesce(max(mentions.mention_count), 0)::bigint AS mention_count,
+           coalesce(max(mentions.mentioned_statement_count), 0)::bigint
+             AS mentioned_statement_count,
            coalesce(
              jsonb_agg(DISTINCT jsonb_build_object(
                'provider', visible.embedding_provider,
@@ -736,9 +737,101 @@ defmodule Cartulary.Retrieval.Store do
     all(sql, [db_uuid!(account_id), db_uuids!(scope_ids), db_uuid(peer_id)])
   end
 
+  @doc """
+  Classifies whether query terms resolve through the private entity cache.
+
+  Returns only `:query_resolved_no_entity`,
+  `:entity_found_no_authorized_statements`, or `:entity_found`. The first means
+  no canonical name or alias matched. The second means an Account-local entity
+  matched but no statement survived the supplied scope, lifecycle, and subject
+  filters. No entity or statement identity leaves this boundary.
+  """
+  def entity_match_status(query) do
+    terms = entity_terms(query.text)
+
+    sql = """
+    WITH matched_entities AS (
+      SELECT e.id
+      FROM entities AS e
+      WHERE e.account_id = $1
+        AND EXISTS (
+          SELECT 1
+          FROM unnest(e.aliases || ARRAY[e.canonical_name]) AS alias
+          WHERE lower(alias) = ANY($4)
+        )
+    ), authorized AS (
+      SELECT 1
+      FROM matched_entities AS e
+      JOIN entity_mentions AS m ON m.entity_id = e.id AND m.account_id = $1
+      JOIN knowledge_items AS k ON k.id = m.knowledge_item_id AND k.account_id = $1
+      WHERE k.scope_id = ANY($2)
+        AND (
+          k.state = 'active'
+          OR (k.state = 'provisional' AND ($3::uuid IS NULL OR k.subject_peer_id = $3))
+        )
+        AND k.deleted_at IS NULL
+        AND (k.expires_at IS NULL OR k.expires_at > now())
+      LIMIT 1
+    )
+    SELECT EXISTS(SELECT 1 FROM matched_entities) AS entity_found,
+           EXISTS(SELECT 1 FROM authorized) AS authorized_found
+    """
+
+    if query.target in [:knowledge, :all] and terms != [] do
+      [row] =
+        all(sql, [
+          db_uuid!(query.account_id),
+          db_uuids!(query.scope_ids),
+          db_uuid(query.actor.peer_id),
+          terms
+        ])
+
+      cond do
+        row["authorized_found"] -> :entity_found
+        row["entity_found"] -> :entity_found_no_authorized_statements
+        true -> :query_resolved_no_entity
+      end
+    else
+      :query_resolved_no_entity
+    end
+  end
+
+  @doc """
+  Finds active scopes whose corpus has no derived entity mentions.
+
+  Returns scope ids with a content-free watermark derived from the statement
+  count and latest update. It is for the Account reconciler, which already runs
+  under a system actor and row-level security.
+  """
+  def scopes_missing_mentions(account_id) do
+    sql = """
+    SELECT k.scope_id,
+           count(*)::bigint AS statement_count,
+           max(k.updated_at) AS latest_statement_at
+    FROM knowledge_items AS k
+    LEFT JOIN entity_mentions AS m
+      ON m.knowledge_item_id = k.id AND m.account_id = k.account_id
+    WHERE k.account_id = $1
+      AND k.state = 'active'
+      AND k.deleted_at IS NULL
+      AND (k.expires_at IS NULL OR k.expires_at > now())
+    GROUP BY k.scope_id
+    HAVING count(m.id) = 0
+    """
+
+    all(sql, [db_uuid!(account_id)])
+  end
+
   # Merge only halves scored by the same function, then restore the shared cap.
   defp top(rows, limit),
     do: rows |> Enum.sort_by(&(&1["score"] || 0.0), :desc) |> Enum.take(limit)
+
+  defp entity_terms(text) do
+    text
+    |> String.downcase()
+    |> String.split(~r/[^[:alnum:]@._-]+/u, trim: true)
+    |> Enum.uniq()
+  end
 
   # Build pgvector text as a bound parameter; coerce integers before `Float.to_string/1`.
   defp vector_literal(values) do

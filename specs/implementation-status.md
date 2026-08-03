@@ -247,7 +247,8 @@ Details: `specs/architecture/evaluation-ci-release-readiness.md` and
 - `GET /api/v1/knowledge`
 - `POST /api/auth/password`
 - `/api/v1/self/*` peer self-service, human credentials only
-- `/api/v1/operations/costs` and `POST /api/v1/operations/reconcile`,
+- `/api/v1/operations/costs` and `POST /api/v1/operations/reconcile`, including
+  replay-safe repair of active scopes with a missing entity-mention index;
   account-admin only
 - `/mcp` AshAi MCP endpoint
 

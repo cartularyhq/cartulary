@@ -43,9 +43,13 @@ formatted JSON. Account and calling-peer identity never come from a form.
 
 After `search` or `ask`, the browser adds `retrieval_health` for the selected
 scope. This browser-only object is not part of the MCP or HTTP contract. It
-reports statement, embedding, and entity-mention counts; embedding coverage;
-stored embedding identities; the configured query identity; and one of
-`ready`, `missing_embeddings`, `missing_mentions`, or `identity_mismatch`.
+reports statement, embedding, entity-mention, and mentioned-statement counts;
+embedding and mention coverage; stored embedding identities; the configured
+query identity; and one of `ready`, `missing_embeddings`,
+`no_mentions_indexed`, `partial_mention_coverage`, or `identity_mismatch`.
+For Account administrators, it also reports whether query terms resolved no
+entity or resolved an entity with no statement in the selected authorized
+scope. It never returns entity or statement identity.
 When a derived index needs attention, `next_action` says to rebuild the scope's
 derived data.
 
