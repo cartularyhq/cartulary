@@ -16,6 +16,11 @@ defmodule Cartulary.Model.ReqLLMPoolConfigTest do
     assert Application.fetch_env!(:req_llm, :stream_pool_count) == 1
     assert Application.fetch_env!(:req_llm, :stream_pool_timeout) == 120_000
 
+    assert Application.fetch_env!(:cartulary, :model_roles)
+           |> Keyword.fetch!(:ingest_extractor)
+           |> Map.fetch!(:options)
+           |> Map.fetch!("request_timeout") == 300_000
+
     assert Application.fetch_env!(:cartulary, Oban)
            |> Keyword.fetch!(:queues)
            |> Keyword.fetch!(:ingest) ==
