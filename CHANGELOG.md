@@ -11,6 +11,9 @@ changelog entry and contract-version transition.
 
 ### Added
 
+- Semantic tag builds now remain in GitHub: the packaged Linux release,
+  SHA-256, and evaluation report are attached to a GitHub Release, while the
+  production container is published to the repository's GHCR package.
 - `get_context` now includes scope-bounded `entity_cards` for resolved entities
   with at least three active governed source statements. Each background-built
   card carries a bounded summary, its model provenance, the strictest source

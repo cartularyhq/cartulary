@@ -281,8 +281,8 @@ The nightly live-model evaluation lane therefore cannot run.
   provider and model family different from `CARTULARY_MODEL_ASK`.
 - [ ] Add `HEX_API_KEY` only when a package publish task exists, scoped to the
   release environment.
-- [ ] Decide on container publishing: prefer the built-in `GITHUB_TOKEN` with
-  minimal package write permission over a long-lived `GHCR_TOKEN`.
+- [x] Publish tagged containers to GHCR with the built-in `GITHUB_TOKEN` and
+  job-scoped `packages: write`; do not add a long-lived `GHCR_TOKEN`.
 - [ ] Keep separate provider projects for development, evaluation, and
   release, with least-privilege keys and a rotation plan.
 - [ ] Document every external service in `specs/security/` or `specs/eval/`

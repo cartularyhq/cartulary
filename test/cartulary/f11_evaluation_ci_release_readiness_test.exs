@@ -123,6 +123,16 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
     # on the tagged commit, so the artifact is built from verified code.
     assert release =~ "tags: [\"v*.*.*\"]"
     assert release =~ "./scripts/ci-pg0-lane"
+    # Successful tag runs retain both distribution paths in GitHub. Release assets are
+    # durable and version-scoped; the container uses the repository package instead of a
+    # long-lived registry credential.
+    assert release =~ "contents: write"
+    assert release =~ "packages: write"
+    assert release =~ "gh release create"
+    assert release =~ "Refuse an already-published tag"
+    assert release =~ "docker push"
+    assert release =~ "ghcr.io/${GITHUB_REPOSITORY,,}"
+    assert release =~ "--prerelease --latest=false"
   end
 
   test "entity and mention caches remain absent from every current public surface" do

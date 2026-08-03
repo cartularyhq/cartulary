@@ -230,7 +230,8 @@ Details: `specs/architecture/portability-packaging-operations.md` and
   ablations.
 - Blocking external-Postgres and packaged-pg0 CI lanes, Dialyzer and security
   gates, Mix release and container builds, nightly evaluation, semantic
-  version/tag validation, and fail-closed release checks.
+  version/tag validation, fail-closed release checks, durable GitHub Release
+  assets, and tagged GHCR container publication.
 - A provider cassette layer for deterministic model tests.
 - Held-out tuning discipline: fusion weights may only use held-out data.
 

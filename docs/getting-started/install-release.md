@@ -5,6 +5,11 @@
 The packaged release includes and supervises a checksum-pinned pg0 PostgreSQL
 distribution with pgvector.
 
+Download `cartulary-linux-x86_64.tar.gz` and its `.sha256` file from the
+repository's GitHub Release for the version you want. The same release's
+external-Postgres container is published as
+`ghcr.io/cartularyhq/cartulary:<version>`.
+
 ## Run it
 
 Unpack the release built for your operating system and architecture, then:

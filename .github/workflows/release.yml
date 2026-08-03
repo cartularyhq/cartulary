@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
 #
-# Release readiness: the gate for a tagged version, and the producer of its artifacts.
+# Release: the gate and publisher for a tagged version.
 #
 # Purpose
 #   Repeat every blocking check against the exact tagged commit, confirm that the tag, the
@@ -15,20 +15,15 @@
 #
 # Triggers
 #   Pushing a tag shaped `v<major>.<minor>.<patch>`, or a manual run naming an existing tag
-#   to validate.
+#   to validate and publish.
 #
 # Inputs
-#   tag (manual runs only) — an existing tag to check out and validate. No secrets.
+#   tag (manual runs only) — an existing tag to check out, validate, and publish. No secrets.
 #
 # Outputs
-#   One artifact bundle retained for 90 days: the Linux release tarball, its SHA-256, and
-#   the evaluation report for this version.
-#
-# What this workflow deliberately does NOT do
-#   It does not create a GitHub Release and it does not push a container image. Permissions
-#   here are read-only. Publishing is a separate, explicit human action, so an accidental
-#   or malicious tag push cannot ship anything to users.
-name: Release readiness
+#   A GitHub Release holding the Linux release tarball, its SHA-256, and the evaluation
+#   report; and the same tagged production build in this repository's GHCR package.
+name: Release
 
 on:
   push:
@@ -36,12 +31,16 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing semantic release tag to validate
+        description: Existing semantic release tag to validate and publish
         required: true
         type: string
 
 permissions:
   contents: read
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+  cancel-in-progress: false
 
 jobs:
   # One job rather than the parallel lanes used for merges. A release is infrequent and
@@ -50,6 +49,9 @@ jobs:
   release:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    permissions:
+      contents: write
+      packages: write
     services:
       postgres:
         image: pgvector/pgvector:pg18-bookworm
@@ -76,7 +78,19 @@ jobs:
       # commit that is not the one being released.
       - uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
+      # Versioned assets and container tags are immutable release identities. Refuse an
+      # already-published tag instead of silently replacing bytes under an existing name.
+      - name: Refuse an already-published tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "GitHub Release $tag already exists; release assets are immutable." >&2
+            exit 1
+          fi
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "27"
@@ -126,12 +140,36 @@ jobs:
       - run: tar -C _build/prod/rel -czf /tmp/cartulary-linux-x86_64.tar.gz cartulary
       # The digest is published with the archive so a downloader can verify the bytes they
       # received are the bytes this run produced.
-      - run: shasum -a 256 /tmp/cartulary-linux-x86_64.tar.gz > /tmp/cartulary-linux-x86_64.tar.gz.sha256
-      # Built to prove it builds from the tagged commit. It is tagged locally and not
-      # pushed; see the note at the top about publishing being a separate human action.
-      - run: docker build --tag cartulary:release .
-      # Longer retention than the nightly reports: these are the release's own evidence and
-      # need to outlive the next few weeks of development.
+      - run: cd /tmp && shasum -a 256 cartulary-linux-x86_64.tar.gz > cartulary-linux-x86_64.tar.gz.sha256
+      # Build once, then publish that exact local image under semantic-version and source-tag
+      # names. Stable releases also advance `latest`; prereleases never do.
+      - name: Build and publish production container
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}"
+          version="${tag#v}"
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          revision=$(git rev-parse HEAD)
+
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker build \
+            --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --label "org.opencontainers.image.revision=$revision" \
+            --label "org.opencontainers.image.version=$version" \
+            --tag "$image:$version" \
+            --tag "$image:$tag" \
+            .
+          docker push "$image:$version"
+          docker push "$image:$tag"
+
+          if [[ "$version" != *-* ]]; then
+            docker tag "$image:$version" "$image:latest"
+            docker push "$image:latest"
+          fi
+      # Keep a workflow-run copy for debugging and make the durable, versioned copies GitHub
+      # Release assets in the final step below.
       - uses: actions/upload-artifact@v7
         with:
           name: cartulary-release-${{ github.run_id }}
@@ -140,3 +178,31 @@ jobs:
             /tmp/cartulary-linux-x86_64.tar.gz.sha256
             /tmp/cartulary-f11-release.json
           retention-days: 90
+      # Publishing is last: a failed validation, parity run, archive, checksum, or container
+      # push cannot create a release that looks complete. `gh release create` uploads through
+      # a draft before publication, so the version appears only with all three assets.
+      - name: Create GitHub Release and upload artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}"
+          version="${tag#v}"
+          image="ghcr.io/${GITHUB_REPOSITORY,,}:$version"
+          assets=(
+            /tmp/cartulary-linux-x86_64.tar.gz
+            /tmp/cartulary-linux-x86_64.tar.gz.sha256
+            /tmp/cartulary-f11-release.json
+          )
+          release_args=(
+            --verify-tag
+            --generate-notes
+            --title "$tag"
+            --notes "Container image: \`$image\`"
+          )
+
+          if [[ "$version" == *-* ]]; then
+            release_args+=(--prerelease --latest=false)
+          fi
+
+          gh release create "$tag" "${assets[@]}" "${release_args[@]}"

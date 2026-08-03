@@ -3,8 +3,10 @@
 # GitHub Actions Workflows
 
 Evaluation, CI, and release readiness makes the repository automation executable
-rather than placeholder-only. All workflows use read-only repository
-permissions. Repository action access is deliberately narrower than “allow all”:
+rather than placeholder-only. CI and evaluation use read-only repository
+permissions. The tag-only release job receives `contents: write` and
+`packages: write` so it can publish the gated outputs. Repository action access
+is deliberately narrower than “allow all”:
 GitHub-owned actions and `erlef/setup-beam@*` are the only non-local actions
 needed. The matching repository setting is documented in
 `specs/roadmap/beta-roadmap.md`.
@@ -39,11 +41,15 @@ the credential.
 
 ## `release.yml`
 
-Runs for semantic tags or manual validation. It repeats deterministic
-guardrails, verifies the tag/version/changelog/eval tuple, builds the
-checksum-pinned Linux pg0 package and production container, and uploads the
-package SHA-256 plus eval evidence. It does not create a GitHub Release or push
-an image; those write permissions remain an explicit maintainer decision.
+Runs for semantic tags or manual publication of an existing tag. It repeats
+deterministic guardrails, verifies the tag/version/changelog/eval tuple, builds the
+checksum-pinned Linux pg0 package and production container, publishes the
+archive, SHA-256, and eval evidence as durable GitHub Release assets, and pushes
+the container to this repository's GHCR package. The image receives both
+`<version>` and `v<version>` tags; a stable release also advances `latest`.
+Workflow-run copies remain available for 90 days for debugging.
+An existing GitHub Release is never overwritten; prerelease versions are marked
+as prereleases and do not move `latest`.
 
 Configure the four CI job names as required checks only after they have reported
 successfully. See `specs/process/release-checklist.md`.
