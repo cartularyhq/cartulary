@@ -225,6 +225,9 @@ defmodule CartularyWeb.ConsoleLiveTest do
       assert html =~ "Result · search"
       assert html =~ ~s|&quot;profile&quot;: &quot;balanced&quot;|
       assert html =~ ~s|&quot;candidates&quot;|
+      assert html =~ ~s|&quot;state&quot;: &quot;missing_embeddings&quot;|
+      assert html =~ ~s|&quot;embedded_count&quot;: 0|
+      assert html =~ "rebuild scope derived data"
 
       html =
         render_submit(view, "run", %{
@@ -256,6 +259,42 @@ defmodule CartularyWeb.ConsoleLiveTest do
 
       assert html =~ "Tool call failed. Check the fields and your access"
       refute html =~ "Result · resolve_validation"
+    end
+
+    test "the tool diagnosis compares stored and configured embedding identities", %{
+      admin: admin,
+      knowledge_id: knowledge_id
+    } do
+      admin = Identity.refresh_actor(admin)
+      item = load_knowledge!(admin, knowledge_id, select: [:scope_id, :embedding])
+      identity = configured_embedding_identity(admin)
+
+      index_knowledge!(admin, item, identity)
+      seed_resolution_metrics!(admin, knowledge_id)
+
+      health = Loader.retrieval_health(admin, "/console-test")
+
+      assert health.state == :ready
+      assert health.statement_count == 1
+      assert health.embedded_count == 1
+      assert health.coverage == 1.0
+      assert health.mention_count > 0
+      assert health.embedding_identities == [health.configured_identity]
+
+      item = load_knowledge!(admin, knowledge_id, select: [:embedding])
+
+      index_knowledge!(admin, item, %{
+        provider: "retired-provider",
+        model: "retired-model",
+        version: "0",
+        dimensions: identity.dimensions
+      })
+
+      mismatch = Loader.retrieval_health(admin, "/console-test")
+
+      assert mismatch.state == :identity_mismatch
+      assert mismatch.next_action == "rebuild scope derived data"
+      refute inspect(mismatch) =~ statement_for(admin, knowledge_id)
     end
 
     test "the personal page offers the subject gestures", %{conn: conn, admin_token: token} do
@@ -455,6 +494,43 @@ defmodule CartularyWeb.ConsoleLiveTest do
       name: "Console Admin",
       password: @password
     })
+  end
+
+  defp load_knowledge!(admin, knowledge_id, opts) do
+    DataLayer.with_actor(admin, fn account, actor ->
+      KnowledgeItem
+      |> Ash.Query.filter(id == ^knowledge_id)
+      |> Ash.Query.select(Keyword.fetch!(opts, :select))
+      |> Ash.Query.set_tenant(account.id)
+      |> Ash.read_one!(actor: actor)
+    end)
+  end
+
+  defp statement_for(admin, knowledge_id) do
+    load_knowledge!(admin, knowledge_id, select: [:statement]).statement
+  end
+
+  defp configured_embedding_identity(admin) do
+    :embedder
+    |> Cartulary.Model.Config.resolve(%{account_id: admin.account_id, actor: admin})
+    |> Cartulary.Model.Config.embedding_identity()
+  end
+
+  defp index_knowledge!(admin, item, identity) do
+    embedding = item.embedding || List.duplicate(0.001, identity.dimensions)
+
+    DataLayer.with_actor(admin, fn account, actor ->
+      item
+      |> Ash.Changeset.for_update(:index_from_pipeline, %{
+        embedding: embedding,
+        embedding_provider: identity.provider,
+        embedding_model: identity.model,
+        embedding_version: identity.version,
+        embedding_dimensions: identity.dimensions
+      })
+      |> Ash.Changeset.set_tenant(account.id)
+      |> Ash.update!(actor: pipeline_actor(actor))
+    end)
   end
 
   # Registers a second person with a password credential and grants them the
