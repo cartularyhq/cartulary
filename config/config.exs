@@ -96,6 +96,19 @@ config :cartulary, :database,
 # credentials.
 config :cartulary, :require_database_url, false
 
+# The updater verifies release manifests with this embedded Ed25519 public key.
+# It is deliberately not a runtime secret: the matching private key exists only
+# in the protected release-publishing workflow secret.
+config :cartulary, :update,
+  enabled: true,
+  database_mode: "external",
+  source: "https://api.github.com/repos/cartularyhq/cartulary/releases/latest",
+  public_key: "rgklaZ7eR1NlTXW5SPNdKlbvVmMyyAiJ6H3rfFvnZxM=",
+  auto_update: :off,
+  interval_hours: 24,
+  install_root: nil,
+  platform: "linux-x86_64"
+
 # The single community Account this node bootstraps and serves. `account_key` is
 # the stable lookup key; Account identity for an HTTP request is still derived
 # from the caller's verified credential, never from a request parameter, so

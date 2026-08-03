@@ -2,6 +2,27 @@
 
 # Upgrades
 
+## Standalone self-update
+
+Downloaded pg0 releases can check and install official signed packages:
+
+```bash
+bin/update --check
+bin/update --version 0.3.1
+```
+
+The updater verifies the detached manifest signature and selected archive
+checksum, writes and validates a `cartulary-account-1` archive under the data
+root, migrates the staged release, then switches the `current` release pointer.
+It retains old executable trees. The archive is a logical recovery checkpoint,
+not a rollback substitute: it omits credentials and derived data and imports
+only into a fresh Account. Keep database and blob backups for rollback.
+
+Set `CARTULARY_AUTO_UPDATE=minor` to permit release-marked stable patch/minor
+updates before startup. Major versions, prereleases, and releases not marked
+eligible remain notification-only. `/api/ready`, the Operations console, and
+startup logs show the availability result and update command.
+
 Migrations are forward-only. Roll back by restoring a snapshot, never by
 running old code against a new schema.
 

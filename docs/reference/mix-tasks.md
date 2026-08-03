@@ -16,6 +16,9 @@ listed where available.
 | `cartulary.eval.verify` | Validate a report's provenance |
 | `cartulary.release.check` | Fail unless the tree is releasable |
 
+Packaged standalone releases additionally provide `bin/update --check` and
+`bin/update --version MAJOR.MINOR.PATCH`; these are not Mix tasks.
+
 ---
 
 ## `cartulary.identity.bootstrap`

@@ -57,6 +57,19 @@ External mode needs PostgreSQL 18 with pgvector available.
     Do not reuse `SECRET_KEY_BASE` as the auth signing secret. The bootstrap
     password need not remain in the environment after the first run.
 
+## Updates
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `CARTULARY_UPDATE_CHECK` | `true` | Check the official signed release feed at boot and periodically. |
+| `CARTULARY_AUTO_UPDATE` | `off` | `off` or `minor`; the latter permits an eligible signed patch/minor update before standalone pg0 startup. |
+| `CARTULARY_UPDATE_CHECK_INTERVAL_HOURS` | `24` | Availability-check interval while the application runs. |
+| `CARTULARY_UPDATE_INSTALL_ROOT` | launcher parent | Root holding the `current` pointer and immutable `releases/` directories. |
+| `CARTULARY_UPDATE_SOURCE` | official GitHub API | Release discovery endpoint. Artifact trust still comes from the signed manifest. |
+
+Updates never self-replace Docker or external-PostgreSQL deployments. Those
+surfaces report the available version and retain their normal deployment flow.
+
 ## Generation models
 
 | Variable | Default | Meaning |

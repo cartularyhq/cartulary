@@ -46,6 +46,7 @@ defmodule Cartulary.Application do
           {DNSCluster, query: Application.get_env(:cartulary, :dns_cluster_query) || :ignore},
           {Phoenix.PubSub, name: Cartulary.PubSub},
           Cartulary.Context.Cache,
+          Cartulary.Update.Checker,
           CartularyWeb.Endpoint
         ]
 

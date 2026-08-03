@@ -103,6 +103,31 @@ export CARTULARY_BLOB_ROOT
 # invocations and the wrong one for a server.
 export PHX_SERVER=true
 
+# After a manual update, an older launcher may still be the command in a
+# shell's history. Follow the atomically switched pointer so it cannot restart
+# old code against a newer schema.
+update_root=${CARTULARY_UPDATE_INSTALL_ROOT:-"$(dirname -- "$release_root")"}
+if [ -d "$update_root/current" ]; then
+  active_root=$(CDPATH= cd -- "$update_root/current" && pwd)
+  if [ "$active_root" != "$release_root" ]; then
+    exec "$active_root/bin/server"
+  fi
+fi
+
+# A running BEAM node never replaces its own executable tree. The optional
+# update happens here, before this process starts the server, and the stable
+# install root is followed only after an atomic pointer switch completed.
+if [ "${CARTULARY_AUTO_UPDATE:-off}" = "minor" ] && [ -x "$release_root/bin/update" ]; then
+  "$release_root/bin/update" --auto || echo "Cartulary automatic update was not applied; see bin/update --check" >&2
+
+  if [ -d "$update_root/current" ]; then
+    active_root=$(CDPATH= cd -- "$update_root/current" && pwd)
+    if [ "$active_root" != "$release_root" ]; then
+      exec "$active_root/bin/server"
+    fi
+  fi
+fi
+
 # `exec` replaces this shell with the release launcher so the node keeps this
 # process id. That is what lets a supervisor, a container runtime, or Ctrl-C
 # deliver signals straight to the node and get an orderly shutdown — which is
