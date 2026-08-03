@@ -16,10 +16,10 @@ your machine:
 | macOS, Apple Silicon | `uname -m` prints `arm64` | `cartulary-macos-arm64.tar.gz` |
 | macOS, Intel | `uname -m` prints `x86_64` | `cartulary-macos-x86_64.tar.gz` |
 | Linux, Intel/AMD 64-bit | `uname -m` prints `x86_64` | `cartulary-linux-x86_64.tar.gz` |
+| Windows, Intel/AMD 64-bit | Settings → System → About → System type | `cartulary-windows-x86_64.zip` |
 
 The container build for external PostgreSQL is
-`ghcr.io/cartularyhq/cartulary:<version>`. A prebuilt Windows archive is not
-published yet; use the source-build instructions below on Windows.
+`ghcr.io/cartularyhq/cartulary:<version>`.
 
 ## Download and verify
 
@@ -58,6 +58,23 @@ The browser download works without extra tools. The commands below use the
     cd cartulary
     ```
 
+=== "Windows"
+
+    ```powershell
+    $releaseTag = "v0.3.0"
+    $download = "cartulary-download"
+    gh release download $releaseTag `
+      --repo cartularyhq/cartulary `
+      --pattern "cartulary-windows-x86_64.zip*" `
+      --dir $download
+    Set-Location $download
+    $expected = (Get-Content cartulary-windows-x86_64.zip.sha256).Split()[0]
+    $actual = (Get-FileHash -Algorithm SHA256 cartulary-windows-x86_64.zip).Hash.ToLowerInvariant()
+    if ($actual -ne $expected) { throw "Checksum verification failed" }
+    Expand-Archive cartulary-windows-x86_64.zip
+    Set-Location cartulary
+    ```
+
 Do not run an archive when its checksum fails. Download both files again from
 the same release and retry verification.
 
@@ -65,9 +82,17 @@ the same release and retry verification.
 
 From the extracted `cartulary` directory:
 
-```bash
-bin/server
-```
+=== "macOS / Linux"
+
+    ```bash
+    bin/server
+    ```
+
+=== "Windows"
+
+    ```powershell
+    .\bin\server.bat
+    ```
 
 The macOS archives are not yet signed or notarized by Apple. If macOS blocks
 the verified build, try to open it once, then use **System Settings → Privacy &
@@ -77,7 +102,7 @@ not disable Gatekeeper globally.
 
 On first start the launcher:
 
-1. creates a private data root at `~/.cartulary`;
+1. creates a private data root at `~/.cartulary` on macOS/Linux or `%USERPROFILE%\.cartulary` on Windows;
 2. generates the local signing secret;
 3. starts the packaged pg0 binary and creates its PostgreSQL cluster;
 4. runs every migration against the fresh database;

@@ -5,30 +5,27 @@
 # Purpose
 #   Repeat every blocking check against the exact tagged commit, confirm that the tag, the
 #   declared version, the changelog, the shipped documentation, and the evaluation evidence
-#   all describe the same release, then build verified Linux and macOS archives with their
-#   checksums and rebuild the container image.
+#   all describe the same release, then build verified Linux, macOS, and Windows packages
+#   with their checksums and rebuild the container image.
 #
 # Why the checks are repeated rather than trusted from the merge gate
 #   The merge gate ran on a pull request's merge preview, not on the tagged commit. A tag
 #   can point anywhere. Everything that must be true of the released bytes is therefore
 #   re-established here from the tag itself.
 #
-# Triggers
-#   Pushing a tag shaped `v<major>.<minor>.<patch>`, or a manual run naming an existing tag
-#   to validate and publish.
+# Trigger
+#   A maintainer manually names an existing semantic tag to validate and publish.
 #
 # Inputs
 #   tag (manual runs only) — an existing tag to check out, validate, and publish. No secrets.
 #
 # Outputs
-#   A GitHub Release holding Linux x86_64, macOS Apple Silicon, and macOS Intel tarballs,
-#   their SHA-256 files, and the evaluation report; plus the tagged production container in
-#   this repository's GHCR package.
+#   A GitHub Release holding Linux x86_64, macOS Apple Silicon, macOS Intel, and Windows
+#   x86_64 packages, their SHA-256 files, and the evaluation report; plus the tagged
+#   production container in this repository's GHCR package.
 name: Release
 
 on:
-  push:
-    tags: ["v*.*.*"]
   workflow_dispatch:
     inputs:
       tag:
@@ -40,9 +37,8 @@ permissions:
   contents: read
 
 concurrency:
-  # A manual retry names a tag without the `refs/tags/` prefix that a tag push carries.
-  # Normalize both forms so they cannot publish the same immutable version concurrently.
-  group: release-${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
+  # Normalize every manual retry by its target tag so it cannot publish the same version concurrently.
+  group: release-${{ format('refs/tags/{0}', inputs.tag) }}
   cancel-in-progress: false
 
 jobs:
@@ -77,12 +73,11 @@ jobs:
       # embedded historical tag is only part of the name and means nothing here.
       CARTULARY_TEST_DATABASE_URL: ecto://postgres:postgres@127.0.0.1:5432/cartulary_f11_release
     steps:
-      # Explicit ref: a manual run validates the tag it was given, a tag push validates
-      # itself. Without this a manual run would check out the default branch and certify a
+      # Explicit ref: without it, a manual run checks out the default branch and certifies a
       # commit that is not the one being released.
       - uses: actions/checkout@v6
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
+          ref: ${{ format('refs/tags/{0}', inputs.tag) }}
       # Versioned assets and container tags are immutable release identities. Refuse an
       # already-published tag instead of silently replacing bytes under an existing name.
       - name: Refuse an already-published tag
@@ -90,7 +85,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag="${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}"
+          tag="${{ inputs.tag }}"
           if gh release view "$tag" >/dev/null 2>&1; then
             echo "GitHub Release $tag already exists; release assets are immutable." >&2
             exit 1
@@ -131,7 +126,7 @@ jobs:
       - name: Validate tag, changelog, and eval guardrails
         shell: bash
         run: |
-          tag="${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}"
+          tag="${{ inputs.tag }}"
           mix cartulary.release.check --tag "$tag" --eval-report /tmp/cartulary-f11-release.json
       # Dual purpose, and the ordering matters. This packages the release with the pinned,
       # checksum-verified embedded PostgreSQL, boots it from an empty data root, waits for
@@ -152,7 +147,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag="${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}"
+          tag="${{ inputs.tag }}"
           version="${tag#v}"
           image="ghcr.io/${GITHUB_REPOSITORY,,}"
           revision=$(git rev-parse HEAD)
@@ -204,7 +199,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
+          ref: ${{ format('refs/tags/{0}', inputs.tag) }}
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "27"
@@ -232,12 +227,48 @@ jobs:
             /tmp/cartulary-macos-${{ matrix.asset_arch }}.tar.gz.sha256
           retention-days: 90
 
+  # Windows packaging has its own PowerShell verification because the release
+  # launcher and pg0 executable are native Windows binaries. It proves the same
+  # cold-boot/readiness/full-suite contract as the Unix lanes before publishing.
+  windows:
+    name: Build Windows x86_64
+    needs: linux
+    runs-on: windows-2025
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ format('refs/tags/{0}', inputs.tag) }}
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          elixir-version: "1.18"
+      - run: mix deps.get
+      - name: Verify packaged pg0 lane and build Windows release
+        shell: pwsh
+        run: .\scripts\ci-pg0-lane.ps1
+      - name: Archive Windows release
+        shell: pwsh
+        run: |
+          $archive = "cartulary-windows-x86_64.zip"
+          $release = "_build\prod\rel\cartulary"
+          Compress-Archive -Path $release -DestinationPath (Join-Path $env:TEMP $archive)
+          $hash = (Get-FileHash -Algorithm SHA256 (Join-Path $env:TEMP $archive)).Hash.ToLowerInvariant()
+          "$hash  $archive" | Set-Content -NoNewline (Join-Path $env:TEMP "$archive.sha256")
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cartulary-release-windows-x86_64-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/cartulary-windows-x86_64.zip
+            ${{ runner.temp }}/cartulary-windows-x86_64.zip.sha256
+          retention-days: 90
+
   # Fan in all platform outputs only after every package has booted and passed its checks.
   # `gh release create` uploads through a draft before publication, so the version appears
   # only when all archives, checksums, and evaluation evidence are attached.
   publish:
     name: Publish GitHub Release
-    needs: [linux, macos]
+    needs: [linux, macos, windows]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -253,7 +284,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          tag="${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}"
+          tag="${{ inputs.tag }}"
           version="${tag#v}"
           image="ghcr.io/${GITHUB_REPOSITORY,,}:$version"
           assets=(
@@ -263,6 +294,8 @@ jobs:
             /tmp/cartulary-release/cartulary-macos-arm64.tar.gz.sha256
             /tmp/cartulary-release/cartulary-macos-x86_64.tar.gz
             /tmp/cartulary-release/cartulary-macos-x86_64.tar.gz.sha256
+            /tmp/cartulary-release/cartulary-windows-x86_64.zip
+            /tmp/cartulary-release/cartulary-windows-x86_64.zip.sha256
             /tmp/cartulary-release/cartulary-f11-release.json
           )
           release_args=(

@@ -53,8 +53,9 @@ mix cartulary.release.check \
 ## Publish
 
 - [ ] Tag the gated commit exactly `v<version>`.
-- [ ] Confirm the tag workflow attached Linux x86_64, macOS Apple Silicon, and
-  macOS Intel packages, each package's SHA-256, and the `f11-suite-1` report to
+- [ ] Manually dispatch `release.yml` with that existing tag.
+- [ ] Confirm the tag workflow attached Linux x86_64, macOS Apple Silicon,
+  macOS Intel, and Windows x86_64 packages, each package's SHA-256, and the `f11-suite-1` report to
   the GitHub Release.
 - [ ] Confirm each published package booted with its embedded pg0 and passed the
   full suite on its native runner.

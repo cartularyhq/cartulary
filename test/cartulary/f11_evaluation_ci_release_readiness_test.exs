@@ -119,11 +119,13 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
     assert nightly =~ "schedule:"
     assert nightly =~ "mix ecto.create"
     assert nightly =~ "mix ecto.migrate"
-    # Releases are triggered by a semantic version tag and repeat the packaged-database lane
-    # on the tagged commit, so the artifact is built from verified code.
-    assert release =~ "tags: [\"v*.*.*\"]"
+    # Maintainers choose an existing semantic tag before publishing it. A tag push alone
+    # cannot ship an artifact, while the release still validates the selected commit.
+    assert release =~ "workflow_dispatch:"
+    refute release =~ "tags: [\"v*.*.*\"]"
     assert release =~ "./scripts/ci-pg0-lane"
-    # Successful tag runs retain both distribution paths in GitHub. Release assets are
+
+    # Successful manually dispatched release runs retain both distribution paths in GitHub. Release assets are
     # durable and version-scoped; the container uses the repository package instead of a
     # long-lived registry credential.
     assert release =~ "contents: write"
@@ -134,14 +136,17 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
     assert release =~ "ghcr.io/${GITHUB_REPOSITORY,,}"
     assert release =~ "--prerelease --latest=false"
     assert release =~ "format('refs/tags/{0}', inputs.tag)"
-    # Both Mac CPU families need native ERTS, NIFs, and pg0 binaries. The release is created
-    # only by the fan-in job, after both native build matrices have uploaded their checksums.
+    # Every native package needs matching ERTS, NIFs, and pg0 binaries. The release is created
+    # only by the fan-in job, after every platform lane uploads its checksum.
     assert release =~ "runner: macos-26"
     assert release =~ "runner: macos-26-intel"
     assert release =~ "cartulary-macos-arm64.tar.gz"
     assert release =~ "cartulary-macos-x86_64.tar.gz"
+    assert release =~ "windows-2025"
+    assert release =~ "cartulary-windows-x86_64.zip"
+    assert release =~ ".\\scripts\\ci-pg0-lane.ps1"
     assert release =~ "actions/download-artifact@v8"
-    assert release =~ "needs: [linux, macos]"
+    assert release =~ "needs: [linux, macos, windows]"
   end
 
   test "entity and mention caches remain absent from every current public surface" do
@@ -174,7 +179,8 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
     for archive <- [
           "cartulary-linux-x86_64.tar.gz",
           "cartulary-macos-arm64.tar.gz",
-          "cartulary-macos-x86_64.tar.gz"
+          "cartulary-macos-x86_64.tar.gz",
+          "cartulary-windows-x86_64.zip"
         ] do
       assert install =~ archive
     end
@@ -182,6 +188,8 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
     assert install =~ "shasum -a 256 -c"
     assert install =~ "sha256sum -c"
     assert install =~ "bin/server"
+    assert install =~ "Get-FileHash"
+    assert install =~ "server.bat"
     assert install =~ "Open Anyway"
   end
 

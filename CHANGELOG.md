@@ -11,8 +11,8 @@ changelog entry and contract-version transition.
 
 ### Added
 
-- Semantic tag builds now remain in GitHub: native Linux x86_64, macOS Apple
-  Silicon, and macOS Intel packages and their SHA-256 files are attached to a
+- Manually published semantic tags now remain in GitHub: native Linux x86_64, macOS Apple
+  Silicon, macOS Intel, and Windows x86_64 packages and their SHA-256 files are attached to a
   GitHub Release with the evaluation report, while the production container is
   published to the repository's GHCR package. The installation guide explains
   how to choose, download, verify, unpack, and run these artifacts.
