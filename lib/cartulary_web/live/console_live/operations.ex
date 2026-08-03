@@ -79,6 +79,19 @@ defmodule CartularyWeb.ConsoleLive.Operations do
       </.panel>
 
       <.panel
+        title="Software update"
+        description="Release availability is signature-verified. Applying an update remains a local operator action."
+      >
+        <div class="tiles">
+          <.tile label="Check" value={@health.update.status} />
+          <.tile label="Current" value={@health.update.current_version} />
+          <.tile label="Available" value={@health.update.available_version || "—"} />
+          <.tile label="Automatic" value={if @health.update.automatic_eligible, do: "eligible", else: "off"} />
+        </div>
+        <p :if={@health.update.command} class="hint">{@health.update.command}</p>
+      </.panel>
+
+      <.panel
         title="Recorded usage"
         description="Counted from this installation's own ledger. The cost estimate applies operator-supplied rates; there is no hidden billing state."
       >

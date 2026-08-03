@@ -78,6 +78,42 @@ The browser download works without extra tools. The commands below use the
 Do not run an archive when its checksum fails. Download both files again from
 the same release and retry verification.
 
+## Recommended local setup
+
+For a single-machine installation, use the packaged PostgreSQL, keep all
+durable state in one private directory, and enable signed patch/minor updates
+before each start:
+
+=== "macOS / Linux"
+
+    ```bash
+    export CARTULARY_DATA_ROOT="$HOME/.cartulary"
+    export CARTULARY_DATABASE_MODE=pg0
+    export CARTULARY_AUTO_MIGRATE=true
+    export CARTULARY_UPDATE_CHECK=true
+    export CARTULARY_AUTO_UPDATE=minor
+    export CARTULARY_UPDATE_CHECK_INTERVAL_HOURS=24
+
+    bin/server
+    ```
+
+=== "Windows"
+
+    ```powershell
+    $env:CARTULARY_DATA_ROOT = "$HOME\.cartulary"
+    $env:CARTULARY_DATABASE_MODE = "pg0"
+    $env:CARTULARY_AUTO_MIGRATE = "true"
+    $env:CARTULARY_UPDATE_CHECK = "true"
+    $env:CARTULARY_AUTO_UPDATE = "minor"
+    $env:CARTULARY_UPDATE_CHECK_INTERVAL_HOURS = "24"
+
+    .\bin\server.bat
+    ```
+
+`minor` accepts only an eligible signed stable patch/minor release in the
+current major version. Use `bin/update --check` to inspect availability, or
+set `CARTULARY_AUTO_UPDATE=off` when you want to approve every update yourself.
+
 ## Run it
 
 From the extracted `cartulary` directory:

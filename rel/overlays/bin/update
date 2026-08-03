@@ -1,0 +1,29 @@
+#!/bin/sh
+# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+#
+# Checks or applies a signed Cartulary release update. This entry point is for
+# the standalone pg0 package; containers and external PostgreSQL are reported
+# as managed deployments and are never replaced here.
+set -eu
+
+release_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+
+case "${1:---check}" in
+  --check)
+    exec "$release_root/bin/cartulary" eval 'IO.inspect(Cartulary.Update.check())'
+    ;;
+  --auto)
+    exec "$release_root/bin/cartulary" eval 'case Cartulary.Update.check() do %{automatic_eligible: true, available_version: version} -> Cartulary.Update.apply!(version); result -> IO.inspect(result) end'
+    ;;
+  --version)
+    version=${2:?--version requires a semantic version}
+    case "$version" in
+      *[!0-9.]*|*.*.*.*|.*|*.) echo "version must be MAJOR.MINOR.PATCH" >&2; exit 64 ;;
+    esac
+    exec "$release_root/bin/cartulary" eval "Cartulary.Update.apply!(\"$version\")"
+    ;;
+  *)
+    echo "usage: bin/update [--check | --auto | --version MAJOR.MINOR.PATCH]" >&2
+    exit 64
+    ;;
+esac

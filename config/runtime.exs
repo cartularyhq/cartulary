@@ -265,6 +265,43 @@ config :cartulary, :database,
     database: pg0_database
   ]
 
+update_auto =
+  case env_get.("CARTULARY_AUTO_UPDATE", "off") do
+    "minor" -> :minor
+    "off" -> :off
+    value -> raise "CARTULARY_AUTO_UPDATE must be off or minor, got: #{inspect(value)}"
+  end
+
+update_platform =
+  case :os.type() do
+    {:win32, _} ->
+      "windows-x86_64"
+
+    {:unix, :darwin} ->
+      if(String.contains?(to_string(:erlang.system_info(:system_architecture)), "aarch64"),
+        do: "macos-arm64",
+        else: "macos-x86_64"
+      )
+
+    _ ->
+      "linux-x86_64"
+  end
+
+config :cartulary, :update,
+  enabled: env_bool!.("CARTULARY_UPDATE_CHECK", true),
+  database_mode: database_mode,
+  source:
+    env_get.(
+      "CARTULARY_UPDATE_SOURCE",
+      "https://api.github.com/repos/cartularyhq/cartulary/releases/latest"
+    ),
+  public_key:
+    env_get.("CARTULARY_UPDATE_PUBLIC_KEY", "rgklaZ7eR1NlTXW5SPNdKlbvVmMyyAiJ6H3rfFvnZxM="),
+  auto_update: update_auto,
+  interval_hours: env_integer!.("CARTULARY_UPDATE_CHECK_INTERVAL_HOURS", "24"),
+  install_root: env_get.("CARTULARY_UPDATE_INSTALL_ROOT", nil),
+  platform: update_platform
+
 # Secret used to sign authentication tokens. It is deliberately independent of
 # the Phoenix `SECRET_KEY_BASE`: rotating one must not invalidate the other, and
 # a leak of one must not compromise the other. Production refuses to boot
