@@ -62,8 +62,9 @@ defmodule Cartulary.Model.Schema.Extraction do
 
   alias Cartulary.Knowledge.KnowledgeItem
 
-  # Candidate fields taken straight from the knowledge resource's attributes, so
-  # their types and numeric bounds are described once and only once.
+  # Candidate fields taken straight from the knowledge resource's attributes.
+  # `confidence_percentage` is normalized to the persisted `confidence` value
+  # after validation, so it deliberately is not part of this list.
   @knowledge_fields ~w(statement kind confidence sensitivity target_level)a
 
   # Expiry, the revalidation due date, and the two ends of the validity window
@@ -104,6 +105,7 @@ defmodule Cartulary.Model.Schema.Extraction do
       Map.new(@knowledge_fields, fn name ->
         {Atom.to_string(name), attribute_schema(name)}
       end)
+      |> Map.delete("confidence")
 
     temporal_properties =
       Map.new(@temporal_fields, fn name ->
@@ -119,18 +121,22 @@ defmodule Cartulary.Model.Schema.Extraction do
     candidate =
       %{
         "type" => "object",
+        "description" =>
+          "Return fields in this order: reasoning, statement, confidence_percentage, then the remaining fields.",
         "additionalProperties" => false,
         "properties" =>
           knowledge_properties
           |> Map.merge(temporal_properties)
           |> Map.merge(%{
+            "reasoning" => %{"type" => "string", "minLength" => 1},
+            "confidence_percentage" => %{"type" => "integer", "minimum" => 1, "maximum" => 100},
             "subject_type" => %{"type" => "string", "enum" => @subject_types},
             "subject_ref" => %{"type" => "string", "minLength" => 1},
             "update_operation" => %{"type" => "string", "enum" => @operations},
             "hearsay" => %{"type" => "boolean"}
           }),
         "required" =>
-          ~w(statement kind subject_type subject_ref confidence sensitivity target_level update_operation hearsay)
+          ~w(reasoning statement confidence_percentage kind subject_type subject_ref sensitivity target_level update_operation hearsay)
       }
 
     %{
@@ -189,7 +195,8 @@ defmodule Cartulary.Model.Schema.Extraction do
   # expensive step — only runs on a candidate that is already well formed.
   # Confidence is computed rather than copied: see `hearsay_confidence/4`.
   defp cast_item(item, context) when is_map(item) do
-    with {:ok, statement} <- non_empty_string(item, "statement"),
+    with {:ok, _reasoning} <- non_empty_string(item, "reasoning"),
+         {:ok, statement} <- non_empty_string(item, "statement"),
          {:ok, kind} <- enum(item, "kind", allowed(:kind)),
          {:ok, subject_type} <- enum(item, "subject_type", @subject_types),
          {:ok, subject_ref} <- valid_subject_ref(item, subject_type, context),
@@ -268,8 +275,8 @@ defmodule Cartulary.Model.Schema.Extraction do
 
     base =
       case attribute.type do
-        :float -> %{"type" => "number"}
-        :integer -> %{"type" => "integer"}
+        type when type in [:float, Ash.Type.Float] -> %{"type" => "number"}
+        type when type in [:integer, Ash.Type.Integer] -> %{"type" => "integer"}
         _other -> %{"type" => "string"}
       end
 
@@ -331,28 +338,30 @@ defmodule Cartulary.Model.Schema.Extraction do
     end
   end
 
-  # Some providers' tool-call decoding round-trips a JSON number as a quoted
-  # string (observed identically across unrelated backing models over the
-  # OpenRouter compat path), so a numeric string is parsed before being
-  # range-checked instead of rejected outright as a shape error.
+  # The wire field is deliberately a human-friendly whole percentage. Providers
+  # occasionally decorate an otherwise useful value (for example, `"93%"`), so
+  # validation retains only digits before it checks the 1..100 interval. The
+  # normalized fraction is the value that reaches governance and storage.
   defp confidence(item) do
-    case fetch(item, "confidence") do
-      value when is_number(value) ->
-        confidence_in_range(value / 1)
+    case fetch(item, "confidence_percentage") do
+      value when is_integer(value) ->
+        confidence_percentage_in_range(value)
 
       value when is_binary(value) ->
-        case Float.parse(value) do
-          {parsed, ""} -> confidence_in_range(parsed)
-          _other -> {:error, ["confidence must be between 0 and 1"]}
+        case value |> String.replace(~r/[^0-9]/, "") |> Integer.parse() do
+          {percentage, ""} -> confidence_percentage_in_range(percentage)
+          _other -> {:error, ["confidence_percentage must be between 1 and 100"]}
         end
 
       _other ->
-        {:error, ["confidence must be between 0 and 1"]}
+        {:error, ["confidence_percentage must be between 1 and 100"]}
     end
   end
 
-  defp confidence_in_range(value) when value >= 0.0 and value <= 1.0, do: {:ok, value}
-  defp confidence_in_range(_value), do: {:error, ["confidence must be between 0 and 1"]}
+  defp confidence_percentage_in_range(value) when value in 1..100, do: {:ok, value / 100}
+
+  defp confidence_percentage_in_range(_value),
+    do: {:error, ["confidence_percentage must be between 1 and 100"]}
 
   defp boolean(item, key) do
     case fetch(item, key) do

@@ -49,7 +49,7 @@ defmodule Cartulary.Pipeline.Extractor do
   # The `prompt_version` actually stamped on provenance and usage rows comes
   # from the resolved `ingest_extractor` role, not from here; the two are kept
   # equal on purpose, so editing the prompt means bumping both.
-  @prompt_version "extract-1"
+  @prompt_version "extract-2"
 
   @doc """
   The identity of the extraction-and-pipeline contract this build implements.
@@ -99,7 +99,10 @@ defmodule Cartulary.Pipeline.Extractor do
         the knowledge atom. Do not invent facts and return no item for content
         that is not durable memory.
 
-        Resolve subject independently from source. A peer subject_ref must be
+        Start each candidate with concise reasoning, then its natural-language
+        statement, then confidence_percentage. Rate your confidence percentage
+        on an integer scale from 1 to 100 (where 1 is completely uncertain and
+        100 is absolute certainty). Resolve subject independently from source. A peer subject_ref must be
         one of the supplied known peer keys. Use the current scope path only for
         a scope subject. Mark third-party claims as hearsay; their confidence is
         discounted again by Cartulary. Propose sensitivity and the independent
