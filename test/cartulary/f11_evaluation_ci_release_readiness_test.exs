@@ -120,8 +120,11 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
     assert nightly =~ "mix ecto.create"
     assert nightly =~ "mix ecto.migrate"
     # Publishing a GitHub Release selects the existing semantic tag. A tag push alone
-    # cannot ship an artifact, while the release still validates the selected commit.
+    # cannot ship an artifact, while a maintainer can retry a repaired workflow against
+    # that same tag. Both paths still validate the selected commit.
     assert release =~ "types: [published]"
+    assert release =~ "workflow_dispatch:"
+    assert release =~ "Existing semantic release tag to rebuild and publish"
     refute release =~ "tags: [\"v*.*.*\"]"
     assert release =~ "./scripts/ci-pg0-lane"
 
@@ -134,7 +137,7 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
     assert release =~ "docker push"
     assert release =~ "ghcr.io/${GITHUB_REPOSITORY,,}"
     assert release =~ "if [[ \"$version\" != *-* ]]"
-    assert release =~ "github.event.release.tag_name"
+    assert release =~ "github.event.release.tag_name || inputs.tag"
     # Every native package needs matching ERTS, NIFs, and pg0 binaries. The fan-in attaches
     # artifacts only after every platform lane has uploaded its checksum.
     assert release =~ "runner: macos-26"
@@ -144,6 +147,11 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
     assert release =~ "windows-2025"
     assert release =~ "cartulary-windows-x86_64.zip"
     assert release =~ ".\\scripts\\ci-pg0-lane.ps1"
+    # The official Windows BEAM build is MSVC while ExtractousEx publishes only a GNU NIF.
+    # The release lane must build that dependency's bundled Rust source for the target ABI.
+    assert release =~ "EXTRACTOUS_EX_BUILD: \"true\""
+    assert release =~ "1.85.1-x86_64-pc-windows-msvc"
+    assert release =~ "rustup toolchain install"
     assert release =~ "actions/download-artifact@v8"
     assert release =~ "needs: [linux, macos, windows]"
   end

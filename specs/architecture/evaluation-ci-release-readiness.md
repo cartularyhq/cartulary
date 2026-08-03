@@ -72,12 +72,18 @@ Cartulary follows Semantic Versioning with a Keep-a-Changelog-style
 
 CI builds on every pull request and `main` push. The nightly workflow retains
 eval artifacts for comparison. Publishing a GitHub Release for an existing
-semantic tag triggers the release workflow. It repeats deterministic guardrails,
+semantic tag triggers the release workflow. A maintainer can also manually
+retry an existing release tag after repairing release automation. Both paths
+repeat deterministic guardrails,
 validates the tag/eval/changelog tuple, builds the checksum-pinned Linux pg0
 package and container, then builds and boot-tests native macOS Apple Silicon,
-Intel, and Windows x86_64 packages. A fan-in job attaches all four packages,
-their checksums, and the evaluation report to that GitHub Release. The container
-is published to the repository's GHCR package. Repository branch protection and
+Intel, and Windows x86_64 packages. The Windows lane compiles ExtractousEx from
+its bundled Rust source because the official BEAM runner uses the MSVC ABI and
+the dependency distributes only a GNU Windows NIF.
+
+A fan-in job attaches all four packages, their checksums, and the evaluation
+report to that GitHub Release. The container is published to the repository's
+GHCR package. Repository branch protection and
 required-check selection remain GitHub settings performed by a maintainer; the
 required job names are documented in the release checklist.
 
