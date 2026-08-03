@@ -11,7 +11,7 @@ changelog entry and contract-version transition.
 
 ### Added
 
-- Manually published semantic tags now remain in GitHub: native Linux x86_64, macOS Apple
+- GitHub Release publication now builds native Linux x86_64, macOS Apple
   Silicon, macOS Intel, and Windows x86_64 packages and their SHA-256 files are attached to a
   GitHub Release with the evaluation report, while the production container is
   published to the repository's GHCR package. The installation guide explains

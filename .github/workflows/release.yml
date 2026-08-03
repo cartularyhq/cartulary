@@ -14,10 +14,8 @@
 #   re-established here from the tag itself.
 #
 # Trigger
-#   A maintainer manually names an existing semantic tag to validate and publish.
-#
-# Inputs
-#   tag (manual runs only) — an existing tag to check out, validate, and publish. No secrets.
+#   Publishing a GitHub Release for an existing semantic tag. GitHub owns the release notes;
+#   this workflow validates that tag and attaches every generated artifact to that release.
 #
 # Outputs
 #   A GitHub Release holding Linux x86_64, macOS Apple Silicon, macOS Intel, and Windows
@@ -26,19 +24,15 @@
 name: Release
 
 on:
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: Existing semantic release tag to validate and publish
-        required: true
-        type: string
+  release:
+    types: [published]
 
 permissions:
   contents: read
 
 concurrency:
-  # Normalize every manual retry by its target tag so it cannot publish the same version concurrently.
-  group: release-${{ format('refs/tags/{0}', inputs.tag) }}
+  # Retries for the same GitHub Release share its tag-specific publication lock.
+  group: release-${{ github.event.release.tag_name }}
   cancel-in-progress: false
 
 jobs:
@@ -73,23 +67,11 @@ jobs:
       # embedded historical tag is only part of the name and means nothing here.
       CARTULARY_TEST_DATABASE_URL: ecto://postgres:postgres@127.0.0.1:5432/cartulary_f11_release
     steps:
-      # Explicit ref: without it, a manual run checks out the default branch and certifies a
-      # commit that is not the one being released.
+      # Explicit ref: the event workflow itself may be read from the default branch, while
+      # the release checks must certify the commit selected by this GitHub Release's tag.
       - uses: actions/checkout@v6
         with:
-          ref: ${{ format('refs/tags/{0}', inputs.tag) }}
-      # Versioned assets and container tags are immutable release identities. Refuse an
-      # already-published tag instead of silently replacing bytes under an existing name.
-      - name: Refuse an already-published tag
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          tag="${{ inputs.tag }}"
-          if gh release view "$tag" >/dev/null 2>&1; then
-            echo "GitHub Release $tag already exists; release assets are immutable." >&2
-            exit 1
-          fi
+          ref: ${{ github.event.release.tag_name }}
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "27"
@@ -126,7 +108,7 @@ jobs:
       - name: Validate tag, changelog, and eval guardrails
         shell: bash
         run: |
-          tag="${{ inputs.tag }}"
+          tag="${{ github.event.release.tag_name }}"
           mix cartulary.release.check --tag "$tag" --eval-report /tmp/cartulary-f11-release.json
       # Dual purpose, and the ordering matters. This packages the release with the pinned,
       # checksum-verified embedded PostgreSQL, boots it from an empty data root, waits for
@@ -147,7 +129,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag="${{ inputs.tag }}"
+          tag="${{ github.event.release.tag_name }}"
           version="${tag#v}"
           image="ghcr.io/${GITHUB_REPOSITORY,,}"
           revision=$(git rev-parse HEAD)
@@ -199,7 +181,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ format('refs/tags/{0}', inputs.tag) }}
+          ref: ${{ github.event.release.tag_name }}
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "27"
@@ -238,7 +220,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ format('refs/tags/{0}', inputs.tag) }}
+          ref: ${{ github.event.release.tag_name }}
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "27"
@@ -263,11 +245,10 @@ jobs:
             ${{ runner.temp }}/cartulary-windows-x86_64.zip.sha256
           retention-days: 90
 
-  # Fan in all platform outputs only after every package has booted and passed its checks.
-  # `gh release create` uploads through a draft before publication, so the version appears
-  # only when all archives, checksums, and evaluation evidence are attached.
+  # Fan in all platform outputs only after every package has booted and passed its checks,
+  # then add them to the GitHub Release the maintainer published to start this workflow.
   publish:
-    name: Publish GitHub Release
+    name: Publish release artifacts
     needs: [linux, macos, windows]
     runs-on: ubuntu-24.04
     permissions:
@@ -278,15 +259,13 @@ jobs:
           path: /tmp/cartulary-release
           pattern: cartulary-release-*-${{ github.run_id }}
           merge-multiple: true
-      - name: Create GitHub Release and upload artifacts
+      - name: Upload generated artifacts to GitHub Release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          tag="${{ inputs.tag }}"
-          version="${tag#v}"
-          image="ghcr.io/${GITHUB_REPOSITORY,,}:$version"
+          tag="${{ github.event.release.tag_name }}"
           assets=(
             /tmp/cartulary-release/cartulary-linux-x86_64.tar.gz
             /tmp/cartulary-release/cartulary-linux-x86_64.tar.gz.sha256
@@ -298,18 +277,7 @@ jobs:
             /tmp/cartulary-release/cartulary-windows-x86_64.zip.sha256
             /tmp/cartulary-release/cartulary-f11-release.json
           )
-          release_args=(
-            --verify-tag
-            --generate-notes
-            --title "$tag"
-            --notes "Container image: \`$image\`"
-          )
-
-          if [[ "$version" == *-* ]]; then
-            release_args+=(--prerelease --latest=false)
-          fi
-
           for asset in "${assets[@]}"; do
             test -s "$asset"
           done
-          gh release create "$tag" "${assets[@]}" "${release_args[@]}"
+          gh release upload "$tag" "${assets[@]}" --clobber

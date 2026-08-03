@@ -119,25 +119,24 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
     assert nightly =~ "schedule:"
     assert nightly =~ "mix ecto.create"
     assert nightly =~ "mix ecto.migrate"
-    # Maintainers choose an existing semantic tag before publishing it. A tag push alone
+    # Publishing a GitHub Release selects the existing semantic tag. A tag push alone
     # cannot ship an artifact, while the release still validates the selected commit.
-    assert release =~ "workflow_dispatch:"
+    assert release =~ "types: [published]"
     refute release =~ "tags: [\"v*.*.*\"]"
     assert release =~ "./scripts/ci-pg0-lane"
 
-    # Successful manually dispatched release runs retain both distribution paths in GitHub. Release assets are
-    # durable and version-scoped; the container uses the repository package instead of a
+    # Successful GitHub Release runs retain both distribution paths in GitHub. Release assets
+    # are durable and version-scoped; the container uses the repository package instead of a
     # long-lived registry credential.
     assert release =~ "contents: write"
     assert release =~ "packages: write"
-    assert release =~ "gh release create"
-    assert release =~ "Refuse an already-published tag"
+    assert release =~ "gh release upload"
     assert release =~ "docker push"
     assert release =~ "ghcr.io/${GITHUB_REPOSITORY,,}"
-    assert release =~ "--prerelease --latest=false"
-    assert release =~ "format('refs/tags/{0}', inputs.tag)"
-    # Every native package needs matching ERTS, NIFs, and pg0 binaries. The release is created
-    # only by the fan-in job, after every platform lane uploads its checksum.
+    assert release =~ "if [[ \"$version\" != *-* ]]"
+    assert release =~ "github.event.release.tag_name"
+    # Every native package needs matching ERTS, NIFs, and pg0 binaries. The fan-in attaches
+    # artifacts only after every platform lane has uploaded its checksum.
     assert release =~ "runner: macos-26"
     assert release =~ "runner: macos-26-intel"
     assert release =~ "cartulary-macos-arm64.tar.gz"
