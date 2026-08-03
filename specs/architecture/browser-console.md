@@ -39,7 +39,8 @@ bulk selection targets only already-visible rows.
 | `CartularyWeb.Console.Access` | The two visibility rules and the action gates. Pure. |
 | `CartularyWeb.Console.Loader` | Every database read the console performs. |
 | `CartularyWeb.Console.Graph` | Deterministic radial layout. Pure. |
-| `CartularyWeb.ConsoleComponents` | Shell, navigation, tiles, badges, tables, panels. Stateless. |
+| `CartularyWeb.ConsoleComponents` | Shell, navigation, tiles, badges, tables, panels, tabs, filter chips, pager, disclosures. Stateless. |
+| `priv/static/assets/governance.js` | The whole client: the LiveView socket and the `Copy` hook. Hand-written, same-origin, no bundler. |
 | `CartularyWeb.ConsoleLive.Tools` | Forms for the MCP allowlist; dispatches the same non-persisted Ash actions and renders the latest result. |
 | `CartularyWeb.ConsoleLive.*` | Ten pages: rendering and event dispatch only. |
 
@@ -152,6 +153,56 @@ lifecycle rules; the loader then reads those statements through ordinary Ash
 policies. Entity ids, names, aliases, surface forms, and mention rows never
 reach a LiveView.
 
+## Explorer information architecture
+
+Browsing and retrieval answer different questions, and presenting them in one
+flow made each read as a qualified version of the other. They are now modes.
+Browse never issues a search, so the ranked path costs nothing when nobody asked
+for it; find leads with the query and keeps the exhaustive list beneath the
+ranked preview, because a ranking miss is not evidence of an empty memory.
+
+Mode, filters, sort, page, and page size all live in the URL. That makes a view
+linkable and the browser's own history correct, and it is what lets the
+statement page return to the list the reader left. A statement link carries the
+current query string as `back`; the detail page rebuilds a return path from the
+explorer's own filter keys and discards everything else, so `back` can never
+name a destination outside the explorer.
+
+The scope picker is a native `input`/`datalist` rather than a JS combobox.
+Generated scope trees are large enough that a flat `select` is unusable, and a
+`datalist` gives typeahead with no script, which `script-src 'self'` makes the
+deciding factor. Free text is safe because an unknown path narrows to nothing in
+`subtree_scope_ids/2` rather than widening.
+
+`Loader.knowledge_list/2` clamps page size to an offered set, rejects an unknown
+sort, and clamps an out-of-range page to the last one. The bound on page size is
+the same judgement as `@panel_limit`: a reader who wants every row wants the
+portability archive.
+
+The retrieval preview renders `Memory.search/2`'s published payload — flattened
+string-keyed records carrying `rrf_score` and `strategies`, with fused order
+expressed as position because strategy-local scores are incomparable. It applies
+no further lifecycle narrowing, because `Retrieval.Store` returns `active` plus
+the caller's own `provisional` and nothing else, which is strictly narrower than
+what any console role may see. Widening the store would make that untrue.
+
+Badges carry a shape as well as a colour, so lifecycle and sensitivity never
+depend on colour alone, and a legend gives each value one sentence of meaning.
+Tables whose cells carry `data-label` opt into a card layout below 900px; the
+rest keep a labelled `overflow-x` region, so the page body never scrolls
+sideways.
+
+The statement page is ordered by the reader's questions — claim, available
+actions, currency and trust, placement, evidence — with pipeline and gate
+metadata behind one `details`. Truncated text expands through `details` too:
+native, keyboard-reachable, and script-free.
+
+The clipboard is the one thing markup cannot do, so `Copy` is the console's only
+LiveView hook. It lives in the same hand-written same-origin module that starts
+the socket, which keeps `script-src 'self'` intact without a bundler or a policy
+exception. Shortened identifiers are useless without a way to retrieve the whole
+value, which is what earns the exception to an otherwise script-free surface.
+
 ## Graph rendering
 
 The graph is deterministic server-side inline SVG because:
@@ -188,8 +239,10 @@ disclose which knowledge exists about them in scopes the reader may not hold.
   bounds, edge kinds, dropped dangling edges, and the absence of entity nodes.
 - `test/cartulary_web/live/console_live_test.exs` — real sign-in, every page
   rendering against a seeded Account, an API key refused, a member denied the
-  operations page, and a scope the member holds no grant on absent rather than
-  empty.
+  operations page, a scope the member holds no grant on absent rather than
+  empty, the two explorer modes and their four empty states, the clamps on page
+  size, sort, and page number, statement-page ordering, and a `back` value that
+  cannot leave the explorer.
 - `test/cartulary/f4_real_gate_a_b_governance_test.exs` and
   `test/cartulary/f9_skill_readiness_procedural_memory_test.exs` — unchanged,
   and still the contract for `/governance`.

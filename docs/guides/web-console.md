@@ -19,7 +19,7 @@ Agent API keys work on JSON and MCP, never the console.
 | Page | Shows |
 | --- | --- |
 | `/console` | Overview: totals, lifecycle and sensitivity mix, what is waiting, recent activity |
-| `/console/knowledge` | The explorer: filter, page, and search every statement you can read |
+| `/console/knowledge` | The explorer: browse every statement you can read, or preview what retrieval would rank |
 | `/console/knowledge/<id>` | One statement in full, with its evidence, history, readable shared-entity neighbours, and available actions |
 | `/console/scopes` | The containment tree as a directory, with counts, index coverage, your role, and lateral links |
 | `/console/graph` | The same data drawn as a graph of scopes, statements, and cross-references |
@@ -69,23 +69,52 @@ you can contest, redact, or erase them.
 Two people looking at the same Account will therefore see different totals.
 That is the scope tree working, not an inconsistency.
 
-## Browsing versus retrieval
+## Browse or find
 
-**Browsing** applies attribute filters — scope, state, kind, sensitivity,
-subject — and pages through the result. It is exhaustive: what is not listed is
-either filtered out or not visible to you, never merely ranked low.
+`/console/knowledge` has two modes, and the tabs at the top say which you are
+in.
 
-**Retrieval** runs the same multi-strategy engine that answers an agent's
-`search` call, and shows its working: which strategies contributed, which found
-nothing, which were dropped against the deadline, and what each candidate
-scored. It ranks; it does not enumerate.
+**Browse** applies attribute filters — scope, lifecycle state, kind,
+sensitivity, how wide it may travel, subject — and pages through the result. It
+is exhaustive: what is not listed is either filtered out or not visible to you,
+never merely ranked low.
+
+**Find** runs the same multi-strategy engine that answers an agent's `search`
+call, and shows its working: which strategies contributed, which found nothing,
+which were dropped against the deadline, and what each candidate scored. It
+ranks; it does not enumerate. The exhaustive list stays underneath the ranked
+preview, so a miss is never mistaken for an empty memory.
 
 Read the strategy tile before the results. A search where the strategies that
 read your words all found nothing still returns a full page — of whatever is
 most recent in the scope. It looks like an answer and is not one.
 
-Retrieval requires a scope. Searching `/team/project` also searches `/team`
-and `/`. A miss means nothing ranked, not that the exhaustive browser is empty.
+Find requires a scope, and says so rather than listing silently. Searching
+`/team/project` also searches `/team` and `/`.
+
+### Filters
+
+Filters apply as you change them, and the URL holds all of them, so a filtered
+view can be bookmarked or shared with someone whose roles reach the same rows.
+Applied filters appear as chips above the results; each chip removes only
+itself, and **Clear all** removes the rest without leaving the mode you are in.
+
+The **Scope** field is a typeahead over the paths you can read. Type any part of
+a path; a scope you hold no role on never appears. Choosing one reports how many
+contained scopes come with it.
+
+**What these labels mean** expands a legend for every lifecycle state and
+sensitivity level you can be shown. Each badge carries a shape as well as a
+colour, so the states remain distinguishable without relying on colour.
+
+Sort by **Confidence** or **Recorded** from the column headers, and set 25, 50,
+or 100 rows per page beneath the list. Statement text longer than the column
+expands in place with **Show full text**; opening the statement itself shows all
+of it.
+
+An empty result says which kind of empty it is: no statements you can read at
+all, none matching the filters, nothing ranked by retrieval, or a query still
+waiting for a scope.
 
 ## Index coverage
 
@@ -105,23 +134,36 @@ Coverage counts only. Mentions is a number, never a list of names.
 
 ## The statement page
 
-Everything the system holds about one claim is on `/console/knowledge/<id>`:
+Everything the system holds about one claim is on `/console/knowledge/<id>`,
+ordered by the questions you arrive with:
 
-- the statement, its confidence, sensitivity, kind, and target level;
-- **subject against source** — who the claim is about, and where it came from.
-  A colleague can be the subject of something you said;
-- **belief time against valid time** — when the system holds the claim, against
-  when the claim is true in the world;
-- the model, model version, and prompt version that extracted it, and the
-  embedding identity attached to it;
-- the raw observations and document versions it was extracted from, in full;
-- its lifecycle timeline, and for curators the immutable gate decisions;
-- its relations in both directions and the supersession chain it belongs to.
-- the count and links for other statements that share a resolved entity and
-  pass your scope and lifecycle visibility rules.
+1. **The statement itself**, with its lifecycle state, kind, sensitivity, target
+   level, scope, confidence, corroboration count, and when it was recorded.
+2. **What you can do** — the actions your authority allows, each with its
+   consequence stated before you commit to it. When nothing is available, the
+   panel says why rather than disappearing.
+3. **How current and how trusted** — belief time against valid time: when the
+   system holds the claim, against when the claim is true in the world.
+4. **Scope, subject, and sensitivity** — who the claim is about, where it sits,
+   and how far it may travel. A colleague can be the subject of something you
+   said.
+5. **Provenance and evidence** — every route by which it entered, then the raw
+   observations and document versions it was extracted from, in full.
+6. **Lifecycle**, its shared-entity neighbours, and its cross-references in both
+   directions, including the supersession chain.
+7. **Technical details** — expand for the model, model version, and prompt
+   version that extracted it, the embedding identity attached to it, the
+   immutable gate decisions, and attribution.
+
+Times are shown as elapsed time; hover any of them for the exact UTC value.
+Identifiers and scope paths are shortened for scanning, with a copy control
+beside them for the whole value.
 
 Unreadable cross-references are omitted. Missing and unauthorized statement ids
 both return "not found".
+
+Arriving from the explorer keeps your filters: **Back to the list** returns to
+the view you left, and following a cross-reference carries it onward.
 
 ## What you can change
 
