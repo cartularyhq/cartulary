@@ -87,6 +87,7 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
     nightly = File.read!(".github/workflows/eval.yml")
     release = File.read!(".github/workflows/release.yml")
     prepare_release = File.read!(".github/workflows/prepare-release.yml")
+    publish_release = File.read!(".github/workflows/publish-release.yml")
 
     # Each of these is a gate someone could delete to make a red build go green: schema-drift
     # detection, formatting, warnings-as-errors, the test suite, linting, type checking,
@@ -161,10 +162,14 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
     assert prepare_release =~ "workflow_dispatch:"
     assert prepare_release =~ "replace_existing_release"
     assert prepare_release =~ "mix cartulary.release.check"
-    assert prepare_release =~ "git push --atomic"
-    assert prepare_release =~ "gh release create"
+    assert prepare_release =~ "gh pr create"
     assert prepare_release =~ "pgvector/pgvector:pg18-bookworm"
     assert prepare_release =~ "CARTULARY_TEST_DATABASE_URL"
+    assert publish_release =~ "pull_request:"
+    assert publish_release =~ "types: [closed]"
+    assert publish_release =~ "github.event.pull_request.merged == true"
+    assert publish_release =~ "gh release create"
+    assert publish_release =~ "gh workflow run release.yml"
   end
 
   test "entity and mention caches remain absent from every current public surface" do
