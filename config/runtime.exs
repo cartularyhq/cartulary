@@ -72,6 +72,18 @@ env_integer! = fn key, default ->
   end
 end
 
+# A connection-pool capacity of zero or less would make every hosted model call
+# wait forever. Reject it at boot, before ReqLLM starts its shared Finch pool.
+env_positive_integer! = fn key, default ->
+  value = env_integer!.(key, default)
+
+  if value > 0 do
+    value
+  else
+    raise "#{key} must be a positive integer, got: #{inspect(value)}"
+  end
+end
+
 # Rejects ambiguous switches such as auto-migrate.
 env_bool! = fn key, default ->
   value = env_get.(key, if(default, do: "true", else: "false"))
@@ -265,6 +277,17 @@ config :cartulary, :database,
     database: pg0_database
   ]
 
+# Ingest is the only queue whose normal concurrency needs an operator-facing
+# control. Its workers make hosted model calls, so raising this limit also
+# requires enough ReqLLM Finch connections below. Start from a measured provider
+# limit rather than assuming the upstream can sustain arbitrary parallelism.
+oban_queues =
+  Application.fetch_env!(:cartulary, Oban)
+  |> Keyword.fetch!(:queues)
+  |> Keyword.put(:ingest, env_positive_integer!.("CARTULARY_INGEST_QUEUE_LIMIT", "10"))
+
+config :cartulary, Oban, queues: oban_queues
+
 update_auto =
   case env_get.("CARTULARY_AUTO_UPDATE", "off") do
     "minor" -> :minor
@@ -406,6 +429,15 @@ generation_options = %{
   "reasoning_effort" => env_get.("CARTULARY_MODEL_REASONING_EFFORT", "low"),
   "receive_timeout" => env_integer.("CARTULARY_MODEL_RECEIVE_TIMEOUT_MS", "120000")
 }
+
+# ReqLLM shares this Finch pool across every hosted generation role. The normal
+# ingest queue has ten workers, so its own default of eight connections turns
+# ordinary parallel ingest into connection-pool queuing. Sixteen leaves room
+# for the other generation lanes; operators raising model-call concurrency
+# must raise this count too.
+config :req_llm,
+  stream_pool_size: 1,
+  stream_pool_count: env_positive_integer!.("CARTULARY_MODEL_STREAM_POOL_COUNT", "16")
 
 # The four model roles. Any OpenAI-compatible endpoint, including a self-hosted
 # one, can serve the generation roles by pointing the base URL at it — no role is
