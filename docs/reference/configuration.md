@@ -85,6 +85,8 @@ surfaces report the available version and retain their normal deployment flow.
 | `CARTULARY_MODEL_REASONING_EFFORT` | `low` | Reasoning-token budget shared by all three generation roles |
 | `CARTULARY_MODEL_MAX_TOKENS` | `8192` | Output-token cap shared by all three generation roles |
 | `CARTULARY_MODEL_RECEIVE_TIMEOUT_MS` | `120000` | Request timeout (ms) shared by all three generation roles |
+| `CARTULARY_MODEL_STREAM_POOL_COUNT` | `16` | Shared outbound HTTP connections for hosted generation roles |
+| `CARTULARY_INGEST_QUEUE_LIMIT` | `10` | Concurrent extraction jobs per node |
 
 !!! warning "Reasoning models can blow the context window or time out without these"
     Reasoning models, including the default `openai/gpt-oss-120b`, can consume
@@ -94,6 +96,16 @@ surfaces report the available version and retain their normal deployment flow.
     `CARTULARY_MODEL_RECEIVE_TIMEOUT_MS` overrides its 30-second default for
     `openai/gpt-oss-120b` and other vendors. Raise these values only when the
     chosen model requires it.
+
+`CARTULARY_MODEL_STREAM_POOL_COUNT` must cover concurrent hosted model calls,
+not just one role. The default covers the ten-worker ingest queue with room for
+the other generation lanes. Raise it with any higher ingest or model-call
+concurrency, subject to the provider's connection and rate limits.
+
+For 100 parallel ingestion flows on one node, set
+`CARTULARY_INGEST_QUEUE_LIMIT=100` and
+`CARTULARY_MODEL_STREAM_POOL_COUNT=128`, then validate the provider's
+concurrency/rate limits and the database pool under representative load.
 
 There are exactly four Account-level model roles: `embedder`,
 `ingest_extractor`, `dream_reasoner`, and `dialectic_agent`. Only secret
