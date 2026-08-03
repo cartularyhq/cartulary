@@ -9,6 +9,16 @@ changelog entry and contract-version transition.
 
 ## [Unreleased]
 
+### Fixed
+
+- Extraction now requests `confidence_percentage` through native strict JSON
+  Schema as an integer from `1` through `100`, with concise reasoning and the
+  candidate statement preceding it. Validation strips non-digits defensively,
+  checks the range, then normalizes the percentage to the stored `0.0..1.0`
+  confidence fraction. Reasoning is validation-only and never persisted,
+  metered, or logged. Bounded repair remains the safety net. Extracted
+  provenance records prompt `extract-2`; the pipeline contract remains `f5-1`.
+
 ### Added
 
 - GitHub Release publication now builds native Linux x86_64, macOS Apple

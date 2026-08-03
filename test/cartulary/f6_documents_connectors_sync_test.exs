@@ -25,11 +25,12 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest.Provider do
       |> Enum.reject(&(String.length(&1) < 8))
       |> Enum.map(fn statement ->
         %{
+          "reasoning" => "The source states this directly.",
           "statement" => statement,
           "kind" => "fact",
           "subject_type" => "peer",
           "subject_ref" => Keyword.fetch!(opts, :source_peer_key),
-          "confidence" => 0.82,
+          "confidence_percentage" => 82,
           "sensitivity" => "internal",
           "target_level" => "peer",
           "update_operation" => "add",

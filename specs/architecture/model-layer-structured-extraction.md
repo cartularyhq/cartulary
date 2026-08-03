@@ -48,9 +48,15 @@ reasoning without emitting the forced tool call; ordinary chat retains normal
 tool calling.
 
 The extraction JSON schema is derived from `KnowledgeItem` attributes and the
-candidate is validated against `create_from_pipeline`. Each candidate includes:
+candidate is validated against `create_from_pipeline`. OpenRouter receives it
+through its native strict JSON-schema response format. Each candidate starts
+with a concise validation-only reasoning string and its natural-language
+statement, then an integer `confidence_percentage` from 1 through 100. The
+validator strips non-digits from that field, checks the range, and divides by
+100 before it passes the resulting confidence to governance. Reasoning is not
+persisted, metered, or logged. Each candidate also includes:
 
-- statement, kind, confidence, sensitivity, and target level;
+- kind, sensitivity, and target level;
 - peer or current-scope subject, independently of the source Peer;
 - `add`, `merge`, `supersede_candidate`, or `no_op`;
 - hearsay classification with a confidence discount; and
@@ -92,7 +98,9 @@ indexes, semantic strategy, and tiny-corpus Nx baseline.
 
 Knowledge and provenance now store provider, model, model version, prompt
 version, pipeline version, and embedding identity fields. Extraction uses
-prompt `extract-1` and pipeline `f5-1`.
+prompt `extract-2` and pipeline `f5-1`. Its prompt explicitly requires
+confidence as a JSON fraction from `0.0` through `1.0`; the Ash-derived JSON
+schema independently enforces the same numeric bounds.
 
 `Cartulary.Model.Usage` is the one durable emission point. Each provider call,
 including every repair attempt and returned provider error, appends one

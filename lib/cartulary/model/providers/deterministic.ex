@@ -113,11 +113,12 @@ defmodule Cartulary.Model.Providers.Deterministic do
     |> Enum.take(6)
     |> Enum.map(fn statement ->
       %{
+        "reasoning" => "The observation states this directly.",
         "statement" => statement,
         "kind" => infer_kind(statement),
         "subject_type" => "peer",
         "subject_ref" => source_peer_key,
-        "confidence" => 0.55,
+        "confidence_percentage" => 55,
         "sensitivity" => infer_sensitivity(statement),
         "target_level" => "peer",
         "update_operation" => "add",
