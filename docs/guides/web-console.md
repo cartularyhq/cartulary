@@ -80,6 +80,14 @@ readiness verdict, the stored preference — followed by **What was submitted**
 and the exact **Raw payload**. The summary is a reading aid; the payload is the
 same value the underlying action returned, and stays available for debugging.
 
+After `search` or `ask`, the browser adds `retrieval_health` for the selected
+scope, and the summary reports its state. This browser-only object is not part
+of the MCP or HTTP contract. It reports statement, embedding, and entity-mention
+counts; embedding coverage; stored embedding identities; the configured query
+identity; and one of `ready`, `missing_embeddings`, `missing_mentions`, or
+`identity_mismatch`. When a derived index needs attention, `next_action` says to
+rebuild the scope's derived data.
+
 Up to five runs are kept under **Earlier runs** so you can compare a call with
 the one before it. They live in the page only: a reload starts empty, and a
 failed call leaves earlier results in place.

@@ -226,6 +226,7 @@ defmodule CartularyWeb.ConsoleLive.Tools do
            ),
          {:ok, result} <- run_action(input, socket.assigns.current_actor) do
       count = socket.assigns.run_count + 1
+      result = browser_result(tool, params, result, socket.assigns.current_actor)
 
       run = %{
         number: count,
@@ -697,6 +698,7 @@ defmodule CartularyWeb.ConsoleLive.Tools do
       {"Strategies contributed", count(result, "contributed_strategies")},
       {"Strategies empty", count(result, "empty_strategies")},
       {"Latency", latency(result)},
+      {"Index health", retrieval_health(result)},
       {"Inline question", pending(result)}
     ])
   end
@@ -707,6 +709,7 @@ defmodule CartularyWeb.ConsoleLive.Tools do
       {"Abstained", value(result, "abstained")},
       {"Citations", count(result, "citations")},
       {"Candidates", count(result, "candidates")},
+      {"Index health", retrieval_health(result)},
       {"Inline question", pending(result)}
     ])
   end
@@ -770,6 +773,16 @@ defmodule CartularyWeb.ConsoleLive.Tools do
     if value(result, "pending_validation"), do: "one question attached"
   end
 
+  # A degraded index answers with the same shape as a healthy one, so the state
+  # belongs in the summary rather than only in the payload below it.
+  defp retrieval_health(result) do
+    case value(result, "retrieval_health") do
+      %{state: state, next_action: nil} -> to_string(state)
+      %{state: state, next_action: action} -> "#{state} — #{action}"
+      _other -> nil
+    end
+  end
+
   defp latency(result) do
     case value(result, "latency_ms") do
       milliseconds when is_number(milliseconds) -> "#{milliseconds} ms"
@@ -795,6 +808,18 @@ defmodule CartularyWeb.ConsoleLive.Tools do
       end
     end)
   end
+
+  # Browser-only addition, not part of the MCP or HTTP contract. The atom key is
+  # what keeps it distinguishable from the action's own string-keyed payload.
+  defp browser_result(%{key: key}, params, result, actor) when key in ["search", "ask"] do
+    Map.put(
+      result,
+      :retrieval_health,
+      Loader.retrieval_health(actor, Map.get(params, "scope_path"))
+    )
+  end
+
+  defp browser_result(_tool, _params, result, _actor), do: result
 
   # Ash normally returns action failures as error tuples. These classes may be
   # raised by a downstream resource instead; keep the browser response equally

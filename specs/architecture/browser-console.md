@@ -124,11 +124,14 @@ arguments remain each action's declared arguments, and no argument is inferred
 from a group. The acknowledgement checkbox on a state-changing card is likewise
 a browser affordance, because the operation layer re-authorizes the write.
 
-A result is summarized before it is dumped. The summary reads keys the action
-actually returned and omits a row rather than inventing a default, and the
-exact payload stays on the page, so the summary can never become a second
-source of truth. A bounded run history lives in the LiveView only; nothing
-about a run is persisted, logged, or carried into telemetry.
+A result is summarized before it is dumped. The summary reads keys the rendered
+payload actually carries and omits a row rather than inventing a default, and
+that payload stays on the page, so the summary can never become a second source
+of truth. The only key the browser adds is `retrieval_health` on `search` and
+`ask`; it is atom-keyed to stay distinguishable from the action's own
+string-keyed value, and belongs to no contract. A bounded run history lives in
+the LiveView only; nothing about a run is persisted, logged, or carried into
+telemetry.
 
 ## Non-exposure
 
