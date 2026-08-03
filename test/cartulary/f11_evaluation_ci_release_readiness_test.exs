@@ -163,6 +163,8 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
     assert prepare_release =~ "mix cartulary.release.check"
     assert prepare_release =~ "git push --atomic"
     assert prepare_release =~ "gh release create"
+    assert prepare_release =~ "pgvector/pgvector:pg18-bookworm"
+    assert prepare_release =~ "CARTULARY_TEST_DATABASE_URL"
   end
 
   test "entity and mention caches remain absent from every current public surface" do
