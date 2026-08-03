@@ -25,12 +25,32 @@ Agent API keys work on JSON and MCP, never the console.
 | `/console/graph` | The same data drawn as a graph of scopes, statements, and cross-references |
 | `/console/sources` | Documents, their versions, connectors, sessions, and raw observations |
 | `/console/skills` | Skill requirement cards, and a live readiness check for yourself |
+| `/console/tools` | A workbench for all eight MCP tools, using your signed-in identity and showing the returned payload |
 | `/console/me` | Everything recorded about you, and your consent and erasure controls |
 | `/console/operations` | Account admins only: readiness, usage and cost, entity-resolution quality, gate rules, retrieval tunings |
 | `/governance` | Curators and account admins only: the gate queue and skill-card authoring |
 
 Navigation hides inaccessible pages, but every destination independently
 checks authority and refuses unauthorized requests.
+
+## Trying the MCP tools in the browser
+
+`/console/tools` provides one form for each tool exposed at `/mcp`: `ingest`,
+`get_context`, `search`, `ask`, `query_knowledge`, `check_readiness`,
+`resolve_validation`, and `set_ask_preference`. It calls the same Ash actions
+as MCP, under your signed-in identity, then renders the returned payload as
+formatted JSON. Account and calling-peer identity never come from a form.
+
+Most forms are governed reads. Three have durable effects and are marked in
+the page: `ingest` persists and queues a raw observation,
+`resolve_validation` answers one pending question addressed to you, and
+`set_ask_preference` can only lower your own limits or extend a pause. The
+workbench adds no curator, promotion, gate-administration, or bulk action.
+
+The suggested session id is generated when the page mounts. Reuse it across
+calls when you want inline validation delivery and later ingest to belong to
+the same interaction. Results remain in the LiveView and are replaced by the
+next call.
 
 ## What you see, and why you might see less than a colleague
 

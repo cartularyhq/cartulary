@@ -10,6 +10,8 @@ defmodule CartularyWeb.ConsoleLiveTest do
 
   use CartularyWeb.ConnCase
 
+  import Phoenix.LiveViewTest
+
   alias Cartulary.Accounts.ExternalIdentity
   alias Cartulary.Accounts.Peer
   alias Cartulary.Actor
@@ -31,6 +33,7 @@ defmodule CartularyWeb.ConsoleLiveTest do
     test "an anonymous visitor is sent to sign in", %{conn: conn} do
       assert redirected_to(get(conn, "/console")) == "/sign-in"
       assert redirected_to(get(conn, "/console/knowledge")) == "/sign-in"
+      assert redirected_to(get(conn, "/console/tools")) == "/sign-in"
       assert redirected_to(get(conn, "/console/me")) == "/sign-in"
     end
 
@@ -185,6 +188,76 @@ defmodule CartularyWeb.ConsoleLiveTest do
       assert html =~ "Card library"
     end
 
+    test "the tool workbench exposes and runs the complete MCP action inventory", %{
+      conn: conn,
+      admin_token: token,
+      statement: statement
+    } do
+      {:ok, view, html} = live(sign_in(conn, token), "/console/tools")
+
+      for tool <-
+            ~w(ingest get_context search ask query_knowledge check_readiness resolve_validation set_ask_preference) do
+        assert html =~ ~s|id="tool-#{tool}"|
+      end
+
+      html =
+        render_submit(view, "run", %{
+          "tool" => "query_knowledge",
+          "session_id" => "console-tools-query",
+          "scope_path" => "/console-test",
+          "state" => "active",
+          "limit" => "5"
+        })
+
+      assert html =~ "Result · query_knowledge"
+      assert html =~ statement
+
+      html =
+        render_submit(view, "run", %{
+          "tool" => "search",
+          "session_id" => "console-tools-search",
+          "scope_path" => "/console-test",
+          "query" => "asynchronous standups",
+          "profile" => "balanced",
+          "limit" => "5"
+        })
+
+      assert html =~ "Result · search"
+      assert html =~ ~s|&quot;profile&quot;: &quot;balanced&quot;|
+      assert html =~ ~s|&quot;candidates&quot;|
+
+      html =
+        render_submit(view, "run", %{
+          "tool" => "ingest",
+          "session_id" => "console-tools-ingest",
+          "scope_path" => "/console-test",
+          "role" => "user",
+          "content" => "Avery writes release notes on Fridays."
+        })
+
+      assert html =~ "Result · ingest"
+      assert html =~ ~s|&quot;status&quot;: &quot;accepted&quot;|
+
+      html =
+        render_submit(view, "run", %{
+          "tool" => "set_ask_preference",
+          "max_per_session" => "1"
+        })
+
+      assert html =~ "Result · set_ask_preference"
+      assert html =~ ~s|&quot;max_per_session&quot;: 1|
+
+      html =
+        render_submit(view, "run", %{
+          "tool" => "resolve_validation",
+          "_id" => Ecto.UUID.generate(),
+          "verdict" => "skip"
+        })
+
+      assert html =~ "Tool call failed. Check the fields and your access"
+      refute html =~ "Result · resolve_validation"
+    end
+
     test "the personal page offers the subject gestures", %{conn: conn, admin_token: token} do
       html = conn |> sign_in(token) |> get("/console/me") |> html_response(200)
 
@@ -274,6 +347,11 @@ defmodule CartularyWeb.ConsoleLiveTest do
       explorer = conn |> sign_in(token) |> get("/console/knowledge") |> html_response(200)
 
       refute explorer =~ statement
+
+      workbench = conn |> sign_in(token) |> get("/console/tools") |> html_response(200)
+
+      assert workbench =~ "Tool workbench"
+      refute workbench =~ "/console-test"
     end
 
     test "co-mention neighbors include only readable scopes", %{

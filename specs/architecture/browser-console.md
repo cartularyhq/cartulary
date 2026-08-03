@@ -40,7 +40,8 @@ bulk selection targets only already-visible rows.
 | `CartularyWeb.Console.Loader` | Every database read the console performs. |
 | `CartularyWeb.Console.Graph` | Deterministic radial layout. Pure. |
 | `CartularyWeb.ConsoleComponents` | Shell, navigation, tiles, badges, tables, panels. Stateless. |
-| `CartularyWeb.ConsoleLive.*` | Nine pages: rendering and event dispatch only. |
+| `CartularyWeb.ConsoleLive.Tools` | Forms for the MCP allowlist; dispatches the same non-persisted Ash actions and renders the latest result. |
+| `CartularyWeb.ConsoleLive.*` | Ten pages: rendering and event dispatch only. |
 
 Both browser surfaces retain the historical `governance_token` session key so
 one sign-in opens both and existing sessions remain valid.
@@ -80,7 +81,8 @@ converts a polite decline into a crash.
 
 ## Writes
 
-The console performs none. Each gesture forwards to an existing operation:
+The console implements no direct durable write. Each gesture forwards to an
+existing operation:
 
 | Gesture | Operation |
 | --- | --- |
@@ -91,6 +93,9 @@ The console performs none. Each gesture forwards to an existing operation:
 | Consent grant or deny | `Governance.Engine.subject_consent/6` |
 | Erasure | `Governance.Erasure.request/3` |
 | Skill card publication (queue only) | `Skills.publish/2` |
+| Raw observation submission (tool workbench) | `McpTools.ingest` Ash action |
+| Own inline-answer resolution (tool workbench) | `McpTools.resolve_validation` Ash action |
+| Own ask-limit tightening (tool workbench) | `McpTools.set_ask_preference` Ash action |
 
 A rendered control is presentation, never authorization: the operation layer
 re-checks the actor, so a forged event from a hand-crafted client is refused
@@ -105,6 +110,12 @@ defeat the operation layer's check.
 
 Erasure is confirmed by typing a literal word. It runs immediately and cannot
 be undone, so a single-click control would be a defect.
+
+The tool workbench mirrors the eight-action MCP allowlist. It calls
+`Ash.run_action/2` with the signed-in human actor, accepts only each action's
+declared arguments, and renders the returned value as JSON. It cannot
+select an Account or calling peer. Read actions retain scope filtering and
+best-effort inline-question attachment. No curator or bulk action is present.
 
 ## Non-exposure
 
