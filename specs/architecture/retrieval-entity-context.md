@@ -30,9 +30,11 @@ time relevance, salience, and mention confidence are never treated as
 comparable scores. The `:thorough` profile optionally reranks only the fused
 head through `Cartulary.Model.Gateway`. Reranking and grounded answers hold no
 transaction; the model layer scopes its own configuration read and usage write.
-A hard remaining-time budget wraps strategies and reranking. Timeouts are
-dropped, not retried, and every response reports contributed, empty, and
-dropped strategies plus pre-fusion cross-strategy disagreement.
+A hard remaining-time budget wraps strategies and reranking. Reranking receives
+an independently configured timeout clamped to the remaining hard deadline.
+Timeouts are dropped, not retried, and every response preserves the compatible
+dropped-name list while adding content-free component timings and deterministic
+reason classes plus pre-fusion cross-strategy disagreement.
 
 The three strategy sets are disjoint and carry distinct facts: contributed
 returned candidates, empty ran and matched nothing, dropped never produced a
@@ -80,6 +82,7 @@ ceilings through:
 - `CARTULARY_RETRIEVAL_FAST_DEADLINE_MS`;
 - `CARTULARY_RETRIEVAL_BALANCED_DEADLINE_MS`; and
 - `CARTULARY_RETRIEVAL_THOROUGH_DEADLINE_MS`.
+- `CARTULARY_RETRIEVAL_RERANK_TIMEOUT_MS`.
 
 Raw strategy lists remain restricted to internal/system and eval callers.
 Source filters are applied before fusion. `search` keeps the baseline-contract

@@ -456,8 +456,9 @@ defmodule CartularyWeb.Console.Loader do
   end
 
   @doc """
-  The administrator's operations view: gate rules and retrieval profiles as
-  stored, plus aggregate entity-resolution quality signals.
+  The administrator's operations view: gate rules, stored and runtime retrieval
+  profiles, the latest content-free retrieval outcome, and aggregate
+  entity-resolution quality signals.
 
   Raises `Ash.Error.Forbidden` if called by anyone who is not a
   password-authenticated account administrator. That is deliberate: gate rules
@@ -486,10 +487,26 @@ defmodule CartularyWeb.Console.Loader do
       %{
         gate_rules: gate_rules,
         retrieval_profiles: profiles,
+        retrieval_runtime: retrieval_runtime(),
+        latest_retrieval: Cartulary.Retrieval.Diagnostics.latest(account.id),
         entity_resolution: Store.entity_resolution_metrics(account.id),
         scope_paths: paths
       }
     end)
+  end
+
+  defp retrieval_runtime do
+    config = Application.fetch_env!(:cartulary, :retrieval_profiles)
+
+    %{
+      enabled_strategies: Keyword.fetch!(config, :enabled_strategies),
+      rerank_timeout_ms: Keyword.fetch!(config, :rerank_timeout_ms),
+      profiles:
+        for name <- [:fast, :balanced, :thorough], into: %{} do
+          profile = Keyword.fetch!(config, name)
+          {name, %{deadline_ms: profile.deadline_ms, rerank: profile.rerank}}
+        end
+    }
   end
 
   # ----------------------------------------------------------------------------

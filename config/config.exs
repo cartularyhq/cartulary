@@ -243,6 +243,10 @@ config :cartulary, :retrieval_profiles,
   # profile. Bounds rerank token cost and latency; the tail below rank 20 keeps
   # its fusion order.
   rerank_head: 20,
+  # Maximum milliseconds independently offered to reranking. The engine clamps
+  # this to the request's remaining hard deadline, so it reserves useful model
+  # time without ever extending the overall request ceiling.
+  rerank_timeout_ms: 750,
   # After this many incremental delta merges, a projection is rebuilt in full
   # rather than merged again. Unit: delta updates. Bounds drift and unbounded
   # growth of merged projection content.

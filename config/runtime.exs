@@ -521,7 +521,8 @@ config :cartulary, :model_roles,
   }
 
 # Deployment overrides for retrieval. Only two things are tunable from the
-# environment: which strategies may run at all, and the three profile deadlines.
+# environment: which strategies may run at all, the three profile deadlines,
+# and the reranker timeout inside those deadlines.
 # Strategy membership and fusion weights per profile are not environment-tunable,
 # because changing them changes result quality and needs review.
 retrieval_strategy_names = %{
@@ -561,6 +562,13 @@ enabled_retrieval_strategies =
 retrieval_profiles =
   retrieval_profiles
   |> Keyword.put(:enabled_strategies, enabled_retrieval_strategies)
+  |> Keyword.put(
+    :rerank_timeout_ms,
+    env_integer.(
+      "CARTULARY_RETRIEVAL_RERANK_TIMEOUT_MS",
+      Integer.to_string(Keyword.fetch!(retrieval_profiles, :rerank_timeout_ms))
+    )
+  )
   |> Keyword.update!(
     :fast,
     &Map.put(

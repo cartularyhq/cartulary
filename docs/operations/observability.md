@@ -73,6 +73,13 @@ Model spans carry operation, role, provider, model, version, duration, and
 token usage. Document spans carry version id, parser, byte/chunk/knowledge
 counts, connector id, item count, and duration.
 
+Every retrieval emits `[:cartulary, :retrieval, :outcomes]`. Measurements are
+total latency and pre-rerank remaining budget. Metadata contains Account id,
+profile, hard deadline, and content-free component outcomes with elapsed time
+and one deterministic failure class. The latest outcome observed on the node is
+also visible to account administrators at `/console/operations`; tool search
+and ask results show the same additive details in `/console/tools`.
+
 ## Reading a failed model call
 
 A failed model call sets `error.type` on its span and writes the same string as

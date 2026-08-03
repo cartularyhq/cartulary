@@ -175,6 +175,9 @@ Returns `{"data": result}` with the profile name, `profile_version` (`"f7-1"`),
 the fused `candidates`, and three per-strategy outcomes:
 `contributed_strategies` (returned candidates), `empty_strategies` (ran, matched
 nothing), and `dropped_strategies` (disabled, timed out, or failed).
+The additive `retrieval_outcomes` field reports component status, reason class,
+elapsed milliseconds, and remaining budget without query or candidate content.
+`pre_rerank_remaining_ms` reports the budget available before reranking.
 
 `disagreement.query_dependent_empty` is `true` when no strategy that reads the
 query text produced a candidate. The remaining candidates then rank the scope,

@@ -225,6 +225,7 @@ defmodule CartularyWeb.ConsoleLiveTest do
       assert html =~ "Result · search"
       assert html =~ ~s|&quot;profile&quot;: &quot;balanced&quot;|
       assert html =~ ~s|&quot;candidates&quot;|
+      assert html =~ ~s|&quot;retrieval_outcomes&quot;|
 
       html =
         render_submit(view, "run", %{
@@ -274,6 +275,26 @@ defmodule CartularyWeb.ConsoleLiveTest do
     } do
       seed_resolution_metrics!(admin, knowledge_id)
 
+      Cartulary.Retrieval.Diagnostics.record(
+        admin.account_id,
+        %{
+          profile: "thorough",
+          profile_version: "f7-1",
+          latency_ms: 750,
+          pre_rerank_remaining_ms: 600,
+          retrieval_outcomes: [
+            %{
+              component: "reranker",
+              status: "dropped",
+              reason_class: "timeout",
+              elapsed_ms: 500,
+              budget_remaining_ms: 100
+            }
+          ]
+        },
+        1_500
+      )
+
       metrics = Loader.operations(admin).entity_resolution
 
       assert metrics.entity_count == 2
@@ -292,6 +313,11 @@ defmodule CartularyWeb.ConsoleLiveTest do
       assert html =~ "50.0%"
       assert html =~ "Gate matrix"
       assert html =~ "Retrieval tunings"
+      assert html =~ "Latest retrieval outcome"
+      assert html =~ ~s|id="retrieval-outcomes"|
+      assert html =~ "reranker"
+      assert html =~ "timeout"
+      refute html =~ "SecretNeedle104"
       refute html =~ "NeverRenderAlias71"
     end
   end
