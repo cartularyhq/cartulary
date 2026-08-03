@@ -14,8 +14,9 @@
 #   re-established here from the tag itself.
 #
 # Trigger
-#   Publishing a GitHub Release for an existing semantic tag. GitHub owns the release notes;
-#   this workflow validates that tag and attaches every generated artifact to that release.
+#   Publishing a GitHub Release for an existing semantic tag, or a maintainer's manual retry
+#   for one. GitHub owns the release notes; this workflow validates the selected tag and
+#   attaches every generated artifact to that release.
 #
 # Outputs
 #   A GitHub Release holding Linux x86_64, macOS Apple Silicon, macOS Intel, and Windows
@@ -26,13 +27,19 @@ name: Release
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing semantic release tag to rebuild and publish
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
   # Retries for the same GitHub Release share its tag-specific publication lock.
-  group: release-${{ github.event.release.tag_name }}
+  group: release-${{ github.event.release.tag_name || inputs.tag }}
   cancel-in-progress: false
 
 jobs:
@@ -71,7 +78,7 @@ jobs:
       # the release checks must certify the commit selected by this GitHub Release's tag.
       - uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "27"
@@ -108,7 +115,7 @@ jobs:
       - name: Validate tag, changelog, and eval guardrails
         shell: bash
         run: |
-          tag="${{ github.event.release.tag_name }}"
+          tag="${{ github.event.release.tag_name || inputs.tag }}"
           mix cartulary.release.check --tag "$tag" --eval-report /tmp/cartulary-f11-release.json
       # Dual purpose, and the ordering matters. This packages the release with the pinned,
       # checksum-verified embedded PostgreSQL, boots it from an empty data root, waits for
@@ -129,7 +136,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag="${{ github.event.release.tag_name }}"
+          tag="${{ github.event.release.tag_name || inputs.tag }}"
           version="${tag#v}"
           image="ghcr.io/${GITHUB_REPOSITORY,,}"
           revision=$(git rev-parse HEAD)
@@ -181,7 +188,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "27"
@@ -217,14 +224,26 @@ jobs:
     needs: linux
     runs-on: windows-2025
     timeout-minutes: 75
+    env:
+      # ExtractousEx only publishes a GNU Windows NIF, but the official BEAM
+      # distribution on this runner targets MSVC. Build the bundled Rust source
+      # for that ABI so the shipped release contains a loadable Windows NIF.
+      EXTRACTOUS_EX_BUILD: "true"
+      RUSTUP_TOOLCHAIN: 1.85.1-x86_64-pc-windows-msvc
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "27"
           elixir-version: "1.18"
+      - name: Install pinned Rust toolchain for the MSVC NIF
+        shell: pwsh
+        run: |
+          rustup toolchain install $env:RUSTUP_TOOLCHAIN --profile minimal
+          rustc --version
+          cargo --version
       - run: mix deps.get
       - name: Verify packaged pg0 lane and build Windows release
         shell: pwsh
@@ -271,7 +290,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          tag="${{ github.event.release.tag_name }}"
+          tag="${{ github.event.release.tag_name || inputs.tag }}"
           version="${tag#v}"
           test -n "$CARTULARY_RELEASE_SIGNING_KEY"
           cd /tmp/cartulary-release
