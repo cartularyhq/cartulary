@@ -40,7 +40,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+  # A manual retry names a tag without the `refs/tags/` prefix that a tag push carries.
+  # Normalize both forms so they cannot publish the same immutable version concurrently.
+  group: release-${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
   cancel-in-progress: false
 
 jobs:

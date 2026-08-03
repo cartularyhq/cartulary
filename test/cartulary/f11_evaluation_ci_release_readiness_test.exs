@@ -133,6 +133,7 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
     assert release =~ "docker push"
     assert release =~ "ghcr.io/${GITHUB_REPOSITORY,,}"
     assert release =~ "--prerelease --latest=false"
+    assert release =~ "format('refs/tags/{0}', inputs.tag)"
     # Both Mac CPU families need native ERTS, NIFs, and pg0 binaries. The release is created
     # only by the fan-in job, after both native build matrices have uploaded their checksums.
     assert release =~ "runner: macos-26"
