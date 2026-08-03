@@ -41,6 +41,14 @@ checks authority and refuses unauthorized requests.
 as MCP, under your signed-in identity, then renders the returned payload as
 formatted JSON. Account and calling-peer identity never come from a form.
 
+After `search` or `ask`, the browser adds `retrieval_health` for the selected
+scope. This browser-only object is not part of the MCP or HTTP contract. It
+reports statement, embedding, and entity-mention counts; embedding coverage;
+stored embedding identities; the configured query identity; and one of
+`ready`, `missing_embeddings`, `missing_mentions`, or `identity_mismatch`.
+When a derived index needs attention, `next_action` says to rebuild the scope's
+derived data.
+
 Most forms are governed reads. Three have durable effects and are marked in
 the page: `ingest` persists and queues a raw observation,
 `resolve_validation` answers one pending question addressed to you, and

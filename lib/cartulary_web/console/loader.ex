@@ -23,6 +23,7 @@ defmodule CartularyWeb.Console.Loader do
   alias Cartulary.Knowledge.LifecycleEvent
   alias Cartulary.Knowledge.Projection
   alias Cartulary.Knowledge.Provenance
+  alias Cartulary.Model.Config, as: ModelConfig
   alias Cartulary.Observations.Document
   alias Cartulary.Observations.DocumentVersion
   alias Cartulary.Observations.Message
@@ -420,6 +421,41 @@ defmodule CartularyWeb.Console.Loader do
   end
 
   @doc """
+  Reports content-safe derived-index health for one authorized scope.
+
+  The selected path must be among the actor's readable scopes. The result
+  contains counts and embedding identities only; it never returns statements,
+  entity-cache rows, or other derived content.
+  """
+  def retrieval_health(%Actor{} = actor, scope_path) when is_binary(scope_path) do
+    coverage =
+      DataLayer.with_actor(actor, fn account, current_actor ->
+        scope =
+          account.id
+          |> scopes(current_actor)
+          |> Enum.find(&(&1.path == scope_path))
+
+        if scope do
+          Cartulary.Retrieval.index_coverage(account.id, [scope.id], actor.peer_id)
+          |> Map.fetch!(scope.id)
+        end
+      end)
+
+    if coverage do
+      configured_identity =
+        :embedder
+        |> ModelConfig.resolve(%{account_id: actor.account_id, actor: actor})
+        |> ModelConfig.embedding_identity()
+
+      Map.merge(coverage, %{
+        configured_identity: configured_identity,
+        state: retrieval_health_state(coverage, configured_identity),
+        next_action: retrieval_health_action(coverage, configured_identity)
+      })
+    end
+  end
+
+  @doc """
   The viewer's own governance position: consent requests awaiting their answer,
   their erasure requests, and the scope path lookup.
 
@@ -741,6 +777,24 @@ defmodule CartularyWeb.Console.Loader do
   end
 
   defp scope_paths(scopes), do: Map.new(scopes, &{&1.id, &1.path})
+
+  defp retrieval_health_state(%{statement_count: 0}, _identity), do: :ready
+
+  defp retrieval_health_state(coverage, identity) do
+    cond do
+      Enum.any?(coverage.embedding_identities, &(&1 != identity)) -> :identity_mismatch
+      coverage.embedded_count < coverage.statement_count -> :missing_embeddings
+      coverage.mention_count == 0 -> :missing_mentions
+      true -> :ready
+    end
+  end
+
+  defp retrieval_health_action(coverage, identity) do
+    case retrieval_health_state(coverage, identity) do
+      :ready -> nil
+      _gap -> "rebuild scope derived data"
+    end
+  end
 
   # `:all` is an internal capability, never authority for a browser read. A
   # malformed or widened human actor therefore produces no co-mention ids.
