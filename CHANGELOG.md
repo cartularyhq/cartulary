@@ -9,6 +9,8 @@ changelog entry and contract-version transition.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-08-03
+
 ### Fixed
 
 - Extraction now requests `confidence_percentage` through native strict JSON

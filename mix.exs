@@ -37,7 +37,7 @@ defmodule Cartulary.MixProject do
       app: :cartulary,
       # Read as data by the release-readiness check, which requires a matching dated
       # CHANGELOG entry and a `v`-prefixed git tag before a release may proceed.
-      version: "0.3.0",
+      version: "0.3.2",
       elixir: "~> 1.17",
       # Registers the LiveView compiler, which extracts the hooks, JS, and CSS colocated
       # inside HEEx templates. It schedules its own pass to run after the Elixir compiler

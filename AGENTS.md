@@ -1,7 +1,7 @@
 # Cartulary agent contract
 
 Applies to the repository unless a nested `AGENTS.md` overrides it. Cartulary
-is a `0.3.0` community beta. The old `F0`–`F11` phase names are retired.
+is a `0.3.2` community beta. The old `F0`–`F11` phase names are retired.
 
 ## Before editing
 

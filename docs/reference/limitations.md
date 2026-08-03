@@ -2,7 +2,7 @@
 
 # Limitations
 
-Cartulary `0.3.0` is a community beta. These capabilities are unavailable.
+Cartulary `0.3.2` is a community beta. These capabilities are unavailable.
 
 The machine-readable inventory is
 [`specs/eval/surface-contract-inventory.json`](https://github.com/cartularyhq/cartulary/blob/main/specs/eval/surface-contract-inventory.json),

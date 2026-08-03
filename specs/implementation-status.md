@@ -2,7 +2,7 @@
 
 # Implementation Status
 
-Application version: `0.3.0` (community beta).
+Application version: `0.3.2` (community beta).
 Last verified: 2026-07-28.
 
 Current behavior, evidence, and real limitations. Target architecture:
