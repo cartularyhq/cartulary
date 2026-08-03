@@ -61,6 +61,21 @@ that detached signature and the manifest's per-platform SHA-256 both verify.
 Configure the CI job names as required checks only after they have reported
 successfully. See `specs/process/release-checklist.md`.
 
+## `prepare-release.yml`
+
+Run **Prepare and publish release** manually from `main`, entering a semantic
+version without its `v` prefix. It moves the current `Unreleased` changelog
+content into a dated release entry, updates the tracked release-version
+references, checks the metadata, commits to `main`, creates the matching tag,
+and publishes a GitHub Release. That publication triggers `release.yml`; wait
+for its result before treating the version as available.
+
+Normal releases use a new version. The optional repair selection deletes an
+existing GitHub Release and tag before recreating them from the newly prepared
+commit, so use it only for a failed pre-artifact release such as a metadata
+mismatch. The workflow needs permission to bypass the `main` ruleset for its
+own release commit; without that repository setting it fails before tagging.
+
 ## `docs.yml`
 
 Builds the published user documentation from `docs/` with MkDocs Material and
