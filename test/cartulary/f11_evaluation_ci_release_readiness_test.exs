@@ -133,6 +133,14 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
     assert release =~ "docker push"
     assert release =~ "ghcr.io/${GITHUB_REPOSITORY,,}"
     assert release =~ "--prerelease --latest=false"
+    # Both Mac CPU families need native ERTS, NIFs, and pg0 binaries. The release is created
+    # only by the fan-in job, after both native build matrices have uploaded their checksums.
+    assert release =~ "runner: macos-26"
+    assert release =~ "runner: macos-26-intel"
+    assert release =~ "cartulary-macos-arm64.tar.gz"
+    assert release =~ "cartulary-macos-x86_64.tar.gz"
+    assert release =~ "actions/download-artifact@v8"
+    assert release =~ "needs: [linux, macos]"
   end
 
   test "entity and mention caches remain absent from every current public surface" do
@@ -157,6 +165,23 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
     refute router =~ ":mention"
     refute sdk =~ "entity_id"
     refute sdk =~ "entitymention"
+  end
+
+  test "release installation docs select and verify every published platform archive" do
+    install = File.read!("docs/getting-started/install-release.md")
+
+    for archive <- [
+          "cartulary-linux-x86_64.tar.gz",
+          "cartulary-macos-arm64.tar.gz",
+          "cartulary-macos-x86_64.tar.gz"
+        ] do
+      assert install =~ archive
+    end
+
+    assert install =~ "shasum -a 256 -c"
+    assert install =~ "sha256sum -c"
+    assert install =~ "bin/server"
+    assert install =~ "Open Anyway"
   end
 
   test "surface inventory gates shipped contracts and fails closed around the integration-surfaces boundary" do

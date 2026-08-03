@@ -5,26 +5,75 @@
 The packaged release includes and supervises a checksum-pinned pg0 PostgreSQL
 distribution with pgvector.
 
-Download `cartulary-linux-x86_64.tar.gz` and its `.sha256` file from the
-repository's GitHub Release for the version you want. The same release's
-external-Postgres container is published as
-`ghcr.io/cartularyhq/cartulary:<version>`.
+## Choose a build
+
+Open [Cartulary Releases](https://github.com/cartularyhq/cartulary/releases),
+select a version, and download the archive and adjacent `.sha256` file matching
+your machine:
+
+| System | Architecture check | Archive |
+| --- | --- | --- |
+| macOS, Apple Silicon | `uname -m` prints `arm64` | `cartulary-macos-arm64.tar.gz` |
+| macOS, Intel | `uname -m` prints `x86_64` | `cartulary-macos-x86_64.tar.gz` |
+| Linux, Intel/AMD 64-bit | `uname -m` prints `x86_64` | `cartulary-linux-x86_64.tar.gz` |
+
+The container build for external PostgreSQL is
+`ghcr.io/cartularyhq/cartulary:<version>`. A prebuilt Windows archive is not
+published yet; use the source-build instructions below on Windows.
+
+## Download and verify
+
+The browser download works without extra tools. The commands below use the
+[GitHub CLI](https://cli.github.com/) to download both required files. Replace
+`v0.3.0` with the release tag you want.
+
+=== "macOS"
+
+    ```bash
+    release_tag=v0.3.0
+    arch=$(uname -m)
+    mkdir -p cartulary-download
+    gh release download "$release_tag" \
+      --repo cartularyhq/cartulary \
+      --pattern "cartulary-macos-${arch}.tar.gz*" \
+      --dir cartulary-download
+    cd cartulary-download
+    shasum -a 256 -c "cartulary-macos-${arch}.tar.gz.sha256"
+    tar -xzf "cartulary-macos-${arch}.tar.gz"
+    cd cartulary
+    ```
+
+=== "Linux"
+
+    ```bash
+    release_tag=v0.3.0
+    mkdir -p cartulary-download
+    gh release download "$release_tag" \
+      --repo cartularyhq/cartulary \
+      --pattern "cartulary-linux-x86_64.tar.gz*" \
+      --dir cartulary-download
+    cd cartulary-download
+    sha256sum -c cartulary-linux-x86_64.tar.gz.sha256
+    tar -xzf cartulary-linux-x86_64.tar.gz
+    cd cartulary
+    ```
+
+Do not run an archive when its checksum fails. Download both files again from
+the same release and retry verification.
 
 ## Run it
 
-Unpack the release built for your operating system and architecture, then:
+From the extracted `cartulary` directory:
 
-=== "macOS / Linux"
+```bash
+bin/server
+```
 
-    ```bash
-    bin/server
-    ```
-
-=== "Windows"
-
-    ```powershell
-    bin\server.bat
-    ```
+The macOS archives are not yet signed or notarized by Apple. If macOS blocks
+the verified build, try to open it once, then use **System Settings → Privacy &
+Security → Open Anyway**. Apple documents the security tradeoff and exact steps
+in [Safely open apps on your Mac](https://support.apple.com/en-us/102445). Do
+not disable Gatekeeper globally.
 
 On first start the launcher:
 

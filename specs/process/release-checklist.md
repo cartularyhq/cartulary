@@ -53,8 +53,11 @@ mix cartulary.release.check \
 ## Publish
 
 - [ ] Tag the gated commit exactly `v<version>`.
-- [ ] Confirm the tag workflow attached the package, SHA-256, and `f11-suite-1`
-  report to the GitHub Release.
+- [ ] Confirm the tag workflow attached Linux x86_64, macOS Apple Silicon, and
+  macOS Intel packages, each package's SHA-256, and the `f11-suite-1` report to
+  the GitHub Release.
+- [ ] Confirm each published package booted with its embedded pg0 and passed the
+  full suite on its native runner.
 - [ ] Confirm the versioned container is present in the repository's GHCR
   package; stable releases must also update `latest`.
 - [ ] Verify the unpacked pg0 package and container both return readiness.

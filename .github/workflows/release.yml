@@ -5,8 +5,8 @@
 # Purpose
 #   Repeat every blocking check against the exact tagged commit, confirm that the tag, the
 #   declared version, the changelog, the shipped documentation, and the evaluation evidence
-#   all describe the same release, then build the Linux release archive with its checksum
-#   and rebuild the container image.
+#   all describe the same release, then build verified Linux and macOS archives with their
+#   checksums and rebuild the container image.
 #
 # Why the checks are repeated rather than trusted from the merge gate
 #   The merge gate ran on a pull request's merge preview, not on the tagged commit. A tag
@@ -21,8 +21,9 @@
 #   tag (manual runs only) — an existing tag to check out, validate, and publish. No secrets.
 #
 # Outputs
-#   A GitHub Release holding the Linux release tarball, its SHA-256, and the evaluation
-#   report; and the same tagged production build in this repository's GHCR package.
+#   A GitHub Release holding Linux x86_64, macOS Apple Silicon, and macOS Intel tarballs,
+#   their SHA-256 files, and the evaluation report; plus the tagged production container in
+#   this repository's GHCR package.
 name: Release
 
 on:
@@ -43,14 +44,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # One job rather than the parallel lanes used for merges. A release is infrequent and
-  # sequential clarity is worth more here than elapsed time: the first failure stops the
-  # release outright.
-  release:
+  # Establish every release guardrail once on Linux, verify and retain that package, and
+  # publish the container. The macOS builds wait for this job so scarce runner time is not
+  # spent on a tag that fails metadata, evaluation, parity, or security checks.
+  linux:
+    name: Validate and build Linux x86_64
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
-      contents: write
+      contents: read
       packages: write
     services:
       postgres:
@@ -172,27 +174,94 @@ jobs:
       # Release assets in the final step below.
       - uses: actions/upload-artifact@v7
         with:
-          name: cartulary-release-${{ github.run_id }}
+          name: cartulary-release-linux-x86_64-${{ github.run_id }}
           path: |
             /tmp/cartulary-linux-x86_64.tar.gz
             /tmp/cartulary-linux-x86_64.tar.gz.sha256
             /tmp/cartulary-f11-release.json
           retention-days: 90
-      # Publishing is last: a failed validation, parity run, archive, checksum, or container
-      # push cannot create a release that looks complete. `gh release create` uploads through
-      # a draft before publication, so the version appears only with all three assets.
+
+  # A Mix release contains ERTS and native libraries, so one Mac archive cannot serve both
+  # CPU families. Build and boot-test on the matching native GitHub runner instead of cross
+  # compiling or asking Apple Silicon users to install Rosetta.
+  macos:
+    name: Build macOS ${{ matrix.asset_arch }}
+    needs: linux
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-26
+            machine_arch: arm64
+            asset_arch: arm64
+          - runner: macos-26-intel
+            machine_arch: x86_64
+            asset_arch: x86_64
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          elixir-version: "1.18"
+      - name: Confirm native runner architecture
+        run: test "$(uname -m)" = "${{ matrix.machine_arch }}"
+      - run: mix deps.get
+      # This builds the package, boots its embedded pg0 from an empty data root, waits for
+      # readiness, and runs the full test suite against that database. The archive below is
+      # made from the exact release that passed this platform check.
+      - name: Verify packaged pg0 lane and build platform release
+        run: ./scripts/ci-pg0-lane
+      - name: Archive macOS release
+        shell: bash
+        run: |
+          archive="cartulary-macos-${{ matrix.asset_arch }}.tar.gz"
+          tar -C _build/prod/rel -czf "/tmp/$archive" cartulary
+          cd /tmp
+          shasum -a 256 "$archive" > "$archive.sha256"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cartulary-release-macos-${{ matrix.asset_arch }}-${{ github.run_id }}
+          path: |
+            /tmp/cartulary-macos-${{ matrix.asset_arch }}.tar.gz
+            /tmp/cartulary-macos-${{ matrix.asset_arch }}.tar.gz.sha256
+          retention-days: 90
+
+  # Fan in all platform outputs only after every package has booted and passed its checks.
+  # `gh release create` uploads through a draft before publication, so the version appears
+  # only when all archives, checksums, and evaluation evidence are attached.
+  publish:
+    name: Publish GitHub Release
+    needs: [linux, macos]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: /tmp/cartulary-release
+          pattern: cartulary-release-*-${{ github.run_id }}
+          merge-multiple: true
       - name: Create GitHub Release and upload artifacts
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           tag="${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}"
           version="${tag#v}"
           image="ghcr.io/${GITHUB_REPOSITORY,,}:$version"
           assets=(
-            /tmp/cartulary-linux-x86_64.tar.gz
-            /tmp/cartulary-linux-x86_64.tar.gz.sha256
-            /tmp/cartulary-f11-release.json
+            /tmp/cartulary-release/cartulary-linux-x86_64.tar.gz
+            /tmp/cartulary-release/cartulary-linux-x86_64.tar.gz.sha256
+            /tmp/cartulary-release/cartulary-macos-arm64.tar.gz
+            /tmp/cartulary-release/cartulary-macos-arm64.tar.gz.sha256
+            /tmp/cartulary-release/cartulary-macos-x86_64.tar.gz
+            /tmp/cartulary-release/cartulary-macos-x86_64.tar.gz.sha256
+            /tmp/cartulary-release/cartulary-f11-release.json
           )
           release_args=(
             --verify-tag
@@ -205,4 +274,7 @@ jobs:
             release_args+=(--prerelease --latest=false)
           fi
 
+          for asset in "${assets[@]}"; do
+            test -s "$asset"
+          done
           gh release create "$tag" "${assets[@]}" "${release_args[@]}"

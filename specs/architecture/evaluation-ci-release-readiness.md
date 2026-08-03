@@ -73,11 +73,13 @@ Cartulary follows Semantic Versioning with a Keep-a-Changelog-style
 CI builds on every pull request and `main` push. The nightly workflow retains
 eval artifacts for comparison. A semantic tag repeats deterministic guardrails,
 validates the tag/eval/changelog tuple, builds the checksum-pinned Linux pg0
-package and container, attaches the archive, checksum, and evaluation report to
-a GitHub Release, and publishes the container to the repository's GHCR package.
-Publication happens only after every gate and build succeeds. Repository branch
-protection and required-check selection remain GitHub settings performed by a
-maintainer; the required job names are documented in the release checklist.
+package and container, then builds and boot-tests native macOS Apple Silicon and
+Intel packages. A fan-in job attaches all three archives, their checksums, and
+the evaluation report to a GitHub Release. The container is published to the
+repository's GHCR package. The GitHub Release appears only after every platform
+build succeeds. Repository branch protection and required-check selection
+remain GitHub settings performed by a maintainer; the required job names are
+documented in the release checklist.
 
 ## Evidence
 
