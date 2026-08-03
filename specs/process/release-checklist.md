@@ -52,14 +52,16 @@ mix cartulary.release.check \
 
 ## Publish
 
+- [ ] Run **Prepare and publish release** from `main`, entering the chosen
+  version without `v`. It commits the aligned metadata, creates `v<version>`,
+  and publishes the GitHub Release that starts the artifact workflow.
 - [ ] Configure `CARTULARY_RELEASE_SIGNING_KEY` as the protected base64 Ed25519
   private key matching the updater's embedded public key; never place it in the
   repository or a release asset.
-- [ ] In GitHub, create and publish a release for the gated `v<version>` tag,
-  using GitHub's generated release notes. The release workflow then runs every
-  gate, builds and boot-tests all packages, uploads their SHA-256 files and the
-  `f11-suite-1` report, and publishes the versioned GHCR container. Stable
-  releases also advance the container's `latest` tag.
+- [ ] Wait for the GitHub-Release-triggered workflow to run every gate, build
+  and boot-test all packages, upload their SHA-256 files and the `f11-suite-1`
+  report, and publish the versioned GHCR container. Stable releases also
+  advance the container's `latest` tag.
 
 GitHub rulesets should require:
 

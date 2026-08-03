@@ -86,6 +86,7 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
     ci = File.read!(".github/workflows/ci.yml")
     nightly = File.read!(".github/workflows/eval.yml")
     release = File.read!(".github/workflows/release.yml")
+    prepare_release = File.read!(".github/workflows/prepare-release.yml")
 
     # Each of these is a gate someone could delete to make a red build go green: schema-drift
     # detection, formatting, warnings-as-errors, the test suite, linting, type checking,
@@ -154,6 +155,14 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
     assert release =~ "rustup toolchain install"
     assert release =~ "actions/download-artifact@v8"
     assert release =~ "needs: [linux, macos, windows]"
+
+    # The manually-dispatched release preparer changes the metadata before it
+    # tags, then publishes the GitHub Release that invokes the artifact lane.
+    assert prepare_release =~ "workflow_dispatch:"
+    assert prepare_release =~ "replace_existing_release"
+    assert prepare_release =~ "mix cartulary.release.check"
+    assert prepare_release =~ "git push --atomic"
+    assert prepare_release =~ "gh release create"
   end
 
   test "entity and mention caches remain absent from every current public surface" do
