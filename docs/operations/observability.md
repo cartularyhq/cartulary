@@ -124,6 +124,12 @@ generated column no queue failure can lose.
 
 The current figures for any scope are also on
 [`/console/scopes`](../guides/web-console.md).
+Running `search` or `ask` in [`/console/tools`](../guides/web-console.md) also
+compares the scope's stored embedding identities with the configured query
+identity. `missing_embeddings`, `missing_mentions`, and `identity_mismatch`
+direct the operator to rebuild that scope's derived data. The diagnostic is
+restricted to the signed-in actor's readable scope and contains counts and
+model identity only.
 
 ## Traces are sampled; the ledger is exact
 

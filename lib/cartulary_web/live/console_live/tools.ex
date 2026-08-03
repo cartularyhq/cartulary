@@ -58,9 +58,11 @@ defmodule CartularyWeb.ConsoleLive.Tools do
     with {:ok, action} <- Map.fetch(@tool_actions, tool),
          input <- Ash.ActionInput.for_action(McpTools, action, action_arguments(action, params)),
          {:ok, result} <- run_action(input, socket.assigns.current_actor) do
+      browser_result = browser_result(tool, params, result, socket.assigns.current_actor)
+
       {:noreply,
        socket
-       |> assign(:result, %{tool: tool, json: Jason.encode!(result, pretty: true)})
+       |> assign(:result, %{tool: tool, json: Jason.encode!(browser_result, pretty: true)})
        |> clear_flash()}
     else
       _error ->
@@ -93,7 +95,7 @@ defmodule CartularyWeb.ConsoleLive.Tools do
       <.panel
         :if={@result}
         title={"Result · #{@result.tool}"}
-        description="The payload is the same value returned by the underlying MCP action. Content stays in this browser session."
+        description="The result includes the MCP action payload. Search and ask also include browser-only retrieval health for the selected scope."
       >
         <div class="result-head">
           <span class="badge state-active">completed</span>
@@ -326,6 +328,16 @@ defmodule CartularyWeb.ConsoleLive.Tools do
       end
     end)
   end
+
+  defp browser_result(tool, params, result, actor) when tool in ["search", "ask"] do
+    Map.put(
+      result,
+      :retrieval_health,
+      Loader.retrieval_health(actor, Map.get(params, "scope_path"))
+    )
+  end
+
+  defp browser_result(_tool, _params, result, _actor), do: result
 
   # Ash normally returns action failures as error tuples. These classes may be
   # raised by a downstream resource instead; keep the browser response equally
