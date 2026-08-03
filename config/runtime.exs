@@ -427,17 +427,24 @@ generation_options = %{
   "base_url" => env_get.("CARTULARY_OPENAI_COMPAT_BASE_URL", "https://openrouter.ai/api/v1"),
   "max_tokens" => env_integer.("CARTULARY_MODEL_MAX_TOKENS", "8192"),
   "reasoning_effort" => env_get.("CARTULARY_MODEL_REASONING_EFFORT", "low"),
-  "receive_timeout" => env_integer.("CARTULARY_MODEL_RECEIVE_TIMEOUT_MS", "120000")
+  "receive_timeout" => env_integer.("CARTULARY_MODEL_RECEIVE_TIMEOUT_MS", "120000"),
+  "request_timeout" => env_positive_integer!.("CARTULARY_MODEL_REQUEST_TIMEOUT_MS", "300000"),
+  "pool_timeout" => env_positive_integer!.("CARTULARY_MODEL_POOL_TIMEOUT_MS", "120000")
 }
 
-# ReqLLM shares this Finch pool across every hosted generation role. The normal
-# ingest queue has ten workers, so its own default of eight connections turns
-# ordinary parallel ingest into connection-pool queuing. Sixteen leaves room
-# for the other generation lanes; operators raising model-call concurrency
-# must raise this count too.
+# ReqLLM shares this Finch pool across every hosted generation role. Finch
+# chooses a shard randomly when `count` exceeds one, so capacity belongs in
+# `size`: one 16-connection shard handles the normal ten-worker ingest queue
+# without random one-connection-shard collisions. `count` is an escape hatch
+# for a measured single-shard bottleneck, not a capacity knob.
+model_stream_pool_size = env_positive_integer!.("CARTULARY_MODEL_STREAM_POOL_SIZE", "16")
+model_stream_pool_count = env_positive_integer!.("CARTULARY_MODEL_STREAM_POOL_COUNT", "1")
+model_pool_timeout = env_positive_integer!.("CARTULARY_MODEL_POOL_TIMEOUT_MS", "120000")
+
 config :req_llm,
-  stream_pool_size: 1,
-  stream_pool_count: env_positive_integer!.("CARTULARY_MODEL_STREAM_POOL_COUNT", "16")
+  stream_pool_size: model_stream_pool_size,
+  stream_pool_count: model_stream_pool_count,
+  stream_pool_timeout: model_pool_timeout
 
 # The four model roles. Any OpenAI-compatible endpoint, including a self-hosted
 # one, can serve the generation roles by pointing the base URL at it — no role is

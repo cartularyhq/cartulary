@@ -85,7 +85,10 @@ surfaces report the available version and retain their normal deployment flow.
 | `CARTULARY_MODEL_REASONING_EFFORT` | `low` | Reasoning-token budget shared by all three generation roles |
 | `CARTULARY_MODEL_MAX_TOKENS` | `8192` | Output-token cap shared by all three generation roles |
 | `CARTULARY_MODEL_RECEIVE_TIMEOUT_MS` | `120000` | Request timeout (ms) shared by all three generation roles |
-| `CARTULARY_MODEL_STREAM_POOL_COUNT` | `16` | Shared outbound HTTP connections for hosted generation roles |
+| `CARTULARY_MODEL_REQUEST_TIMEOUT_MS` | `300000` | Total model-call ceiling (ms) shared by all three generation roles |
+| `CARTULARY_MODEL_STREAM_POOL_SIZE` | `16` | Connections in each shared HTTP/1 shard |
+| `CARTULARY_MODEL_STREAM_POOL_COUNT` | `1` | Shared HTTP/1 shard count; raise only for a measured shard bottleneck |
+| `CARTULARY_MODEL_POOL_TIMEOUT_MS` | `120000` | Maximum wait (ms) to check out a model HTTP connection |
 | `CARTULARY_INGEST_QUEUE_LIMIT` | `10` | Concurrent extraction jobs per node |
 
 !!! warning "Reasoning models can blow the context window or time out without these"
@@ -97,14 +100,21 @@ surfaces report the available version and retain their normal deployment flow.
     `openai/gpt-oss-120b` and other vendors. Raise these values only when the
     chosen model requires it.
 
-`CARTULARY_MODEL_STREAM_POOL_COUNT` must cover concurrent hosted model calls,
-not just one role. The default covers the ten-worker ingest queue with room for
-the other generation lanes. Raise it with any higher ingest or model-call
-concurrency, subject to the provider's connection and rate limits.
+`CARTULARY_MODEL_RECEIVE_TIMEOUT_MS` bounds the wait between response chunks.
+`CARTULARY_MODEL_REQUEST_TIMEOUT_MS` bounds the whole call, including a stream
+that continues to send keep-alives. The five-minute default permits normal slow
+reasoning while ensuring a model request cannot run without a wall-clock limit.
+
+`CARTULARY_MODEL_STREAM_POOL_SIZE` must cover concurrent hosted model calls,
+not just one role. Finch chooses a shard randomly when the count exceeds one,
+so use `size` to add capacity and leave
+`CARTULARY_MODEL_STREAM_POOL_COUNT=1` unless telemetry shows a single shard is
+the bottleneck. `CARTULARY_MODEL_POOL_TIMEOUT_MS` is the maximum checkout wait
+and defaults to the model receive timeout.
 
 For 100 parallel ingestion flows on one node, set
 `CARTULARY_INGEST_QUEUE_LIMIT=100` and
-`CARTULARY_MODEL_STREAM_POOL_COUNT=128`, then validate the provider's
+`CARTULARY_MODEL_STREAM_POOL_SIZE=128`, then validate the provider's
 concurrency/rate limits and the database pool under representative load.
 
 There are exactly four Account-level model roles: `embedder`,
