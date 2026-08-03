@@ -1,55 +1,51 @@
 # SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
 #
-# Release readiness: the gate for a tagged version, and the producer of its artifacts.
+# Release: the gate and publisher for a tagged version.
 #
 # Purpose
 #   Repeat every blocking check against the exact tagged commit, confirm that the tag, the
 #   declared version, the changelog, the shipped documentation, and the evaluation evidence
-#   all describe the same release, then build the Linux release archive with its checksum
-#   and rebuild the container image.
+#   all describe the same release, then build verified Linux, macOS, and Windows packages
+#   with their checksums and rebuild the container image.
 #
 # Why the checks are repeated rather than trusted from the merge gate
 #   The merge gate ran on a pull request's merge preview, not on the tagged commit. A tag
 #   can point anywhere. Everything that must be true of the released bytes is therefore
 #   re-established here from the tag itself.
 #
-# Triggers
-#   Pushing a tag shaped `v<major>.<minor>.<patch>`, or a manual run naming an existing tag
-#   to validate.
-#
-# Inputs
-#   tag (manual runs only) — an existing tag to check out and validate. No secrets.
+# Trigger
+#   Publishing a GitHub Release for an existing semantic tag. GitHub owns the release notes;
+#   this workflow validates that tag and attaches every generated artifact to that release.
 #
 # Outputs
-#   One artifact bundle retained for 90 days: the Linux release tarball, its SHA-256, and
-#   the evaluation report for this version.
-#
-# What this workflow deliberately does NOT do
-#   It does not create a GitHub Release and it does not push a container image. Permissions
-#   here are read-only. Publishing is a separate, explicit human action, so an accidental
-#   or malicious tag push cannot ship anything to users.
-name: Release readiness
+#   A GitHub Release holding Linux x86_64, macOS Apple Silicon, macOS Intel, and Windows
+#   x86_64 packages, their SHA-256 files, and the evaluation report; plus the tagged
+#   production container in this repository's GHCR package.
+name: Release
 
 on:
-  push:
-    tags: ["v*.*.*"]
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: Existing semantic release tag to validate
-        required: true
-        type: string
+  release:
+    types: [published]
 
 permissions:
   contents: read
 
+concurrency:
+  # Retries for the same GitHub Release share its tag-specific publication lock.
+  group: release-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
 jobs:
-  # One job rather than the parallel lanes used for merges. A release is infrequent and
-  # sequential clarity is worth more here than elapsed time: the first failure stops the
-  # release outright.
-  release:
+  # Establish every release guardrail once on Linux, verify and retain that package, and
+  # publish the container. The macOS builds wait for this job so scarce runner time is not
+  # spent on a tag that fails metadata, evaluation, parity, or security checks.
+  linux:
+    name: Validate and build Linux x86_64
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
     services:
       postgres:
         image: pgvector/pgvector:pg18-bookworm
@@ -71,12 +67,11 @@ jobs:
       # embedded historical tag is only part of the name and means nothing here.
       CARTULARY_TEST_DATABASE_URL: ecto://postgres:postgres@127.0.0.1:5432/cartulary_f11_release
     steps:
-      # Explicit ref: a manual run validates the tag it was given, a tag push validates
-      # itself. Without this a manual run would check out the default branch and certify a
-      # commit that is not the one being released.
+      # Explicit ref: the event workflow itself may be read from the default branch, while
+      # the release checks must certify the commit selected by this GitHub Release's tag.
       - uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ github.event.release.tag_name }}
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "27"
@@ -113,7 +108,7 @@ jobs:
       - name: Validate tag, changelog, and eval guardrails
         shell: bash
         run: |
-          tag="${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}"
+          tag="${{ github.event.release.tag_name }}"
           mix cartulary.release.check --tag "$tag" --eval-report /tmp/cartulary-f11-release.json
       # Dual purpose, and the ordering matters. This packages the release with the pinned,
       # checksum-verified embedded PostgreSQL, boots it from an empty data root, waits for
@@ -126,17 +121,163 @@ jobs:
       - run: tar -C _build/prod/rel -czf /tmp/cartulary-linux-x86_64.tar.gz cartulary
       # The digest is published with the archive so a downloader can verify the bytes they
       # received are the bytes this run produced.
-      - run: shasum -a 256 /tmp/cartulary-linux-x86_64.tar.gz > /tmp/cartulary-linux-x86_64.tar.gz.sha256
-      # Built to prove it builds from the tagged commit. It is tagged locally and not
-      # pushed; see the note at the top about publishing being a separate human action.
-      - run: docker build --tag cartulary:release .
-      # Longer retention than the nightly reports: these are the release's own evidence and
-      # need to outlive the next few weeks of development.
+      - run: cd /tmp && shasum -a 256 cartulary-linux-x86_64.tar.gz > cartulary-linux-x86_64.tar.gz.sha256
+      # Build once, then publish that exact local image under semantic-version and source-tag
+      # names. Stable releases also advance `latest`; prereleases never do.
+      - name: Build and publish production container
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ github.event.release.tag_name }}"
+          version="${tag#v}"
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          revision=$(git rev-parse HEAD)
+
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker build \
+            --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --label "org.opencontainers.image.revision=$revision" \
+            --label "org.opencontainers.image.version=$version" \
+            --tag "$image:$version" \
+            --tag "$image:$tag" \
+            .
+          docker push "$image:$version"
+          docker push "$image:$tag"
+
+          if [[ "$version" != *-* ]]; then
+            docker tag "$image:$version" "$image:latest"
+            docker push "$image:latest"
+          fi
+      # Keep a workflow-run copy for debugging and make the durable, versioned copies GitHub
+      # Release assets in the final step below.
       - uses: actions/upload-artifact@v7
         with:
-          name: cartulary-release-${{ github.run_id }}
+          name: cartulary-release-linux-x86_64-${{ github.run_id }}
           path: |
             /tmp/cartulary-linux-x86_64.tar.gz
             /tmp/cartulary-linux-x86_64.tar.gz.sha256
             /tmp/cartulary-f11-release.json
           retention-days: 90
+
+  # A Mix release contains ERTS and native libraries, so one Mac archive cannot serve both
+  # CPU families. Build and boot-test on the matching native GitHub runner instead of cross
+  # compiling or asking Apple Silicon users to install Rosetta.
+  macos:
+    name: Build macOS ${{ matrix.asset_arch }}
+    needs: linux
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-26
+            machine_arch: arm64
+            asset_arch: arm64
+          - runner: macos-26-intel
+            machine_arch: x86_64
+            asset_arch: x86_64
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          elixir-version: "1.18"
+      - name: Confirm native runner architecture
+        run: test "$(uname -m)" = "${{ matrix.machine_arch }}"
+      - run: mix deps.get
+      # This builds the package, boots its embedded pg0 from an empty data root, waits for
+      # readiness, and runs the full test suite against that database. The archive below is
+      # made from the exact release that passed this platform check.
+      - name: Verify packaged pg0 lane and build platform release
+        run: ./scripts/ci-pg0-lane
+      - name: Archive macOS release
+        shell: bash
+        run: |
+          archive="cartulary-macos-${{ matrix.asset_arch }}.tar.gz"
+          tar -C _build/prod/rel -czf "/tmp/$archive" cartulary
+          cd /tmp
+          shasum -a 256 "$archive" > "$archive.sha256"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cartulary-release-macos-${{ matrix.asset_arch }}-${{ github.run_id }}
+          path: |
+            /tmp/cartulary-macos-${{ matrix.asset_arch }}.tar.gz
+            /tmp/cartulary-macos-${{ matrix.asset_arch }}.tar.gz.sha256
+          retention-days: 90
+
+  # Windows packaging has its own PowerShell verification because the release
+  # launcher and pg0 executable are native Windows binaries. It proves the same
+  # cold-boot/readiness/full-suite contract as the Unix lanes before publishing.
+  windows:
+    name: Build Windows x86_64
+    needs: linux
+    runs-on: windows-2025
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          elixir-version: "1.18"
+      - run: mix deps.get
+      - name: Verify packaged pg0 lane and build Windows release
+        shell: pwsh
+        run: .\scripts\ci-pg0-lane.ps1
+      - name: Archive Windows release
+        shell: pwsh
+        run: |
+          $archive = "cartulary-windows-x86_64.zip"
+          $release = "_build\prod\rel\cartulary"
+          Compress-Archive -Path $release -DestinationPath (Join-Path $env:TEMP $archive)
+          $hash = (Get-FileHash -Algorithm SHA256 (Join-Path $env:TEMP $archive)).Hash.ToLowerInvariant()
+          "$hash  $archive" | Set-Content -NoNewline (Join-Path $env:TEMP "$archive.sha256")
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cartulary-release-windows-x86_64-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/cartulary-windows-x86_64.zip
+            ${{ runner.temp }}/cartulary-windows-x86_64.zip.sha256
+          retention-days: 90
+
+  # Fan in all platform outputs only after every package has booted and passed its checks,
+  # then add them to the GitHub Release the maintainer published to start this workflow.
+  publish:
+    name: Publish release artifacts
+    needs: [linux, macos, windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: /tmp/cartulary-release
+          pattern: cartulary-release-*-${{ github.run_id }}
+          merge-multiple: true
+      - name: Upload generated artifacts to GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          tag="${{ github.event.release.tag_name }}"
+          assets=(
+            /tmp/cartulary-release/cartulary-linux-x86_64.tar.gz
+            /tmp/cartulary-release/cartulary-linux-x86_64.tar.gz.sha256
+            /tmp/cartulary-release/cartulary-macos-arm64.tar.gz
+            /tmp/cartulary-release/cartulary-macos-arm64.tar.gz.sha256
+            /tmp/cartulary-release/cartulary-macos-x86_64.tar.gz
+            /tmp/cartulary-release/cartulary-macos-x86_64.tar.gz.sha256
+            /tmp/cartulary-release/cartulary-windows-x86_64.zip
+            /tmp/cartulary-release/cartulary-windows-x86_64.zip.sha256
+            /tmp/cartulary-release/cartulary-f11-release.json
+          )
+          for asset in "${assets[@]}"; do
+            test -s "$asset"
+          done
+          gh release upload "$tag" "${assets[@]}" --clobber

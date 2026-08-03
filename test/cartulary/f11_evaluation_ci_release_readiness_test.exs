@@ -119,10 +119,33 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
     assert nightly =~ "schedule:"
     assert nightly =~ "mix ecto.create"
     assert nightly =~ "mix ecto.migrate"
-    # Releases are triggered by a semantic version tag and repeat the packaged-database lane
-    # on the tagged commit, so the artifact is built from verified code.
-    assert release =~ "tags: [\"v*.*.*\"]"
+    # Publishing a GitHub Release selects the existing semantic tag. A tag push alone
+    # cannot ship an artifact, while the release still validates the selected commit.
+    assert release =~ "types: [published]"
+    refute release =~ "tags: [\"v*.*.*\"]"
     assert release =~ "./scripts/ci-pg0-lane"
+
+    # Successful GitHub Release runs retain both distribution paths in GitHub. Release assets
+    # are durable and version-scoped; the container uses the repository package instead of a
+    # long-lived registry credential.
+    assert release =~ "contents: write"
+    assert release =~ "packages: write"
+    assert release =~ "gh release upload"
+    assert release =~ "docker push"
+    assert release =~ "ghcr.io/${GITHUB_REPOSITORY,,}"
+    assert release =~ "if [[ \"$version\" != *-* ]]"
+    assert release =~ "github.event.release.tag_name"
+    # Every native package needs matching ERTS, NIFs, and pg0 binaries. The fan-in attaches
+    # artifacts only after every platform lane has uploaded its checksum.
+    assert release =~ "runner: macos-26"
+    assert release =~ "runner: macos-26-intel"
+    assert release =~ "cartulary-macos-arm64.tar.gz"
+    assert release =~ "cartulary-macos-x86_64.tar.gz"
+    assert release =~ "windows-2025"
+    assert release =~ "cartulary-windows-x86_64.zip"
+    assert release =~ ".\\scripts\\ci-pg0-lane.ps1"
+    assert release =~ "actions/download-artifact@v8"
+    assert release =~ "needs: [linux, macos, windows]"
   end
 
   test "entity and mention caches remain absent from every current public surface" do
@@ -147,6 +170,26 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
     refute router =~ ":mention"
     refute sdk =~ "entity_id"
     refute sdk =~ "entitymention"
+  end
+
+  test "release installation docs select and verify every published platform archive" do
+    install = File.read!("docs/getting-started/install-release.md")
+
+    for archive <- [
+          "cartulary-linux-x86_64.tar.gz",
+          "cartulary-macos-arm64.tar.gz",
+          "cartulary-macos-x86_64.tar.gz",
+          "cartulary-windows-x86_64.zip"
+        ] do
+      assert install =~ archive
+    end
+
+    assert install =~ "shasum -a 256 -c"
+    assert install =~ "sha256sum -c"
+    assert install =~ "bin/server"
+    assert install =~ "Get-FileHash"
+    assert install =~ "server.bat"
+    assert install =~ "Open Anyway"
   end
 
   test "surface inventory gates shipped contracts and fails closed around the integration-surfaces boundary" do

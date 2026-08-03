@@ -70,15 +70,18 @@ generation can use any ReqLLM-supported or OpenAI-compatible endpoint.
 
 ### Downloaded release
 
-Unpack the release and run:
+Download the archive and `.sha256` file for Linux x86_64, macOS Apple Silicon,
+macOS Intel, or Windows x86_64 from [GitHub Releases](https://github.com/cartularyhq/cartulary/releases).
+Verify the checksum, unpack the archive, then run:
 
 ```bash
 bin/server
 curl -fsS http://127.0.0.1:4000/api/ready
 ```
 
-Use `bin\server.bat` on Windows. The launcher creates its data directory,
-starts pg0, migrates the database, and starts the API.
+The launcher creates its data directory, starts pg0, migrates the database, and
+starts the API. The [release installation guide](https://cartularyhq.github.io/cartulary/getting-started/install-release/)
+has architecture selection, download, checksum, Windows, and macOS Gatekeeper steps.
 
 ### Source checkout
 

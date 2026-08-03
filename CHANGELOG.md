@@ -11,6 +11,11 @@ changelog entry and contract-version transition.
 
 ### Added
 
+- GitHub Release publication now builds native Linux x86_64, macOS Apple
+  Silicon, macOS Intel, and Windows x86_64 packages and their SHA-256 files are attached to a
+  GitHub Release with the evaluation report, while the production container is
+  published to the repository's GHCR package. The installation guide explains
+  how to choose, download, verify, unpack, and run these artifacts.
 - `get_context` now includes scope-bounded `entity_cards` for resolved entities
   with at least three active governed source statements. Each background-built
   card carries a bounded summary, its model provenance, the strictest source

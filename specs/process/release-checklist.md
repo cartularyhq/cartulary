@@ -52,12 +52,11 @@ mix cartulary.release.check \
 
 ## Publish
 
-- [ ] Tag the gated commit exactly `v<version>`.
-- [ ] Retain the `f11-suite-1` report and artifact SHA-256 with the release.
-- [ ] Verify the unpacked pg0 package and container both return readiness.
-- [ ] Exercise authenticated ingest, governed read, export, and fresh import.
-- [ ] Keep the prior package and verified database/blob backups until the
-  upgrade checks complete.
+- [ ] In GitHub, create and publish a release for the gated `v<version>` tag,
+  using GitHub's generated release notes. The release workflow then runs every
+  gate, builds and boot-tests all packages, uploads their SHA-256 files and the
+  `f11-suite-1` report, and publishes the versioned GHCR container. Stable
+  releases also advance the container's `latest` tag.
 
 GitHub rulesets should require:
 
