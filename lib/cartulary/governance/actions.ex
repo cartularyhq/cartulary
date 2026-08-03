@@ -145,10 +145,10 @@ defmodule Cartulary.Governance.Actions.ResolveValidation do
 
     case Cartulary.Governance.PeerQueue.resolve(
            context.actor,
-           arguments.id,
-           arguments.verdict,
-           arguments.shown_text,
-           arguments.correction_text
+           Map.fetch!(arguments, :id),
+           Map.fetch!(arguments, :verdict),
+           Map.get(arguments, :shown_text),
+           Map.get(arguments, :correction_text)
          ) do
       {:ok, result} -> {:ok, Map.new(result)}
       {:error, :not_found} -> {:error, "not found"}
@@ -190,11 +190,11 @@ defmodule Cartulary.Governance.Actions.SetAskPreference do
     # which is either discarded for being no later than an existing pause or stored as one that
     # has already elapsed; neither outcome extends a peer's quiet period.
     attrs = %{
-      max_per_session: args.max_per_session,
-      max_per_day: args.max_per_day,
+      max_per_session: Map.get(args, :max_per_session),
+      max_per_day: Map.get(args, :max_per_day),
       paused_until:
-        if(is_integer(args.pause_for_hours),
-          do: DateTime.add(Clock.utc_now(), max(args.pause_for_hours, 0), :hour)
+        if(is_integer(Map.get(args, :pause_for_hours)),
+          do: DateTime.add(Clock.utc_now(), max(Map.fetch!(args, :pause_for_hours), 0), :hour)
         )
     }
 

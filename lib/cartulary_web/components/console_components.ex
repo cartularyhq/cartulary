@@ -242,6 +242,7 @@ defmodule CartularyWeb.ConsoleComponents do
       %{key: :graph, label: "Graph", glyph: "⁂", path: "/console/graph"},
       %{key: :sources, label: "Sources", glyph: "❑", path: "/console/sources"},
       %{key: :skills, label: "Skills", glyph: "◈", path: "/console/skills"},
+      %{key: :tools, label: "Tool workbench", glyph: "⌘", path: "/console/tools"},
       %{key: :me, label: "About me", glyph: "☺", path: "/console/me"}
     ]
 

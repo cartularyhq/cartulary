@@ -91,6 +91,7 @@ defmodule CartularyWeb.Router do
       live "/console/graph", ConsoleLive.Graph, :index
       live "/console/sources", ConsoleLive.Sources, :index
       live "/console/skills", ConsoleLive.Skills, :index
+      live "/console/tools", ConsoleLive.Tools, :index
       live "/console/me", ConsoleLive.Me, :index
       live "/console/operations", ConsoleLive.Operations, :index
     end

@@ -50,6 +50,7 @@ Both sign-in forms create the same role-limited session.
 | `/console/graph` | any human session | Scopes and statements drawn as a graph |
 | `/console/sources` | any human session | Documents, versions, connectors, observations |
 | `/console/skills` | any human session | Skill cards and a readiness check |
+| `/console/tools` | any human session | Forms for every MCP tool and the latest result payload |
 | `/console/me` | any human session | Statements about you, consent, erasure |
 | `/console/operations` | account-admin | Readiness, usage, entity-resolution aggregates, gate rules, retrieval tunings |
 | `/governance/sign-in` | none | Curator sign-in |

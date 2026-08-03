@@ -254,7 +254,7 @@ Details: `specs/architecture/evaluation-ci-release-readiness.md` and
 - `GET /` redirect, `GET`/`POST /sign-in`, `DELETE /sign-out`
 - `/console`, `/console/knowledge`, `/console/knowledge/:id`,
   `/console/scopes`, `/console/graph`, `/console/sources`, `/console/skills`,
-  `/console/me` — any human password session, every role
+  `/console/tools`, `/console/me` — any human password session, every role
 - `/console/operations` — account-admin only
 - `/governance/sign-in` and `/governance` LiveView — curator or account-admin
   password sessions only
