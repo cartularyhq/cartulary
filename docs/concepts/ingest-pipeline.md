@@ -122,10 +122,12 @@ Portability and reconciliation are serialised to one at a time because each
 walks an entire Account.
 
 `CARTULARY_INGEST_QUEUE_LIMIT` changes the ingest limit at boot. It must be
-paired with a `CARTULARY_MODEL_STREAM_POOL_COUNT` at least as large as the
-expected concurrent hosted model calls. For 100 parallel ingestion flows on one
-node, set the queue to `100` and the stream pool to `128`, then confirm the
-provider and database can sustain that load.
+paired with a `CARTULARY_MODEL_STREAM_POOL_SIZE` at least as large as the
+expected concurrent hosted model calls. Keep the stream-pool count at `1`:
+Finch chooses among multiple shards randomly, so one shard with enough capacity
+does not create an avoidable queue behind a busy shard. For 100 parallel
+ingestion flows on one node, set the queue to `100` and the stream-pool size to
+`128`, then confirm the provider and database can sustain that load.
 
 Background jobs run through Ash actions **with authorisation on**, exactly like
 an HTTP caller. A job is not a privilege-escalation path.

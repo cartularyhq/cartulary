@@ -46,7 +46,7 @@ defmodule Cartulary.Model.Providers.ReqLLM do
   # output — capping `max_tokens` alone only truncates a call after that
   # spend already happened.
   @request_option_keys ~w(
-    base_url max_tokens max_retries receive_timeout temperature top_p reasoning_effort
+    base_url max_tokens max_retries pool_timeout receive_timeout temperature top_p reasoning_effort
   )a
 
   @doc """
