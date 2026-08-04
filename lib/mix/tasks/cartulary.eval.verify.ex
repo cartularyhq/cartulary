@@ -33,7 +33,7 @@ defmodule Mix.Tasks.Cartulary.Eval.Verify do
       _report -> Report.validate!(report)
     end
 
-    Mix.shell().info("valid f11-1 evaluation evidence: #{path}")
+    Mix.shell().info("valid evaluation evidence: #{path}")
   end
 
   # Any argument list other than a single path is a caller mistake, not a default-path

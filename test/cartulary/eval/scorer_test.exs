@@ -48,6 +48,29 @@ defmodule Cartulary.Eval.ScorerTest do
     assert score["rag_triad_method"] == "deterministic-lexical-f11-1"
   end
 
+  test "ranks evidence independently from answer citations" do
+    question = %{evidence_refs: ["D1:1", "D2:4"]}
+
+    score =
+      Scorer.retrieval_score(
+        question,
+        [["D9:9"], ["D2:4"], ["D1:1"]],
+        [1, 2, 10]
+      )
+
+    assert score["expected_evidence_refs"] |> Enum.sort() == ["D1:1", "D2:4"]
+    assert score["first_supporting_rank"] == 2
+    assert score["recall_at_k"] == %{"1" => 0.0, "2" => 0.5, "10" => 1.0}
+    refute score["evidence_absent"]
+
+    # A retrieved item can be ranked correctly even when generation cites nothing.
+    assert Scorer.retrieval_score(question, [["D1:1"]], [10])["first_supporting_rank"] == 1
+
+    summary = Scorer.summarize([score])
+    assert summary["retrieval"]["mean_first_supporting_rank"] == 2.0
+    assert summary["retrieval"]["recall_at_k"]["2"] == 0.5
+  end
+
   # Declining is the correct behaviour for an unanswerable question, so it has
   # to score as correct. Note the two independent routes to `abstained`: the
   # runner can set the flag explicitly, and a reply that reads as a

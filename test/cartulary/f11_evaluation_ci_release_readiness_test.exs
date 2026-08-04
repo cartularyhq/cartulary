@@ -360,4 +360,44 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
       }
     }
   end
+
+  test "f11-2 requires balanced one-time accounting while reading f11-1 remains compatible" do
+    legacy = valid_report()
+    assert Cartulary.Eval.Report.validate(legacy) == :ok
+
+    current =
+      legacy
+      |> Map.put("report_schema", "f11-2")
+      |> Map.merge(%{
+        "available" => 5,
+        "sampled" => 5,
+        "attempted" => 4,
+        "evaluated" => 2,
+        "skipped" => 1,
+        "failed" => 1,
+        "cancelled" => 1
+      })
+      |> Map.put("accounting", %{
+        "available" => 5,
+        "sampled" => 5,
+        "attempted" => 4,
+        "evaluated" => 2,
+        "skipped" => 1,
+        "failed" => 1,
+        "cancelled" => 1,
+        "items" => [
+          %{"id" => "a", "status" => "evaluated"},
+          %{"id" => "b", "status" => "evaluated"},
+          %{"id" => "c", "status" => "skipped", "reason" => "filtered"},
+          %{"id" => "d", "status" => "failed", "reason" => "adapter_error"},
+          %{"id" => "e", "status" => "cancelled", "reason" => "cancelled"}
+        ]
+      })
+
+    assert Cartulary.Eval.Report.validate(current) == :ok
+
+    invalid = put_in(current, ["accounting", "items", Access.at(4), "id"], "d")
+    assert {:error, errors} = Cartulary.Eval.Report.validate(invalid)
+    assert Enum.any?(errors, &String.contains?(&1, "accounting"))
+  end
 end
