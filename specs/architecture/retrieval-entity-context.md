@@ -164,14 +164,17 @@ resource action exposes the caches. Erasure removes affected mentions,
 recomputes/prunes entities, and rebuilds affected projections. Logical import
 excludes the cache and recreates it from governed statements.
 
-Two diagnostic projections preserve that rule. `/console/operations` reports
+Three diagnostic projections preserve that rule. `/console/operations` reports
 Account-wide counts, an observed-alias histogram, singleton-entity rate, and
 mentions-per-entity p50/p95 to a password-authenticated account administrator.
 `/console/knowledge/:id` asks the store only for the count and capped ids of
 co-mentioned statements after applying the reader's authorized scope and
 console lifecycle filters, then loads those statements through the ordinary
-Ash read policy. Neither path returns an entity or mention row to the web
-layer.
+Ash read policy. `/console/graph` asks the store to group the statements it has
+already authorized into shared-entity clusters, which returns member-id arrays
+only: the entity id is a grouping key, singleton groups are dropped, and
+identically-membered groups collapse so the number of resolved entities stays
+private. No path returns an entity or mention row to the web layer.
 
 ## Context projections
 

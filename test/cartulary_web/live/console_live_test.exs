@@ -678,6 +678,218 @@ defmodule CartularyWeb.ConsoleLiveTest do
     end
   end
 
+  describe "the scoped graph" do
+    setup [:seed_world]
+
+    test "opens on the shallowest readable scope rather than the whole tree", %{
+      conn: conn,
+      admin: admin,
+      admin_token: token,
+      statement: statement
+    } do
+      admin = Identity.refresh_actor(admin)
+      data = Loader.graph(admin)
+
+      assert data.focus.path == "/"
+      assert data.parent == nil
+      assert Enum.map(data.children, & &1.path) == ["/console-test"]
+      # The child is a drill-down target, not a container: its statements belong
+      # to the view you reach by entering it.
+      assert data.knowledge == []
+
+      html = conn |> sign_in(token) |> get("/console/graph") |> html_response(200)
+
+      assert html =~ "This is the highest scope you can read."
+      assert html =~ "Inside this scope:"
+      refute html =~ statement
+    end
+
+    test "the focus travels in the URL and survives a reload", %{
+      conn: conn,
+      admin_token: token,
+      statement: statement
+    } do
+      html =
+        conn
+        |> sign_in(token)
+        |> get("/console/graph?scope=%2Fconsole-test")
+        |> html_response(200)
+
+      assert html =~ "Up to /"
+      assert html =~ statement
+    end
+
+    test "drilling into a child and back up rewrites the URL", %{conn: conn, admin_token: token} do
+      {:ok, view, _html} = live(sign_in(conn, token), "/console/graph")
+
+      view
+      |> element(".graph-children button[phx-value-scope='/console-test']")
+      |> render_click()
+
+      assert_patched(view, "/console/graph?scope=%2Fconsole-test")
+      assert render(view) =~ "Up to /"
+
+      view |> element("button", "Up to /") |> render_click()
+
+      assert_patched(view, "/console/graph?scope=%2F")
+      assert render(view) =~ "This is the highest scope you can read."
+    end
+
+    test "descendants are an explicit option, not the default", %{
+      conn: conn,
+      admin: admin,
+      admin_token: token,
+      statement: statement
+    } do
+      admin = Identity.refresh_actor(admin)
+
+      refute Loader.graph(admin).descendants?
+      assert Loader.graph(admin, descendants?: true).descendants?
+
+      html =
+        conn
+        |> sign_in(token)
+        |> get("/console/graph?descendants=1")
+        |> html_response(200)
+
+      # The root holds no statement of its own; the subtree's statement appears
+      # only because descendants were asked for.
+      assert html =~ statement
+    end
+
+    test "a shared entity becomes an anonymous hub linking readable statements", %{
+      conn: conn,
+      admin: admin,
+      admin_token: token,
+      knowledge_id: knowledge_id
+    } do
+      neighbor =
+        ingest_statement!(
+          admin,
+          "console-graph-shared",
+          "/console-test",
+          "The release owner publishes the weekly checklist."
+        )
+
+      activate_knowledge!(admin, [knowledge_id, neighbor.id])
+      link_shared_entity!(admin, [knowledge_id, neighbor.id])
+      admin = Identity.refresh_actor(admin)
+
+      data = Loader.graph(admin, scope: "/console-test")
+
+      assert [cluster] = data.clusters
+      assert cluster.label == "Shared entity 1"
+      assert Enum.sort(cluster.knowledge_ids) == Enum.sort([knowledge_id, neighbor.id])
+      refute data.clusters_truncated?
+      # The ordinal is the whole identity a cluster has; nothing carries the
+      # entity row it was grouped by.
+      refute Map.has_key?(cluster, :entity_id)
+
+      html =
+        conn
+        |> sign_in(token)
+        |> get("/console/graph?scope=%2Fconsole-test")
+        |> html_response(200)
+
+      assert html =~ "node-cluster"
+      assert html =~ "Shared entity 1"
+      refute html =~ "NeverRenderSharedEntity71"
+      refute html =~ "NeverRenderSharedSurface71"
+    end
+
+    test "a hub never reaches a statement outside the drawn scope", %{
+      conn: conn,
+      admin: admin,
+      admin_token: token,
+      knowledge_id: knowledge_id
+    } do
+      hidden =
+        ingest_statement!(
+          admin,
+          "console-graph-hidden",
+          "/console-hidden",
+          "The private review also names the release owner."
+        )
+
+      activate_knowledge!(admin, [knowledge_id, hidden.id])
+      link_shared_entity!(admin, [knowledge_id, hidden.id])
+      admin = Identity.refresh_actor(admin)
+
+      # Both statements share an entity and the admin may read both, but only
+      # one is in the drawn scope. A cluster of one member is not a
+      # relationship, so nothing is drawn rather than a hub with a stub line.
+      assert Loader.graph(admin, scope: "/console-test").clusters == []
+
+      html =
+        conn
+        |> sign_in(token)
+        |> get("/console/graph?scope=%2Fconsole-test")
+        |> html_response(200)
+
+      refute html =~ hidden.statement
+    end
+
+    test "a member sees only the scope they hold and no path they do not", %{
+      conn: conn,
+      member_token: member_token
+    } do
+      assert {:ok, member} = Identity.authenticate_bearer(member_token)
+      data = Loader.graph(member)
+
+      assert data.focus.path == "/"
+      assert data.children == []
+      assert data.knowledge == []
+
+      # An unauthorized path in the URL narrows to a readable scope rather than
+      # widening, and never reports whether the requested path exists.
+      assert Loader.graph(member, scope: "/console-test").focus.path == "/"
+
+      html =
+        conn
+        |> sign_in(member_token)
+        |> get("/console/graph?scope=%2Fconsole-test")
+        |> html_response(200)
+
+      refute html =~ "/console-test"
+      assert html =~ "No scope below this one is readable"
+    end
+
+    test "a truncated scope says so and points at the explorer", %{
+      conn: conn,
+      admin: admin,
+      admin_token: token
+    } do
+      admin = Identity.refresh_actor(admin)
+
+      ingest_statement!(
+        admin,
+        "console-graph-second",
+        "/console-test",
+        "The release owner publishes the weekly checklist."
+      )
+
+      data = Loader.graph(admin, scope: "/console-test", limit: 1)
+
+      assert data.shown == 1
+      assert data.total == 2
+      assert data.truncated?
+
+      html =
+        conn
+        |> sign_in(token)
+        |> get("/console/graph?scope=%2Fconsole-test")
+        |> html_response(200)
+
+      # The page's own cap is far above two statements, so this render is the
+      # honest untruncated case and must not claim otherwise. The route out to
+      # the explorer is offered either way, because a graph is never the
+      # complete list.
+      refute html =~ "most confident first"
+      assert html =~ "Open this scope in the explorer"
+      assert html =~ "/console/knowledge?scope=%2Fconsole-test"
+    end
+  end
+
   describe "the knowledge explorer" do
     setup [:seed_world]
 

@@ -19,6 +19,22 @@ changelog entry and contract-version transition.
   metered, or logged. Bounded repair remains the safety net. Extracted
   provenance records prompt `extract-2`; the pipeline contract remains `f5-1`.
 
+### Changed
+
+- `/console/graph` is now a scoped explorer rather than a global picture. It
+  opens on one scope, keeps that scope and the descendants option in the URL,
+  and offers a breadcrumb, a parent control, and chips for the readable scopes
+  below it. Ancestors, parents, and children are the scopes the reader may read;
+  an unreadable scope in the middle of the tree is skipped rather than named,
+  and an unknown or unauthorized `scope` narrows to the shallowest readable
+  scope instead of widening to everything. Statements that resolved to the same
+  entity are drawn as an anonymous hub labelled by an ordinal: the entity id,
+  canonical name, aliases, and surface forms remain unexposed, a group needs two
+  readable statements in the drawn scope, and identically-membered groups
+  collapse so the number of resolved entities stays private. Statement and hub
+  caps are reported, and every view links to the knowledge explorer for the
+  complete list.
+
 ### Added
 
 - The tool workbench at `/console/tools` now offers account administrators a

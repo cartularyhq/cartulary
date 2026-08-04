@@ -47,7 +47,7 @@ Both sign-in forms create the same role-limited session.
 | `/console/knowledge` | any human session | Knowledge explorer, filters and retrieval preview |
 | `/console/knowledge/:id` | any human session | One statement: evidence, history, readable co-mention links, available actions |
 | `/console/scopes` | any human session | Scope directory, relations, role grants |
-| `/console/graph` | any human session | Scopes and statements drawn as a graph |
+| `/console/graph` | any human session | One scope drawn as a graph; `scope` selects it, `descendants=1` adds its subtree |
 | `/console/sources` | any human session | Documents, versions, connectors, observations |
 | `/console/skills` | any human session | Skill cards and a readiness check |
 | `/console/tools` | any human session | Forms for every MCP tool and the latest result payload |
