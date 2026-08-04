@@ -11,6 +11,15 @@ changelog entry and contract-version transition.
 
 ### Fixed
 
+- Lexical search now normalizes question-shaped queries through the versioned
+  `lexical-question-v1` analyzer. It drops a reviewed interrogative set, keeps
+  names, dates, negation, and quoted text, expands only the explicit
+  `destress`/`stress`/`relax`/`calming`/`therapeutic` group, and adds a bounded
+  proximity bonus for terms that fall within eight lexemes of each other in
+  either order. The bonus is scored over a base-ranked shortlist so a broad
+  query keeps its deadline budget. The content-free retrieval diagnostic records
+  the analyzer identity; query text never enters diagnostics or telemetry. The
+  retrieval contract remains `f7-1`.
 - Extraction now requests `confidence_percentage` through native strict JSON
   Schema as an integer from `1` through `100`, with concise reasoning and the
   candidate statement preceding it. Validation strips non-digits defensively,

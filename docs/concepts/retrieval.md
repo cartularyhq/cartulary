@@ -35,9 +35,13 @@ does not need every content word to appear in one statement.
 For English questions, the lexical analyzer (`lexical-question-v1`) removes a
 small reviewed set of interrogative boilerplate and adds only the explicit
 `destress` / `stress` / `relax` / `calming` / `therapeutic` synonym group. It
-keeps names, dates, negation, and quoted text. A bounded proximity bonus favors
-nearby subject-and-intent terms. The analyzer version appears in the content-free
-operator diagnostic, so a ranking can be reproduced without recording query text.
+keeps names, dates, negation, and quoted text. A statement that also places two
+of your terms within eight words of each other earns a bounded bonus, so a
+sentence that answers the question outranks one that merely mentions the same
+words. Only the highest-ranked matches compete for that bonus; a statement far
+down the list cannot be promoted by it. The analyzer version appears in the
+content-free operator diagnostic, so a ranking can be reproduced without
+recording query text.
 
 Three operators override that, following PostgreSQL `websearch` syntax.
 

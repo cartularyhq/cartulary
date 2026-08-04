@@ -16,14 +16,26 @@ defmodule Cartulary.Retrieval.LexicalQueryAnalyzer do
                )
   @synonym_groups [~w(destress stress relax calming therapeutic)]
 
+  # Proximity fan-out. `tsquery`'s `<N>` operator matches an *exact* lexeme distance, so "near"
+  # has to be spelled as a disjunction of every distance in the window, in both orders, for each
+  # adjacent pair. Both bounds are therefore cost limits: clause count is
+  # `(terms - 1) * window * 2`, and the whole expression is re-evaluated per shortlisted row.
+  # A window of 8 covers a subject and its intent separated by a short clause
+  # ("Melanie runs regularly as a way to destress" spans 7 positions) without reaching across a
+  # sentence boundary.
+  @proximity_terms 4
+  @proximity_window 8
+
   @doc "The version recorded with content-free retrieval diagnostics."
   def version, do: @version
 
   @doc """
   Analyzes one lexical query without calling a model or constructing SQL.
 
-  `matching_text` is an OR-style term set. `proximity_text` is limited to the first four retained
-  terms, keeping the ranking bonus bounded even for a long question.
+  `matching_text` is an OR-style term set. `proximity_text` is a bounded `tsquery` expression that
+  matches when two retained terms fall near each other in either order, or `nil` when the query
+  has no proximity representation. Websearch queries always return `nil`: the caller asked for an
+  exact parse.
   """
   def analyze(text) when is_binary(text) do
     if Regex.match?(@websearch_operators, text) do
@@ -40,7 +52,7 @@ defmodule Cartulary.Retrieval.LexicalQueryAnalyzer do
         version: @version,
         mode: :normalized,
         matching_text: expanded |> Enum.uniq_by(&String.downcase/1) |> Enum.join(" "),
-        proximity_text: terms |> Enum.take(4) |> proximity_text()
+        proximity_text: terms |> Enum.take(@proximity_terms) |> proximity_text()
       }
     end
   end
@@ -57,7 +69,19 @@ defmodule Cartulary.Retrieval.LexicalQueryAnalyzer do
     end)
   end
 
-  defp proximity_text([]), do: nil
-  defp proximity_text([_term]), do: nil
-  defp proximity_text(terms), do: Enum.join(terms, " <4> ")
+  # Terms are interpolated as `tsquery` text, never as SQL. `tokens/1` admits only letters,
+  # digits, `'`, and `-`, none of which open a quoted lexeme or an operator once a token starts
+  # with a letter or digit, so `to_tsquery` reads every term as a word.
+  defp proximity_text(terms) when length(terms) < 2, do: nil
+
+  defp proximity_text(terms) do
+    terms
+    |> Enum.chunk_every(2, 1, :discard)
+    |> Enum.flat_map(fn [left, right] ->
+      Enum.flat_map(1..@proximity_window, fn distance ->
+        ["#{left} <#{distance}> #{right}", "#{right} <#{distance}> #{left}"]
+      end)
+    end)
+    |> Enum.join(" | ")
+  end
 end

@@ -692,6 +692,41 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     assert search.("what does the to ??? & | ;") == []
   end
 
+  test "lexical proximity bonus separates statements the cover-density rank scores identically" do
+    # Both statements carry `melani` and `destress` once, so `ts_rank_cd` over the disjunction
+    # scores them the same and only the proximity bonus can order them. The nearer statement is
+    # seeded first, so the `inserted_at DESC` tiebreak would put the distant one first if the
+    # bonus contributed nothing.
+    near =
+      seed_active!(
+        "f7-question-proximity",
+        "/f7/question-proximity",
+        "Melanie chose destress walks during the quiet spring evenings.",
+        "proximity-near"
+      )
+
+    far =
+      seed_active!(
+        "f7-question-proximity",
+        "/f7/question-proximity",
+        "Melanie kept a long steady weekly journal about many other unrelated topics and later learned to destress.",
+        "proximity-far"
+      )
+
+    ids =
+      Memory.search(%{
+        "account_key" => "f7-question-proximity",
+        "scope_path" => near.scope.path,
+        "query" => "What does Melanie do to destress?",
+        "strategies" => ["lexical"],
+        "deadline" => "disabled"
+      })["candidates"]
+      |> Enum.map(& &1["id"])
+
+    assert Enum.find_index(ids, &(&1 == near.knowledge.id)) <
+             Enum.find_index(ids, &(&1 == far.knowledge.id))
+  end
+
   test "fusion ranks the query-matching target above distractors a newer statement outranks" do
     corpus = seed_ranking_corpus!()
 

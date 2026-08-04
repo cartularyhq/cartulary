@@ -139,6 +139,15 @@ proximity boost. Quoted phrases and negation retain `websearch_to_tsquery`
 semantics. The content-free retrieval diagnostic records the analyzer identity;
 query text and expanded terms remain absent from diagnostics and telemetry.
 
+The proximity boost is a second `tsquery`. `tsquery`'s `<N>` operator matches an
+exact lexeme distance, so "near" is spelled as a disjunction over every distance
+in an eight-lexeme window, in both orders, for each adjacent pair of the first
+four retained terms. That expression is bounded but an order of magnitude dearer
+than the base rank, so it is scored over a base-ranked shortlist of five times
+the caller's limit rather than the whole match set. A row outside the shortlist
+keeps its base rank and cannot be promoted; the deadline budget therefore holds
+for a broad query.
+
 `Indexer.rebuild_scope/2` and `EntityResolver.rebuild_scope/2` use a short read
 transaction, connection-free model calls, and one final write transaction. The
 entity resolver matches surface forms against an in-memory set seeded by the

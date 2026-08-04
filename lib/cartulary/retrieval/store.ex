@@ -24,44 +24,75 @@ defmodule Cartulary.Retrieval.Store do
 
   alias Cartulary.Retrieval.LexicalQueryAnalyzer
 
+  # How many base-ranked rows stay eligible for the proximity bonus. The bonus is a second
+  # `tsquery` evaluated per row, roughly an order of magnitude dearer than the base rank, so it
+  # runs over a shortlist rather than the whole match set. Five times the caller's limit leaves
+  # room for a proximate answer to climb without letting a broad query pay for thousands of rows.
+  @lexical_shortlist_multiplier 5
+
+  # Weight of the proximity bonus relative to the base cover-density rank. One extra covered term
+  # is worth about `0.1`, so `0.2` lets a tight subject-and-intent match outrank a looser row
+  # without overturning a row that genuinely covers more of the query.
+  @proximity_weight 0.2
+
+  # Outer projection over the shortlist CTE, which has already dropped the `k.` qualifier.
+  @knowledge_shortlist_columns """
+  id, scope_id, scope_path, statement, kind, confidence,
+  sensitivity, state, source_message_ids, extracting_model,
+  extracting_provider, pipeline_version, corroboration_count
+  """
+
   @doc """
   Full-text search over governed statements and document chunks.
 
   Searches requested targets and ranks with `ts_rank_cd`, then merges and truncates to `limit`.
 
-  A query spelling a websearch operator keeps the documented `websearch` parse. Any other query
-  matches the disjunction of its own terms, because `websearch_to_tsquery` joins bare terms with
-  `AND` and a one-sentence statement rarely carries every content word of a question. `ts_rank_cd`
-  still orders by how many query terms a row covers and how densely.
+  A query spelling a websearch operator keeps the documented `websearch` parse. Any other query is
+  normalized by `Cartulary.Retrieval.LexicalQueryAnalyzer` and matches the disjunction of the
+  resulting terms, because `websearch_to_tsquery` joins bare terms with `AND` and a one-sentence
+  statement rarely carries every content word of a question. `ts_rank_cd` still orders by how many
+  query terms a row covers and how densely.
+
+  A normalized query also earns a bounded proximity bonus when two of its terms fall near each
+  other. Only the top `#{@lexical_shortlist_multiplier}x limit` rows by base rank compete for it,
+  so a row ranked below that window cannot be promoted.
 
   Returns a list of column-keyed maps with a `score` and a `candidate_type`.
   Raises `Postgrex.Error` if the statement fails.
   """
   def lexical(query, limit) do
     analysis = LexicalQueryAnalyzer.analyze(query.text)
+    shortlist = limit * @lexical_shortlist_multiplier
 
     knowledge =
       if query.target in [:knowledge, :all] do
         tsquery = tsquery(analysis, "$4")
-        proximity_tsquery = proximity_tsquery(analysis, "$5")
+        proximity_tsquery = proximity_tsquery("$5")
 
         sql = """
-        SELECT #{@knowledge_columns},
-               ts_rank_cd(k.search_vector, #{tsquery}) +
-                 0.2 * coalesce(ts_rank_cd(k.search_vector, #{proximity_tsquery}), 0) AS score,
+        WITH shortlist AS (
+          SELECT #{@knowledge_columns}, k.search_vector, k.inserted_at,
+                 ts_rank_cd(k.search_vector, #{tsquery}) AS base_score
+          FROM knowledge_items AS k
+          JOIN scopes AS s ON s.id = k.scope_id AND s.account_id = k.account_id
+          WHERE k.account_id = $1
+            AND k.scope_id = ANY($2)
+            AND (
+              k.state = 'active'
+              OR (k.state = 'provisional' AND ($3::uuid IS NULL OR k.subject_peer_id = $3))
+            )
+            AND k.deleted_at IS NULL
+            AND k.search_vector @@ #{tsquery}
+          ORDER BY base_score DESC, k.confidence DESC, k.inserted_at DESC
+          LIMIT $6
+        )
+        SELECT #{@knowledge_shortlist_columns},
+               base_score +
+                 #{@proximity_weight} * coalesce(ts_rank_cd(search_vector, #{proximity_tsquery}), 0) AS score,
                'knowledge' AS candidate_type
-        FROM knowledge_items AS k
-        JOIN scopes AS s ON s.id = k.scope_id AND s.account_id = k.account_id
-        WHERE k.account_id = $1
-          AND k.scope_id = ANY($2)
-          AND (
-            k.state = 'active'
-            OR (k.state = 'provisional' AND ($3::uuid IS NULL OR k.subject_peer_id = $3))
-          )
-          AND k.deleted_at IS NULL
-          AND k.search_vector @@ #{tsquery}
-        ORDER BY score DESC, k.confidence DESC, k.inserted_at DESC
-        LIMIT $6
+        FROM shortlist
+        ORDER BY score DESC, confidence DESC, inserted_at DESC
+        LIMIT $7
         """
 
         all(sql, [
@@ -70,6 +101,7 @@ defmodule Cartulary.Retrieval.Store do
           db_uuid(query.actor.peer_id),
           analysis.matching_text,
           analysis.proximity_text,
+          shortlist,
           limit
         ])
       else
@@ -81,26 +113,34 @@ defmodule Cartulary.Retrieval.Store do
     documents =
       if query.target in [:documents, :all] do
         tsquery = tsquery(analysis, "$3")
-        proximity_tsquery = proximity_tsquery(analysis, "$4")
+        proximity_tsquery = proximity_tsquery("$4")
 
         sql = """
-        SELECT c.id, c.scope_id, s.path AS scope_path, c.text AS statement,
+        WITH shortlist AS (
+          SELECT c.id, c.scope_id, s.path AS scope_path, c.text AS statement, c.status,
+                 c.document_id, c.document_version_id, c.position, c.search_vector,
+                 ts_rank_cd(c.search_vector, #{tsquery}) AS base_score
+          FROM document_chunks AS c
+          JOIN scopes AS s ON s.id = c.scope_id AND s.account_id = c.account_id
+          WHERE c.account_id = $1
+            AND c.scope_id = ANY($2)
+            AND c.status = 'active'
+            AND c.search_vector @@ #{tsquery}
+          ORDER BY base_score DESC, c.position ASC
+          LIMIT $5
+        )
+        SELECT id, scope_id, scope_path, statement,
                'document_chunk' AS kind, 1.0::float8 AS confidence,
-               'internal' AS sensitivity, c.status AS state,
+               'internal' AS sensitivity, status AS state,
                ARRAY[]::uuid[] AS source_message_ids,
                NULL::text AS extracting_model, 'f7-1' AS pipeline_version,
-               ts_rank_cd(c.search_vector, #{tsquery}) +
-                 0.2 * coalesce(ts_rank_cd(c.search_vector, #{proximity_tsquery}), 0) AS score,
+               base_score +
+                 #{@proximity_weight} * coalesce(ts_rank_cd(search_vector, #{proximity_tsquery}), 0) AS score,
                'document_chunk' AS candidate_type,
-               c.document_id, c.document_version_id, c.position
-        FROM document_chunks AS c
-        JOIN scopes AS s ON s.id = c.scope_id AND s.account_id = c.account_id
-        WHERE c.account_id = $1
-          AND c.scope_id = ANY($2)
-          AND c.status = 'active'
-          AND c.search_vector @@ #{tsquery}
-        ORDER BY score DESC, c.position ASC
-        LIMIT $5
+               document_id, document_version_id, position
+        FROM shortlist
+        ORDER BY score DESC, position ASC
+        LIMIT $6
         """
 
         all(sql, [
@@ -108,6 +148,7 @@ defmodule Cartulary.Retrieval.Store do
           db_uuids!(query.scope_ids),
           analysis.matching_text,
           analysis.proximity_text,
+          shortlist,
           limit
         ])
       else
@@ -540,10 +581,11 @@ defmodule Cartulary.Retrieval.Store do
       "FROM unnest(to_tsvector('english', #{parameter})))::tsquery"
   end
 
-  # Keep the bound parameter in both branches. PostgreSQL otherwise cannot infer its type when a
-  # quoted or negated websearch query intentionally has no proximity representation.
-  defp proximity_tsquery(_analysis, parameter),
-    do: "to_tsquery('english', coalesce(#{parameter}::text, ''))"
+  # A websearch query, and any query with fewer than two retained terms, has no proximity
+  # representation and binds NULL here. `to_tsquery` is strict, so the rank collapses to NULL and
+  # the caller's `coalesce` scores it zero. Passing an empty string instead would make PostgreSQL
+  # raise a "query doesn't contain lexemes" notice on every such search.
+  defp proximity_tsquery(parameter), do: "to_tsquery('english', #{parameter}::text)"
 
   @doc """
   Summarizes the Account's private entity-resolution cache without returning
