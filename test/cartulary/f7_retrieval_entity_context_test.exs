@@ -242,8 +242,8 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
   alias Cartulary.Identity
   alias Cartulary.Memory
   alias Cartulary.Observations.Session
-  alias Cartulary.Retrieval.DiagnosticGrant
   alias Cartulary.Retrieval.{Candidate, EntityResolver, Fusion, Indexer, Profile, Query}
+  alias Cartulary.Retrieval.DiagnosticGrant
   alias Cartulary.Retrieval.Strategies
   alias Cartulary.Topology.{Scope, ScopeRelation}
 
