@@ -219,12 +219,7 @@ defmodule CartularyWeb.ConsoleLive.Tools do
 
   def handle_event("run", %{"tool" => key} = params, socket) do
     with {:ok, tool} <- fetch_tool(key),
-         input <-
-           Ash.ActionInput.for_action(
-             McpTools,
-             tool.action,
-             action_arguments(tool.action, params)
-           ),
+         input <- action_input(tool.action, params),
          {:ok, result} <- run_action(input, socket.assigns.current_actor) do
       count = socket.assigns.run_count + 1
       result = browser_result(tool, params, result, socket.assigns.current_actor)
@@ -668,35 +663,37 @@ defmodule CartularyWeb.ConsoleLive.Tools do
     <details class="retrieval-trace">
       <summary>Retrieval diagnostics</summary>
       <p class="hint">Ranks are comparable across strategies. Scores are local to each strategy.</p>
-      <table>
-        <thead>
-          <tr><th>Candidate</th><th>Fused</th><th>Final</th><th>Rerank</th><th>Strategy details</th></tr>
-        </thead>
-        <tbody>
-          <tr :for={candidate <- @trace["candidates"]}>
-            <td><code>{candidate["id"]}</code></td>
-            <td>{candidate["fused_rank"]}</td>
-            <td>{candidate["final_rank"]}</td>
-            <td>{candidate["rerank_status"]}</td>
-            <td>
-              <details>
-                <summary>{length(candidate["strategies"])} strategies</summary>
-                <table>
-                  <thead><tr><th>Strategy</th><th>Local rank</th><th>Local score</th><th>Fusion contribution</th></tr></thead>
-                  <tbody>
-                    <tr :for={strategy <- candidate["strategies"]}>
-                      <td>{strategy["strategy"]}</td>
-                      <td>{strategy["local_rank"]}</td>
-                      <td>{strategy["local_score"]}</td>
-                      <td>{strategy["fusion_contribution"]}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </details>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <div class="table-scroll">
+        <table class="grid compact">
+          <thead>
+            <tr><th>Candidate</th><th>Fused</th><th>Final</th><th>Rerank</th><th>Strategy details</th></tr>
+          </thead>
+          <tbody>
+            <tr :for={candidate <- @trace["candidates"]}>
+              <td><code>{candidate["id"]}</code></td>
+              <td>{candidate["fused_rank"]}</td>
+              <td>{candidate["final_rank"]}</td>
+              <td>{candidate["rerank_status"]}</td>
+              <td>
+                <details>
+                  <summary>{length(candidate["strategies"])} strategies</summary>
+                  <table class="grid compact">
+                    <thead><tr><th>Strategy</th><th>Local rank</th><th>Local score</th><th>Fusion contribution</th></tr></thead>
+                    <tbody>
+                      <tr :for={strategy <- candidate["strategies"]}>
+                        <td>{strategy["strategy"]}</td>
+                        <td>{strategy["local_rank"]}</td>
+                        <td>{number(strategy["local_score"])}</td>
+                        <td>{number(strategy["fusion_contribution"])}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </details>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </details>
     """
   end
@@ -831,6 +828,10 @@ defmodule CartularyWeb.ConsoleLive.Tools do
     end
   end
 
+  # Fusion contributions land around 1/60, so four places is the point where the
+  # column still separates two adjacent ranks without printing float noise.
+  defp number(value) when is_number(value), do: Float.round(value * 1.0, 4)
+
   defp pending(result) do
     if value(result, "pending_validation"), do: "one question attached"
   end
@@ -857,17 +858,35 @@ defmodule CartularyWeb.ConsoleLive.Tools do
   defp display(value) when is_binary(value), do: value
   defp display(value), do: to_string(value)
 
-  defp action_arguments(action, params) do
-    McpTools
-    |> Ash.Resource.Info.action(action)
-    |> Map.fetch!(:arguments)
-    |> Enum.reduce(%{}, fn argument, arguments ->
-      parameter = if argument.name == :id, do: "_id", else: to_string(argument.name)
+  # A non-public argument inside the public parameter map is rejected as
+  # `NoSuchInput`, which fails the whole call rather than the one field, so the
+  # browser-only arguments are applied separately. Both still go through the
+  # action's own casting and validation.
+  defp action_input(action, params) do
+    {public, private} =
+      McpTools
+      |> Ash.Resource.Info.action(action)
+      |> Map.fetch!(:arguments)
+      |> Enum.reduce({%{}, []}, fn argument, {public, private} = unchanged ->
+        parameter = if argument.name == :id, do: "_id", else: to_string(argument.name)
 
-      case Map.get(params, parameter) do
-        value when value in [nil, ""] -> arguments
-        value -> Map.put(arguments, argument.name, value)
-      end
+        case Map.get(params, parameter) do
+          value when value in [nil, ""] ->
+            unchanged
+
+          value ->
+            if argument.public? do
+              {Map.put(public, argument.name, value), private}
+            else
+              {public, [{argument.name, value} | private]}
+            end
+        end
+      end)
+
+    input = Ash.ActionInput.for_action(McpTools, action, public)
+
+    Enum.reduce(private, input, fn {name, value}, input ->
+      Ash.ActionInput.set_private_argument(input, name, value)
     end)
   end
 

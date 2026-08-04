@@ -256,6 +256,43 @@ defmodule CartularyWeb.MemoryControllerTest do
     assert_trace_id(conn)
   end
 
+  # The rank trace is a browser-only administrator aid, so the JSON surface must
+  # not grow a response field for it. The token here is an account admin's
+  # password identity — the one identity that does receive the trace in the
+  # console — which is exactly why the surface has to drop the parameter rather
+  # than rely on the role check behind it.
+  test "POST /api/v1/search and /ask never return the browser rank trace", %{
+    conn: conn,
+    actor: actor,
+    token: token
+  } do
+    seed_memory!(actor, "http-trace", "/contract/http/trace")
+
+    search =
+      conn
+      |> with_identity(token)
+      |> post(~p"/api/v1/search", %{
+        "scope_path" => "/contract/http/trace",
+        "query" => "release summaries",
+        "diagnostic_trace" => true
+      })
+
+    assert %{"data" => search_data} = json_response(search, 200)
+    refute Map.has_key?(search_data, "diagnostic_trace")
+
+    ask =
+      conn
+      |> with_identity(token)
+      |> post(~p"/api/v1/ask", %{
+        "scope_path" => "/contract/http/trace",
+        "question" => "What kind of release summaries does Avery prefer?",
+        "diagnostic_trace" => true
+      })
+
+    assert %{"data" => ask_data} = json_response(ask, 200)
+    refute Map.has_key?(ask_data, "diagnostic_trace")
+  end
+
   # Retrieval plus a grounded answer. With no model credential configured the
   # answer is composed from the retrieved statements themselves, which is why
   # this passes offline; the shape of the response is identical either way.

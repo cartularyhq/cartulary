@@ -169,6 +169,18 @@ lifecycle rules; the loader then reads those statements through ordinary Ash
 policies. Entity ids, names, aliases, surface forms, and mention rows never
 reach a LiveView.
 
+The tool workbench adds a third: an opt-in rank trace for one `search` or `ask`
+run, offered only to an account admin. It carries strategy-local ranks and
+scores, fusion contributions, and rerank status for candidates the same call
+already returned, so it discloses no new identity. It is built after
+authorization, held only in that run's assigns, and never recorded.
+
+Its gate is a role, and a console operator presents the same password identity
+to the JSON API, so the role alone would hand the trace to an HTTP client and
+grow the `f7-1` response shape. `CartularyWeb.MemoryController` therefore drops
+the request parameter before calling the memory facade, and the MCP argument
+stays non-public. The browser is the only surface that can ask for it.
+
 ## Explorer information architecture
 
 Browsing and retrieval answer different questions, and presenting them in one
