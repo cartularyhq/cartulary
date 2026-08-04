@@ -27,6 +27,7 @@ defmodule Cartulary.Retrieval.Diagnostics do
     summary = %{
       profile: result.profile,
       profile_version: result.profile_version,
+      lexical_analyzer: Cartulary.Retrieval.LexicalQueryAnalyzer.version(),
       deadline_ms: deadline_ms,
       latency_ms: result.latency_ms,
       pre_rerank_remaining_ms: result.pre_rerank_remaining_ms,
