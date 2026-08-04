@@ -35,11 +35,11 @@ checks authority and refuses unauthorized requests.
 
 ## Trying the MCP tools in the browser
 
-`/console/tools` provides one form for each tool exposed at `/mcp`: `ingest`,
-`get_context`, `search`, `ask`, `query_knowledge`, `check_readiness`,
-`resolve_validation`, and `set_ask_preference`. It calls the same Ash actions
-as MCP, under your signed-in identity, then renders the returned payload as
-formatted JSON. Account and calling-peer identity never come from a form.
+`/console/tools` provides one form for each tool exposed at `/mcp`. It calls
+the same Ash actions as MCP, under your signed-in identity. Account and
+calling-peer identity never come from a form.
+
+The cards are grouped by what you are trying to do:
 
 After `search` or `ask`, the browser adds `retrieval_health` for the selected
 scope. This browser-only object is not part of the MCP or HTTP contract. It
@@ -49,20 +49,59 @@ query identity; and one of `ready`, `missing_embeddings`,
 `no_mentions_indexed`, `partial_mention_coverage`, or `identity_mismatch`.
 For Account administrators, it also reports whether query terms resolved no
 entity or resolved an entity with no statement in the selected authorized
-scope. It never returns entity or statement identity.
-When a derived index needs attention, `next_action` says to rebuild the scope's
-derived data.
+scope. It never returns entity or statement identity. When a derived index
+needs attention, `next_action` says to rebuild the scope's derived data.
 
-Most forms are governed reads. Three have durable effects and are marked in
-the page: `ingest` persists and queues a raw observation,
+| Group | Cards | Action |
+| --- | --- | --- |
+| Retrieve | Ask memory, Search memory, Load context, Browse knowledge | `ask`, `search`, `get_context`, `query_knowledge` |
+| Operate | Save observation, Resolve validation, Update question limits | `ingest`, `resolve_validation`, `set_ask_preference` |
+| Evaluate | Check readiness | `check_readiness` |
+
+Every card names its action under the submit button, so a payload you see here
+maps to the tool an agent would call.
+
+Retrieve and Evaluate are governed reads. The three Operate cards change
+durable state, carry a marked edge, and ask you to acknowledge the consequence
+before they submit: `ingest` persists and queues a raw observation,
 `resolve_validation` answers one pending question addressed to you, and
 `set_ask_preference` can only lower your own limits or extend a pause. The
 workbench adds no curator, promotion, gate-administration, or bulk action.
 
-The suggested session id is generated when the page mounts. Reuse it across
+## Session and scope on the workbench
+
+**Run context** at the top of the page sets the session id and scope for every
+card at once. The session id is generated when the page mounts; reuse it across
 calls when you want inline validation delivery and later ingest to belong to
-the same interaction. Results remain in the LiveView and are replaced by the
-next call.
+the same interaction, or press **Start a new session id** to begin a fresh one.
+
+The scope box accepts any scope you can read and completes as you type, which
+matters once an Account holds more paths than fit a list. A path you cannot
+read is named as such before you submit, so a typo does not look like an empty
+Account.
+
+Each card keeps a collapsed **Context** section holding the same two fields.
+Change them there to deviate for a single run without moving the page-wide
+context.
+
+## Reading a result
+
+A completed call shows a short summary first — the answer, the counts, the
+readiness verdict, the stored preference — followed by **What was submitted**
+and the exact **Raw payload**. The summary is a reading aid; the payload is the
+same value the underlying action returned, and stays available for debugging.
+
+After `search` or `ask`, the browser adds `retrieval_health` for the selected
+scope, and the summary reports its state. This browser-only object is not part
+of the MCP or HTTP contract. It reports statement, embedding, and entity-mention
+counts; embedding coverage; stored embedding identities; the configured query
+identity; and one of `ready`, `missing_embeddings`, `missing_mentions`, or
+`identity_mismatch`. When a derived index needs attention, `next_action` says to
+rebuild the scope's derived data.
+
+Up to five runs are kept under **Earlier runs** so you can compare a call with
+the one before it. They live in the page only: a reload starts empty, and a
+failed call leaves earlier results in place.
 
 ## What you see, and why you might see less than a colleague
 

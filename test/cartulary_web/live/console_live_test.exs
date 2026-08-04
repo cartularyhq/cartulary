@@ -200,6 +200,12 @@ defmodule CartularyWeb.ConsoleLiveTest do
         assert html =~ ~s|id="tool-#{tool}"|
       end
 
+      # The page is read as intent first: a group heading, a human title, and an
+      # action-shaped submit label, with the action name kept as detail.
+      for label <- ["Retrieve", "Operate", "Evaluate", "Browse knowledge", "Save observation"] do
+        assert html =~ label
+      end
+
       html =
         render_submit(view, "run", %{
           "tool" => "query_knowledge",
@@ -210,6 +216,9 @@ defmodule CartularyWeb.ConsoleLiveTest do
         })
 
       assert html =~ "Result · query_knowledge"
+      assert html =~ "Browse knowledge · run 1"
+      assert html =~ "Statements"
+      assert html =~ "What was submitted"
       assert html =~ statement
 
       html =
@@ -229,6 +238,16 @@ defmodule CartularyWeb.ConsoleLiveTest do
       assert html =~ ~s|&quot;state&quot;: &quot;missing_embeddings&quot;|
       assert html =~ ~s|&quot;embedded_count&quot;: 0|
       assert html =~ "rebuild scope derived data"
+
+      # A degraded index returns the same shape as a healthy one, so the state
+      # has to be readable without opening the payload.
+      assert html =~ "Index health"
+      assert html =~ "missing_embeddings — rebuild scope derived data"
+
+      # The previous run is kept so two calls can be compared without rerunning
+      # the first one.
+      assert html =~ "Earlier runs"
+      assert html =~ "Result · query_knowledge"
 
       html =
         render_submit(view, "run", %{
@@ -260,6 +279,33 @@ defmodule CartularyWeb.ConsoleLiveTest do
 
       assert html =~ "Tool call failed. Check the fields and your access"
       refute html =~ "Result · resolve_validation"
+
+      # A failed call must not discard the context of the runs that succeeded.
+      assert html =~ "Result · set_ask_preference"
+
+      html = render_click(view, "clear-runs")
+
+      refute html =~ "Result · set_ask_preference"
+    end
+
+    test "the workbench carries one run context that every card starts from", %{
+      conn: conn,
+      admin_token: token
+    } do
+      {:ok, view, html} = live(sign_in(conn, token), "/console/tools")
+
+      assert html =~ ~s|id="scope-options"|
+      assert html =~ "Start a new session id"
+
+      html =
+        render_change(view, "context", %{"session_id" => "shared", "scope_path" => "/nowhere"})
+
+      # Every card's collapsed context reflects the shared value, and an
+      # unauthorized path is named before a call is made with it.
+      assert length(String.split(html, "shared")) - 1 >= 6
+      assert html =~ "Not a scope you can read"
+
+      refute render_click(view, "new-session") =~ ~s|value="shared"|
     end
 
     test "the tool diagnosis compares stored and configured embedding identities", %{
