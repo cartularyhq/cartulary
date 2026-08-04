@@ -40,6 +40,7 @@ defmodule Cartulary.Eval.Scorer do
     exact_match? = exact_match?(answer, expected)
     evidence_refs = Map.get(question, :evidence_refs, [])
     citation = citation_score(evidence_refs, cited_refs)
+    retrieval = Keyword.get(opts, :retrieval, retrieval_score(question, [], [10, 20, 50]))
     triad = rag_triad(Map.get(question, :question, ""), answer, candidates, abstained?)
     efficiency = token_efficiency(answer, candidates, Keyword.get(opts, :full_context_tokens, 0))
 
@@ -71,6 +72,30 @@ defmodule Cartulary.Eval.Scorer do
       "expected_refs" => evidence_refs,
       "cited_refs" => cited_refs
     }
+    |> Map.merge(retrieval)
+  end
+
+  @doc """
+  Computes deterministic retrieval rank metrics from the ordered candidate evidence.
+
+  `ranked_refs` contains one list of benchmark evidence references per retrieved candidate,
+  in retrieval order. This deliberately does not inspect the answer, citations, or judge
+  output: generation failure therefore cannot become a retrieval failure. `cutoffs` are the
+  configured positive rank cutoffs and are recorded as string-keyed `recall_at_k` values.
+  """
+  def retrieval_score(question, ranked_refs, cutoffs \\ [10, 20, 50]) do
+    expected_refs = question |> Map.get(:evidence_refs, []) |> Enum.uniq()
+    expected = MapSet.new(expected_refs)
+    ranked_refs = normalize_ranked_refs(ranked_refs)
+    cutoffs = cutoffs |> Enum.filter(&(is_integer(&1) and &1 > 0)) |> Enum.uniq() |> Enum.sort()
+
+    %{
+      "expected_evidence_refs" => expected_refs,
+      "first_supporting_rank" => first_supporting_rank(expected, ranked_refs),
+      "recall_at_k" => Map.new(cutoffs, &{to_string(&1), recall_at(expected, ranked_refs, &1)}),
+      "evidence_absent" => first_supporting_rank(expected, ranked_refs) == nil,
+      "retrieval_metric_method" => "deterministic-rank-f11-2"
+    }
   end
 
   @doc """
@@ -96,9 +121,29 @@ defmodule Cartulary.Eval.Scorer do
   def summarize(question_results) do
     %{
       "overall" => aggregate(question_results),
+      "retrieval" => retrieval_aggregate(question_results),
       "by_category" => group_aggregate(question_results, "category"),
       "by_scale" => group_aggregate(question_results, "scale"),
       "beam_degradation_curve" => beam_degradation_curve(question_results)
+    }
+  end
+
+  # Retrieval evidence is its own block. Answer correctness, generation failures, and judge
+  # outcomes never enter these calculations, so the report can say where evidence ranked even
+  # when no usable answer was produced.
+  defp retrieval_aggregate(results) do
+    %{
+      "mean_first_supporting_rank" => mean(results, &Map.get(&1, "first_supporting_rank")),
+      "recall_at_k" =>
+        results
+        |> Enum.flat_map(&(Map.get(&1, "recall_at_k", %{}) |> Map.keys()))
+        |> Enum.uniq()
+        |> Map.new(fn cutoff ->
+          {cutoff, mean(results, &get_in(&1, ["recall_at_k", cutoff]))}
+        end),
+      "evidence_absent_rate" =>
+        if(results == [], do: 0.0, else: ratio(results, &Map.get(&1, "evidence_absent", false))),
+      "method" => "deterministic-rank-f11-2"
     }
   end
 
@@ -239,6 +284,44 @@ defmodule Cartulary.Eval.Scorer do
     overlap = expected |> MapSet.intersection(cited) |> MapSet.size()
 
     %{hit?: overlap > 0, recall: overlap / max(MapSet.size(expected), 1)}
+  end
+
+  defp normalize_ranked_refs(refs) do
+    Enum.map(refs, fn
+      refs when is_list(refs) -> refs
+      ref -> [ref]
+    end)
+  end
+
+  defp first_supporting_rank(expected, ranked_refs) do
+    if MapSet.size(expected) == 0 do
+      nil
+    else
+      ranked_refs
+      |> Enum.find_index(fn refs ->
+        MapSet.intersection(expected, MapSet.new(refs)) != MapSet.new()
+      end)
+      |> case do
+        nil -> nil
+        index -> index + 1
+      end
+    end
+  end
+
+  defp recall_at(expected, ranked_refs, cutoff) do
+    if MapSet.size(expected) == 0 do
+      0.0
+    else
+      found =
+        ranked_refs
+        |> Enum.take(cutoff)
+        |> List.flatten()
+        |> MapSet.new()
+        |> MapSet.intersection(expected)
+        |> MapSet.size()
+
+      found / MapSet.size(expected)
+    end
   end
 
   defp exact_match?(_answer, []), do: false

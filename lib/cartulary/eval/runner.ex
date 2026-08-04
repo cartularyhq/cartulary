@@ -31,6 +31,8 @@ defmodule Cartulary.Eval.Runner do
     scope_root = "/bench/#{benchmark}/#{run_id}"
     deadline = Keyword.get(opts, :deadline, "disabled")
 
+    available_cases = length(dataset.cases)
+
     cases =
       dataset.cases
       |> take_limit(Keyword.get(opts, :limit_cases))
@@ -38,8 +40,10 @@ defmodule Cartulary.Eval.Runner do
 
     question_results = Enum.flat_map(cases, & &1.question_results)
 
+    accounting = accounting(available_cases, cases)
+
     %{
-      "report_schema" => "f11-1",
+      "report_schema" => "f11-2",
       "cartulary_version" => cartulary_version(),
       "generated_at" => Clock.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601(),
       "benchmark" => benchmark,
@@ -59,6 +63,15 @@ defmodule Cartulary.Eval.Runner do
       "run_id" => run_id,
       "scope_root" => scope_root,
       "limits" => limits(opts),
+      "retrieval_cutoffs" => Keyword.get(opts, :retrieval_cutoffs, [10, 20, 50]),
+      "accounting" => accounting,
+      "available" => accounting["available"],
+      "sampled" => accounting["sampled"],
+      "attempted" => accounting["attempted"],
+      "evaluated" => accounting["evaluated"],
+      "skipped" => accounting["skipped"],
+      "failed" => accounting["failed"],
+      "cancelled" => accounting["cancelled"],
       "messages_attempted" => cases |> Enum.map(& &1.messages_attempted) |> Enum.sum(),
       "messages_ingested" => cases |> Enum.map(& &1.messages_ingested) |> Enum.sum(),
       "questions_attempted" => length(question_results),
@@ -68,6 +81,23 @@ defmodule Cartulary.Eval.Runner do
   end
 
   defp run_case(case, dataset, scope_root, account_key, profile, deadline, opts) do
+    case Map.get(case, :metadata, %{}) |> Map.get("evaluation_status") do
+      "skipped" ->
+        terminal_case(case, "skipped", "filtered")
+
+      "cancelled" ->
+        terminal_case(case, "cancelled", "cancelled")
+
+      _status ->
+        try do
+          run_evaluated_case(case, dataset, scope_root, account_key, profile, deadline, opts)
+        rescue
+          _error -> terminal_case(case, "failed", "runtime_error")
+        end
+    end
+  end
+
+  defp run_evaluated_case(case, dataset, scope_root, account_key, profile, deadline, opts) do
     # Each case gets its own scope. Knowledge inherits downward, so two cases sharing a
     # scope would let one case's conversation answer another case's question and quietly
     # inflate the score.
@@ -130,10 +160,13 @@ defmodule Cartulary.Eval.Runner do
           end)
 
         cited_refs = cited_refs(answer, ref_map, question.evidence_granularity)
+        ranked_refs = ranked_refs(answer, ref_map, question.evidence_granularity)
+        retrieval_cutoffs = Keyword.get(opts, :retrieval_cutoffs, [10, 20, 50])
 
         deterministic_score =
           Scorer.score_question(question, answer, cited_refs,
-            full_context_tokens: full_context_tokens
+            full_context_tokens: full_context_tokens,
+            retrieval: Scorer.retrieval_score(question, ranked_refs, retrieval_cutoffs)
           )
 
         # The model judge only ever adds "model_"-prefixed keys, so merging it over the
@@ -178,7 +211,24 @@ defmodule Cartulary.Eval.Runner do
       messages_ingested:
         Enum.count(ingested, fn {_message, result} -> match?({:ok, _}, result) end),
       questions_attempted: length(questions),
-      question_results: question_results
+      question_results: question_results,
+      status: "evaluated",
+      reason: nil
+    }
+  end
+
+  defp terminal_case(case, status, reason) do
+    %{
+      id: case.id,
+      category: case.category,
+      scale: case.scale,
+      scope_path: case.scope_path,
+      messages_attempted: 0,
+      messages_ingested: 0,
+      questions_attempted: 0,
+      question_results: [],
+      status: status,
+      reason: reason
     }
   end
 
@@ -224,6 +274,24 @@ defmodule Cartulary.Eval.Runner do
     |> Enum.uniq()
   end
 
+  # Retrieval rank is based on every returned candidate, not only the candidates the answer
+  # chose to cite. This keeps retrieval coverage independent from answer generation.
+  defp ranked_refs(answer, ref_map, granularity) do
+    answer
+    |> Map.get("candidates", [])
+    |> Enum.map(fn candidate ->
+      candidate
+      |> Map.get("source_message_ids", [])
+      |> Enum.map(fn id ->
+        if granularity == "session",
+          do: Map.get(ref_map.session_by_db_id, id),
+          else: Map.get(ref_map.message_by_db_id, id)
+      end)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+    end)
+  end
+
   # An answer cites retrieval candidates, and each candidate remembers which raw messages it
   # was derived from. Walking through that provenance is what lets a citation of derived
   # knowledge be checked against a fixture's turn-level or session-level evidence label.
@@ -249,10 +317,42 @@ defmodule Cartulary.Eval.Runner do
       "messages_attempted" => case.messages_attempted,
       "messages_ingested" => case.messages_ingested,
       "questions_attempted" => case.questions_attempted,
+      "status" => case.status,
+      "reason" => case[:reason],
       "metrics" => Scorer.summarize(case.question_results)["overall"],
       "questions" => case.question_results
     }
   end
+
+  # One sampled case receives exactly one terminal status. Question metrics remain a separate
+  # answer-quality view, so skipped or failed cases cannot disappear from the denominator.
+  defp accounting(available, cases) do
+    items =
+      Enum.map(cases, fn case ->
+        %{"id" => case.id, "status" => case.status}
+        |> maybe_reason(case[:reason])
+      end)
+
+    counts = Enum.frequencies(Enum.map(items, & &1["status"]))
+    evaluated = Map.get(counts, "evaluated", 0)
+    skipped = Map.get(counts, "skipped", 0)
+    failed = Map.get(counts, "failed", 0)
+    cancelled = Map.get(counts, "cancelled", 0)
+
+    %{
+      "available" => available,
+      "sampled" => length(items),
+      "attempted" => evaluated + failed + cancelled,
+      "evaluated" => evaluated,
+      "skipped" => skipped,
+      "failed" => failed,
+      "cancelled" => cancelled,
+      "items" => items
+    }
+  end
+
+  defp maybe_reason(item, nil), do: item
+  defp maybe_reason(item, reason), do: Map.put(item, "reason", reason)
 
   # Collapses to a single version string when every answer ran under the same retrieval
   # profile version. Disagreement deliberately leaves a list in place, which report

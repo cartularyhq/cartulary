@@ -360,4 +360,68 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
       }
     }
   end
+
+  test "f11-2 requires balanced one-time accounting while reading f11-1 remains compatible" do
+    legacy = valid_report()
+    assert Cartulary.Eval.Report.validate(legacy) == :ok
+
+    current =
+      legacy
+      |> Map.put("report_schema", "f11-2")
+      |> Map.merge(%{
+        "available" => 5,
+        "sampled" => 5,
+        "attempted" => 4,
+        "evaluated" => 2,
+        "skipped" => 1,
+        "failed" => 1,
+        "cancelled" => 1
+      })
+      |> Map.put("accounting", %{
+        "available" => 5,
+        "sampled" => 5,
+        "attempted" => 4,
+        "evaluated" => 2,
+        "skipped" => 1,
+        "failed" => 1,
+        "cancelled" => 1,
+        "items" => [
+          %{"id" => "a", "status" => "evaluated"},
+          %{"id" => "b", "status" => "evaluated"},
+          %{"id" => "c", "status" => "skipped", "reason" => "filtered"},
+          %{"id" => "d", "status" => "failed", "reason" => "adapter_error"},
+          %{"id" => "e", "status" => "cancelled", "reason" => "cancelled"}
+        ]
+      })
+
+    assert Cartulary.Eval.Report.validate(current) == :ok
+
+    all_evaluated =
+      current
+      |> Map.merge(%{
+        "attempted" => 5,
+        "evaluated" => 5,
+        "skipped" => 0,
+        "failed" => 0,
+        "cancelled" => 0
+      })
+      |> put_in(["accounting", "attempted"], 5)
+      |> put_in(["accounting", "evaluated"], 5)
+      |> put_in(["accounting", "skipped"], 0)
+      |> put_in(["accounting", "failed"], 0)
+      |> put_in(["accounting", "cancelled"], 0)
+      |> update_in(["accounting", "items"], fn items ->
+        Enum.map(items, fn item ->
+          item
+          |> Map.put("status", "evaluated")
+          |> Map.drop(["reason"])
+        end)
+      end)
+
+    assert Cartulary.Eval.Report.validate(all_evaluated) == :ok
+
+    invalid = put_in(current, ["accounting", "items", Access.at(4), "id"], "d")
+    assert {:error, errors} = Cartulary.Eval.Report.validate(invalid)
+    assert Enum.any?(errors, &String.contains?(&1, "accounting"))
+  end
 end

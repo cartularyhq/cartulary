@@ -28,6 +28,13 @@ profile version tag rather than a phase name. Current public claims must use
 the `f11-1` report schema and exact `f7-1` profile evidence; never relabel the
 historical files.
 
+New runner output uses report schema `f11-2`. It adds top-level accounting counts
+and an `accounting` block with
+available, sampled, attempted, evaluated, skipped, failed, and cancelled counts
+plus one private-content-free item id/status record per sampled case. The counts
+must balance (attempted means evaluated, failed, or cancelled); `f11-1` remains readable as a historical compatibility format and
+the committed reports are not rewritten.
+
 The baseline contract also freezes the four tiny input fixtures independently
 of volatile database UUIDs and latency values.
 `test/fixtures/eval/poc-contract-baseline.json` records each Cartulary, LoCoMo,
@@ -110,6 +117,12 @@ Every `f11-1` report records:
 - deterministic or model judge identity;
 - exact/contains/token-F1, abstention, citation, RAG-triad, latency, token
   efficiency, category, scale, and BEAM degradation measures.
+
+Every `f11-2` question also records `expected_evidence_refs`,
+`first_supporting_rank`, `recall_at_k`, and `evidence_absent`. The top-level
+`metrics.retrieval` block aggregates these deterministic rank measurements
+separately from answerer and judge scores; it uses the full ordered candidate
+list, not only answer citations.
 
 `mix cartulary.release.check` requires this evidence for an actual release.
 Manual live-model runs add `--judge model`; the configured dream-reasoner must

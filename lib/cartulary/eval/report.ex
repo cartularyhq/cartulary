@@ -42,7 +42,7 @@ defmodule Cartulary.Eval.Report do
     # Errors accumulate onto the head of the list as the checks run, so the final reverse
     # restores field order for a human reading the failure message.
     []
-    |> require_equal(report, "report_schema", "f11-1")
+    |> require_schema(report)
     |> require_semver(report, "cartulary_version")
     |> require_datetime(report, "generated_at")
     |> require_non_empty(report, "benchmark")
@@ -55,6 +55,7 @@ defmodule Cartulary.Eval.Report do
     |> require_model_roles(report)
     |> require_judge(report)
     |> require_metrics(report)
+    |> require_accounting(report)
     |> Enum.reverse()
     |> case do
       [] -> :ok
@@ -76,7 +77,7 @@ defmodule Cartulary.Eval.Report do
         report
 
       {:error, errors} ->
-        raise ArgumentError, "invalid f11-1 eval report: #{Enum.join(errors, "; ")}"
+        raise ArgumentError, "invalid eval report: #{Enum.join(errors, "; ")}"
     end
   end
 
@@ -141,10 +142,13 @@ defmodule Cartulary.Eval.Report do
     end
   end
 
-  defp require_equal(errors, report, key, expected) do
-    if Map.get(report, key) == expected,
+  # f11-1 is retained as a read-only compatibility format for committed evidence. New
+  # reports use f11-2, whose accounting block is checked below. Historical JSON is never
+  # rewritten merely to make the validator stricter.
+  defp require_schema(errors, report) do
+    if Map.get(report, "report_schema") in ["f11-1", "f11-2"],
       do: errors,
-      else: ["#{key} must equal #{expected}" | errors]
+      else: ["report_schema must equal f11-1 or f11-2" | errors]
   end
 
   # Semantic version syntax with an optional pre-release suffix and no build metadata. The
@@ -317,5 +321,77 @@ defmodule Cartulary.Eval.Report do
         do: acc,
         else: ["metrics.overall.#{key} must be numeric" | acc]
     end)
+  end
+
+  defp require_accounting(errors, %{"report_schema" => "f11-1"}), do: errors
+
+  defp require_accounting(
+         errors,
+         %{"report_schema" => "f11-2", "accounting" => accounting} = report
+       )
+       when is_map(accounting) do
+    statuses = ~w(evaluated skipped failed cancelled)
+
+    with true <- Enum.all?(statuses, &non_negative_integer?(Map.get(accounting, &1))),
+         true <- non_negative_integer?(Map.get(accounting, "available")),
+         true <- non_negative_integer?(Map.get(accounting, "sampled")),
+         true <- non_negative_integer?(Map.get(accounting, "attempted")),
+         items when is_list(items) <- Map.get(accounting, "items"),
+         true <- top_level_counts_match?(report, accounting),
+         true <- balanced_counts?(accounting, items, statuses),
+         :ok <- valid_items?(items, statuses) do
+      errors
+    else
+      _ ->
+        [
+          "accounting must balance available, sampled, attempted, statuses, and unique items"
+          | errors
+        ]
+    end
+  end
+
+  defp require_accounting(errors, %{"report_schema" => "f11-2"}),
+    do: ["f11-2 reports require accounting" | errors]
+
+  # Keep validation total for pre-f11 reports that can still be decoded for inspection. They
+  # will receive the normal schema/provenance errors rather than crashing the compatibility
+  # reader while it reports why they are not quotable evidence.
+  defp require_accounting(errors, _report), do: errors
+
+  defp non_negative_integer?(value), do: is_integer(value) and value >= 0
+
+  defp top_level_counts_match?(report, accounting) do
+    Enum.all?(~w(available sampled attempted evaluated skipped failed cancelled), fn key ->
+      Map.get(report, key) == Map.get(accounting, key)
+    end)
+  end
+
+  defp balanced_counts?(accounting, items, statuses) do
+    Map.get(accounting, "available") >= Map.get(accounting, "sampled") and
+      Map.get(accounting, "sampled") == length(items) and
+      Map.get(accounting, "sampled") == Enum.sum(Enum.map(statuses, &Map.get(accounting, &1))) and
+      Map.get(accounting, "attempted") ==
+        Map.get(accounting, "evaluated") + Map.get(accounting, "failed") +
+          Map.get(accounting, "cancelled") and
+      Enum.all?(statuses, fn status ->
+        Enum.count(items, &(Map.get(&1, "status") == status)) == Map.get(accounting, status)
+      end)
+  end
+
+  defp valid_items?(items, statuses) do
+    ids = Enum.map(items, &Map.get(&1, "id"))
+    reasons = ~w(filtered adapter_error runtime_error cancelled)
+
+    Enum.uniq(ids) == ids and
+      Enum.all?(items, fn
+        %{"id" => id, "status" => status} = item when is_binary(id) and id != "" ->
+          status in statuses and
+            (status == "evaluated" or
+               Map.get(item, "reason") in reasons)
+
+        _item ->
+          false
+      end)
+      |> then(fn valid -> if valid, do: :ok, else: :error end)
   end
 end
