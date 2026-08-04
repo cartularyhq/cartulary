@@ -39,6 +39,7 @@ defmodule Cartulary.Application do
           Cartulary.Database.RoleGuard,
           {AshAuthentication.Supervisor, otp_app: :cartulary},
           Cartulary.Operations.BudgetCounter,
+          Cartulary.Retrieval.Diagnostics,
           # Queues run on the Postgres engine in every deployment mode, driven by
           # the triggers declared on the Ash domains. There is no second broker
           # and no separate worker fleet to keep in sync.

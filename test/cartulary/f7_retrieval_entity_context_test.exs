@@ -170,6 +170,43 @@ defmodule Cartulary.F7RetrievalEntityContextTest.UnavailableEmbedderProvider do
     do: Deterministic.rerank(config, query, documents, opts)
 end
 
+defmodule Cartulary.F7RetrievalEntityContextTest.RerankFailureProvider do
+  @moduledoc "Failure-injection provider for reranker outcome classification."
+
+  @behaviour Cartulary.Model.Provider
+
+  alias Cartulary.Model.Provider.Result
+  alias Cartulary.Model.Providers.Deterministic
+
+  @impl true
+  def structured(config, messages, schema, opts),
+    do: Deterministic.structured(config, messages, schema, opts)
+
+  @impl true
+  def chat(config, messages, opts), do: Deterministic.chat(config, messages, opts)
+
+  @impl true
+  def embed(config, texts, opts), do: Deterministic.embed(config, texts, opts)
+
+  @impl true
+  def rerank(config, query, documents, opts) do
+    case Application.fetch_env!(:cartulary, :rerank_test_mode) do
+      :complete ->
+        Deterministic.rerank(config, query, documents, opts)
+
+      :timeout ->
+        Process.sleep(80)
+        Deterministic.rerank(config, query, documents, opts)
+
+      :provider_error ->
+        {:error, :provider_down}
+
+      :invalid ->
+        {:ok, %Result{value: [%{index: 999, relevance_score: 1.0}], usage: %{}}}
+    end
+  end
+end
+
 defmodule Cartulary.F7RetrievalEntityContextTest do
   @moduledoc """
   Pins retrieval, private entity caches, and reasoning-free context assembly.
@@ -638,6 +675,9 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
 
     assert second.knowledge.id in Enum.map(result["candidates"], & &1["id"])
     assert "relation_expand" in result["contributed_strategies"]
+
+    assert %{component: "reranker", status: "completed", reason_class: nil} =
+             Enum.find(result["retrieval_outcomes"], &(&1.component == "reranker"))
   end
 
   test "entity resolution is internal, alias retrieval is scoped, and public surfaces stay opaque" do
@@ -960,10 +1000,84 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     assert result["candidates"] == []
     assert "lexical" in result["dropped_strategies"]
 
+    assert %{
+             component: "lexical",
+             status: "dropped",
+             reason_class: "deadline_exhausted_before_start",
+             elapsed_ms: 0,
+             budget_remaining_ms: 0
+           } in result["retrieval_outcomes"]
+
     # A strategy that never ran is only dropped. Reporting it as having found nothing would
     # claim the corpus was searched and came back empty, which is the opposite of what happened.
     refute "lexical" in result["empty_strategies"]
     refute "lexical" in result["contributed_strategies"]
+  end
+
+  test "reranker completion, timeout, provider failure, and malformed output are classified" do
+    seeded = seed_active!("f7-rerank-outcomes", "/f7/rerank", "Avery writes release notes.")
+    original_provider = Application.get_env(:cartulary, :model_provider)
+    original_retrieval = Application.fetch_env!(:cartulary, :retrieval_profiles)
+
+    on_exit(fn ->
+      Application.put_env(:cartulary, :retrieval_profiles, original_retrieval)
+      Application.delete_env(:cartulary, :rerank_test_mode)
+
+      if original_provider,
+        do: Application.put_env(:cartulary, :model_provider, original_provider),
+        else: Application.delete_env(:cartulary, :model_provider)
+    end)
+
+    Application.put_env(
+      :cartulary,
+      :model_provider,
+      Cartulary.F7RetrievalEntityContextTest.RerankFailureProvider
+    )
+
+    Application.put_env(
+      :cartulary,
+      :retrieval_profiles,
+      Keyword.put(original_retrieval, :rerank_timeout_ms, 50)
+    )
+
+    baseline =
+      Memory.search(%{
+        "account_key" => "f7-rerank-outcomes",
+        "scope_path" => seeded.scope.path,
+        "query" => "release",
+        "profile" => "balanced",
+        "strategies" => ["lexical"],
+        "deadline" => "disabled"
+      })
+
+    baseline_ids = Enum.map(baseline["candidates"], & &1["id"])
+
+    for {mode, expected_status, reason} <- [
+          {:complete, "completed", nil},
+          {:timeout, "dropped", "timeout"},
+          {:provider_error, "dropped", "provider_error"},
+          {:invalid, "dropped", "invalid_result"}
+        ] do
+      Application.put_env(:cartulary, :rerank_test_mode, mode)
+
+      result =
+        Memory.search(%{
+          "account_key" => "f7-rerank-outcomes",
+          "scope_path" => seeded.scope.path,
+          "query" => "release",
+          "profile" => "thorough",
+          "strategies" => ["lexical"],
+          "deadline" => "disabled"
+        })
+
+      assert %{status: ^expected_status, reason_class: ^reason} =
+               Enum.find(result["retrieval_outcomes"], &(&1.component == "reranker"))
+
+      if expected_status == "dropped" do
+        assert Enum.map(result["candidates"], & &1["id"]) == baseline_ids
+        assert "reranker" in result["dropped_strategies"]
+      end
+    end
   end
 
   test "projection refresh, bounded deltas, session resolution, and ETS invalidation stay model-free" do
@@ -1332,6 +1446,8 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
              statement_count: 1,
              embedded_count: 0,
              mention_count: 0,
+             mentioned_statement_count: 0,
+             mention_coverage: +0.0,
              coverage: +0.0,
              embedding_identities: []
            } = Map.fetch!(before, seeded.scope.id)
@@ -1358,12 +1474,16 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     # Mentions are reported as a count. Naming the entity, its aliases, or the matched surface
     # form here would create a second, ungoverned view of who an Account knows about.
     assert coverage.mention_count >= 1
+    assert coverage.mentioned_statement_count == 1
+    assert coverage.mention_coverage == 1.0
 
     assert Map.keys(coverage) |> Enum.sort() == [
              :coverage,
              :embedded_count,
              :embedding_identities,
              :mention_count,
+             :mention_coverage,
+             :mentioned_statement_count,
              :statement_count
            ]
 
@@ -1379,6 +1499,90 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     assert measurements.coverage == 1.0
     assert metadata.scope_id == seeded.scope.id
     assert metadata.account_id == seeded.account.id
+  end
+
+  test "reconciliation enqueues one replay-safe rebuild for a scope with no mentions" do
+    seeded =
+      seed_active!("f7-mention-reconcile", "/f7/reconcile", "Avery owns the release checklist.")
+
+    before = projection_refresh_count(seeded.account.id)
+
+    assert {:ok, %{scopes: 1}} = Cartulary.Pipeline.Reconciler.run(seeded.account.id)
+    assert projection_refresh_count(seeded.account.id) == before + 1
+
+    assert {:ok, %{scopes: 1}} = Cartulary.Pipeline.Reconciler.run(seeded.account.id)
+    assert projection_refresh_count(seeded.account.id) == before + 1
+
+    assert {:ok, %{mentions: mentions}} =
+             EntityResolver.rebuild_scope(seeded.account.id, seeded.scope.id)
+
+    assert mentions > 0
+    assert {:ok, %{scopes: 0}} = Cartulary.Pipeline.Reconciler.run(seeded.account.id)
+  end
+
+  test "mention coverage reports a partially indexed scope" do
+    first = seed_active!("f7-partial-mentions", "/f7/partial", "Avery owns the checklist.")
+
+    second =
+      seed_active!(
+        "f7-partial-mentions",
+        "/f7/partial",
+        "Melanie owns the launch plan.",
+        "partial-session"
+      )
+
+    assert {:ok, %{mentions: mentions}} =
+             EntityResolver.rebuild_scope(first.account.id, first.scope.id)
+
+    assert mentions >= 2
+
+    Ecto.Adapters.SQL.query!(
+      Cartulary.Repo,
+      "DELETE FROM entity_mentions WHERE account_id = $1 AND knowledge_item_id = $2",
+      [Ecto.UUID.dump!(first.account.id), Ecto.UUID.dump!(second.knowledge.id)]
+    )
+
+    coverage = Cartulary.Retrieval.index_coverage(first.account.id, [first.scope.id])
+    coverage = Map.fetch!(coverage, first.scope.id)
+
+    assert coverage.statement_count == 2
+    assert coverage.mentioned_statement_count == 1
+    assert coverage.mention_coverage == 0.5
+  end
+
+  test "entity no-match reasons stay count-only and scope-bound" do
+    visible = seed_active!("f7-entity-reason", "/f7/visible", "Avery owns the checklist.")
+
+    hidden =
+      seed_active!(
+        "f7-entity-reason",
+        "/f7/hidden",
+        "Melanie owns the private launch plan.",
+        "hidden-session"
+      )
+
+    assert {:ok, %{mentions: mentions}} =
+             EntityResolver.rebuild_scope(hidden.account.id, hidden.scope.id)
+
+    assert mentions > 0
+
+    query = %Query{
+      account_id: visible.account.id,
+      actor: visible.actor,
+      text: "Melanie",
+      target: :knowledge,
+      scope_ids: [visible.scope.id]
+    }
+
+    assert Cartulary.Retrieval.Store.entity_match_status(query) ==
+             :entity_found_no_authorized_statements
+
+    assert Cartulary.Retrieval.Store.entity_match_status(%{query | text: "NobodyKnown"}) ==
+             :query_resolved_no_entity
+
+    diagnostic = inspect([Cartulary.Retrieval.Store.entity_match_status(query)])
+    refute diagnostic =~ "Melanie"
+    refute diagnostic =~ hidden.knowledge.id
   end
 
   test "an unavailable embedder drops the semantic strategy instead of reporting no matches" do
@@ -1415,6 +1619,10 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     # contributing strategy that happened to find nothing is what makes an unindexed corpus
     # and a broken embedder indistinguishable from a genuinely unmatched query.
     assert "semantic" in result["dropped_strategies"]
+
+    assert %{reason_class: "dependency_unavailable"} =
+             Enum.find(result["retrieval_outcomes"], &(&1.component == "semantic"))
+
     refute "semantic" in result["contributed_strategies"]
     # The request still answers from the strategies that did run.
     assert "lexical" in result["contributed_strategies"]
@@ -1562,6 +1770,17 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
 
       %{account: account, actor: actor, scope: scope, knowledge: knowledge}
     end)
+  end
+
+  defp projection_refresh_count(account_id) do
+    %{rows: [[count]]} =
+      Ecto.Adapters.SQL.query!(
+        Cartulary.Repo,
+        "SELECT count(*) FROM pipeline_runs WHERE account_id = $1 AND kind = 'projection_refresh'",
+        [Ecto.UUID.dump!(account_id)]
+      )
+
+    count
   end
 
   # A five-statement corpus for ranking assertions.

@@ -30,9 +30,11 @@ time relevance, salience, and mention confidence are never treated as
 comparable scores. The `:thorough` profile optionally reranks only the fused
 head through `Cartulary.Model.Gateway`. Reranking and grounded answers hold no
 transaction; the model layer scopes its own configuration read and usage write.
-A hard remaining-time budget wraps strategies and reranking. Timeouts are
-dropped, not retried, and every response reports contributed, empty, and
-dropped strategies plus pre-fusion cross-strategy disagreement.
+A hard remaining-time budget wraps strategies and reranking. Reranking receives
+an independently configured timeout clamped to the remaining hard deadline.
+Timeouts are dropped, not retried, and every response preserves the compatible
+dropped-name list while adding content-free component timings and deterministic
+reason classes plus pre-fusion cross-strategy disagreement.
 
 The three strategy sets are disjoint and carry distinct facts: contributed
 returned candidates, empty ran and matched nothing, dropped never produced a
@@ -80,6 +82,7 @@ ceilings through:
 - `CARTULARY_RETRIEVAL_FAST_DEADLINE_MS`;
 - `CARTULARY_RETRIEVAL_BALANCED_DEADLINE_MS`; and
 - `CARTULARY_RETRIEVAL_THOROUGH_DEADLINE_MS`.
+- `CARTULARY_RETRIEVAL_RERANK_TIMEOUT_MS`.
 
 Raw strategy lists remain restricted to internal/system and eval callers.
 Source filters are applied before fusion. `search` keeps the baseline-contract
@@ -117,14 +120,16 @@ the knowledge-write transaction, they are eventually consistent: a refresh that
 was cancelled or never enqueued leaves a scope holding every governed statement
 with no vectors, while lexical search keeps answering from its generated
 column. `Cartulary.Retrieval.Coverage` is the read that distinguishes the two —
-per-scope statement, embedded, and mention counts plus the embedding identities
-in use, under the same authorization and provisional-subject rules as any other
-retrieval query, and reporting mentions as a count so the entity cache stays
-internal. Every completed refresh emits
+per-scope statement, embedded, mention, and mentioned-statement counts plus the
+embedding identities in use, under the same authorization and
+provisional-subject rules as any other retrieval query. Mentions remain counts
+so the entity cache stays internal. Every completed refresh emits
 `[:cartulary, :retrieval, :projection_refresh]` with those counts and the
-resulting ratio. Nothing re-enqueues a stale scope automatically; making the
-state observable comes first, since a sweeper would repair the symptom while
-leaving the state unknowable.
+resulting ratio. The Account reconciler detects an active scope with no mention
+rows and enqueues the same full refresh using a corpus-derived replay key.
+Request-local diagnostics classify partial coverage and distinguish no resolved
+entity from a resolved entity with no authorized statements without returning
+cache identities or content.
 
 `Indexer.rebuild_scope/2` and `EntityResolver.rebuild_scope/2` use a short read
 transaction, connection-free model calls, and one final write transaction. The

@@ -13,7 +13,8 @@ defmodule Cartulary.Retrieval.Engine do
   failure preserves fusion order. Strategies normally run concurrently; tests may run them
   serially against one sandbox connection.
 
-  Every response separates three per-strategy outcomes: contributed, empty, and dropped. A
+  Every response preserves the contributed, empty, and dropped name lists and adds content-free
+  component outcomes with elapsed time, remaining budget, and deterministic failure classes. A
   strategy that ran and found nothing is not degradation, but it is also not a contribution, and
   a caller cannot tell a ranked answer from a recency dump without seeing the difference.
 
@@ -71,7 +72,7 @@ defmodule Cartulary.Retrieval.Engine do
       deadline?: deadline?
     }
 
-    {seed_lists, seed_dropped} =
+    {seed_lists, seed_outcomes} =
       profile.strategy_modules
       |> Enum.filter(&(&1.stage() == :seed))
       |> run_phase(query, budget, concurrent?)
@@ -88,14 +89,17 @@ defmodule Cartulary.Retrieval.Engine do
 
     expanded_query = %{query | seed_ids: seed_ids}
 
-    {expand_lists, expand_dropped} =
+    {expand_lists, expand_outcomes} =
       profile.strategy_modules
       |> Enum.filter(&(&1.stage() == :expand))
       |> run_phase(expanded_query, budget, concurrent?)
 
     lists = seed_lists ++ expand_lists
     fused = Fusion.reciprocal_rank(lists, profile.weights, query.max_candidates)
-    {ranked, rerank_dropped?} = maybe_rerank(fused, query, profile, budget, concurrent?)
+    pre_rerank_remaining_ms = Budget.remaining_ms(budget)
+
+    {ranked, rerank_outcome} =
+      maybe_rerank(fused, query, profile, budget, concurrent?, pre_rerank_remaining_ms)
 
     # Running to completion is not contributing. A strategy that returned nothing is reported
     # separately, because collapsing it into either other set hides the run that ranked the
@@ -104,14 +108,21 @@ defmodule Cartulary.Retrieval.Engine do
       Enum.split_with(lists, fn {_strategy, candidates} -> candidates != [] end)
 
     # Include disabled, timed-out, and failed work so callers can distinguish degradation.
+    disabled_outcomes =
+      Enum.map(profile.disabled_strategies, fn strategy ->
+        outcome(strategy, "disabled", 0, Budget.remaining_ms(budget))
+      end)
+
+    outcomes = disabled_outcomes ++ seed_outcomes ++ expand_outcomes ++ List.wrap(rerank_outcome)
+
     dropped =
-      profile.disabled_strategies ++
-        seed_dropped ++ expand_dropped ++ if(rerank_dropped?, do: [:reranker], else: [])
+      for %{component: component, status: "dropped"} <- outcomes,
+          do: component
 
     query_dependent =
       for module <- profile.strategy_modules, module.query_dependent?(), do: module.name()
 
-    %{
+    result = %{
       query: query.text,
       profile: Atom.to_string(profile.name),
       profile_version: profile.version,
@@ -119,11 +130,16 @@ defmodule Cartulary.Retrieval.Engine do
       latency_ms: Cartulary.Clock.monotonic_ms() - started_at,
       contributed_strategies: strategy_names(contributing_lists),
       empty_strategies: strategy_names(empty_lists),
-      dropped_strategies: dropped |> Enum.uniq() |> Enum.map(&Atom.to_string/1),
+      dropped_strategies: Enum.uniq(dropped),
+      retrieval_outcomes: outcomes,
+      pre_rerank_remaining_ms: finite_remaining(pre_rerank_remaining_ms),
       # Fusion destroys evidence of strategy disagreement.
       disagreement: Fusion.disagreement(seed_lists, query_dependent),
       candidates: Enum.map(ranked, &candidate_map/1)
     }
+
+    emit_outcomes(query.account_id, result, profile.deadline_ms)
+    result
   end
 
   defp strategy_names(lists) do
@@ -141,37 +157,46 @@ defmodule Cartulary.Retrieval.Engine do
 
     if timeout == 0 do
       # Report applicable work that the exhausted budget prevented.
-      {[], Enum.map(applicable, & &1.name())}
+      {[],
+       Enum.map(applicable, fn module ->
+         outcome(module.name(), "deadline_exhausted_before_start", 0, 0)
+       end)}
     else
       results = execute_modules(applicable, query, budget, timeout, concurrent?)
 
       completed =
-        for {:ok, {strategy, candidates}} <- results,
+        for {:ok, {strategy, candidates, _elapsed_ms, _remaining_ms}} <- results,
             is_list(candidates),
             do: {strategy, candidates}
 
       # A strategy that could not run at all — an unavailable embedder, say — is
       # degradation, not absence, so it joins the dropped list rather than
       # contributing an empty result the caller would read as "nothing matched".
-      unavailable =
-        for {:ok, {strategy, {:error, _reason}}} <- results, do: strategy
-
-      # Task exits lack strategy names. Ordered results make this positional lookup safe; changing
-      # result order would misattribute drops. Concurrent crashes are also reported as dropped.
-      timed_out =
+      outcomes =
         results
         |> Enum.with_index()
-        |> Enum.flat_map(fn
-          {{:ok, _value}, _index} -> []
-          {{:exit, _reason}, index} -> [Enum.at(applicable, index).name()]
+        |> Enum.map(fn
+          {{:ok, {strategy, candidates, elapsed_ms, remaining_ms}}, _index}
+          when is_list(candidates) ->
+            completed_outcome(strategy, elapsed_ms, remaining_ms)
+
+          {{:ok, {strategy, {:error, _reason}, elapsed_ms, remaining_ms}}, _index} ->
+            outcome(strategy, "dependency_unavailable", elapsed_ms, remaining_ms)
+
+          {{:exit, :timeout}, index} ->
+            outcome(Enum.at(applicable, index).name(), "timeout", timeout, 0)
+
+          {{:exit, _reason}, index} ->
+            outcome(Enum.at(applicable, index).name(), "provider_error", timeout, 0)
         end)
 
-      {completed, unavailable ++ timed_out}
+      {completed, outcomes}
     end
   end
 
   defp execute_modules(modules, query, budget, timeout, concurrent?) do
     run = fn module ->
+      started_at = Cartulary.Clock.monotonic_ms()
       # Pin the database session to the Account and validate lazily read records inside it.
       candidates =
         DataLayer.with_actor(query.actor, fn _account, actor ->
@@ -185,7 +210,8 @@ defmodule Cartulary.Retrieval.Engine do
           )
         end)
 
-      {module.name(), candidates}
+      {module.name(), candidates, Cartulary.Clock.monotonic_ms() - started_at,
+       finite_remaining(Budget.remaining_ms(budget))}
     end
 
     if concurrent? do
@@ -210,16 +236,14 @@ defmodule Cartulary.Retrieval.Engine do
   end
 
   # Reranker failure preserves fusion order and reports degradation.
-  defp maybe_rerank(candidates, _query, %{rerank: false}, _budget, _concurrent?),
-    do: {candidates, false}
+  defp maybe_rerank(candidates, _query, %{rerank: false}, _budget, _concurrent?, _remaining),
+    do: {candidates, nil}
 
-  defp maybe_rerank([], _query, _profile, _budget, _concurrent?), do: {[], false}
+  defp maybe_rerank([], _query, _profile, _budget, _concurrent?, _remaining), do: {[], nil}
 
-  defp maybe_rerank(candidates, query, _profile, budget, concurrent?) do
-    remaining = Budget.remaining_ms(budget)
-
+  defp maybe_rerank(candidates, query, _profile, budget, concurrent?, remaining) do
     if remaining == 0 do
-      {candidates, true}
+      {candidates, outcome(:reranker, "deadline_exhausted_before_start", 0, 0)}
     else
       # Rerank only the visible head to bound model cost and latency.
       head_size = retrieval_config(:rerank_head)
@@ -235,40 +259,68 @@ defmodule Cartulary.Retrieval.Engine do
         })
       end
 
-      case deadline_call(call, remaining, concurrent?) do
-        {:ok, rankings, _provenance} ->
-          # Ignore invalid positions and keep final ranks dense and 1-based.
-          reordered =
-            rankings
-            |> Enum.sort_by(&ranking_score/1, :desc)
-            |> Enum.map(&Enum.at(head, ranking_index(&1)))
-            |> Enum.reject(&is_nil/1)
-            |> Kernel.++(tail)
-            |> Enum.with_index(1)
-            |> Enum.map(fn {candidate, rank} -> %{candidate | rank: rank} end)
+      allowance = rerank_allowance(remaining)
+      started_at = Cartulary.Clock.monotonic_ms()
 
-          {reordered, false}
+      case deadline_call(call, allowance, concurrent?) do
+        {:ok, rankings, _provenance} ->
+          elapsed_ms = Cartulary.Clock.monotonic_ms() - started_at
+          finish_rerank(rankings, head, tail, candidates, elapsed_ms, budget)
+
+        {:error, :timeout} ->
+          {candidates,
+           outcome(:reranker, "timeout", allowance, finite_remaining(Budget.remaining_ms(budget)))}
 
         {:error, _error} ->
-          {candidates, true}
+          {candidates,
+           outcome(
+             :reranker,
+             "provider_error",
+             Cartulary.Clock.monotonic_ms() - started_at,
+             finite_remaining(Budget.remaining_ms(budget))
+           )}
       end
     end
   end
 
-  # Disabled deadlines and the single-connection test path run inline.
+  defp finish_rerank(rankings, head, tail, candidates, elapsed_ms, budget) do
+    remaining_ms = finite_remaining(Budget.remaining_ms(budget))
+
+    if valid_rankings?(rankings, length(head)) do
+      reordered =
+        rankings
+        |> Enum.sort_by(&ranking_score/1, :desc)
+        |> Enum.map(&Enum.at(head, ranking_index(&1)))
+        |> Kernel.++(tail)
+        |> Enum.with_index(1)
+        |> Enum.map(fn {candidate, rank} -> %{candidate | rank: rank} end)
+
+      {reordered, completed_outcome(:reranker, elapsed_ms, remaining_ms)}
+    else
+      {candidates, outcome(:reranker, "invalid_result", elapsed_ms, remaining_ms)}
+    end
+  end
+
   defp deadline_call(call, :infinity, _concurrent?), do: call.()
 
   defp deadline_call(call, timeout, concurrent?) do
     if concurrent? do
       task = Task.async(call)
 
-      # Abandon an overdue rerank without waiting or retrying.
       case Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill) do
         {:ok, result} -> result
         nil -> {:error, :timeout}
       end
     else
-      call.()
+      # The SQL sandbox owns one connection, including the model-role lookup.
+      # Run inline there and classify an overrun after return; production uses
+      # the task path above and kills work at the allowance.
+      started_at = Cartulary.Clock.monotonic_ms()
+      result = call.()
+
+      if Cartulary.Clock.monotonic_ms() - started_at >= timeout,
+        do: {:error, :timeout},
+        else: result
     end
   end
 
@@ -277,6 +329,74 @@ defmodule Cartulary.Retrieval.Engine do
 
   defp ranking_score(ranking),
     do: ranking[:relevance_score] || ranking["relevance_score"] || ranking[:score] || 0.0
+
+  defp valid_rankings?(rankings, expected)
+       when is_list(rankings) and length(rankings) == expected do
+    indexes = Enum.map(rankings, &ranking_index/1)
+
+    Enum.all?(rankings, fn ranking ->
+      index = ranking_value(ranking, :index)
+      score = ranking_value(ranking, :relevance_score, :score)
+
+      is_integer(index) and index in 0..(expected - 1) and is_number(score)
+    end) and length(Enum.uniq(indexes)) == expected
+  end
+
+  defp valid_rankings?(_rankings, _expected), do: false
+
+  defp ranking_value(ranking, key, fallback_key \\ nil)
+
+  defp ranking_value(ranking, key, fallback_key) when is_map(ranking) do
+    Map.get(ranking, key) || Map.get(ranking, Atom.to_string(key)) ||
+      (fallback_key &&
+         (Map.get(ranking, fallback_key) || Map.get(ranking, Atom.to_string(fallback_key))))
+  end
+
+  defp ranking_value(_ranking, _key, _fallback_key), do: nil
+
+  defp rerank_allowance(:infinity), do: retrieval_config(:rerank_timeout_ms)
+  defp rerank_allowance(remaining), do: min(remaining, retrieval_config(:rerank_timeout_ms))
+
+  defp completed_outcome(component, elapsed_ms, remaining_ms) do
+    %{
+      component: Atom.to_string(component),
+      status: "completed",
+      reason_class: nil,
+      elapsed_ms: elapsed_ms,
+      budget_remaining_ms: remaining_ms
+    }
+  end
+
+  defp outcome(component, reason_class, elapsed_ms, remaining_ms) do
+    %{
+      component: Atom.to_string(component),
+      status: "dropped",
+      reason_class: reason_class,
+      elapsed_ms: elapsed_ms,
+      budget_remaining_ms: remaining_ms
+    }
+  end
+
+  defp finite_remaining(:infinity), do: nil
+  defp finite_remaining(value), do: value
+
+  defp emit_outcomes(account_id, result, deadline_ms) do
+    Cartulary.Retrieval.Diagnostics.record(account_id, result, deadline_ms)
+
+    :telemetry.execute(
+      [:cartulary, :retrieval, :outcomes],
+      %{
+        latency_ms: result.latency_ms,
+        pre_rerank_remaining_ms: result.pre_rerank_remaining_ms || 0
+      },
+      %{
+        account_id: account_id,
+        profile: result.profile,
+        deadline_ms: deadline_ms,
+        outcomes: result.retrieval_outcomes
+      }
+    )
+  end
 
   # Do not expose incomparable strategy-local scores.
   defp candidate_map(%Candidate{} = candidate) do

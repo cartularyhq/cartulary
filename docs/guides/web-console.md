@@ -19,7 +19,7 @@ Agent API keys work on JSON and MCP, never the console.
 | Page | Shows |
 | --- | --- |
 | `/console` | Overview: totals, lifecycle and sensitivity mix, what is waiting, recent activity |
-| `/console/knowledge` | The explorer: filter, page, and search every statement you can read |
+| `/console/knowledge` | The explorer: browse every statement you can read, or preview what retrieval would rank |
 | `/console/knowledge/<id>` | One statement in full, with its evidence, history, readable shared-entity neighbours, and available actions |
 | `/console/scopes` | The containment tree as a directory, with counts, index coverage, your role, and lateral links |
 | `/console/graph` | The same data drawn as a graph of scopes, statements, and cross-references |
@@ -35,19 +35,22 @@ checks authority and refuses unauthorized requests.
 
 ## Trying the MCP tools in the browser
 
-`/console/tools` provides one form for each tool exposed at `/mcp`: `ingest`,
-`get_context`, `search`, `ask`, `query_knowledge`, `check_readiness`,
-`resolve_validation`, and `set_ask_preference`. It calls the same Ash actions
-as MCP, under your signed-in identity, then renders the returned payload as
-formatted JSON. Account and calling-peer identity never come from a form.
+`/console/tools` provides one form for each tool exposed at `/mcp`. It calls
+the same Ash actions as MCP, under your signed-in identity. Account and
+calling-peer identity never come from a form.
+
+The cards are grouped by what you are trying to do:
 
 After `search` or `ask`, the browser adds `retrieval_health` for the selected
 scope. This browser-only object is not part of the MCP or HTTP contract. It
-reports statement, embedding, and entity-mention counts; embedding coverage;
-stored embedding identities; the configured query identity; and one of
-`ready`, `missing_embeddings`, `missing_mentions`, or `identity_mismatch`.
-When a derived index needs attention, `next_action` says to rebuild the scope's
-derived data.
+reports statement, embedding, entity-mention, and mentioned-statement counts;
+embedding and mention coverage; stored embedding identities; the configured
+query identity; and one of `ready`, `missing_embeddings`,
+`no_mentions_indexed`, `partial_mention_coverage`, or `identity_mismatch`.
+For Account administrators, it also reports whether query terms resolved no
+entity or resolved an entity with no statement in the selected authorized
+scope. It never returns entity or statement identity. When a derived index
+needs attention, `next_action` says to rebuild the scope's derived data.
 
 The operations page adds the same content-safe probe for an administrator-selected
 scope and effective profile. It reports inherited profile version, deadline,
@@ -55,16 +58,55 @@ enabled and disabled strategies, and explicitly shows that the probe made no
 model calls and read no stored content. Disabled strategies are reported
 separately from missing indexes.
 
+| Group | Cards | Action |
+| --- | --- | --- |
+| Retrieve | Ask memory, Search memory, Load context, Browse knowledge | `ask`, `search`, `get_context`, `query_knowledge` |
+| Operate | Save observation, Resolve validation, Update question limits | `ingest`, `resolve_validation`, `set_ask_preference` |
+| Evaluate | Check readiness | `check_readiness` |
+
+Every card names its action under the submit button, so a payload you see here
+maps to the tool an agent would call.
+
 Most forms are governed reads. Three have durable effects and are marked in
 the page: `ingest` persists and queues a raw observation,
 `resolve_validation` answers one pending question addressed to you, and
 `set_ask_preference` can only lower your own limits or extend a pause. The
 workbench adds no curator, promotion, gate-administration, or bulk action.
 
-The suggested session id is generated when the page mounts. Reuse it across
+## Session and scope on the workbench
+
+**Run context** at the top of the page sets the session id and scope for every
+card at once. The session id is generated when the page mounts; reuse it across
 calls when you want inline validation delivery and later ingest to belong to
-the same interaction. Results remain in the LiveView and are replaced by the
-next call.
+the same interaction, or press **Start a new session id** to begin a fresh one.
+
+The scope box accepts any scope you can read and completes as you type, which
+matters once an Account holds more paths than fit a list. A path you cannot
+read is named as such before you submit, so a typo does not look like an empty
+Account.
+
+Each card keeps a collapsed **Context** section holding the same two fields.
+Change them there to deviate for a single run without moving the page-wide
+context.
+
+## Reading a result
+
+A completed call shows a short summary first — the answer, the counts, the
+readiness verdict, the stored preference — followed by **What was submitted**
+and the exact **Raw payload**. The summary is a reading aid; the payload is the
+same value the underlying action returned, and stays available for debugging.
+
+After `search` or `ask`, the browser adds `retrieval_health` for the selected
+scope, and the summary reports its state. This browser-only object is not part
+of the MCP or HTTP contract. It reports statement, embedding, and entity-mention
+counts; embedding coverage; stored embedding identities; the configured query
+identity; and one of `ready`, `missing_embeddings`, `missing_mentions`, or
+`identity_mismatch`. When a derived index needs attention, `next_action` says to
+rebuild the scope's derived data.
+
+Up to five runs are kept under **Earlier runs** so you can compare a call with
+the one before it. They live in the page only: a reload starts empty, and a
+failed call leaves earlier results in place.
 
 ## What you see, and why you might see less than a colleague
 
@@ -83,23 +125,52 @@ you can contest, redact, or erase them.
 Two people looking at the same Account will therefore see different totals.
 That is the scope tree working, not an inconsistency.
 
-## Browsing versus retrieval
+## Browse or find
 
-**Browsing** applies attribute filters — scope, state, kind, sensitivity,
-subject — and pages through the result. It is exhaustive: what is not listed is
-either filtered out or not visible to you, never merely ranked low.
+`/console/knowledge` has two modes, and the tabs at the top say which you are
+in.
 
-**Retrieval** runs the same multi-strategy engine that answers an agent's
-`search` call, and shows its working: which strategies contributed, which found
-nothing, which were dropped against the deadline, and what each candidate
-scored. It ranks; it does not enumerate.
+**Browse** applies attribute filters — scope, lifecycle state, kind,
+sensitivity, how wide it may travel, subject — and pages through the result. It
+is exhaustive: what is not listed is either filtered out or not visible to you,
+never merely ranked low.
+
+**Find** runs the same multi-strategy engine that answers an agent's `search`
+call, and shows its working: which strategies contributed, which found nothing,
+which were dropped against the deadline, and what each candidate scored. It
+ranks; it does not enumerate. The exhaustive list stays underneath the ranked
+preview, so a miss is never mistaken for an empty memory.
 
 Read the strategy tile before the results. A search where the strategies that
 read your words all found nothing still returns a full page — of whatever is
 most recent in the scope. It looks like an answer and is not one.
 
-Retrieval requires a scope. Searching `/team/project` also searches `/team`
-and `/`. A miss means nothing ranked, not that the exhaustive browser is empty.
+Find requires a scope, and says so rather than listing silently. Searching
+`/team/project` also searches `/team` and `/`.
+
+### Filters
+
+Filters apply as you change them, and the URL holds all of them, so a filtered
+view can be bookmarked or shared with someone whose roles reach the same rows.
+Applied filters appear as chips above the results; each chip removes only
+itself, and **Clear all** removes the rest without leaving the mode you are in.
+
+The **Scope** field is a typeahead over the paths you can read. Type any part of
+a path; a scope you hold no role on never appears. Choosing one reports how many
+contained scopes come with it.
+
+**What these labels mean** expands a legend for every lifecycle state and
+sensitivity level you can be shown. Each badge carries a shape as well as a
+colour, so the states remain distinguishable without relying on colour.
+
+Sort by **Confidence** or **Recorded** from the column headers, and set 25, 50,
+or 100 rows per page beneath the list. Statement text longer than the column
+expands in place with **Show full text**; opening the statement itself shows all
+of it.
+
+An empty result says which kind of empty it is: no statements you can read at
+all, none matching the filters, nothing ranked by retrieval, or a query still
+waiting for a scope.
 
 ## Index coverage
 
@@ -119,23 +190,36 @@ Coverage counts only. Mentions is a number, never a list of names.
 
 ## The statement page
 
-Everything the system holds about one claim is on `/console/knowledge/<id>`:
+Everything the system holds about one claim is on `/console/knowledge/<id>`,
+ordered by the questions you arrive with:
 
-- the statement, its confidence, sensitivity, kind, and target level;
-- **subject against source** — who the claim is about, and where it came from.
-  A colleague can be the subject of something you said;
-- **belief time against valid time** — when the system holds the claim, against
-  when the claim is true in the world;
-- the model, model version, and prompt version that extracted it, and the
-  embedding identity attached to it;
-- the raw observations and document versions it was extracted from, in full;
-- its lifecycle timeline, and for curators the immutable gate decisions;
-- its relations in both directions and the supersession chain it belongs to.
-- the count and links for other statements that share a resolved entity and
-  pass your scope and lifecycle visibility rules.
+1. **The statement itself**, with its lifecycle state, kind, sensitivity, target
+   level, scope, confidence, corroboration count, and when it was recorded.
+2. **What you can do** — the actions your authority allows, each with its
+   consequence stated before you commit to it. When nothing is available, the
+   panel says why rather than disappearing.
+3. **How current and how trusted** — belief time against valid time: when the
+   system holds the claim, against when the claim is true in the world.
+4. **Scope, subject, and sensitivity** — who the claim is about, where it sits,
+   and how far it may travel. A colleague can be the subject of something you
+   said.
+5. **Provenance and evidence** — every route by which it entered, then the raw
+   observations and document versions it was extracted from, in full.
+6. **Lifecycle**, its shared-entity neighbours, and its cross-references in both
+   directions, including the supersession chain.
+7. **Technical details** — expand for the model, model version, and prompt
+   version that extracted it, the embedding identity attached to it, the
+   immutable gate decisions, and attribution.
+
+Times are shown as elapsed time; hover any of them for the exact UTC value.
+Identifiers and scope paths are shortened for scanning, with a copy control
+beside them for the whole value.
 
 Unreadable cross-references are omitted. Missing and unauthorized statement ids
 both return "not found".
+
+Arriving from the explorer keeps your filters: **Back to the list** returns to
+the view you left, and following a cross-reference carries it onward.
 
 ## What you can change
 

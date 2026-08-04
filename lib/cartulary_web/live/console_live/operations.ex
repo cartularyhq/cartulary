@@ -41,7 +41,7 @@ defmodule CartularyWeb.ConsoleLive.Operations do
        |> assign(:operations, operations)
        |> assign(:retrieval_scope_path, scope_path)
        |> assign(:retrieval_profile, profile)
-       |> assign(:retrieval_health, Loader.retrieval_health(actor, scope_path, profile))}
+       |> assign(:retrieval_health, Loader.retrieval_health(actor, scope_path, profile, nil))}
     else
       {:ok,
        socket
@@ -61,7 +61,7 @@ defmodule CartularyWeb.ConsoleLive.Operations do
      |> assign(:retrieval_profile, profile)
      |> assign(
        :retrieval_health,
-       Loader.retrieval_health(socket.assigns.current_actor, scope_path, profile)
+       Loader.retrieval_health(socket.assigns.current_actor, scope_path, profile, nil)
      )}
   end
 
@@ -288,6 +288,24 @@ defmodule CartularyWeb.ConsoleLive.Operations do
         title="Retrieval tunings"
         description="Stored overrides of the built-in profiles. They inherit down the scope tree, nearest scope winning, and the highest active version applies."
       >
+        <div class="tiles">
+          <.tile
+            :for={{name, profile} <- Enum.sort_by(@operations.retrieval_runtime.profiles, &elem(&1, 0))}
+            label={"#{name} deadline"}
+            value={"#{profile.deadline_ms} ms"}
+            note={if profile.rerank, do: "rerank enabled", else: "fusion only"}
+          />
+          <.tile
+            label="Rerank timeout"
+            value={"#{@operations.retrieval_runtime.rerank_timeout_ms} ms"}
+            note="clamped to remaining deadline"
+          />
+        </div>
+
+        <p class="hint">
+          Enabled strategies: {Enum.map_join(@operations.retrieval_runtime.enabled_strategies, ", ", &to_string/1)}
+        </p>
+
         <.empty
           :if={@operations.retrieval_profiles == []}
           message="No stored override. The compiled-in fast, balanced, and thorough profiles are in force."
@@ -319,6 +337,47 @@ defmodule CartularyWeb.ConsoleLive.Operations do
           </tbody>
         </table>
       </.panel>
+
+      <.panel
+        title="Latest retrieval outcome"
+        description="This node's latest Account retrieval. Component names, reason classes, and timings only; no query or candidate content is retained."
+      >
+        <.empty
+          :if={is_nil(@operations.latest_retrieval)}
+          message="No retrieval has been observed for this Account on this node."
+        />
+        <div :if={@operations.latest_retrieval}>
+          <div class="tiles">
+            <.tile label="Profile" value={@operations.latest_retrieval.profile} />
+            <.tile label="Hard deadline" value={"#{@operations.latest_retrieval.deadline_ms} ms"} />
+            <.tile label="Total elapsed" value={"#{@operations.latest_retrieval.latency_ms} ms"} />
+            <.tile
+              label="Before rerank"
+              value={remaining(@operations.latest_retrieval.pre_rerank_remaining_ms)}
+            />
+          </div>
+          <table class="grid" id="retrieval-outcomes">
+            <thead>
+              <tr>
+                <th>Component</th>
+                <th>Status</th>
+                <th>Reason</th>
+                <th>Elapsed</th>
+                <th>Budget remaining</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={outcome <- @operations.latest_retrieval.outcomes}>
+                <td>{outcome.component}</td>
+                <td>{outcome.status}</td>
+                <td>{outcome.reason_class || "—"}</td>
+                <td>{outcome.elapsed_ms} ms</td>
+                <td>{remaining(outcome.budget_remaining_ms)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </.panel>
     </.shell>
     """
   end
@@ -335,6 +394,8 @@ defmodule CartularyWeb.ConsoleLive.Operations do
   end
 
   defp percent(rate), do: "#{Float.round(rate * 100.0, 1)}%"
-
   defp readable_scope_paths(scope_paths), do: scope_paths |> Map.values() |> Enum.sort()
+
+  defp remaining(nil), do: "unbounded"
+  defp remaining(value), do: "#{value} ms"
 end

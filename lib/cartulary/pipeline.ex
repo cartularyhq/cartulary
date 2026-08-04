@@ -161,6 +161,30 @@ defmodule Cartulary.Pipeline do
   end
 
   @doc """
+  Schedules the ordinary full derived-cache rebuild for one scope.
+
+  Callers supply a stable, content-free watermark. Repeated reconciliation of
+  the same corpus therefore reuses one run, while a changed corpus produces new
+  work.
+  """
+  @spec enqueue_projection_refresh(Ecto.UUID.t(), Ecto.UUID.t(), term(), map()) ::
+          {:ok, PipelineRun.t()} | {:error, term()}
+  def enqueue_projection_refresh(account_id, scope_id, watermark, actor) do
+    enqueue(
+      "projection_refresh",
+      account_id,
+      %{
+        scope_id: scope_id,
+        target_type: "scope",
+        target_id: scope_id,
+        idempotency_key: Idempotency.projection_refresh(scope_id, watermark),
+        payload: %{"watermark" => to_string(watermark)}
+      },
+      actor
+    )
+  end
+
+  @doc """
   Requests an Account reconciliation sweep from an authenticated operator.
 
   The actor selects the Account. The enqueue runs inside an Account-scoped
