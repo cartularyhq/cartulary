@@ -288,6 +288,115 @@ defmodule CartularyWeb.ConsoleLiveTest do
       refute html =~ "Result · set_ask_preference"
     end
 
+    test "the workbench diagnoses retrieval past the ordinary result window", %{
+      conn: conn,
+      admin: admin,
+      admin_token: token
+    } do
+      seeded =
+        for index <- 1..20 do
+          ingest_statement!(
+            admin,
+            "diagnostic-#{index}",
+            "/console-test",
+            "Avery published release checklist number #{index}."
+          )
+        end
+
+      activate_knowledge!(admin, Enum.map(seeded, & &1.id))
+
+      {:ok, view, html} = live(sign_in(conn, token), "/console/tools")
+
+      assert html =~ "Retrieval diagnostic"
+      assert html =~ "Not production-equivalent"
+      # Closed until asked for: the ordinary forms must not change shape because
+      # an administrator happens to be signed in.
+      refute html =~ "Run diagnostic"
+
+      # An ordinary search still runs on the ordinary defaults, and says so when
+      # it stopped at the limit rather than at the end of the matches.
+      normal =
+        render_submit(view, "run", %{
+          "tool" => "search",
+          "session_id" => "console-tools-window",
+          "scope_path" => "/console-test",
+          "query" => "release checklist",
+          "profile" => "balanced"
+        })
+
+      assert normal =~ "deeper candidates may exist"
+
+      html = render_click(view, "toggle-diagnostic")
+
+      assert html =~ "Run diagnostic"
+      assert html =~ ~s|name="strategies[]"|
+      assert html =~ "query-independent"
+      assert html =~ ~s|max="#{CartularyWeb.Console.Diagnostic.limit_cap()}"|
+
+      html =
+        render_submit(view, "run-diagnostic", %{
+          "query" => "release checklist",
+          "scope_path" => "/console-test",
+          "profile" => "balanced",
+          "limit" => "50",
+          "strategies" => ["lexical"],
+          "deadline" => "on"
+        })
+
+      assert html =~ "Diagnostic result · not production-equivalent"
+      assert html =~ "Beyond the ordinary window"
+      assert html =~ "rank below the ordinary"
+      assert html =~ "Reproducible request"
+
+      # The exported request reproduces the run and identifies nobody. It is read
+      # out of its own block: the page also carries the earlier run's context,
+      # and asserting over the whole document would not test the export.
+      request = diagnostic_request(html)
+
+      assert request =~ ~s|&quot;mode&quot;: &quot;diagnostic&quot;|
+      assert request =~ ~s|&quot;limit&quot;: 50|
+      assert request =~ ~s|&quot;strategies&quot;: [\n    &quot;lexical&quot;\n  ]|
+      assert request =~ ~s|&quot;scope_path&quot;: &quot;/console-test&quot;|
+      refute request =~ "console-tools-window"
+      refute request =~ admin.account_id
+      refute request =~ "csrf"
+
+      # Matched query terms are marked, and the marking is server-rendered
+      # escaped markup rather than statement text reaching the page raw.
+      assert html =~ "<mark>release</mark>"
+      assert html =~ "<mark>checklist</mark>"
+
+      # Ranks are the fused positions, so a candidate keeps the place it earned
+      # even once the list below is narrowed.
+      assert html =~ ~s|value="13"|
+
+      # Query-dependent-only display is honest about an isolated strategy that
+      # never reads the query: it shows nothing rather than the same rows.
+      html =
+        render_submit(view, "run-diagnostic", %{
+          "query" => "release checklist",
+          "scope_path" => "/console-test",
+          "profile" => "balanced",
+          "limit" => "50",
+          "strategies" => ["salience_recency"],
+          "deadline" => "on",
+          "query_dependent_only" => "on"
+        })
+
+      assert html =~ "No query-dependent strategy voted for any candidate"
+
+      # An unregistered strategy name is refused without naming internals.
+      html =
+        render_submit(view, "run-diagnostic", %{
+          "query" => "release",
+          "scope_path" => "/console-test",
+          "profile" => "balanced",
+          "strategies" => ["not_a_strategy"]
+        })
+
+      assert html =~ "Diagnostic run failed"
+    end
+
     test "the workbench carries one run context that every card starts from", %{
       conn: conn,
       admin_token: token
@@ -445,6 +554,37 @@ defmodule CartularyWeb.ConsoleLiveTest do
 
       assert {:ok, member} = Identity.authenticate_bearer(token)
       assert_raise Ash.Error.Forbidden, fn -> Loader.operations(member) end
+    end
+
+    test "no retrieval diagnostic controls, and a hand-sent event is refused", %{
+      conn: conn,
+      member_token: token
+    } do
+      {:ok, view, html} = live(sign_in(conn, token), "/console/tools")
+
+      assert html =~ "Tool workbench"
+      refute html =~ "Retrieval diagnostic"
+      refute html =~ ~s|name="strategies[]"|
+
+      # The page not rendering a control is not the gate. An event sent by hand
+      # has to be refused too, and the operation layer refuses it again.
+      assert render_click(view, "toggle-diagnostic") =~ "for account administrators"
+
+      html =
+        render_submit(view, "run-diagnostic", %{
+          "query" => "release",
+          "scope_path" => "/console-test",
+          "strategies" => ["lexical"]
+        })
+
+      assert html =~ "for account administrators"
+      refute html =~ "Diagnostic result"
+
+      assert {:ok, member} = Identity.authenticate_bearer(token)
+
+      assert_raise Ash.Error.Forbidden, fn ->
+        Memory.diagnostic_search(%{"scope_path" => "/", "query" => "release"}, member)
+      end
     end
 
     test "the explorer offers no undecided lifecycle state as a filter", %{
@@ -1277,6 +1417,13 @@ defmodule CartularyWeb.ConsoleLiveTest do
     |> Ash.Changeset.set_tenant(account_id)
     |> Ash.Changeset.for_create(action, attrs)
     |> Ash.create!(actor: actor)
+  end
+
+  # The copyable request block alone, so an export assertion cannot be satisfied
+  # by something else the page happens to render.
+  defp diagnostic_request(html) do
+    [_match, json] = Regex.run(~r|<pre id="diagnostic-request"[^>]*>(.*?)</pre>|s, html)
+    json
   end
 
   defp sign_in(conn, token), do: init_test_session(conn, governance_token: token)
