@@ -32,6 +32,13 @@ Plain text matches statements sharing **any** of its terms, ranked by how many
 of them a statement covers and how closely together. Ask a full question: it
 does not need every content word to appear in one statement.
 
+For English questions, the lexical analyzer (`lexical-question-v1`) removes a
+small reviewed set of interrogative boilerplate and adds only the explicit
+`destress` / `stress` / `relax` / `calming` / `therapeutic` synonym group. It
+keeps names, dates, negation, and quoted text. A bounded proximity bonus favors
+nearby subject-and-intent terms. The analyzer version appears in the content-free
+operator diagnostic, so a ranking can be reproduced without recording query text.
+
 Three operators override that, following PostgreSQL `websearch` syntax.
 
 | Syntax | Meaning |

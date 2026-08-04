@@ -131,6 +131,14 @@ Request-local diagnostics classify partial coverage and distinguish no resolved
 entity from a resolved entity with no authorized statements without returning
 cache identities or content.
 
+Lexical search applies the versioned `lexical-question-v1` analyzer before its
+static, parameterized FTS query. For plain English questions it removes a
+reviewed interrogative set, retains names and dates, expands only the bounded
+`destress`/`stress`/`relax`/`calming`/`therapeutic` group, and adds a bounded
+proximity boost. Quoted phrases and negation retain `websearch_to_tsquery`
+semantics. The content-free retrieval diagnostic records the analyzer identity;
+query text and expanded terms remain absent from diagnostics and telemetry.
+
 `Indexer.rebuild_scope/2` and `EntityResolver.rebuild_scope/2` use a short read
 transaction, connection-free model calls, and one final write transaction. The
 entity resolver matches surface forms against an in-memory set seeded by the

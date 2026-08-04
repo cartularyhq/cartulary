@@ -597,6 +597,101 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     end
   end
 
+  test "lexical question analysis ranks subject and intent evidence above conversational noise" do
+    melanie =
+      seed_active!(
+        "f7-question-ranking",
+        "/f7/question-ranking",
+        "Melanie runs regularly as a way to destress.",
+        "ranking-melanie"
+      )
+
+    pottery =
+      seed_active!(
+        "f7-question-ranking",
+        "/f7/question-ranking",
+        "Therapeutic pottery helps Melanie relax after difficult days.",
+        "ranking-pottery"
+      )
+
+    caroline =
+      seed_active!(
+        "f7-question-ranking",
+        "/f7/question-ranking",
+        "Caroline joined a mentorship program in March 2024.",
+        "ranking-caroline"
+      )
+
+    Enum.each(1..20, fn index ->
+      seed_active!(
+        "f7-question-ranking",
+        "/f7/question-ranking",
+        "Melanie and Caroline discussed what the team does during conversation #{index}.",
+        "ranking-noise-#{index}"
+      )
+    end)
+
+    search = fn query ->
+      Memory.search(%{
+        "account_key" => "f7-question-ranking",
+        "scope_path" => melanie.scope.path,
+        "query" => query,
+        "strategies" => ["lexical"],
+        "deadline" => "disabled"
+      })
+    end
+
+    melanie_ids =
+      search.("What does Melanie do to destress?")
+      |> Map.fetch!("candidates")
+      |> Enum.map(& &1["id"])
+
+    caroline_ids =
+      search.("When did Caroline join a mentorship program?")
+      |> Map.fetch!("candidates")
+      |> Enum.map(& &1["id"])
+
+    assert Enum.find_index(melanie_ids, &(&1 == melanie.knowledge.id)) < 12
+    assert Enum.find_index(melanie_ids, &(&1 == pottery.knowledge.id)) < 12
+    assert Enum.find_index(caroline_ids, &(&1 == caroline.knowledge.id)) < 12
+
+    assert %{lexical_analyzer: "lexical-question-v1"} =
+             Cartulary.Retrieval.Diagnostics.latest(melanie.account.id)
+  end
+
+  test "lexical question analysis preserves quoted phrases, negation, dates, and safe empty input" do
+    quoted =
+      seed_active!(
+        "f7-question-safety",
+        "/f7/question-safety",
+        "Melanie recorded the release notes on 2024-03-05.",
+        "safety-quoted"
+      )
+
+    excluded =
+      seed_active!(
+        "f7-question-safety",
+        "/f7/question-safety",
+        "Melanie recorded draft release notes on 2024-03-05.",
+        "safety-excluded"
+      )
+
+    search = fn query ->
+      Memory.search(%{
+        "account_key" => "f7-question-safety",
+        "scope_path" => quoted.scope.path,
+        "query" => query,
+        "strategies" => ["lexical"],
+        "deadline" => "disabled"
+      })["candidates"]
+      |> Enum.map(& &1["id"])
+    end
+
+    assert quoted.knowledge.id in search.(~s("release notes" 2024-03-05 -draft))
+    refute excluded.knowledge.id in search.(~s("release notes" 2024-03-05 -draft))
+    assert search.("what does the to ??? & | ;") == []
+  end
+
   test "fusion ranks the query-matching target above distractors a newer statement outranks" do
     corpus = seed_ranking_corpus!()
 
