@@ -293,6 +293,76 @@ code {
   .sidebar .nav-item {
     white-space: nowrap;
   }
+
+  .pairs,
+  .pairs.wide,
+  .legend-row {
+    grid-template-columns: 1fr;
+  }
+
+  .pairs dt,
+  .legend-row dt {
+    margin-top: 0.4rem;
+  }
+
+  /* A multi-column row cannot be read on a phone, and horizontal scrolling
+     hides the statement itself. Each row becomes a card whose cells label
+     themselves. Opt-in, because only a table whose cells carry `data-label`
+     survives losing its header row. */
+  .grid.cards,
+  .grid.cards thead,
+  .grid.cards tbody,
+  .grid.cards tr,
+  .grid.cards td {
+    display: block;
+    width: auto;
+  }
+
+  .grid.cards thead {
+    display: none;
+  }
+
+  .grid.cards tr {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.5rem 0.6rem;
+    margin-bottom: 0.6rem;
+  }
+
+  .grid.cards td {
+    border-bottom: 0;
+    padding: 0.2rem 0;
+  }
+
+  .grid.cards td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+  }
+
+  .statements td.statement-cell {
+    width: auto;
+  }
+
+  .badge-stack {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .pager-total {
+    margin-left: 0;
+  }
+
+  .timeline-when {
+    min-width: 0;
+  }
+
+  .tabs {
+    overflow-x: auto;
+  }
 }
 
 /* ---------------------------------------------------------------- flash -- */
@@ -746,21 +816,89 @@ code {
 
 .statement-link {
   color: var(--text);
+  font-weight: 500;
+}
+
+/* The statement is the row; everything else is context for it. */
+.statements td.statement-cell {
+  width: 55%;
+}
+
+.statement-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.badge-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
+
+.sort-link {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.sort-link:hover,
+.sort-link.is-active {
+  color: var(--accent);
+}
+
+/* Only the table scrolls sideways, and only where it is labelled, so the page
+   itself never does. */
+.table-scroll {
+  overflow-x: auto;
 }
 
 .pager {
   display: flex;
   align-items: center;
   gap: 1rem;
+  flex-wrap: wrap;
   margin-top: 0.85rem;
   font-size: 0.88rem;
   color: var(--muted);
 }
 
+.pager-steps {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.pager-position {
+  white-space: nowrap;
+}
+
+.pager-size label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+}
+
+.pager-size select {
+  width: auto;
+}
+
+.pager-total {
+  margin: 0 0 0 auto;
+}
+
 /* --------------------------------------------------------------- badges -- */
 
 .badge {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
   border: 1px solid var(--border);
   background: var(--surface-2);
   border-radius: 999px;
@@ -769,6 +907,13 @@ code {
   font-weight: 600;
   color: var(--muted);
   white-space: nowrap;
+}
+
+/* The glyph carries the same distinction the colour does, so lifecycle and
+   sensitivity survive a monochrome display or colour-blind vision. */
+.badge-glyph {
+  font-size: 0.6rem;
+  line-height: 1;
 }
 
 .badge-row {
@@ -1089,6 +1234,269 @@ button.ghost {
   border-top: 0;
   padding-top: 0;
   margin-top: 0;
+}
+
+/* ----------------------------------------------------- modes & filters -- */
+
+.tabs {
+  display: flex;
+  gap: 0.35rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 1.1rem;
+}
+
+.tab {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.5rem 0.85rem;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: var(--radius) var(--radius) 0 0;
+  color: var(--muted);
+  text-decoration: none;
+  margin-bottom: -1px;
+}
+
+.tab:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.tab.is-active {
+  color: var(--text);
+  background: var(--surface);
+  border-color: var(--border);
+  border-bottom-color: var(--surface);
+}
+
+.tab-label {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.tab-hint {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.field-note {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+/* LiveView sets this class on the form while a change is in flight. Revealing
+   the notice from CSS keeps the console free of a script whose only job is to
+   toggle a word, and the previous result stays on screen underneath. */
+.filter-busy {
+  display: none;
+  align-self: center;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.filters.phx-change-loading .filter-busy,
+.filters.phx-submit-loading .filter-busy {
+  display: inline;
+}
+
+.filter-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.filter-summary-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  border-radius: 999px;
+  padding: 0.1rem 0.3rem 0.1rem 0.6rem;
+  font-size: 0.78rem;
+}
+
+.filter-chip-label {
+  color: var(--muted);
+}
+
+.filter-chip-value {
+  font-weight: 600;
+}
+
+.filter-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 999px;
+  color: var(--muted);
+  text-decoration: none;
+  line-height: 1;
+}
+
+.filter-chip-remove:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+/* ------------------------------------------------- disclosure & copying -- */
+
+.legend,
+.expandable,
+.technical {
+  font-size: 0.85rem;
+}
+
+.legend > summary,
+.expandable > summary,
+.technical > summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.legend > summary:hover,
+.expandable > summary:hover,
+.technical > summary:hover {
+  color: var(--accent);
+}
+
+.legend {
+  margin-top: 0.85rem;
+}
+
+.legend-list {
+  display: grid;
+  gap: 0.3rem 0.75rem;
+  margin: 0.6rem 0 0;
+}
+
+.legend-row {
+  display: grid;
+  grid-template-columns: 11rem 1fr;
+  gap: 0.75rem;
+  align-items: baseline;
+}
+
+.legend-row dt,
+.legend-row dd {
+  margin: 0;
+}
+
+.legend-row dd {
+  color: var(--muted);
+}
+
+.expandable-full {
+  margin: 0.4rem 0 0;
+}
+
+.technical {
+  margin-top: 1.1rem;
+}
+
+.technical > summary {
+  font-weight: 600;
+  padding: 0.5rem 0;
+}
+
+.copy {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 0 0.2rem;
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
+.copy:hover {
+  background: transparent;
+  color: var(--accent);
+}
+
+.copy.copied {
+  color: var(--accent);
+}
+
+.copy.copy-failed {
+  color: var(--danger);
+}
+
+.copy.copied::after {
+  content: " copied";
+  font-size: 0.7rem;
+}
+
+.copy.copy-failed::after {
+  content: " blocked";
+  font-size: 0.7rem;
+}
+
+/* -------------------------------------------------- crumbs & confidence -- */
+
+.crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+
+.meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.meter-track {
+  display: inline-block;
+  width: 3.5rem;
+  height: 0.35rem;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.meter-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.meter-value {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+
+.summary-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.5rem;
+  margin: 0.75rem 0 0;
+}
+
+.summary-fact dt {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.summary-fact dd {
+  margin: 0.1rem 0 0;
+  font-size: 0.88rem;
 }
 
 /* ---------------------------------------------------------------- graph -- */

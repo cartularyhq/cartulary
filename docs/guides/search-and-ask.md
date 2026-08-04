@@ -54,6 +54,14 @@ curl -fsS -X POST http://127.0.0.1:4000/api/v1/search \
   deadline or a dependency was unavailable. `semantic` appears here when the
   embedder failed. Frequent deadline drops mean the profile's budget is too
   tight for your data size.
+- `retrieval_outcomes` gives each component's status, deterministic drop reason,
+  elapsed time, and remaining budget. The reason is one of
+  `disabled`, `deadline_exhausted_before_start`, `timeout`,
+  `dependency_unavailable`, `provider_error`, or `invalid_result`. It contains
+  no query or candidate text.
+- `pre_rerank_remaining_ms` shows how much of the hard ceiling remained before
+  reranking. Reranking receives the smaller of that value and
+  `CARTULARY_RETRIEVAL_RERANK_TIMEOUT_MS`.
 - `empty_strategies` lists strategies that ran and matched nothing. That is a
   result, not a failure — but a strategy in this list did not vote on the order.
 

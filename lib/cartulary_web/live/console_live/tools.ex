@@ -815,7 +815,11 @@ defmodule CartularyWeb.ConsoleLive.Tools do
     Map.put(
       result,
       :retrieval_health,
-      Loader.retrieval_health(actor, Map.get(params, "scope_path"))
+      Loader.retrieval_health(
+        actor,
+        Map.get(params, "scope_path"),
+        Map.get(params, "query") || Map.get(params, "question")
+      )
     )
   end
 

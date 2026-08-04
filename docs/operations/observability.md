@@ -73,6 +73,13 @@ Model spans carry operation, role, provider, model, version, duration, and
 token usage. Document spans carry version id, parser, byte/chunk/knowledge
 counts, connector id, item count, and duration.
 
+Every retrieval emits `[:cartulary, :retrieval, :outcomes]`. Measurements are
+total latency and pre-rerank remaining budget. Metadata contains Account id,
+profile, hard deadline, and content-free component outcomes with elapsed time
+and one deterministic failure class. The latest outcome observed on the node is
+also visible to account administrators at `/console/operations`; tool search
+and ask results show the same additive details in `/console/tools`.
+
 ## Reading a failed model call
 
 A failed model call sets `error.type` on its span and writes the same string as
@@ -126,10 +133,18 @@ The current figures for any scope are also on
 [`/console/scopes`](../guides/web-console.md).
 Running `search` or `ask` in [`/console/tools`](../guides/web-console.md) also
 compares the scope's stored embedding identities with the configured query
-identity. `missing_embeddings`, `missing_mentions`, and `identity_mismatch`
-direct the operator to rebuild that scope's derived data. The diagnostic is
-restricted to the signed-in actor's readable scope and contains counts and
+identity. `missing_embeddings`, `no_mentions_indexed`,
+`partial_mention_coverage`, and `identity_mismatch` direct the operator to
+rebuild that scope's derived data. Account-admin search diagnostics also
+distinguish a query that resolves no entity from one whose matching entity has
+no statement in the selected authorized scope. The diagnostic is restricted to
+the signed-in actor's readable scope and contains counts, reason codes, and
 model identity only.
+
+`POST /api/v1/operations/reconcile` also checks active scopes for a completely
+missing mention index. It enqueues the ordinary full scope rebuild with a
+stable corpus watermark. Repeating reconciliation before the corpus changes
+reuses the same pipeline run.
 
 ## Traces are sampled; the ledger is exact
 

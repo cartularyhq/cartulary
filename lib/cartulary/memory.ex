@@ -371,10 +371,12 @@ defmodule Cartulary.Memory do
   Returns a string-keyed map holding `"query"`, `"profile"`,
   `"profile_version"`, `"deadline"`, `"latency_ms"`,
   `"contributed_strategies"`, `"empty_strategies"`, `"dropped_strategies"`,
-  `"disagreement"`, and `"candidates"`. A strategy that ran out of deadline
-  lands in `"dropped_strategies"` instead of failing the call, so a partial
-  result is normal: read that list before treating a thin result as an absence
-  of knowledge.
+  `"retrieval_outcomes"`, `"pre_rerank_remaining_ms"`, `"disagreement"`, and
+  `"candidates"`. A strategy that ran out of deadline lands in
+  `"dropped_strategies"` instead of failing the call, so a partial result is
+  normal: read that list before treating a thin result as an absence of
+  knowledge. The structured outcomes add content-free reason classes and
+  timings while preserving the compatible dropped-name list.
 
   A strategy that ran and matched nothing lands in `"empty_strategies"`. When
   the text-reading strategies are all in there,
