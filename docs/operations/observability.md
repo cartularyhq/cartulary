@@ -126,10 +126,18 @@ The current figures for any scope are also on
 [`/console/scopes`](../guides/web-console.md).
 Running `search` or `ask` in [`/console/tools`](../guides/web-console.md) also
 compares the scope's stored embedding identities with the configured query
-identity. `missing_embeddings`, `missing_mentions`, and `identity_mismatch`
-direct the operator to rebuild that scope's derived data. The diagnostic is
-restricted to the signed-in actor's readable scope and contains counts and
+identity. `missing_embeddings`, `no_mentions_indexed`,
+`partial_mention_coverage`, and `identity_mismatch` direct the operator to
+rebuild that scope's derived data. Account-admin search diagnostics also
+distinguish a query that resolves no entity from one whose matching entity has
+no statement in the selected authorized scope. The diagnostic is restricted to
+the signed-in actor's readable scope and contains counts, reason codes, and
 model identity only.
+
+`POST /api/v1/operations/reconcile` also checks active scopes for a completely
+missing mention index. It enqueues the ordinary full scope rebuild with a
+stable corpus watermark. Repeating reconciliation before the corpus changes
+reuses the same pipeline run.
 
 ## Traces are sampled; the ledger is exact
 

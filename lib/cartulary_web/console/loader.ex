@@ -427,8 +427,9 @@ defmodule CartularyWeb.Console.Loader do
   contains counts and embedding identities only; it never returns statements,
   entity-cache rows, or other derived content.
   """
-  def retrieval_health(%Actor{} = actor, scope_path) when is_binary(scope_path) do
-    coverage =
+  def retrieval_health(%Actor{} = actor, scope_path, query_text \\ nil)
+      when is_binary(scope_path) do
+    result =
       DataLayer.with_actor(actor, fn account, current_actor ->
         scope =
           account.id
@@ -436,12 +437,22 @@ defmodule CartularyWeb.Console.Loader do
           |> Enum.find(&(&1.path == scope_path))
 
         if scope do
-          Cartulary.Retrieval.index_coverage(account.id, [scope.id], actor.peer_id)
-          |> Map.fetch!(scope.id)
+          coverage =
+            Cartulary.Retrieval.index_coverage(account.id, [scope.id], actor.peer_id)
+            |> Map.fetch!(scope.id)
+
+          reason =
+            if Access.can?(actor, :administer) do
+              entity_match_reason(account.id, scope.id, current_actor, query_text)
+            end
+
+          {coverage, reason}
         end
       end)
 
-    if coverage do
+    if result do
+      {coverage, entity_match_reason} = result
+
       configured_identity =
         :embedder
         |> ModelConfig.resolve(%{account_id: actor.account_id, actor: actor})
@@ -450,7 +461,8 @@ defmodule CartularyWeb.Console.Loader do
       Map.merge(coverage, %{
         configured_identity: configured_identity,
         state: retrieval_health_state(coverage, configured_identity),
-        next_action: retrieval_health_action(coverage, configured_identity)
+        next_action: retrieval_health_action(coverage, configured_identity),
+        entity_match_reason: entity_match_reason
       })
     end
   end
@@ -767,9 +779,24 @@ defmodule CartularyWeb.Console.Loader do
     cond do
       Enum.any?(coverage.embedding_identities, &(&1 != identity)) -> :identity_mismatch
       coverage.embedded_count < coverage.statement_count -> :missing_embeddings
-      coverage.mention_count == 0 -> :missing_mentions
+      coverage.mentioned_statement_count == 0 -> :no_mentions_indexed
+      coverage.mentioned_statement_count < coverage.statement_count -> :partial_mention_coverage
       true -> :ready
     end
+  end
+
+  defp entity_match_reason(_account_id, _scope_id, _actor, query_text)
+       when query_text in [nil, ""],
+       do: nil
+
+  defp entity_match_reason(account_id, scope_id, actor, query_text) do
+    Cartulary.Retrieval.Store.entity_match_status(%Cartulary.Retrieval.Query{
+      account_id: account_id,
+      scope_ids: [scope_id],
+      actor: actor,
+      text: query_text,
+      target: :knowledge
+    })
   end
 
   defp retrieval_health_action(coverage, identity) do

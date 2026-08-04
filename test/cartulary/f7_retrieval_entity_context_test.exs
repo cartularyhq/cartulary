@@ -1332,6 +1332,8 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
              statement_count: 1,
              embedded_count: 0,
              mention_count: 0,
+             mentioned_statement_count: 0,
+             mention_coverage: +0.0,
              coverage: +0.0,
              embedding_identities: []
            } = Map.fetch!(before, seeded.scope.id)
@@ -1358,12 +1360,16 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     # Mentions are reported as a count. Naming the entity, its aliases, or the matched surface
     # form here would create a second, ungoverned view of who an Account knows about.
     assert coverage.mention_count >= 1
+    assert coverage.mentioned_statement_count == 1
+    assert coverage.mention_coverage == 1.0
 
     assert Map.keys(coverage) |> Enum.sort() == [
              :coverage,
              :embedded_count,
              :embedding_identities,
              :mention_count,
+             :mention_coverage,
+             :mentioned_statement_count,
              :statement_count
            ]
 
@@ -1379,6 +1385,90 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     assert measurements.coverage == 1.0
     assert metadata.scope_id == seeded.scope.id
     assert metadata.account_id == seeded.account.id
+  end
+
+  test "reconciliation enqueues one replay-safe rebuild for a scope with no mentions" do
+    seeded =
+      seed_active!("f7-mention-reconcile", "/f7/reconcile", "Avery owns the release checklist.")
+
+    before = projection_refresh_count(seeded.account.id)
+
+    assert {:ok, %{scopes: 1}} = Cartulary.Pipeline.Reconciler.run(seeded.account.id)
+    assert projection_refresh_count(seeded.account.id) == before + 1
+
+    assert {:ok, %{scopes: 1}} = Cartulary.Pipeline.Reconciler.run(seeded.account.id)
+    assert projection_refresh_count(seeded.account.id) == before + 1
+
+    assert {:ok, %{mentions: mentions}} =
+             EntityResolver.rebuild_scope(seeded.account.id, seeded.scope.id)
+
+    assert mentions > 0
+    assert {:ok, %{scopes: 0}} = Cartulary.Pipeline.Reconciler.run(seeded.account.id)
+  end
+
+  test "mention coverage reports a partially indexed scope" do
+    first = seed_active!("f7-partial-mentions", "/f7/partial", "Avery owns the checklist.")
+
+    second =
+      seed_active!(
+        "f7-partial-mentions",
+        "/f7/partial",
+        "Melanie owns the launch plan.",
+        "partial-session"
+      )
+
+    assert {:ok, %{mentions: mentions}} =
+             EntityResolver.rebuild_scope(first.account.id, first.scope.id)
+
+    assert mentions >= 2
+
+    Ecto.Adapters.SQL.query!(
+      Cartulary.Repo,
+      "DELETE FROM entity_mentions WHERE account_id = $1 AND knowledge_item_id = $2",
+      [Ecto.UUID.dump!(first.account.id), Ecto.UUID.dump!(second.knowledge.id)]
+    )
+
+    coverage = Cartulary.Retrieval.index_coverage(first.account.id, [first.scope.id])
+    coverage = Map.fetch!(coverage, first.scope.id)
+
+    assert coverage.statement_count == 2
+    assert coverage.mentioned_statement_count == 1
+    assert coverage.mention_coverage == 0.5
+  end
+
+  test "entity no-match reasons stay count-only and scope-bound" do
+    visible = seed_active!("f7-entity-reason", "/f7/visible", "Avery owns the checklist.")
+
+    hidden =
+      seed_active!(
+        "f7-entity-reason",
+        "/f7/hidden",
+        "Melanie owns the private launch plan.",
+        "hidden-session"
+      )
+
+    assert {:ok, %{mentions: mentions}} =
+             EntityResolver.rebuild_scope(hidden.account.id, hidden.scope.id)
+
+    assert mentions > 0
+
+    query = %Query{
+      account_id: visible.account.id,
+      actor: visible.actor,
+      text: "Melanie",
+      target: :knowledge,
+      scope_ids: [visible.scope.id]
+    }
+
+    assert Cartulary.Retrieval.Store.entity_match_status(query) ==
+             :entity_found_no_authorized_statements
+
+    assert Cartulary.Retrieval.Store.entity_match_status(%{query | text: "NobodyKnown"}) ==
+             :query_resolved_no_entity
+
+    diagnostic = inspect([Cartulary.Retrieval.Store.entity_match_status(query)])
+    refute diagnostic =~ "Melanie"
+    refute diagnostic =~ hidden.knowledge.id
   end
 
   test "an unavailable embedder drops the semantic strategy instead of reporting no matches" do
@@ -1562,6 +1652,17 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
 
       %{account: account, actor: actor, scope: scope, knowledge: knowledge}
     end)
+  end
+
+  defp projection_refresh_count(account_id) do
+    %{rows: [[count]]} =
+      Ecto.Adapters.SQL.query!(
+        Cartulary.Repo,
+        "SELECT count(*) FROM pipeline_runs WHERE account_id = $1 AND kind = 'projection_refresh'",
+        [Ecto.UUID.dump!(account_id)]
+      )
+
+    count
   end
 
   # A five-statement corpus for ranking assertions.

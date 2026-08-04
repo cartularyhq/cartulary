@@ -21,6 +21,8 @@ defmodule Cartulary.Retrieval.Coverage do
     statement_count: 0,
     embedded_count: 0,
     mention_count: 0,
+    mentioned_statement_count: 0,
+    mention_coverage: 1.0,
     coverage: 1.0,
     embedding_identities: []
   }
@@ -49,6 +51,8 @@ defmodule Cartulary.Retrieval.Coverage do
            statement_count: statements,
            embedded_count: embedded,
            mention_count: row["mention_count"],
+           mentioned_statement_count: row["mentioned_statement_count"],
+           mention_coverage: ratio(row["mentioned_statement_count"], statements),
            coverage: ratio(embedded, statements),
            embedding_identities: identities(row["embedding_identities"])
          }}

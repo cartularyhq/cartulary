@@ -15,7 +15,8 @@ defmodule Cartulary.Pipeline.Reconciler do
 
   - messages that were never stamped as extracted;
   - document versions still pending, or whose processing failed;
-  - active connectors that are due (or have never run).
+  - active connectors that are due (or have never run);
+  - scopes with active statements but no derived entity mentions.
   """
 
   alias Cartulary.Clock
@@ -24,6 +25,7 @@ defmodule Cartulary.Pipeline.Reconciler do
   alias Cartulary.Observations.DocumentVersion
   alias Cartulary.Observations.Message
   alias Cartulary.Pipeline
+  alias Cartulary.Retrieval.Store
 
   require Ash.Query
 
@@ -37,7 +39,7 @@ defmodule Cartulary.Pipeline.Reconciler do
   setting row-level security reads, so the sweep cannot reach another tenant's
   rows.
 
-  Returns `{:ok, counts}` with `:messages`, `:documents`, `:connectors`, and
+  Returns `{:ok, counts}` with `:messages`, `:documents`, `:connectors`, `:scopes`, and
   `:reconciled` (their sum). The counts report how many enqueues *succeeded*,
   not how much new work was created — a record whose run already exists is
   counted as reconciled because the upsert succeeded. A steady non-zero count
@@ -93,7 +95,25 @@ defmodule Cartulary.Pipeline.Reconciler do
               match?({:ok, _run}, Pipeline.enqueue_connector_sync(connector, actor))
             end)
 
-          %{messages: messages, documents: documents, connectors: connectors}
+          scopes =
+            account_id
+            |> Store.scopes_missing_mentions()
+            |> Enum.count(fn row ->
+              watermark =
+                "mentions:#{row["statement_count"]}:#{row["latest_statement_at"]}"
+
+              match?(
+                {:ok, _run},
+                Pipeline.enqueue_projection_refresh(
+                  account_id,
+                  row["scope_id"],
+                  watermark,
+                  actor
+                )
+              )
+            end)
+
+          %{messages: messages, documents: documents, connectors: connectors, scopes: scopes}
       end)
 
     {:ok, Map.put(counts, :reconciled, Enum.sum(Map.values(counts)))}
