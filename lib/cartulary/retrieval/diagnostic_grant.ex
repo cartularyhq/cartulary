@@ -4,14 +4,17 @@ defmodule Cartulary.Retrieval.DiagnosticGrant do
   @moduledoc """
   Permission token that unlocks retrieval's internal seam for one diagnostic run.
 
-  Naming strategies, disabling the deadline, and forcing reranking off are
-  internal knobs, not public contract. `Cartulary.Memory.search/2` honours them
-  only when its filters carry this struct, and decoded JSON cannot produce a
-  struct — so a request body arriving at the same facade can never forge one.
+  Naming strategies, disabling the deadline, forcing reranking off, and asking
+  retrieval to explain its ranking are internal knobs, not public contract.
+  `Cartulary.Memory.search/2` honours them only when its filters carry this
+  struct, and decoded JSON cannot produce a struct — so a request body arriving
+  at the same facade can never forge one.
 
   Holding a grant confers no data access. The retrieval query still runs under
   the caller's Account, authorized scopes, lifecycle visibility, and subject
   rules; a grant only changes which strategies run and how long they may take.
+  The rank trace it can request describes candidates the same run already
+  returned, so it too discloses nothing new.
 
   Build one through `Cartulary.Memory.diagnostic_search/2`, which authorizes the
   actor first.
@@ -26,13 +29,14 @@ defmodule Cartulary.Retrieval.DiagnosticGrant do
   @max_limit 100
 
   @enforce_keys [:limit]
-  defstruct [:limit, :strategies, rerank: nil, deadline?: true]
+  defstruct [:limit, :strategies, rerank: nil, deadline?: true, trace?: false]
 
   @type t :: %__MODULE__{
           limit: pos_integer(),
           strategies: [atom()] | nil,
           rerank: boolean() | nil,
-          deadline?: boolean()
+          deadline?: boolean(),
+          trace?: boolean()
         }
 
   @doc "Largest candidate limit a diagnostic run may request."
@@ -41,10 +45,11 @@ defmodule Cartulary.Retrieval.DiagnosticGrant do
   @doc """
   Builds a grant from already-authorized options.
 
-  `opts` accepts `:limit`, `:strategies`, `:rerank`, and `:deadline?`. The limit
-  is clamped into `1..#{@max_limit}`; an unusable value falls back to `default_limit`.
-  Strategy names are validated against the registry, and an empty or absent list
-  becomes `nil`, meaning "use the resolved profile's own strategies".
+  `opts` accepts `:limit`, `:strategies`, `:rerank`, `:deadline?`, and `:trace?`.
+  The limit is clamped into `1..#{@max_limit}`; an unusable value falls back to
+  `default_limit`. Strategy names are validated against the registry, and an
+  empty or absent list becomes `nil`, meaning "use the resolved profile's own
+  strategies". `:trace?` asks retrieval to explain the ranking it produced.
 
   Raises `ArgumentError` for an unregistered strategy name, because a silently
   dropped name would make the run misreport what it did.
@@ -54,7 +59,8 @@ defmodule Cartulary.Retrieval.DiagnosticGrant do
       limit: clamp_limit(Keyword.get(opts, :limit), default_limit),
       strategies: strategies(Keyword.get(opts, :strategies)),
       rerank: rerank(Keyword.get(opts, :rerank)),
-      deadline?: Keyword.get(opts, :deadline?, true) != false
+      deadline?: Keyword.get(opts, :deadline?, true) != false,
+      trace?: Keyword.get(opts, :trace?) in [true, "true", "on", "1"]
     }
   end
 

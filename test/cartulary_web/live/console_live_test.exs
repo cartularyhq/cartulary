@@ -370,6 +370,25 @@ defmodule CartularyWeb.ConsoleLiveTest do
       # even once the list below is narrowed.
       assert html =~ ~s|value="13"|
 
+      # The rank explanation is opt-in, so the run above carries none.
+      refute html =~ "Rank explanation"
+
+      html =
+        render_submit(view, "run-diagnostic", %{
+          "query" => "release checklist",
+          "scope_path" => "/console-test",
+          "profile" => "balanced",
+          "limit" => "50",
+          "strategies" => ["lexical"],
+          "deadline" => "on",
+          "trace" => "on"
+        })
+
+      assert html =~ "Rank explanation"
+      assert html =~ "Fusion contribution"
+      assert html =~ "Local rank"
+      assert html =~ "Local score"
+
       # Query-dependent-only display is honest about an isolated strategy that
       # never reads the query: it shows nothing rather than the same rows.
       html =

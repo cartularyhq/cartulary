@@ -371,8 +371,9 @@ defmodule Cartulary.Memory do
     strategy names are an internal seam rather than a public contract.
   - `"_diagnostic"` — a `Cartulary.Retrieval.DiagnosticGrant`, which supplies
     the limit, strategy list, deadline, and rerank setting in place of the keys
-    above. Only `diagnostic_search/2` builds one, and decoded JSON cannot
-    produce a struct, so a request body cannot reach this path.
+    above, and may ask for the `"diagnostic_trace"` rank explanation. Only
+    `diagnostic_search/2` builds one, and decoded JSON cannot produce a struct,
+    so a request body cannot reach this path.
 
   Returns a string-keyed map holding `"query"`, `"profile"`,
   `"profile_version"`, `"deadline"`, `"latency_ms"`,
@@ -443,7 +444,8 @@ defmodule Cartulary.Memory do
               deadline?: deadline?,
               internal?: internal?,
               strategies: if(grant, do: grant.strategies, else: Map.get(filters, "strategies")),
-              rerank: grant && grant.rerank
+              rerank: grant && grant.rerank,
+              diagnostic_trace?: grant && grant.trace?
             ]
             |> Enum.reject(fn {_key, value} -> is_nil(value) end)
 
@@ -488,16 +490,18 @@ defmodule Cartulary.Memory do
 
   `attrs` uses the `search/2` keys `"query"`, `"scope_path"`, `"profile"`,
   `"limit"`, `"include_cross_links"`, `"as_of"`, `"min_score"`, and
-  `"source_filters"`, plus three diagnostic-only keys: `"strategies"` (names to
+  `"source_filters"`, plus four diagnostic-only keys: `"strategies"` (names to
   run in place of the profile's own), `"deadline"` (`"disabled"` removes the
-  latency bound), and `"rerank"` (a boolean forcing the rerank stage on or off).
-  Everything else is dropped rather than forwarded, so the exported request is
-  exactly what ran. The limit is clamped to
-  `Cartulary.Retrieval.DiagnosticGrant.max_limit/0`.
+  latency bound), `"rerank"` (a boolean forcing the rerank stage on or off), and
+  `"trace"` (asks for the rank explanation). Everything else is dropped rather
+  than forwarded, so the exported request is exactly what ran. The limit is
+  clamped to `Cartulary.Retrieval.DiagnosticGrant.max_limit/0`.
 
   Returns the `search/2` map with a string-keyed `"diagnostic"` block holding
   the requested options, the strategies that read the query text, the ordinary
-  default limit, and how many returned candidates sit beyond it.
+  default limit, and how many returned candidates sit beyond it. With `"trace"`
+  it also carries `"diagnostic_trace"`, which explains how each returned
+  candidate reached its rank.
 
   Raises `Ash.Error.Forbidden` for any other caller, and `ArgumentError` for an
   unregistered strategy name.
@@ -512,7 +516,8 @@ defmodule Cartulary.Memory do
         limit: Map.get(attrs, "limit"),
         strategies: Map.get(attrs, "strategies"),
         rerank: Map.get(attrs, "rerank"),
-        deadline?: Map.get(attrs, "deadline", "enabled") != "disabled"
+        deadline?: Map.get(attrs, "deadline", "enabled") != "disabled",
+        trace?: Map.get(attrs, "trace")
       )
 
     result =

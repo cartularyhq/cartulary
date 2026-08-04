@@ -200,6 +200,18 @@ lifecycle rules; the loader then reads those statements through ordinary Ash
 policies. Entity ids, names, aliases, surface forms, and mention rows never
 reach a LiveView.
 
+Diagnostic mode's opt-in rank explanation is a third. It carries strategy-local
+ranks and scores, fusion contributions, and rerank status for candidates the
+same run already returned, so it discloses no new identity. It is built after
+authorization, held only in that run's assigns, and never recorded.
+
+It rides the same `Cartulary.Retrieval.DiagnosticGrant` as the other diagnostic
+controls rather than a request key of its own. That matters because a console
+operator presents the same password identity to the JSON API: a role check
+alone would hand the explanation to an HTTP client and grow the `f7-1` response
+shape, while a struct no decoded body can construct cannot be asked for from
+off-surface at all.
+
 ## Explorer information architecture
 
 Browsing and retrieval answer different questions, and presenting them in one

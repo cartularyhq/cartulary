@@ -297,7 +297,8 @@ defmodule CartularyWeb.ConsoleLive.Tools do
       "limit" => Map.get(params, "limit"),
       "strategies" => Map.get(params, "strategies", []),
       "deadline" => if(params["deadline"] == "on", do: "enabled", else: "disabled"),
-      "rerank" => params["rerank"]
+      "rerank" => params["rerank"],
+      "trace" => params["trace"] == "on"
     }
 
     case run_diagnostic(attrs, socket.assigns.current_actor) do
@@ -325,6 +326,7 @@ defmodule CartularyWeb.ConsoleLive.Tools do
               else: candidates
             ),
           total: length(candidates),
+          trace: Map.get(result, "diagnostic_trace"),
           request_json: Diagnostic.request_json(scope_path, query, profile, block),
           json: Jason.encode!(result, pretty: true)
         }
@@ -533,6 +535,11 @@ defmodule CartularyWeb.ConsoleLive.Tools do
             <span>Show only candidates a query-dependent strategy voted for.</span>
           </label>
 
+          <label class="full ack">
+            <input type="checkbox" name="trace" />
+            <span>Explain the ranking. Scores are local to each strategy and are not comparable between them; compare ranks and fusion contributions.</span>
+          </label>
+
           <div class="full button-row">
             <button class="primary" phx-disable-with="Running…">Run diagnostic</button>
             <span class="technical">Reads <code>search</code> internals</span>
@@ -598,6 +605,8 @@ defmodule CartularyWeb.ConsoleLive.Tools do
         </li>
       </ol>
 
+      <.rank_trace :if={@diagnostic.trace} trace={@diagnostic.trace} />
+
       <details class="run-raw">
         <summary>Reproducible request</summary>
         <pre id="diagnostic-request" class="code">{@diagnostic.request_json}</pre>
@@ -608,6 +617,53 @@ defmodule CartularyWeb.ConsoleLive.Tools do
         <pre id="diagnostic-payload" class="code tool-result">{@diagnostic.json}</pre>
       </details>
     </div>
+    """
+  end
+
+  attr :trace, :map, required: true
+
+  defp rank_trace(assigns) do
+    ~H"""
+    <details class="retrieval-trace">
+      <summary>Rank explanation</summary>
+      <p class="hint">
+        Ranks are comparable across strategies. Scores are local to each strategy
+        and are not. <code>outside_rerank_head</code> means the candidate stayed in
+        the fused tail; <code>rerank_unavailable</code> means the reranker did not
+        complete.
+      </p>
+      <div class="table-scroll">
+        <table class="grid compact">
+          <thead>
+            <tr><th>Candidate</th><th>Fused</th><th>Final</th><th>Rerank</th><th>Strategy details</th></tr>
+          </thead>
+          <tbody>
+            <tr :for={candidate <- @trace["candidates"]}>
+              <td><code>{candidate["id"]}</code></td>
+              <td>{candidate["fused_rank"]}</td>
+              <td>{candidate["final_rank"]}</td>
+              <td>{candidate["rerank_status"]}</td>
+              <td>
+                <details>
+                  <summary>{length(candidate["strategies"])} strategies</summary>
+                  <table class="grid compact">
+                    <thead><tr><th>Strategy</th><th>Local rank</th><th>Local score</th><th>Fusion contribution</th></tr></thead>
+                    <tbody>
+                      <tr :for={strategy <- candidate["strategies"]}>
+                        <td>{strategy["strategy"]}</td>
+                        <td>{strategy["local_rank"]}</td>
+                        <td>{number(strategy["local_score"])}</td>
+                        <td>{number(strategy["fusion_contribution"])}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </details>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </details>
     """
   end
 
@@ -1072,6 +1128,10 @@ defmodule CartularyWeb.ConsoleLive.Tools do
       _other -> nil
     end
   end
+
+  # Fusion contributions land around 1/60, so four places is the point where the
+  # column still separates two adjacent ranks without printing float noise.
+  defp number(value) when is_number(value), do: Float.round(value * 1.0, 4)
 
   defp pending(result) do
     if value(result, "pending_validation"), do: "one question attached"

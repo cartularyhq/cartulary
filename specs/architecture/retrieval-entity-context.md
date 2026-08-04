@@ -36,6 +36,19 @@ Timeouts are dropped, not retried, and every response preserves the compatible
 dropped-name list while adding content-free component timings and deterministic
 reason classes plus pre-fusion cross-strategy disagreement.
 
+Fusion destroys the evidence of how a candidate arrived, which leaves an
+operator unable to tell a candidate that no strategy generated from one that
+fusion or reranking demoted. `Cartulary.Retrieval.Trace` reconstructs that for a
+single run when a `DiagnosticGrant` asks for it: per-strategy local rank and
+score, each list's `weight / (k + rank)` contribution, the pre-rerank fused
+rank, the final rank, and why a candidate was or was not reranked. It reports
+only candidates the same response already returned, and the engine builds it
+after ranking, so it changes no ordering. It is returned in the result and
+nowhere else — the diagnostics ETS summary, telemetry metadata, audit rows, and
+job arguments keep their existing allowlisted fields. Local scores stay beside
+the strategy that produced them because they remain incomparable across
+strategies.
+
 The three strategy sets are disjoint and carry distinct facts: contributed
 returned candidates, empty ran and matched nothing, dropped never produced a
 result. Each strategy declares `query_dependent?/0` — true only for reading

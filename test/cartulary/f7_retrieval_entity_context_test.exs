@@ -636,6 +636,73 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     end
   end
 
+  test "a diagnostic run can explain local, fused, and reranked ranks" do
+    corpus = seed_ranking_corpus!()
+    admin = %{corpus.target.actor | identity_kind: :password, role: :account_admin}
+
+    attrs = %{
+      "scope_path" => corpus.target.scope.path,
+      "query" => "Avery release checklist",
+      "profile" => "thorough",
+      "deadline" => "disabled"
+    }
+
+    traced = Memory.diagnostic_search(Map.put(attrs, "trace", true), admin)
+
+    assert %{"candidates" => trace_candidates} = traced["diagnostic_trace"]
+    assert Enum.map(trace_candidates, & &1["id"]) == Enum.map(traced["candidates"], & &1["id"])
+
+    assert target = Enum.find(trace_candidates, &(&1["id"] == corpus.target.knowledge.id))
+    assert is_integer(target["fused_rank"])
+    assert is_integer(target["final_rank"])
+    assert target["rerank_status"] in ["reranked", "outside_rerank_head"]
+
+    assert Enum.any?(target["strategies"], fn strategy ->
+             strategy["strategy"] == "lexical" and is_integer(strategy["local_rank"]) and
+               is_number(strategy["local_score"]) and is_number(strategy["fusion_contribution"])
+           end)
+
+    # The explanation is opt-in, and asking for it is the only difference: the
+    # same diagnostic run without it returns the same candidates in the same
+    # order, so reading the ranking cannot change it.
+    untraced = Memory.diagnostic_search(attrs, admin)
+
+    refute Map.has_key?(untraced, "diagnostic_trace")
+
+    assert Enum.map(untraced["candidates"], & &1["id"]) ==
+             Enum.map(traced["candidates"], & &1["id"])
+  end
+
+  test "only a password-authenticated account administrator may run a diagnostic" do
+    corpus = seed_ranking_corpus!()
+    admin = %{corpus.target.actor | identity_kind: :password, role: :account_admin}
+
+    attrs = %{
+      "scope_path" => corpus.target.scope.path,
+      "query" => "Avery release checklist",
+      "trace" => true
+    }
+
+    assert_raise Ash.Error.Forbidden, fn ->
+      Memory.diagnostic_search(attrs, %{admin | role: :member})
+    end
+
+    assert_raise Ash.Error.Forbidden, fn ->
+      Memory.diagnostic_search(attrs, %{admin | identity_kind: :api_key})
+    end
+
+    # A caller that reaches the ordinary facade cannot name the grant itself:
+    # the key exists, but only a struct satisfies it and a request body carries
+    # plain data.
+    forged =
+      Memory.search(
+        Map.merge(attrs, %{"_diagnostic" => %{"trace?" => true, "limit" => 100}}),
+        admin
+      )
+
+    refute Map.has_key?(forged, "diagnostic_trace")
+  end
+
   test "relation expansion traverses knowledge relations and shared-entity edges" do
     first = seed_active!("f7-expand", "/f7/expand", "Orchid uses an append-only ledger.")
 

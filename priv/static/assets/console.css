@@ -581,6 +581,7 @@ code {
 
 .run-context > summary,
 .run-raw > summary,
+.retrieval-trace > summary,
 .earlier-run > summary {
   cursor: pointer;
   font-size: 0.85rem;
@@ -588,8 +589,21 @@ code {
 }
 
 .run-context,
-.run-raw {
+.run-raw,
+.retrieval-trace {
   margin-bottom: 0.6rem;
+}
+
+/* The per-candidate strategy breakdown is a table inside a cell of another
+   table. Without a width bound the inner header row dictates the outer column
+   width and pushes the card sideways. */
+.retrieval-trace .grid .grid {
+  min-width: 22rem;
+}
+
+.retrieval-trace .grid td > details > summary {
+  cursor: pointer;
+  color: var(--muted);
 }
 
 .earlier-run {

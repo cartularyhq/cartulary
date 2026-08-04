@@ -130,10 +130,21 @@ may do things no request path may do.
 | Reranking | Forces the rerank stage on or off instead of following the profile |
 | Keep the latency deadline | Clear it to let every strategy finish |
 | Show only query-dependent candidates | Hides candidates that only scope-ranking strategies voted for |
+| Explain the ranking | Adds a per-candidate account of how it reached its rank |
 
 The result reports how many candidates rank below the ordinary top-12 window.
 That is the honest form of the warning: a normal run would not have shown them,
 and that alone says nothing about whether they are right.
+
+**Explain the ranking** answers the question the fused list cannot: whether a
+candidate was never generated, or was generated and then demoted. Its table
+gives each returned candidate's per-strategy local rank and score, that list's
+reciprocal-rank contribution, the fused rank, and the final rank.
+`outside_rerank_head` means the candidate stayed in the fused tail;
+`rerank_unavailable` means the reranker did not complete. Strategy scores use
+different scales, so compare ranks and fusion contributions, never scores
+between strategies. Asking for the explanation does not change the ranking it
+describes.
 
 Leaving every strategy box clear runs the profile's own strategies. Ticking only
 strategies that do not read your words — `salience_recency`, `temporal`, and
