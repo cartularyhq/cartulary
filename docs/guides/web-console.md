@@ -27,7 +27,7 @@ Agent API keys work on JSON and MCP, never the console.
 | `/console/skills` | Skill requirement cards, and a live readiness check for yourself |
 | `/console/tools` | A workbench for all eight MCP tools, using your signed-in identity and showing the returned payload |
 | `/console/me` | Everything recorded about you, and your consent and erasure controls |
-| `/console/operations` | Account admins only: readiness, usage and cost, entity-resolution quality, gate rules, retrieval tunings |
+| `/console/operations` | Account admins only: readiness, usage and cost, entity-resolution quality, scope retrieval health, gate rules, retrieval tunings |
 | `/governance` | Curators and account admins only: the gate queue and skill-card authoring |
 
 Navigation hides inaccessible pages, but every destination independently
@@ -48,6 +48,12 @@ stored embedding identities; the configured query identity; and one of
 `ready`, `missing_embeddings`, `missing_mentions`, or `identity_mismatch`.
 When a derived index needs attention, `next_action` says to rebuild the scope's
 derived data.
+
+The operations page adds the same content-safe probe for an administrator-selected
+scope and effective profile. It reports inherited profile version, deadline,
+enabled and disabled strategies, and explicitly shows that the probe made no
+model calls and read no stored content. Disabled strategies are reported
+separately from missing indexes.
 
 Most forms are governed reads. Three have durable effects and are marked in
 the page: `ingest` persists and queues a raw observation,

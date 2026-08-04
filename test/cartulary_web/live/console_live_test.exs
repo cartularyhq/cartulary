@@ -331,7 +331,25 @@ defmodule CartularyWeb.ConsoleLiveTest do
       assert html =~ "50.0%"
       assert html =~ "Gate matrix"
       assert html =~ "Retrieval tunings"
+      assert html =~ "Scope retrieval health"
       refute html =~ "NeverRenderAlias71"
+    end
+
+    test "scope retrieval health resolves the effective profile without reading content", %{
+      admin: admin,
+      knowledge_id: knowledge_id
+    } do
+      admin = Identity.refresh_actor(admin)
+      health = Loader.retrieval_health(admin, "/console-test", "balanced")
+
+      assert health.state == :missing_embeddings
+      assert health.statement_count == 1
+      assert health.embedded_count == 0
+      assert health.effective_profile.name == :balanced
+      assert health.effective_profile.version == "f7-1"
+      assert health.effective_profile.deadline_ms > 0
+      assert health.probe == %{model_calls: 0, content_read: false}
+      refute inspect(health) =~ statement_for(admin, knowledge_id)
     end
   end
 
