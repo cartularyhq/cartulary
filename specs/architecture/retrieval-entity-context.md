@@ -76,7 +76,7 @@ The built-in profile version is `f7-1`:
 
 | Profile | Strategy posture | Rerank | Default surface |
 | --- | --- | --- | --- |
-| `:fast` | Semantic + SalienceRecency | No | `get_context` cache-miss fallback |
+| `:fast` | Semantic + SalienceRecency, one per request (ADR 0010) | No | `get_context` cache-miss fallback |
 | `:balanced` | Semantic + Lexical + Temporal + EntityMatch | No | `search` |
 | `:thorough` | All seeds + RelationExpand | Yes | `ask` and dream-time projection refresh |
 

@@ -229,13 +229,17 @@ defmodule Cartulary.Retrieval.Strategies.SalienceRecency do
   def query_dependent?, do: false
 
   @doc """
-  True only for an empty-text governed-memory request; chunks lack its scoring
+  True only for a blank-text governed-memory request; chunks lack its scoring
   metadata. Text-bearing searches need query-dependent evidence at the head,
   while the blank-query path remains available for context fallback.
+
+  A nil `text` is blank, not "not a query": the context fallback reaches this
+  strategy with whatever the caller supplied, and treating nil as inapplicable
+  would leave that path with no strategy at all.
   """
   @impl true
   def applicable?(query) do
-    query.target in [:knowledge, :all] and is_binary(query.text) and String.trim(query.text) == ""
+    query.target in [:knowledge, :all] and String.trim(query.text || "") == ""
   end
 
   @doc """

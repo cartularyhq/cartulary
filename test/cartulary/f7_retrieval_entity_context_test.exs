@@ -338,6 +338,10 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     refute Strategies.SalienceRecency.applicable?(query)
     assert Strategies.Temporal.applicable?(%{query | as_of: DateTime.utc_now()})
     assert Strategies.SalienceRecency.applicable?(%{query | text: ""})
+
+    # A nil query reaches the context fallback whenever a caller sends an explicit null. It is
+    # the same blank request as "", and dropping it here would leave `:fast` with no strategy.
+    assert Strategies.SalienceRecency.applicable?(%{query | text: nil})
   end
 
   test "micro-ablation keeps query-independent lists out of an ordinary search head" do
@@ -618,9 +622,11 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     assert result["candidates"] == []
 
     # The pre-existing signals cannot express this state, which is why the new one exists.
-    # All three read only the strategies that returned something. `low_score` is false because
-    # With no non-empty list, the historical health members retain their
-    # documented empty-list values; `query_dependent_empty` is the useful signal.
+    # All three read only the strategies that returned something, and here nothing did, so
+    # they collapse to their documented empty-list values: `low_score` is vacuously true over
+    # no lists, `disjoint` is false because there is no pair to overlap, and `strategy_count`
+    # counts what survived rather than what vanished. Only `query_dependent_empty`
+    # distinguishes this run from one that never had a query-reading strategy enabled.
     assert result["disagreement"]["low_score"]
     refute result["disagreement"]["disjoint"]
     assert result["disagreement"]["strategy_count"] == 0
