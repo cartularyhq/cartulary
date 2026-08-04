@@ -11,6 +11,16 @@ changelog entry and contract-version transition.
 
 ### Fixed
 
+- Ordinary text retrieval no longer lets query-independent temporal or
+  salience-recency lists bury lexical evidence. Temporal now runs only for an
+  explicit `as_of` read; salience-recency remains available for blank-query
+  context fallback, not as a candidate generator for a text search. A search
+  whose query-reading strategies all come back empty now returns an empty
+  candidate list instead of a recency page. The named
+  profile memberships, weights, response shape, and `f7-1` identity are
+  unchanged. ADR 0010 records the applicability rule and deterministic
+  micro-ablation evidence.
+
 - Lexical search now normalizes question-shaped queries through the versioned
   `lexical-question-v1` analyzer. It drops a reviewed interrogative set, keeps
   names, dates, negation, and quoted text, expands only the explicit

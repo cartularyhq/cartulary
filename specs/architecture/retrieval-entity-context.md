@@ -49,6 +49,14 @@ job arguments keep their existing allowlisted fields. Local scores stay beside
 the strategy that produced them because they remain incomparable across
 strategies.
 
+Query-independent strategies are applicability-gated: `Temporal` runs only
+when the request supplies `as_of`; `SalienceRecency` runs only for a blank-text
+governed-memory request, where a nil query counts as blank. This keeps ordinary
+text-search heads query-dependent, while explicit historical reads and context
+fallback retain their intentional temporal and recency behavior. The profile
+memberships, weights, response fields, and `f7-1` identity are unchanged; this
+is an applicability correction recorded in ADR 0010.
+
 The three strategy sets are disjoint and carry distinct facts: contributed
 returned candidates, empty ran and matched nothing, dropped never produced a
 result. Each strategy declares `query_dependent?/0` — true only for reading
@@ -81,8 +89,8 @@ The built-in profile version is `f7-1`:
 
 | Profile | Strategy posture | Rerank | Default surface |
 | --- | --- | --- | --- |
-| `:fast` | Semantic + SalienceRecency | No | `get_context` cache-miss fallback |
-| `:balanced` | Semantic + Lexical + Temporal + EntityMatch | No | `search` |
+| `:fast` | Semantic + SalienceRecency, one per request (ADR 0010) | No | `get_context` cache-miss fallback |
+| `:balanced` | Semantic + Lexical + Temporal (`as_of` only) + EntityMatch | No | `search` |
 | `:thorough` | All seeds + RelationExpand | Yes | `ask` and dream-time projection refresh |
 
 An active `RetrievalProfile` on the nearest authorized scope overrides the

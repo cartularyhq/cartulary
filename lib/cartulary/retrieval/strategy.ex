@@ -57,8 +57,8 @@ defmodule Cartulary.Retrieval.Query do
   * `target` — `:knowledge`, `:documents`, or `:all`. Answer generation uses
     `:knowledge` so an answer cannot cite a document chunk as if it were a
     governed statement.
-  * `as_of` — the point in time the time-relevance strategy judges against;
-    defaults to now when nil.
+  * `as_of` — the explicit point in time that enables the time-relevance
+    strategy. The store uses now only after this applicability gate has passed.
   * `min_score` — drops candidates below this strategy-local score. Because
     scores are not comparable across strategies, one value means different
     things to each of them; it is a coarse noise filter, not a relevance gate.

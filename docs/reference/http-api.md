@@ -166,7 +166,7 @@ All fields optional.
 | `profile` | `"balanced"` | `fast`, `balanced`, `thorough` |
 | `limit` | `12` | Candidate cap |
 | `include_cross_links` | off | Requires authorisation at both endpoints |
-| `as_of` | now | Read memory as it stood then |
+| `as_of` | unset | Read memory as it stood then. Omitting it also turns the `temporal` strategy off, so a point-in-time question must send it |
 | `min_score` | none | |
 | `source_filters` | none | |
 | `deadline` | profile default | `"disabled"` removes the budget; offline only |
@@ -180,8 +180,9 @@ elapsed milliseconds, and remaining budget without query or candidate content.
 `pre_rerank_remaining_ms` reports the budget available before reranking.
 
 `disagreement.query_dependent_empty` is `true` when no strategy that reads the
-query text produced a candidate. The remaining candidates then rank the scope,
-not the question, in a response otherwise shaped like any other.
+query text produced a candidate. A text search does not fill that gap with a
+recency list, so `candidates` is usually empty in this state; treat the flag,
+not the list length, as the signal.
 
 Account, authorised-scope, lifecycle, and source filtering happen **inside**
 retrieval. A raw `strategies` override is refused for external callers.
