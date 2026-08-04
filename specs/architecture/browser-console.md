@@ -134,6 +134,37 @@ string-keyed value, and belongs to no contract. A bounded run history lives in
 the LiveView only; nothing about a run is persisted, logged, or carried into
 telemetry.
 
+### Retrieval diagnostic mode
+
+The workbench carries one control that is not a tool. Diagnostic mode
+reproduces retrieval behaviour for an account administrator by calling
+`Memory.diagnostic_search/2`, which re-authorizes the caller and owns the
+options; the LiveView also refuses the event, so neither check depends on the
+other. Ordinary `search` and `ask` keep their published defaults, and the mode
+adds no route, MCP tool, or HTTP field.
+
+Naming strategies, disabling the deadline, and forcing reranking are the
+internal seam of `AD-SEAM-3`, not public contract. They are unlocked by a
+`Retrieval.DiagnosticGrant` struct travelling in the facade's filters: decoded
+JSON cannot produce a struct, so the same facade reached over HTTP cannot forge
+one, and a plain map under the same key is ignored. A grant changes which
+strategies run and how long they may take; it never changes Account, scope,
+lifecycle, or subject filtering, so it discloses nothing the caller could not
+already read. The candidate limit is clamped, because a browser form must not
+be able to ask for an unbounded pre-fusion pool.
+
+Diagnostic results are rendered apart from tool runs and labelled as not
+production-equivalent, since a run with an isolated strategy or no deadline is
+evidence about retrieval rather than a better answer. The page reports how many
+candidates rank below the ordinary window without claiming any of them is
+correct, and reports honestly when only scope-ranking strategies contributed.
+
+Query-term highlighting returns plain segments rather than markup, so the
+template escapes statement text on the ordinary path. The copyable request is
+built from an allowlist — scope, query, profile, limit, and diagnostic options —
+so a field added to the form later cannot leak a session id, credential, or
+Account identifier into an export by omission.
+
 ## Non-exposure
 
 The console renders statements, raw observations, and document titles because
@@ -168,6 +199,18 @@ entity after the store applies the reader's authorized scopes and console
 lifecycle rules; the loader then reads those statements through ordinary Ash
 policies. Entity ids, names, aliases, surface forms, and mention rows never
 reach a LiveView.
+
+Diagnostic mode's opt-in rank explanation is a third. It carries strategy-local
+ranks and scores, fusion contributions, and rerank status for candidates the
+same run already returned, so it discloses no new identity. It is built after
+authorization, held only in that run's assigns, and never recorded.
+
+It rides the same `Cartulary.Retrieval.DiagnosticGrant` as the other diagnostic
+controls rather than a request key of its own. That matters because a console
+operator presents the same password identity to the JSON API: a role check
+alone would hand the explanation to an HTTP client and grow the `f7-1` response
+shape, while a struct no decoded body can construct cannot be asked for from
+off-surface at all.
 
 ## Explorer information architecture
 
@@ -232,11 +275,54 @@ The graph is deterministic server-side inline SVG because:
    browser.
 
 Force simulation adds randomness or expensive pairwise iterations. The radial
-layout is pure: containment-depth rings, statement orbits, and relation chords
-produce the same testable picture for the same data.
+layout is pure: rings by depth *below the focus*, statement orbits, relation
+chords, and cluster hubs at their members' centroid produce the same testable
+picture for the same data.
 
 Statement nodes are capped. When the cap drops rows the page says so; a partial
 picture presented as complete is worse than no picture.
+
+### Why the graph is scoped
+
+Drawing every readable scope produced a picture that got harder to read as an
+Account grew, which inverts what a map is for. The view is therefore local: one
+focus scope, its statements, and the readable scopes closest below it as
+drill-down targets. The whole subtree is available as an explicit option and is
+not the default.
+
+Ancestors, parents, and children are the scopes the actor can *read*. An
+unreadable scope in the middle of the tree is skipped rather than shown as a
+gap, so a readable grandchild stays reachable without its parent's path being
+disclosed. An unknown or unauthorized `scope` parameter falls back to the
+shallowest readable scope: narrowing to a default, never widening to everything.
+
+Containment edges are derived from the drawn set by path prefix rather than from
+`parent_id`, which is what lets a scope whose real parent is unreadable still
+hang off the nearest drawn ancestor.
+
+### Anonymous entity clusters
+
+Entities connect knowledge, and a reader who cannot see that connection cannot
+tell a dense scope from a merely large one. Exposing the entity cache is not an
+option, so the graph draws the *grouping* without the *group's identity*.
+
+`Cartulary.Retrieval.Store.shared_entity_clusters/3` groups `entity_mentions` by
+entity over a statement-id list the caller has already authorized, and selects
+only the member-id arrays — the entity id is a `GROUP BY` key that never reaches
+a caller. Four rules keep the result content-safe:
+
+- The caller passes the ids it has already decided to draw. The query applies no
+  lifecycle, scope, or subject filter of its own, so it can never reveal a
+  statement the caller did not check.
+- A group needs at least two members. A singleton is not a relationship and
+  would only report that a private cache row exists.
+- Groups with identical membership are collapsed, so the number of entities that
+  resolved stays private.
+- Labels are ordinals assigned per render (`Shared entity 1`, `Shared entity 2`).
+  A human-readable entity summary would need its own reviewed privacy contract.
+
+The hub count is capped like statements are, and the tail is reported rather
+than drawn.
 
 ## What is deliberately absent
 
@@ -252,13 +338,17 @@ disclose which knowledge exists about them in scopes the reader may not hold.
 - `test/cartulary_web/console/access_test.exs` — the visibility matrix and the
   action gates, including that a machine credential holds no console authority.
 - `test/cartulary_web/console/graph_test.exs` — layout determinism, frame
-  bounds, edge kinds, dropped dangling edges, and the absence of entity nodes.
+  bounds, focus centring, depth measured from the focus, edge kinds, dropped
+  dangling edges and clusters, hub clearance, and the absence of entity nodes.
 - `test/cartulary_web/live/console_live_test.exs` — real sign-in, every page
   rendering against a seeded Account, an API key refused, a member denied the
   operations page, a scope the member holds no grant on absent rather than
   empty, the two explorer modes and their four empty states, the clamps on page
-  size, sort, and page number, statement-page ordering, and a `back` value that
-  cannot leave the explorer.
+  size, sort, and page number, statement-page ordering, a `back` value that
+  cannot leave the explorer, and the scoped graph's default focus, URL round
+  trip, parent and child navigation, descendants option, anonymous hubs, the
+  hub that is not drawn because only one member is in scope, an unauthorized
+  focus falling back rather than widening, and truncation reporting.
 - `test/cartulary/f4_real_gate_a_b_governance_test.exs` and
   `test/cartulary/f9_skill_readiness_procedural_memory_test.exs` — unchanged,
   and still the contract for `/governance`.

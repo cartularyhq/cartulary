@@ -38,6 +38,8 @@ defmodule Cartulary.Memory do
   alias Cartulary.Pipeline.Extractor
   alias Cartulary.Pipeline.Idempotency
   alias Cartulary.Pipeline.Lock
+  alias Cartulary.Retrieval.DiagnosticGrant
+  alias Cartulary.Retrieval.Profile
   alias Cartulary.Retrieval.Query, as: RetrievalQuery
   alias Cartulary.Skills
   alias Cartulary.Topology.Scope
@@ -367,6 +369,11 @@ defmodule Cartulary.Memory do
   - `"strategies"` — a raw strategy override. Only an internal system identity
     may pass it; retrieval raises `ArgumentError` for anyone else, because
     strategy names are an internal seam rather than a public contract.
+  - `"_diagnostic"` — a `Cartulary.Retrieval.DiagnosticGrant`, which supplies
+    the limit, strategy list, deadline, and rerank setting in place of the keys
+    above, and may ask for the `"diagnostic_trace"` rank explanation. Only
+    `diagnostic_search/2` builds one, and decoded JSON cannot produce a struct,
+    so a request body cannot reach this path.
 
   Returns a string-keyed map holding `"query"`, `"profile"`,
   `"profile_version"`, `"deadline"`, `"latency_ms"`,
@@ -393,8 +400,15 @@ defmodule Cartulary.Memory do
       query = Map.get(filters, "query", "")
       scope_path = Map.get(filters, "scope_path", "/poc")
       profile = Map.get(filters, "profile", "balanced")
-      limit = parse_int(Map.get(filters, "limit"), @default_limit)
-      deadline? = Map.get(filters, "deadline", "enabled") != "disabled"
+      grant = diagnostic_grant(filters)
+
+      limit =
+        if grant, do: grant.limit, else: parse_int(Map.get(filters, "limit"), @default_limit)
+
+      deadline? =
+        if grant,
+          do: grant.deadline?,
+          else: Map.get(filters, "deadline", "enabled") != "disabled"
 
       {retrieval, scope_count} =
         with_account(filters, fn account, actor ->
@@ -420,16 +434,19 @@ defmodule Cartulary.Memory do
             max_candidates: limit
           }
 
-          # Only server-side identities count as internal. This is what stops a
-          # request from hand-picking retrieval strategies: for anyone else,
-          # passing "strategies" makes profile resolution raise.
-          internal? = actor.identity_kind == :system
+          # Only a server-side identity, or an authorized diagnostic grant, counts
+          # as internal. This is what stops a request from hand-picking retrieval
+          # strategies: for anyone else, passing "strategies" makes profile
+          # resolution raise.
+          internal? = actor.identity_kind == :system or not is_nil(grant)
 
           opts =
             [
               deadline?: deadline?,
               internal?: internal?,
-              strategies: Map.get(filters, "strategies")
+              strategies: if(grant, do: grant.strategies, else: Map.get(filters, "strategies")),
+              rerank: grant && grant.rerank,
+              diagnostic_trace?: grant && grant.trace?
             ]
             |> Enum.reject(fn {_key, value} -> is_nil(value) end)
 
@@ -457,6 +474,63 @@ defmodule Cartulary.Memory do
       stringify_top_level(retrieval)
     end)
   end
+
+  @doc """
+  Runs one retrieval diagnostic: the same search, with retrieval's internal
+  controls unlocked for a password-authenticated account administrator.
+
+  This exists to reproduce retrieval behavior, not to serve it. A run may look
+  past the ordinary result window, isolate strategies, drop the deadline, and
+  turn reranking off, so its ranking is deliberately not what a production
+  request would produce; the returned `"diagnostic"` block says as much and the
+  caller must present it that way.
+
+  It grants no extra data access. Account, authorized scopes, lifecycle states,
+  and provisional subject rules are applied exactly as in `search/2`, because
+  the same retrieval query runs under the same actor.
+
+  `attrs` uses the `search/2` keys `"query"`, `"scope_path"`, `"profile"`,
+  `"limit"`, `"include_cross_links"`, `"as_of"`, `"min_score"`, and
+  `"source_filters"`, plus four diagnostic-only keys: `"strategies"` (names to
+  run in place of the profile's own), `"deadline"` (`"disabled"` removes the
+  latency bound), `"rerank"` (a boolean forcing the rerank stage on or off), and
+  `"trace"` (asks for the rank explanation). Everything else is dropped rather
+  than forwarded, so the exported request is exactly what ran. The limit is
+  clamped to `Cartulary.Retrieval.DiagnosticGrant.max_limit/0`.
+
+  Returns the `search/2` map with a string-keyed `"diagnostic"` block holding
+  the requested options, the strategies that read the query text, the ordinary
+  default limit, and how many returned candidates sit beyond it. With `"trace"`
+  it also carries `"diagnostic_trace"`, which explains how each returned
+  candidate reached its rank.
+
+  Raises `Ash.Error.Forbidden` for any other caller, and `ArgumentError` for an
+  unregistered strategy name.
+  """
+  def diagnostic_search(attrs, %Actor{} = actor) do
+    unless diagnostic_actor?(actor), do: raise(Ash.Error.Forbidden, errors: [])
+
+    attrs = normalize_attrs(attrs)
+
+    grant =
+      DiagnosticGrant.new(@default_limit,
+        limit: Map.get(attrs, "limit"),
+        strategies: Map.get(attrs, "strategies"),
+        rerank: Map.get(attrs, "rerank"),
+        deadline?: Map.get(attrs, "deadline", "enabled") != "disabled",
+        trace?: Map.get(attrs, "trace")
+      )
+
+    result =
+      attrs
+      |> Map.take(~w(query scope_path profile include_cross_links as_of min_score source_filters))
+      |> Map.put("_diagnostic", grant)
+      |> search(actor)
+
+    Map.put(result, "diagnostic", diagnostic_report(grant, result))
+  end
+
+  def diagnostic_search(_attrs, _actor), do: raise(Ash.Error.Forbidden, errors: [])
 
   @doc """
   Answers a question from governed memory and cites the knowledge it used.
@@ -1424,6 +1498,33 @@ defmodule Cartulary.Memory do
 
   # Anything unrecognized widens to every target rather than failing, because the
   # value may arrive from request params on the general search path.
+  # The same rule the console applies before rendering the controls, restated
+  # here because the console is a caller rather than the authority: retrieval
+  # internals are for a person who signed in with a password and administers the
+  # Account, never for a machine credential holding the same role.
+  defp diagnostic_actor?(%Actor{identity_kind: :password, role: :account_admin}), do: true
+  defp diagnostic_actor?(%Actor{}), do: false
+
+  defp diagnostic_report(%DiagnosticGrant{} = grant, result) do
+    contributed = Map.get(result, "contributed_strategies", [])
+    candidates = Map.get(result, "candidates", [])
+
+    grant
+    |> DiagnosticGrant.to_map()
+    |> Map.merge(%{
+      "query_dependent_strategies" =>
+        Enum.filter(contributed, &Profile.module(&1).query_dependent?()),
+      "default_limit" => @default_limit,
+      "beyond_default_limit" => max(length(candidates) - @default_limit, 0)
+    })
+  end
+
+  # Only a struct counts. A string-keyed map decoded from a request body reaches
+  # the same facade, and treating one as a grant would hand any caller the
+  # internal retrieval seam.
+  defp diagnostic_grant(%{"_diagnostic" => %DiagnosticGrant{} = grant}), do: grant
+  defp diagnostic_grant(_filters), do: nil
+
   defp retrieval_target("knowledge"), do: :knowledge
   defp retrieval_target("documents"), do: :documents
   defp retrieval_target(:knowledge), do: :knowledge

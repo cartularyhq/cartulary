@@ -161,7 +161,8 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v6
-      - uses: erlef/setup-beam@v1
+      - id: beam
+        uses: erlef/setup-beam@v1
         with:
           otp-version: "27"
           elixir-version: "1.18"
@@ -169,13 +170,19 @@ jobs:
       # it from the standard library and every dependency takes minutes; checking against a
       # cached one takes seconds. Its own cache key prefix keeps this entry, which covers
       # priv/plts, from being displaced by the test lane's entry, which does not.
+      #
+      # The key carries the resolved OTP and Elixir versions, not just `mix.lock`. A PLT
+      # records the OTP that built it, and Erlang rejects a foreign one outright with
+      # "Old PLT file" rather than rebuilding it. Since `otp-version: "27"` resolves to
+      # whatever 27.x the runner image ships, a patch bump would otherwise restore a PLT
+      # the new OTP refuses, and an unchanged lockfile would keep restoring it forever.
       - uses: actions/cache@v5
         with:
           path: |
             deps
             _build
             priv/plts
-          key: ${{ runner.os }}-dialyzer-${{ hashFiles('mix.lock') }}
+          key: ${{ runner.os }}-dialyzer-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-${{ hashFiles('mix.lock') }}
       - run: mix deps.get
       - run: mix dialyzer
 

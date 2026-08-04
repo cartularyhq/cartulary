@@ -36,13 +36,26 @@ Timeouts are dropped, not retried, and every response preserves the compatible
 dropped-name list while adding content-free component timings and deterministic
 reason classes plus pre-fusion cross-strategy disagreement.
 
+Fusion destroys the evidence of how a candidate arrived, which leaves an
+operator unable to tell a candidate that no strategy generated from one that
+fusion or reranking demoted. `Cartulary.Retrieval.Trace` reconstructs that for a
+single run when a `DiagnosticGrant` asks for it: per-strategy local rank and
+score, each list's `weight / (k + rank)` contribution, the pre-rerank fused
+rank, the final rank, and why a candidate was or was not reranked. It reports
+only candidates the same response already returned, and the engine builds it
+after ranking, so it changes no ordering. It is returned in the result and
+nowhere else — the diagnostics ETS summary, telemetry metadata, audit rows, and
+job arguments keep their existing allowlisted fields. Local scores stay beside
+the strategy that produced them because they remain incomparable across
+strategies.
+
 Query-independent strategies are applicability-gated: `Temporal` runs only
 when the request supplies `as_of`; `SalienceRecency` runs only for a blank-text
-governed-memory request. This keeps ordinary text-search heads
-query-dependent, while explicit historical reads and context fallback retain
-their intentional temporal and recency behavior. The profile memberships,
-weights, response fields, and `f7-1` identity are unchanged; this is an
-applicability correction recorded in ADR 0010.
+governed-memory request, where a nil query counts as blank. This keeps ordinary
+text-search heads query-dependent, while explicit historical reads and context
+fallback retain their intentional temporal and recency behavior. The profile
+memberships, weights, response fields, and `f7-1` identity are unchanged; this
+is an applicability correction recorded in ADR 0010.
 
 The three strategy sets are disjoint and carry distinct facts: contributed
 returned candidates, empty ran and matched nothing, dropped never produced a
@@ -77,7 +90,7 @@ The built-in profile version is `f7-1`:
 | Profile | Strategy posture | Rerank | Default surface |
 | --- | --- | --- | --- |
 | `:fast` | Semantic + SalienceRecency, one per request (ADR 0010) | No | `get_context` cache-miss fallback |
-| `:balanced` | Semantic + Lexical + Temporal + EntityMatch | No | `search` |
+| `:balanced` | Semantic + Lexical + Temporal (`as_of` only) + EntityMatch | No | `search` |
 | `:thorough` | All seeds + RelationExpand | Yes | `ask` and dream-time projection refresh |
 
 An active `RetrievalProfile` on the nearest authorized scope overrides the
@@ -92,7 +105,16 @@ ceilings through:
 - `CARTULARY_RETRIEVAL_THOROUGH_DEADLINE_MS`.
 - `CARTULARY_RETRIEVAL_RERANK_TIMEOUT_MS`.
 
-Raw strategy lists remain restricted to internal/system and eval callers.
+Raw strategy lists and rerank overrides remain restricted to internal/system and
+eval callers. The one browser path into that seam is
+`Memory.diagnostic_search/2`, which admits a password-authenticated account
+administrator and passes a `Retrieval.DiagnosticGrant` struct through the
+facade's filters; decoded JSON cannot produce a struct, so a request body
+reaching the same facade cannot forge one. A grant selects strategies, the
+deadline, the rerank stage, and a clamped candidate limit. It never relaxes
+Account, scope, lifecycle, or subject filtering, and it opens no MCP tool or
+HTTP field.
+
 Source filters are applied before fusion. `search` keeps the baseline-contract
 shape by returning governed knowledge and document chunks in one candidate
 collection distinguished by `candidate_type`; `ask` restricts its retrieval to
@@ -139,6 +161,23 @@ Request-local diagnostics classify partial coverage and distinguish no resolved
 entity from a resolved entity with no authorized statements without returning
 cache identities or content.
 
+Lexical search applies the versioned `lexical-question-v1` analyzer before its
+static, parameterized FTS query. For plain English questions it removes a
+reviewed interrogative set, retains names and dates, expands only the bounded
+`destress`/`stress`/`relax`/`calming`/`therapeutic` group, and adds a bounded
+proximity boost. Quoted phrases and negation retain `websearch_to_tsquery`
+semantics. The content-free retrieval diagnostic records the analyzer identity;
+query text and expanded terms remain absent from diagnostics and telemetry.
+
+The proximity boost is a second `tsquery`. `tsquery`'s `<N>` operator matches an
+exact lexeme distance, so "near" is spelled as a disjunction over every distance
+in an eight-lexeme window, in both orders, for each adjacent pair of the first
+four retained terms. That expression is bounded but an order of magnitude dearer
+than the base rank, so it is scored over a base-ranked shortlist of five times
+the caller's limit rather than the whole match set. A row outside the shortlist
+keeps its base rank and cannot be promoted; the deadline budget therefore holds
+for a broad query.
+
 `Indexer.rebuild_scope/2` and `EntityResolver.rebuild_scope/2` use a short read
 transaction, connection-free model calls, and one final write transaction. The
 entity resolver matches surface forms against an in-memory set seeded by the
@@ -163,14 +202,17 @@ resource action exposes the caches. Erasure removes affected mentions,
 recomputes/prunes entities, and rebuilds affected projections. Logical import
 excludes the cache and recreates it from governed statements.
 
-Two diagnostic projections preserve that rule. `/console/operations` reports
+Three diagnostic projections preserve that rule. `/console/operations` reports
 Account-wide counts, an observed-alias histogram, singleton-entity rate, and
 mentions-per-entity p50/p95 to a password-authenticated account administrator.
 `/console/knowledge/:id` asks the store only for the count and capped ids of
 co-mentioned statements after applying the reader's authorized scope and
 console lifecycle filters, then loads those statements through the ordinary
-Ash read policy. Neither path returns an entity or mention row to the web
-layer.
+Ash read policy. `/console/graph` asks the store to group the statements it has
+already authorized into shared-entity clusters, which returns member-id arrays
+only: the entity id is a grouping key, singleton groups are dropped, and
+identically-membered groups collapse so the number of resolved entities stays
+private. No path returns an entity or mention row to the web layer.
 
 ## Context projections
 

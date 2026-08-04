@@ -24,7 +24,7 @@ defmodule Cartulary.Retrieval.Engine do
 
   alias Cartulary.DataLayer
   alias Cartulary.Model.Gateway
-  alias Cartulary.Retrieval.{Budget, Candidate, Fusion, Profile}
+  alias Cartulary.Retrieval.{Budget, Candidate, Fusion, Profile, Trace}
 
   @doc """
   Executes one retrieval request and returns the response map.
@@ -36,8 +36,9 @@ defmodule Cartulary.Retrieval.Engine do
     evaluation runs and dream-time rebuilds, never a live request.
   * `:concurrent?` — overrides the application-level concurrency setting; the
     test sandbox turns it off because it owns a single database connection.
-  * `:internal?` and `:strategies` — naming strategies explicitly is restricted
-    to server-side and evaluation callers; profile resolution raises otherwise.
+  * `:internal?`, `:strategies`, and `:rerank` — naming strategies explicitly or
+    forcing the rerank stage on or off is restricted to server-side and
+    evaluation callers; profile resolution raises otherwise.
   * `:inherit?` — set false to ignore any stored per-scope profile override.
 
   Returns profile metadata, latency in milliseconds, contributed, empty, and dropped
@@ -137,6 +138,24 @@ defmodule Cartulary.Retrieval.Engine do
       disagreement: Fusion.disagreement(seed_lists, query_dependent),
       candidates: Enum.map(ranked, &candidate_map/1)
     }
+
+    result =
+      if Keyword.get(opts, :diagnostic_trace?, false) do
+        Map.put(
+          result,
+          :diagnostic_trace,
+          Trace.build(
+            lists,
+            fused,
+            ranked,
+            profile.weights,
+            retrieval_config(:rerank_head),
+            rerank_outcome
+          )
+        )
+      else
+        result
+      end
 
     emit_outcomes(query.account_id, result, profile.deadline_ms)
     result

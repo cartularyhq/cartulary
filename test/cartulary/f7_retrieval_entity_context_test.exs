@@ -239,8 +239,10 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     Projection
   }
 
+  alias Cartulary.Identity
   alias Cartulary.Memory
   alias Cartulary.Observations.Session
+  alias Cartulary.Retrieval.DiagnosticGrant
   alias Cartulary.Retrieval.{Candidate, EntityResolver, Fusion, Indexer, Profile, Query}
   alias Cartulary.Retrieval.Strategies
   alias Cartulary.Topology.{Scope, ScopeRelation}
@@ -687,6 +689,136 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     end
   end
 
+  test "lexical question analysis ranks subject and intent evidence above conversational noise" do
+    melanie =
+      seed_active!(
+        "f7-question-ranking",
+        "/f7/question-ranking",
+        "Melanie runs regularly as a way to destress.",
+        "ranking-melanie"
+      )
+
+    pottery =
+      seed_active!(
+        "f7-question-ranking",
+        "/f7/question-ranking",
+        "Therapeutic pottery helps Melanie relax after difficult days.",
+        "ranking-pottery"
+      )
+
+    caroline =
+      seed_active!(
+        "f7-question-ranking",
+        "/f7/question-ranking",
+        "Caroline joined a mentorship program in March 2024.",
+        "ranking-caroline"
+      )
+
+    Enum.each(1..20, fn index ->
+      seed_active!(
+        "f7-question-ranking",
+        "/f7/question-ranking",
+        "Melanie and Caroline discussed what the team does during conversation #{index}.",
+        "ranking-noise-#{index}"
+      )
+    end)
+
+    search = fn query ->
+      Memory.search(%{
+        "account_key" => "f7-question-ranking",
+        "scope_path" => melanie.scope.path,
+        "query" => query,
+        "strategies" => ["lexical"],
+        "deadline" => "disabled"
+      })
+    end
+
+    melanie_ids =
+      search.("What does Melanie do to destress?")
+      |> Map.fetch!("candidates")
+      |> Enum.map(& &1["id"])
+
+    caroline_ids =
+      search.("When did Caroline join a mentorship program?")
+      |> Map.fetch!("candidates")
+      |> Enum.map(& &1["id"])
+
+    assert Enum.find_index(melanie_ids, &(&1 == melanie.knowledge.id)) < 12
+    assert Enum.find_index(melanie_ids, &(&1 == pottery.knowledge.id)) < 12
+    assert Enum.find_index(caroline_ids, &(&1 == caroline.knowledge.id)) < 12
+
+    assert %{lexical_analyzer: "lexical-question-v1"} =
+             Cartulary.Retrieval.Diagnostics.latest(melanie.account.id)
+  end
+
+  test "lexical question analysis preserves quoted phrases, negation, dates, and safe empty input" do
+    quoted =
+      seed_active!(
+        "f7-question-safety",
+        "/f7/question-safety",
+        "Melanie recorded the release notes on 2024-03-05.",
+        "safety-quoted"
+      )
+
+    excluded =
+      seed_active!(
+        "f7-question-safety",
+        "/f7/question-safety",
+        "Melanie recorded draft release notes on 2024-03-05.",
+        "safety-excluded"
+      )
+
+    search = fn query ->
+      Memory.search(%{
+        "account_key" => "f7-question-safety",
+        "scope_path" => quoted.scope.path,
+        "query" => query,
+        "strategies" => ["lexical"],
+        "deadline" => "disabled"
+      })["candidates"]
+      |> Enum.map(& &1["id"])
+    end
+
+    assert quoted.knowledge.id in search.(~s("release notes" 2024-03-05 -draft))
+    refute excluded.knowledge.id in search.(~s("release notes" 2024-03-05 -draft))
+    assert search.("what does the to ??? & | ;") == []
+  end
+
+  test "lexical proximity bonus separates statements the cover-density rank scores identically" do
+    # Both statements carry `melani` and `destress` once, so `ts_rank_cd` over the disjunction
+    # scores them the same and only the proximity bonus can order them. The nearer statement is
+    # seeded first, so the `inserted_at DESC` tiebreak would put the distant one first if the
+    # bonus contributed nothing.
+    near =
+      seed_active!(
+        "f7-question-proximity",
+        "/f7/question-proximity",
+        "Melanie chose destress walks during the quiet spring evenings.",
+        "proximity-near"
+      )
+
+    far =
+      seed_active!(
+        "f7-question-proximity",
+        "/f7/question-proximity",
+        "Melanie kept a long steady weekly journal about many other unrelated topics and later learned to destress.",
+        "proximity-far"
+      )
+
+    ids =
+      Memory.search(%{
+        "account_key" => "f7-question-proximity",
+        "scope_path" => near.scope.path,
+        "query" => "What does Melanie do to destress?",
+        "strategies" => ["lexical"],
+        "deadline" => "disabled"
+      })["candidates"]
+      |> Enum.map(& &1["id"])
+
+    assert Enum.find_index(ids, &(&1 == near.knowledge.id)) <
+             Enum.find_index(ids, &(&1 == far.knowledge.id))
+  end
+
   test "fusion ranks the query-matching target above distractors a newer statement outranks" do
     corpus = seed_ranking_corpus!()
 
@@ -722,6 +854,73 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
         ] do
       assert target_rank < Enum.find_index(ids, &(&1 == distractor.knowledge.id))
     end
+  end
+
+  test "a diagnostic run can explain local, fused, and reranked ranks" do
+    corpus = seed_ranking_corpus!()
+    admin = %{corpus.target.actor | identity_kind: :password, role: :account_admin}
+
+    attrs = %{
+      "scope_path" => corpus.target.scope.path,
+      "query" => "Avery release checklist",
+      "profile" => "thorough",
+      "deadline" => "disabled"
+    }
+
+    traced = Memory.diagnostic_search(Map.put(attrs, "trace", true), admin)
+
+    assert %{"candidates" => trace_candidates} = traced["diagnostic_trace"]
+    assert Enum.map(trace_candidates, & &1["id"]) == Enum.map(traced["candidates"], & &1["id"])
+
+    assert target = Enum.find(trace_candidates, &(&1["id"] == corpus.target.knowledge.id))
+    assert is_integer(target["fused_rank"])
+    assert is_integer(target["final_rank"])
+    assert target["rerank_status"] in ["reranked", "outside_rerank_head"]
+
+    assert Enum.any?(target["strategies"], fn strategy ->
+             strategy["strategy"] == "lexical" and is_integer(strategy["local_rank"]) and
+               is_number(strategy["local_score"]) and is_number(strategy["fusion_contribution"])
+           end)
+
+    # The explanation is opt-in, and asking for it is the only difference: the
+    # same diagnostic run without it returns the same candidates in the same
+    # order, so reading the ranking cannot change it.
+    untraced = Memory.diagnostic_search(attrs, admin)
+
+    refute Map.has_key?(untraced, "diagnostic_trace")
+
+    assert Enum.map(untraced["candidates"], & &1["id"]) ==
+             Enum.map(traced["candidates"], & &1["id"])
+  end
+
+  test "only a password-authenticated account administrator may run a diagnostic" do
+    corpus = seed_ranking_corpus!()
+    admin = %{corpus.target.actor | identity_kind: :password, role: :account_admin}
+
+    attrs = %{
+      "scope_path" => corpus.target.scope.path,
+      "query" => "Avery release checklist",
+      "trace" => true
+    }
+
+    assert_raise Ash.Error.Forbidden, fn ->
+      Memory.diagnostic_search(attrs, %{admin | role: :member})
+    end
+
+    assert_raise Ash.Error.Forbidden, fn ->
+      Memory.diagnostic_search(attrs, %{admin | identity_kind: :api_key})
+    end
+
+    # A caller that reaches the ordinary facade cannot name the grant itself:
+    # the key exists, but only a struct satisfies it and a request body carries
+    # plain data.
+    forged =
+      Memory.search(
+        Map.merge(attrs, %{"_diagnostic" => %{"trace?" => true, "limit" => 100}}),
+        admin
+      )
+
+    refute Map.has_key?(forged, "diagnostic_trace")
   end
 
   test "relation expansion traverses knowledge relations and shared-entity edges" do
@@ -1102,6 +1301,116 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     # claim the corpus was searched and came back empty, which is the opposite of what happened.
     refute "lexical" in result["empty_strategies"]
     refute "lexical" in result["contributed_strategies"]
+  end
+
+  test "retrieval diagnostics reach the internal seam only through an authorized grant" do
+    admin = bootstrap_diagnostic_admin!("diagnostic-admin@example.test")
+    scope_path = "/f7/diagnostic"
+
+    # Deep enough that the observed failure is reproducible: the statement this
+    # test looks for sits at rank 34, well past the ordinary top-12 window.
+    for index <- 1..40 do
+      seed_active_as!(
+        admin,
+        scope_path,
+        "Avery published release checklist number #{index}.",
+        "diagnostic-#{index}"
+      )
+    end
+
+    # Ingest created the scope; the actor's authorized-scope set is a snapshot
+    # taken before it existed.
+    admin = Identity.refresh_actor(admin)
+
+    normal =
+      Memory.search(
+        %{"scope_path" => scope_path, "query" => "release checklist"},
+        admin
+      )
+
+    # The ordinary window is what the observed failure was about: the answer can
+    # sit below it and the response looks identical either way.
+    assert length(normal["candidates"]) == 12
+
+    diagnostic =
+      Memory.diagnostic_search(
+        %{"scope_path" => scope_path, "query" => "release checklist", "limit" => "50"},
+        admin
+      )
+
+    assert length(diagnostic["candidates"]) > 12
+    assert diagnostic["diagnostic"]["default_limit"] == 12
+    assert diagnostic["diagnostic"]["beyond_default_limit"] > 0
+    assert "lexical" in diagnostic["diagnostic"]["query_dependent_strategies"]
+    refute "salience_recency" in diagnostic["diagnostic"]["query_dependent_strategies"]
+
+    # Rank 34: reachable only through the diagnostic limit, which is the whole
+    # point of the mode.
+    deep = Enum.at(diagnostic["candidates"], 33)
+    assert deep["statement"]
+    refute Enum.any?(normal["candidates"], &(&1["id"] == deep["id"]))
+
+    # Strategy isolation and a disabled deadline are the two internal controls,
+    # and they reach retrieval intact.
+    isolated =
+      Memory.diagnostic_search(
+        %{
+          "scope_path" => scope_path,
+          "query" => "release checklist",
+          "strategies" => ["lexical"],
+          "deadline" => "disabled",
+          "rerank" => "false"
+        },
+        admin
+      )
+
+    assert isolated["contributed_strategies"] == ["lexical"]
+    assert isolated["deadline"] == "disabled"
+    assert isolated["diagnostic"]["rerank"] == false
+    assert isolated["diagnostic"]["strategies"] == ["lexical"]
+
+    # The limit is clamped rather than honoured, so one browser form cannot ask
+    # the database for an unbounded pre-fusion pool.
+    clamped =
+      Memory.diagnostic_search(
+        %{"scope_path" => scope_path, "query" => "release", "limit" => "100000"},
+        admin
+      )
+
+    assert clamped["diagnostic"]["limit"] == DiagnosticGrant.max_limit()
+
+    assert_raise ArgumentError, ~r/unknown retrieval strategy/, fn ->
+      Memory.diagnostic_search(
+        %{"scope_path" => scope_path, "query" => "release", "strategies" => ["not_a_strategy"]},
+        admin
+      )
+    end
+
+    # Both halves of the gate refuse at the facade rather than merely hiding the
+    # controls in the browser: a lesser role, and a machine credential holding
+    # the administrative role anyway.
+    member = %{admin | role: :member}
+    machine_admin = %{admin | identity_kind: :api_key}
+
+    for refused <- [member, machine_admin] do
+      assert_raise Ash.Error.Forbidden, fn ->
+        Memory.diagnostic_search(%{"scope_path" => scope_path, "query" => "release"}, refused)
+      end
+    end
+
+    # The grant is a struct precisely so a request body cannot forge one:
+    # decoded JSON produces a plain map, and a plain map is not a grant.
+    assert_raise ArgumentError, ~r/raw retrieval strategies/, fn ->
+      Memory.search(
+        %{
+          "scope_path" => scope_path,
+          "query" => "release",
+          "strategies" => ["lexical"],
+          "_diagnostic" => %{"limit" => 50, "strategies" => ["lexical"]}
+        },
+        member
+      )
+    end
   end
 
   test "reranker completion, timeout, provider failure, and malformed output are classified" do
@@ -1859,6 +2168,55 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
         )
 
       %{account: account, actor: actor, scope: scope, knowledge: knowledge}
+    end)
+  end
+
+  # A password-authenticated account administrator, which is the only identity
+  # the retrieval diagnostic accepts. `bootstrap_human` is the ordinary path, so
+  # the actor carries a real credential kind rather than a hand-set field.
+  defp bootstrap_diagnostic_admin!(email) do
+    %{actor: actor} =
+      Identity.bootstrap_human(%{
+        email: email,
+        name: "Diagnostic Admin",
+        password: "correct horse battery staple"
+      })
+
+    actor
+  end
+
+  # Same shape as `seed_active!`, for an Account reached through a resolved
+  # actor rather than through the internal account-key adapter.
+  defp seed_active_as!(admin, scope_path, statement, session_id) do
+    assert {:ok, message} =
+             Memory.ingest_message(
+               %{
+                 "session_id" => session_id,
+                 "scope_path" => scope_path,
+                 "content" => statement
+               },
+               admin
+             )
+
+    assert {:ok, [knowledge]} =
+             Memory.extract_message_for_account(message["id"], admin.account_id)
+
+    knowledge_id = Map.fetch!(knowledge, "id")
+
+    DataLayer.with_actor(admin, fn account, actor ->
+      item =
+        KnowledgeItem
+        |> Ash.Query.filter(id == ^knowledge_id)
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read_one!(actor: actor)
+
+      GovernanceEngine.transition!(
+        item,
+        pipeline_actor(actor),
+        %{state: "active", verification: "auto_verified"},
+        reason: "f7_diagnostic_activate",
+        channel: "pipeline"
+      )
     end)
   end
 

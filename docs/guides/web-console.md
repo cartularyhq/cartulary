@@ -22,10 +22,10 @@ Agent API keys work on JSON and MCP, never the console.
 | `/console/knowledge` | The explorer: browse every statement you can read, or preview what retrieval would rank |
 | `/console/knowledge/<id>` | One statement in full, with its evidence, history, readable shared-entity neighbours, and available actions |
 | `/console/scopes` | The containment tree as a directory, with counts, index coverage, your role, and lateral links |
-| `/console/graph` | The same data drawn as a graph of scopes, statements, and cross-references |
+| `/console/graph` | One scope at a time, drawn as a graph of its statements, their shared-entity groups, and the scopes below it |
 | `/console/sources` | Documents, their versions, connectors, sessions, and raw observations |
 | `/console/skills` | Skill requirement cards, and a live readiness check for yourself |
-| `/console/tools` | A workbench for all eight MCP tools, using your signed-in identity and showing the returned payload |
+| `/console/tools` | A workbench for all eight MCP tools, using your signed-in identity and showing the returned payload; account admins also get the retrieval diagnostic |
 | `/console/me` | Everything recorded about you, and your consent and erasure controls |
 | `/console/operations` | Account admins only: readiness, usage and cost, entity-resolution quality, scope retrieval health, gate rules, retrieval tunings |
 | `/governance` | Curators and account admins only: the gate queue and skill-card authoring |
@@ -107,6 +107,63 @@ rebuild the scope's derived data.
 Up to five runs are kept under **Earlier runs** so you can compare a call with
 the one before it. They live in the page only: a reload starts empty, and a
 failed call leaves earlier results in place.
+
+A ranked run that returned as many candidates as it asked for stopped at the
+limit, not at the end of the matches, and the result says so. That note means
+deeper candidates may exist; it does not mean any of them is a better answer.
+
+## Diagnosing retrieval
+
+Account administrators get one extra control at the bottom of `/console/tools`:
+**Retrieval diagnostic**. It is closed until you open it, and opening it changes
+nothing about the ordinary cards — `search` and `ask` keep their normal
+defaults, and no other role sees the panel at all.
+
+The mode exists to reproduce retrieval behaviour, not to serve it. Its results
+are labelled **not production-equivalent** because they are: a diagnostic run
+may do things no request path may do.
+
+| Control | What it does |
+| --- | --- |
+| Limit | Returns up to 100 candidates instead of the ordinary 12 |
+| Strategies | Runs only the strategies you tick, in place of the profile's own |
+| Reranking | Forces the rerank stage on or off instead of following the profile |
+| Keep the latency deadline | Clear it to let every strategy finish |
+| Show only query-dependent candidates | Hides candidates that only scope-ranking strategies voted for |
+| Explain the ranking | Adds a per-candidate account of how it reached its rank |
+
+The result reports how many candidates rank below the ordinary top-12 window.
+That is the honest form of the warning: a normal run would not have shown them,
+and that alone says nothing about whether they are right.
+
+**Explain the ranking** answers the question the fused list cannot: whether a
+candidate was never generated, or was generated and then demoted. Its table
+gives each returned candidate's per-strategy local rank and score, that list's
+reciprocal-rank contribution, the fused rank, and the final rank.
+`outside_rerank_head` means the candidate stayed in the fused tail;
+`rerank_unavailable` means the reranker did not complete. Strategy scores use
+different scales, so compare ranks and fusion contributions, never scores
+between strategies. Asking for the explanation does not change the ranking it
+describes.
+
+Leaving every strategy box clear runs the profile's own strategies. Ticking only
+strategies that do not read your words — `salience_recency`, `temporal`, and
+`relation_expand` — produces a ranking of the scope rather than of the question;
+combined with **Show only query-dependent candidates** the page returns nothing
+and says why, rather than relabelling the same rows.
+
+Matched query terms are highlighted in the statements shown. **Reproducible
+request** holds a copyable JSON body carrying the scope, query, profile, limit,
+and diagnostic options — and nothing else. No session id, token, cookie, or
+Account identifier is in it, so it is safe to paste into an issue.
+
+Every control is an ordinary checkbox, number, or select and is reachable by
+keyboard in page order. The mode is refused server-side for anyone who is not a
+password-authenticated account administrator, so hiding the panel is a courtesy,
+not the boundary.
+
+Diagnostic mode does not widen what you may read. Account, scope, lifecycle, and
+subject rules apply exactly as they do to an ordinary search.
 
 ## What you see, and why you might see less than a colleague
 
@@ -276,17 +333,27 @@ undone, which is why the control asks you to type `erase` first.
 
 ## The graph
 
-`/console/graph` draws the same data as a picture. Distance from the centre is
-depth in the containment tree, so the root sits in the middle. Each scope's
-statements orbit it, so a dense scope looks dense. A statement's size is its
-confidence and its colour is its lifecycle state.
+`/console/graph` draws one scope at a time. That scope sits in the middle, its
+statements orbit it, and the readable scopes directly below it sit on the outer
+ring as places to go next. A statement's size is its confidence and its colour
+is its lifecycle state.
 
-Cross-ring lines are either **scope relations** between non-parent scopes or
-**knowledge relations** between statements.
+Navigate with the breadcrumb, the **Up to** button, or the chips under *Inside
+this scope*. The focus is in the URL, so a view is linkable and survives a
+reload. Tick **Include descendant scopes** to pull the whole subtree into one
+picture; that is off by default because on a real Account it is unreadable.
 
-Select a node for details. Layout is deterministic. When too many statements
-match, the page reports truncation instead of presenting a partial graph as
-complete.
+A dashed hub labelled `E1`, `E2`, … is a **shared entity**: the statements it
+links resolved to the same thing. Select the hub to list them. The thing itself
+is never named — see below.
+
+Other lines are **containment**, **scope relations** between non-parent scopes,
+and **knowledge relations** between statements.
+
+Select a node for details, or tab to it and press Enter. Layout is
+deterministic. When a scope holds more statements or more shared-entity groups
+than the graph draws, the page says so rather than presenting a partial picture
+as complete, and links to the explorer for the complete list.
 
 ## What the console deliberately does not show
 
@@ -296,7 +363,12 @@ complete.
   canonical name, alias, surface form, or entity identifier appears anywhere in
   the console — including the graph. Account admins see only aggregate cache
   quality signals on the operations page. Statement detail may link readable
-  statements that share an entity without naming that entity.
+  statements that share an entity, and the graph may draw them as a group, but
+  neither names the entity: a group is identified by an ordinal assigned as the
+  page is drawn, and two entities shared by the same statements read as one
+  group so the count of resolved entities stays private. A group needs at least
+  two readable statements in the drawn scope, so a hub never implies that some
+  statement you cannot see exists.
 - **Embedding vectors and document chunks.** Rebuildable derived caches with no
   meaning to a reader. Chunk counts are shown; chunk contents are not.
 - **Credentials.** Password hashes, API key hashes, and connector secrets are
