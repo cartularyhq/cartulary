@@ -373,8 +373,9 @@ defmodule Cartulary.Eval.Report do
       Map.get(accounting, "attempted") ==
         Map.get(accounting, "evaluated") + Map.get(accounting, "failed") +
           Map.get(accounting, "cancelled") and
-      Enum.frequencies(Enum.map(items, &Map.get(&1, "status"))) ==
-        Map.new(statuses, &{&1, Map.get(accounting, &1)})
+      Enum.all?(statuses, fn status ->
+        Enum.count(items, &(Map.get(&1, "status") == status)) == Map.get(accounting, status)
+      end)
   end
 
   defp valid_items?(items, statuses) do

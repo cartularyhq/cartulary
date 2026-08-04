@@ -396,6 +396,30 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
 
     assert Cartulary.Eval.Report.validate(current) == :ok
 
+    all_evaluated =
+      current
+      |> Map.merge(%{
+        "attempted" => 5,
+        "evaluated" => 5,
+        "skipped" => 0,
+        "failed" => 0,
+        "cancelled" => 0
+      })
+      |> put_in(["accounting", "attempted"], 5)
+      |> put_in(["accounting", "evaluated"], 5)
+      |> put_in(["accounting", "skipped"], 0)
+      |> put_in(["accounting", "failed"], 0)
+      |> put_in(["accounting", "cancelled"], 0)
+      |> update_in(["accounting", "items"], fn items ->
+        Enum.map(items, fn item ->
+          item
+          |> Map.put("status", "evaluated")
+          |> Map.drop(["reason"])
+        end)
+      end)
+
+    assert Cartulary.Eval.Report.validate(all_evaluated) == :ok
+
     invalid = put_in(current, ["accounting", "items", Access.at(4), "id"], "d")
     assert {:error, errors} = Cartulary.Eval.Report.validate(invalid)
     assert Enum.any?(errors, &String.contains?(&1, "accounting"))
