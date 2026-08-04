@@ -669,6 +669,51 @@ defmodule Cartulary.Retrieval.Store do
       do: %{count: 0, ids: []}
 
   @doc """
+  Groups statements that share an entity, without naming the entity.
+
+  `knowledge_ids` must already be authorized by the caller: this query does no
+  lifecycle, scope, or subject filtering and will link any id it is handed. It
+  exists to describe a set the caller has already decided to show, so passing an
+  unfiltered set would disclose membership the caller never checked.
+
+  A group needs at least two members, because a single-member group carries no
+  relationship and would only report that some private cache row exists. Groups
+  with identical membership are collapsed, so two entities shared by the same
+  statements read as one link rather than hinting at how many entities resolved.
+
+  Returns `%{count:, clusters:}` where `count` is the number of distinct groups
+  before `limit` and each cluster is a sorted list of statement ids. The entity
+  id is a grouping key only and is never selected.
+  """
+  def shared_entity_clusters(account_id, knowledge_ids, limit)
+      when is_list(knowledge_ids) and is_integer(limit) and limit > 0 and knowledge_ids != [] do
+    sql = """
+    WITH grouped AS (
+      SELECT array_agg(DISTINCT m.knowledge_item_id::text
+                       ORDER BY m.knowledge_item_id::text) AS members
+      FROM entity_mentions AS m
+      WHERE m.account_id = $1 AND m.knowledge_item_id = ANY($2)
+      GROUP BY m.entity_id
+      HAVING count(DISTINCT m.knowledge_item_id) >= 2
+    ), distinct_groups AS (
+      SELECT DISTINCT members FROM grouped
+    )
+    SELECT members, count(*) OVER()::bigint AS total_count
+    FROM distinct_groups
+    ORDER BY members
+    LIMIT $3
+    """
+
+    rows = all(sql, [db_uuid!(account_id), db_uuids!(knowledge_ids), limit])
+    count = if rows == [], do: 0, else: rows |> hd() |> Map.fetch!("total_count")
+
+    %{count: count, clusters: Enum.map(rows, &Map.fetch!(&1, "members"))}
+  end
+
+  def shared_entity_clusters(_account_id, _knowledge_ids, _limit),
+    do: %{count: 0, clusters: []}
+
+  @doc """
   Counts, per scope, how much of the retrievable corpus is actually indexed.
 
   Embeddings and entity mentions are written by a background rebuild, so a scope

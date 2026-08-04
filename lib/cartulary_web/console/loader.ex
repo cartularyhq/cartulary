@@ -54,6 +54,17 @@ defmodule CartularyWeb.Console.Loader do
   # explorer instead. Exports go through the portability archive.
   @panel_limit 50
 
+  # Statement nodes the graph draws for one scope, and the ceiling a caller may
+  # raise that to. Past the ceiling the picture is unreadable before it is slow:
+  # a few hundred dots in one frame carry less than the explorer's table does.
+  @graph_limit 90
+  @graph_limit_max 150
+
+  # Anonymous entity clusters drawn per graph. Every additional hub crosses the
+  # frame with more lines, so the tail is reported as truncated rather than
+  # drawn.
+  @graph_cluster_limit 12
+
   @doc """
   Default rows per page in the knowledge explorer.
 
@@ -277,30 +288,48 @@ defmodule CartularyWeb.Console.Loader do
   end
 
   @doc """
-  Nodes and edges for the graph view, already narrowed to what this actor may see.
+  One scope's neighbourhood, drawn as nodes and edges, narrowed to what this actor may see.
 
-    `opts` may carry `:scope` (a scope path whose subtree is drawn) and `:limit` (how
-    many knowledge nodes to include, capped at 150 because a force layout over more than
-    that is unreadable as well as slow).
+  The graph is deliberately local: it shows one focus scope, that scope's
+  statements, the anonymous entity clusters linking them, and the readable
+  scopes immediately below as drill-down targets. Drawing the whole authorized
+  tree is available through `:descendants?` but is not the default, because on a
+  real Account it is unreadable.
 
-    Returns `%{scopes:, knowledge:, containment:, relations:, knowledge_edges:,
-    truncated?
+  `opts` may carry `:scope` (the focus scope's path), `:descendants?` (draw the
+  whole subtree rather than the focus alone), and `:limit` (how many statement
+  nodes to draw, capped at #{@graph_limit_max}).
+
+  An unknown or unauthorized `:scope` falls back to the shallowest readable
+  scope rather than widening to everything. Ancestors, parents, and children are
+  the *readable* ones: an unreadable scope in the middle of the tree is skipped,
+  never named.
+
+  Returns `%{focus:, ancestors:, parent:, children:, descendants?:, scopes:,
+  knowledge:, containment:, relations:, knowledge_edges:, clusters:,
+  clusters_truncated?:, scope_paths:, all_scopes:, shown:, total:, truncated?:}`.
+  `focus` is `nil` only when the actor can read no scope at all.
   """
   def graph(%Actor{} = actor, opts \\ []) do
-    limit = min(Keyword.get(opts, :limit, 90), 150)
+    limit = min(Keyword.get(opts, :limit, @graph_limit), @graph_limit_max)
+    descendants? = Keyword.get(opts, :descendants?, false)
 
     DataLayer.with_actor(actor, fn account, current_actor ->
       scopes = scopes(account.id, current_actor)
-      selected = subtree_scope_ids(scopes, Keyword.get(opts, :scope))
       paths = scope_paths(scopes)
+      focus = focus_scope(scopes, Keyword.get(opts, :scope))
 
-      drawn_scopes =
-        case selected do
-          nil -> scopes
-          ids -> Enum.filter(scopes, &(&1.id in ids))
-        end
+      ancestors = readable_ancestors(scopes, focus)
+      children = nearest_readable_descendants(scopes, focus)
+      drawn_scopes = drawn_scopes(scopes, focus, children, descendants?)
+      drawn_scope_ids = MapSet.new(drawn_scopes, & &1.id)
 
-      base = knowledge_base_query(actor, scope_ids: selected)
+      # Child scopes are drawn as navigation targets, not as containers of
+      # statements: pulling their contents in is what `descendants?` asks for.
+      statement_scope_ids =
+        if descendants?, do: MapSet.to_list(drawn_scope_ids), else: focus_ids(focus)
+
+      base = knowledge_base_query(actor, scope_ids: statement_scope_ids)
       total = count(base, account.id, current_actor)
 
       knowledge =
@@ -325,8 +354,6 @@ defmodule CartularyWeb.Console.Loader do
               MapSet.member?(knowledge_ids, &1.target_knowledge_id))
         )
 
-      drawn_scope_ids = MapSet.new(drawn_scopes, & &1.id)
-
       relations =
         ScopeRelation
         |> Ash.Query.set_tenant(account.id)
@@ -336,25 +363,117 @@ defmodule CartularyWeb.Console.Loader do
               MapSet.member?(drawn_scope_ids, &1.target_scope_id))
         )
 
-      containment =
-        drawn_scopes
-        |> Enum.filter(
-          &(not is_nil(&1.parent_id) and MapSet.member?(drawn_scope_ids, &1.parent_id))
+      shared =
+        Store.shared_entity_clusters(
+          account.id,
+          Enum.map(knowledge, & &1.id),
+          @graph_cluster_limit
         )
-        |> Enum.map(&{&1.parent_id, &1.id})
+
+      clusters =
+        shared.clusters
+        |> Enum.with_index(1)
+        |> Enum.map(fn {members, index} ->
+          %{
+            id: "cluster-#{index}",
+            index: index,
+            label: "Shared entity #{index}",
+            knowledge_ids: members
+          }
+        end)
 
       %{
+        focus: focus,
+        ancestors: ancestors,
+        parent: List.last(ancestors),
+        children: children,
+        descendants?: descendants?,
         scopes: drawn_scopes,
         knowledge: knowledge,
-        containment: containment,
+        containment: containment_edges(drawn_scopes),
         relations: relations,
         knowledge_edges: knowledge_edges,
+        clusters: clusters,
+        clusters_truncated?: shared.count > length(clusters),
         scope_paths: paths,
         all_scopes: scopes,
+        shown: length(knowledge),
+        total: total,
         truncated?: total > length(knowledge)
       }
     end)
   end
+
+  # The focus falls back to the shallowest readable scope — the root when the
+  # actor holds it — so a first visit lands somewhere meaningful and an
+  # unauthorized path in the URL narrows to a default rather than widening to
+  # the whole tree.
+  defp focus_scope([], _path), do: nil
+
+  defp focus_scope(scopes, path) do
+    Enum.find(scopes, &(&1.path == path)) ||
+      Enum.min_by(scopes, &{depth(&1.path), &1.path})
+  end
+
+  defp focus_ids(nil), do: []
+  defp focus_ids(focus), do: [focus.id]
+
+  defp drawn_scopes(_scopes, nil, _children, _descendants?), do: []
+
+  defp drawn_scopes(scopes, focus, _children, true) do
+    [focus | Enum.filter(scopes, &contained_in?(&1.path, focus.path))]
+    |> Enum.sort_by(& &1.path)
+  end
+
+  defp drawn_scopes(_scopes, focus, children, false), do: [focus | children]
+
+  # Readable proper ancestors, shallowest first. An unreadable scope between two
+  # readable ones is simply absent: the breadcrumb it would occupy is a name the
+  # actor has no grant to learn.
+  defp readable_ancestors(_scopes, nil), do: []
+
+  defp readable_ancestors(scopes, focus) do
+    scopes
+    |> Enum.filter(&contained_in?(focus.path, &1.path))
+    |> Enum.sort_by(&depth(&1.path))
+  end
+
+  # The readable scopes closest below the focus: a readable scope with no other
+  # readable scope between it and the focus. Skipping an unreadable middle scope
+  # keeps a readable grandchild reachable without ever naming its parent.
+  defp nearest_readable_descendants(_scopes, nil), do: []
+
+  defp nearest_readable_descendants(scopes, focus) do
+    below = Enum.filter(scopes, &contained_in?(&1.path, focus.path))
+
+    below
+    |> Enum.reject(fn candidate ->
+      Enum.any?(below, &(&1.id != candidate.id and contained_in?(candidate.path, &1.path)))
+    end)
+    |> Enum.sort_by(& &1.path)
+  end
+
+  # Containment is derived from the drawn set rather than from `parent_id`, so a
+  # child whose real parent is unreadable still hangs off the nearest drawn
+  # ancestor instead of floating unconnected.
+  defp containment_edges(drawn) do
+    Enum.flat_map(drawn, fn scope ->
+      drawn
+      |> Enum.filter(&contained_in?(scope.path, &1.path))
+      |> Enum.max_by(&depth(&1.path), fn -> nil end)
+      |> case do
+        nil -> []
+        parent -> [{parent.id, scope.id}]
+      end
+    end)
+  end
+
+  # Strict containment: `/a/b` is inside `/a` and inside `/`, and nothing is
+  # inside itself. Path prefix is how containment is decided everywhere in this
+  # system, because a path is written once and never rewritten.
+  defp contained_in?(path, path), do: false
+  defp contained_in?(path, "/"), do: path != "/"
+  defp contained_in?(path, ancestor), do: String.starts_with?(path, ancestor <> "/")
 
   @doc """
   The provenance surface: documents with their versions, and sessions with their raw
