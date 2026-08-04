@@ -27,7 +27,7 @@ Agent API keys work on JSON and MCP, never the console.
 | `/console/skills` | Skill requirement cards, and a live readiness check for yourself |
 | `/console/tools` | A workbench for all eight MCP tools, using your signed-in identity and showing the returned payload |
 | `/console/me` | Everything recorded about you, and your consent and erasure controls |
-| `/console/operations` | Account admins only: readiness, usage and cost, entity-resolution quality, gate rules, retrieval tunings |
+| `/console/operations` | Account admins only: readiness, usage and cost, entity-resolution quality, scope retrieval health, gate rules, retrieval tunings |
 | `/governance` | Curators and account admins only: the gate queue and skill-card authoring |
 
 Navigation hides inaccessible pages, but every destination independently
@@ -52,6 +52,12 @@ entity or resolved an entity with no statement in the selected authorized
 scope. It never returns entity or statement identity. When a derived index
 needs attention, `next_action` says to rebuild the scope's derived data.
 
+The operations page adds the same content-safe probe for an administrator-selected
+scope and effective profile. It reports inherited profile version, deadline,
+enabled and disabled strategies, and explicitly shows that the probe made no
+model calls and read no stored content. Disabled strategies are reported
+separately from missing indexes.
+
 | Group | Cards | Action |
 | --- | --- | --- |
 | Retrieve | Ask memory, Search memory, Load context, Browse knowledge | `ask`, `search`, `get_context`, `query_knowledge` |
@@ -61,9 +67,8 @@ needs attention, `next_action` says to rebuild the scope's derived data.
 Every card names its action under the submit button, so a payload you see here
 maps to the tool an agent would call.
 
-Retrieve and Evaluate are governed reads. The three Operate cards change
-durable state, carry a marked edge, and ask you to acknowledge the consequence
-before they submit: `ingest` persists and queues a raw observation,
+Most forms are governed reads. Three have durable effects and are marked in
+the page: `ingest` persists and queues a raw observation,
 `resolve_validation` answers one pending question addressed to you, and
 `set_ask_preference` can only lower your own limits or extend a pause. The
 workbench adds no curator, promotion, gate-administration, or bulk action.

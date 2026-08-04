@@ -30,17 +30,39 @@ defmodule CartularyWeb.ConsoleLive.Operations do
     actor = socket.assigns.current_actor
 
     if Access.can?(actor, :administer) do
+      operations = Loader.operations(actor)
+      scope_path = operations.scope_paths |> Map.values() |> Enum.sort() |> List.first()
+      profile = "balanced"
+
       {:ok,
        socket
        |> assign(:health, Health.readiness())
        |> assign(:usage, Metering.summary(actor))
-       |> assign(:operations, Loader.operations(actor))}
+       |> assign(:operations, operations)
+       |> assign(:retrieval_scope_path, scope_path)
+       |> assign(:retrieval_profile, profile)
+       |> assign(:retrieval_health, Loader.retrieval_health(actor, scope_path, profile, nil))}
     else
       {:ok,
        socket
        |> put_flash(:error, "The operations view is limited to account administrators.")
        |> push_navigate(to: ~p"/console")}
     end
+  end
+
+  @impl true
+  def handle_event("retrieval_health", params, socket) do
+    scope_path = Map.get(params, "scope_path", socket.assigns.retrieval_scope_path)
+    profile = Map.get(params, "profile", socket.assigns.retrieval_profile)
+
+    {:noreply,
+     socket
+     |> assign(:retrieval_scope_path, scope_path)
+     |> assign(:retrieval_profile, profile)
+     |> assign(
+       :retrieval_health,
+       Loader.retrieval_health(socket.assigns.current_actor, scope_path, profile, nil)
+     )}
   end
 
   @doc """
@@ -76,6 +98,58 @@ defmodule CartularyWeb.ConsoleLive.Operations do
         </div>
 
         <pre class="code">{inspect(@health.checks, pretty: true, limit: :infinity)}</pre>
+      </.panel>
+
+      <.panel
+        title="Scope retrieval health"
+        description="A content-safe readiness probe for one readable scope. It reads counts and effective configuration only; it never sends stored content to a model."
+      >
+        <form phx-change="retrieval_health" class="filters">
+          <label>
+            Scope
+            <select name="scope_path">
+              <option :for={path <- readable_scope_paths(@operations.scope_paths)} value={path} selected={path == @retrieval_scope_path}>
+                {path}
+              </option>
+            </select>
+          </label>
+          <label>
+            Profile
+            <select name="profile">
+              <option :for={profile <- ~w(fast balanced thorough)} value={profile} selected={profile == @retrieval_profile}>
+                {profile}
+              </option>
+            </select>
+          </label>
+        </form>
+
+        <.empty :if={is_nil(@retrieval_health)} message="No readable scope is available." />
+        <div :if={@retrieval_health}>
+          <div class="tiles">
+            <.tile
+              label="Status"
+              value={@retrieval_health.state}
+              tone={if @retrieval_health.state == :ready, do: "accent", else: "danger"}
+            />
+            <.tile label="Statements" value={@retrieval_health.statement_count} />
+            <.tile label="Embedded" value={@retrieval_health.embedded_count} />
+            <.tile label="Embedding coverage" value={percent(@retrieval_health.coverage)} />
+            <.tile label="Entity mentions" value={@retrieval_health.mention_count} />
+            <.tile label="Profile version" value={@retrieval_health.effective_profile.version} />
+            <.tile label="Deadline" value={"#{@retrieval_health.effective_profile.deadline_ms} ms"} />
+          </div>
+
+          <p :if={@retrieval_health.next_action} class="hint">
+            Next action: {@retrieval_health.next_action}
+          </p>
+          <p class="hint">
+            Enabled strategies: {strategy_names(@retrieval_health.effective_profile.strategies)}.
+            Disabled: {strategy_names(@retrieval_health.effective_profile.disabled_strategies)}.
+          </p>
+          <p class="hint">
+            Probe calls: {@retrieval_health.probe.model_calls}; stored content read: {if @retrieval_health.probe.content_read, do: "yes", else: "no"}.
+          </p>
+        </div>
       </.panel>
 
       <.panel
@@ -320,6 +394,11 @@ defmodule CartularyWeb.ConsoleLive.Operations do
   end
 
   defp percent(rate), do: "#{Float.round(rate * 100.0, 1)}%"
+  defp readable_scope_paths(scope_paths), do: scope_paths |> Map.values() |> Enum.sort()
+
+  defp strategy_names([]), do: "none"
+  defp strategy_names(strategies), do: Enum.map_join(strategies, ", ", &to_string/1)
+
   defp remaining(nil), do: "unbounded"
   defp remaining(value), do: "#{value} ms"
 end

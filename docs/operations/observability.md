@@ -141,6 +141,14 @@ no statement in the selected authorized scope. The diagnostic is restricted to
 the signed-in actor's readable scope and contains counts, reason codes, and
 model identity only.
 
+Account administrators can select a readable scope and profile in
+[`/console/operations`](../guides/web-console.md). That panel resolves the
+nearest inherited profile, reports its version, deadline, enabled and disabled
+strategies, and classifies disabled strategies separately from missing indexes.
+The probe is metadata-only: it makes no generation-model call and reads no
+stored statement content. Retrieval drops are request-scoped and are shown on
+the retrieval result; telemetry is not treated as a historical health ledger.
+
 `POST /api/v1/operations/reconcile` also checks active scopes for a completely
 missing mention index. It enqueues the ordinary full scope rebuild with a
 stable corpus watermark. Repeating reconciliation before the corpus changes

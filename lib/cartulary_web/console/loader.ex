@@ -28,6 +28,7 @@ defmodule CartularyWeb.Console.Loader do
   alias Cartulary.Observations.DocumentVersion
   alias Cartulary.Observations.Message
   alias Cartulary.Observations.Session
+  alias Cartulary.Retrieval.Profile
   alias Cartulary.Retrieval.RetrievalProfile
   alias Cartulary.Retrieval.Store
   alias Cartulary.Skills.SkillRequirementCard
@@ -449,45 +450,81 @@ defmodule CartularyWeb.Console.Loader do
   contains counts and embedding identities only; it never returns statements,
   entity-cache rows, or other derived content.
   """
-  def retrieval_health(%Actor{} = actor, scope_path, query_text \\ nil)
+  def retrieval_health(actor, scope_path, query_text \\ nil)
+
+  def retrieval_health(%Actor{} = actor, scope_path, query_text) when is_binary(scope_path) do
+    retrieval_health(actor, scope_path, "balanced", query_text)
+  end
+
+  def retrieval_health(%Actor{}, _scope_path, _query_text), do: nil
+
+  def retrieval_health(%Actor{} = actor, scope_path, profile_name, query_text)
       when is_binary(scope_path) do
+    profile_name =
+      if profile_name in ~w(fast balanced thorough), do: profile_name, else: "balanced"
+
     result =
       DataLayer.with_actor(actor, fn account, current_actor ->
-        scope =
-          account.id
-          |> scopes(current_actor)
-          |> Enum.find(&(&1.path == scope_path))
+        readable_scopes = scopes(account.id, current_actor)
+        scope = Enum.find(readable_scopes, &(&1.path == scope_path))
 
         if scope do
           coverage =
             Cartulary.Retrieval.index_coverage(account.id, [scope.id], actor.peer_id)
             |> Map.fetch!(scope.id)
 
+          chain =
+            readable_scopes
+            |> Enum.filter(fn candidate ->
+              candidate.path == scope.path or
+                (candidate.path == "/" or String.starts_with?(scope.path, candidate.path <> "/"))
+            end)
+            |> Enum.sort_by(&String.length(&1.path), :desc)
+            |> Enum.map(& &1.id)
+
           reason =
             if Access.can?(actor, :administer) do
               entity_match_reason(account.id, scope.id, current_actor, query_text)
             end
 
-          {coverage, reason}
+          {coverage, chain, reason}
         end
       end)
 
     if result do
-      {coverage, entity_match_reason} = result
+      {coverage, scope_chain, entity_match_reason} = result
 
       configured_identity =
         :embedder
         |> ModelConfig.resolve(%{account_id: actor.account_id, actor: actor})
         |> ModelConfig.embedding_identity()
 
+      effective_profile =
+        Profile.resolve(profile_name, %{
+          account_id: actor.account_id,
+          actor: actor,
+          scope_ids: scope_chain
+        })
+
       Map.merge(coverage, %{
         configured_identity: configured_identity,
-        state: retrieval_health_state(coverage, configured_identity),
-        next_action: retrieval_health_action(coverage, configured_identity),
+        effective_profile: %{
+          name: effective_profile.name,
+          version: effective_profile.version,
+          deadline_ms: effective_profile.deadline_ms,
+          rerank: effective_profile.rerank,
+          strategies: effective_profile.strategies,
+          disabled_strategies: effective_profile.disabled_strategies
+        },
+        probe: %{model_calls: 0, content_read: false},
+        state: retrieval_health_state(coverage, configured_identity, effective_profile),
+        next_action: retrieval_health_action(coverage, configured_identity, effective_profile),
         entity_match_reason: entity_match_reason
       })
     end
   end
+
+  def retrieval_health(%Actor{}, _scope_path, _profile_name, _query_text), do: nil
 
   @doc """
   The viewer's own governance position: consent requests awaiting their answer,
@@ -812,14 +849,15 @@ defmodule CartularyWeb.Console.Loader do
 
   defp scope_paths(scopes), do: Map.new(scopes, &{&1.id, &1.path})
 
-  defp retrieval_health_state(%{statement_count: 0}, _identity), do: :ready
+  defp retrieval_health_state(%{statement_count: 0}, _identity, _profile), do: :ready
 
-  defp retrieval_health_state(coverage, identity) do
+  defp retrieval_health_state(coverage, identity, profile) do
     cond do
       Enum.any?(coverage.embedding_identities, &(&1 != identity)) -> :identity_mismatch
       coverage.embedded_count < coverage.statement_count -> :missing_embeddings
       coverage.mentioned_statement_count == 0 -> :no_mentions_indexed
       coverage.mentioned_statement_count < coverage.statement_count -> :partial_mention_coverage
+      profile.disabled_strategies != [] -> :disabled_strategies
       true -> :ready
     end
   end
@@ -838,9 +876,10 @@ defmodule CartularyWeb.Console.Loader do
     })
   end
 
-  defp retrieval_health_action(coverage, identity) do
-    case retrieval_health_state(coverage, identity) do
+  defp retrieval_health_action(coverage, identity, profile) do
+    case retrieval_health_state(coverage, identity, profile) do
       :ready -> nil
+      :disabled_strategies -> "enable the disabled retrieval strategies or choose another profile"
       _gap -> "rebuild scope derived data"
     end
   end
