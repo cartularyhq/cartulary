@@ -2,8 +2,8 @@
 
 defmodule CartularyWeb.Console.GraphTest do
   @moduledoc """
-  Pins the graph layout's two load-bearing properties: it is a pure function of its
-    input, and it draws nothing it was not given.
+  Pins the graph layout's three load-bearing properties: it is a pure function of its
+    input, it draws nothing it was not given, and it centres the scope the reader chose.
 
     Determinism matters because the picture is a navigation aid. A reader who finds a
     statement in the lower left and comes back to it must find it in the same place; a
@@ -22,12 +22,25 @@ defmodule CartularyWeb.Console.GraphTest do
       assert Graph.build(data) == Graph.build(data)
     end
 
-    test "places the root scope at the centre of the frame" do
+    test "places the focus scope at the centre of the frame" do
       layout = Graph.build(sample())
-      root = Enum.find(layout.nodes, &(&1.title == "/"))
+      focus = Enum.find(layout.nodes, &(&1.title == "/team"))
 
-      assert root.x == layout.width / 2
-      assert root.y == layout.height / 2
+      assert focus.x == layout.width / 2
+      assert focus.y == layout.height / 2
+    end
+
+    test "positions a scope by its depth below the focus, not its absolute depth" do
+      # `/team/ops` is two levels deep in the tree and one level below the
+      # focus. Drawing it on its absolute ring would push it a whole ring
+      # further out than the picture claims.
+      shallow = Graph.build(sample())
+      deep = Graph.build(deeper_sample())
+
+      shallow_child = Enum.find(shallow.nodes, &(&1.title == "/team/ops"))
+      deep_child = Enum.find(deep.nodes, &(&1.title == "/a/b/c/d"))
+
+      assert {shallow_child.x, shallow_child.y} == {deep_child.x, deep_child.y}
     end
 
     test "keeps every node inside the frame" do
@@ -47,7 +60,7 @@ defmodule CartularyWeb.Console.GraphTest do
       assert strong.r > weak.r
     end
 
-    test "draws containment, membership, and both relation kinds" do
+    test "draws containment, membership, cluster links, and both relation kinds" do
       kinds =
         sample() |> Graph.build() |> Map.fetch!(:edges) |> Enum.map(& &1.kind) |> Enum.uniq()
 
@@ -55,6 +68,7 @@ defmodule CartularyWeb.Console.GraphTest do
       assert :membership in kinds
       assert :scope_relation in kinds
       assert :knowledge_relation in kinds
+      assert :cluster_link in kinds
     end
 
     test "drops an edge whose endpoint is not drawn" do
@@ -66,50 +80,97 @@ defmodule CartularyWeb.Console.GraphTest do
       refute Enum.any?(Graph.build(data).edges, &(&1.kind == :knowledge_relation))
     end
 
+    test "drops a cluster whose members are all undrawn" do
+      data = %{sample() | clusters: [cluster(1, ["not-drawn-a", "not-drawn-b"])]}
+      layout = Graph.build(data)
+
+      refute Enum.any?(layout.nodes, &(&1.kind == :cluster))
+      refute Enum.any?(layout.edges, &(&1.kind == :cluster_link))
+    end
+
+    test "keeps a cluster hub clear of the scope it would otherwise sit on" do
+      # Two statements on opposite sides of a scope have that scope as their
+      # centroid. Drawn there the hub would be buried under the node it is meant
+      # to sit beside, and unclickable.
+      layout = Graph.build(sample())
+      hub = Enum.find(layout.nodes, &(&1.kind == :cluster))
+      focus = Enum.find(layout.nodes, &(&1.title == "/team"))
+
+      assert :math.sqrt(:math.pow(hub.x - focus.x, 2) + :math.pow(hub.y - focus.y, 2)) >= 40
+    end
+
+    test "names a cluster by ordinal and member count only" do
+      hub = sample() |> Graph.build() |> Map.fetch!(:nodes) |> Enum.find(&(&1.kind == :cluster))
+
+      assert hub.title == "Shared entity 1 — 2 statements"
+      assert hub.label == "E1"
+      refute Map.has_key?(hub, :entity_id)
+    end
+
     test "renders no entity node and no entity field" do
       layout = Graph.build(sample())
 
       refute Enum.any?(layout.nodes, &(&1.kind == :entity))
       refute Enum.any?(layout.nodes, &Map.has_key?(&1, :entity_id))
-      assert Enum.all?(layout.nodes, &(&1.kind in [:scope, :knowledge]))
+      assert Enum.all?(layout.nodes, &(&1.kind in [:scope, :knowledge, :cluster]))
+    end
+
+    test "draws nothing when the actor can read no scope" do
+      data = %{
+        sample()
+        | focus: nil,
+          scopes: [],
+          knowledge: [],
+          containment: [],
+          relations: [],
+          knowledge_edges: [],
+          clusters: []
+      }
+
+      assert Graph.build(data).nodes == []
     end
   end
 
-  # Two scopes, one relation between them, two statements of differing
-  # confidence, and one relation between the statements — the smallest input
-  # that exercises every node and edge kind at once.
+  # A focus scope with one child, two statements of differing confidence, a
+  # relation between the statements, a scope relation, and one shared-entity
+  # cluster — the smallest input that exercises every node and edge kind at
+  # once.
   defp sample do
     %{
-      scopes: [
-        %{id: "s-root", path: "/", key: "root", name: "root", state: "active", parent_id: nil},
-        %{
-          id: "s-team",
-          path: "/team",
-          key: "team",
-          name: "Team",
-          state: "active",
-          parent_id: "s-root"
-        },
-        %{
-          id: "s-ops",
-          path: "/ops",
-          key: "ops",
-          name: "Ops",
-          state: "active",
-          parent_id: "s-root"
-        }
-      ],
+      focus: scope("s-team", "/team", "team"),
+      ancestors: [scope("s-root", "/", "root")],
+      parent: scope("s-root", "/", "root"),
+      children: [scope("s-ops", "/team/ops", "ops")],
+      descendants?: false,
+      scopes: [scope("s-team", "/team", "team"), scope("s-ops", "/team/ops", "ops")],
       knowledge: [
         knowledge("k-weak", "s-team", 0.2, "active"),
         knowledge("k-strong", "s-team", 0.95, "proposed")
       ],
-      containment: [{"s-root", "s-team"}, {"s-root", "s-ops"}],
+      containment: [{"s-team", "s-ops"}],
       relations: [%{source_scope_id: "s-team", target_scope_id: "s-ops", kind: "related"}],
       knowledge_edges: [relation("k-weak", "k-strong")],
-      scope_paths: %{"s-root" => "/", "s-team" => "/team", "s-ops" => "/ops"},
+      clusters: [cluster(1, ["k-strong", "k-weak"])],
+      clusters_truncated?: false,
+      scope_paths: %{"s-team" => "/team", "s-ops" => "/team/ops"},
       all_scopes: [],
+      shown: 2,
+      total: 2,
       truncated?: false
     }
+  end
+
+  # The same shape one level deeper in the tree, for the relative-depth check.
+  defp deeper_sample do
+    %{
+      sample()
+      | focus: scope("s-team", "/a/b/c", "c"),
+        scopes: [scope("s-team", "/a/b/c", "c"), scope("s-ops", "/a/b/c/d", "d")]
+    }
+  end
+
+  defp scope(id, path, key) do
+    %{id: id, path: path, key: key, name: key, state: "active", parent_id: nil}
   end
 
   defp knowledge(id, scope_id, confidence, state) do
@@ -122,6 +183,15 @@ defmodule CartularyWeb.Console.GraphTest do
       kind: "fact",
       sensitivity: "internal",
       scope_path: "/team"
+    }
+  end
+
+  defp cluster(index, knowledge_ids) do
+    %{
+      id: "cluster-#{index}",
+      index: index,
+      label: "Shared entity #{index}",
+      knowledge_ids: knowledge_ids
     }
   end
 

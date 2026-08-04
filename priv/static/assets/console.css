@@ -1501,6 +1501,93 @@ button.ghost {
 
 /* ---------------------------------------------------------------- graph -- */
 
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  margin-bottom: 0.6rem;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+}
+
+.crumb {
+  background: transparent;
+  border: 0;
+  padding: 0.1rem 0.25rem;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.crumb:hover {
+  color: var(--accent);
+}
+
+/* The separator is generated rather than authored so the trail reflows at
+   narrow widths without a stray glyph left on the wrap. */
+.crumbs .crumb:not(.current)::after {
+  content: "›";
+  margin-left: 0.35rem;
+  color: var(--border);
+}
+
+.crumb.current {
+  color: var(--text);
+  padding: 0.1rem 0.25rem;
+}
+
+.graph-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.65rem;
+}
+
+.graph-controls .filters {
+  flex: 1;
+  min-width: 16rem;
+}
+
+.filters label.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.graph-children {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.6rem;
+}
+
+.chip-button {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.1rem 0.4rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.chip-button:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.cluster-members {
+  margin: 0.5rem 0;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
 .graph-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;
@@ -1554,6 +1641,12 @@ button.ghost {
   stroke-dasharray: 2 3;
 }
 
+.edge-cluster_link {
+  stroke: var(--accent);
+  stroke-width: 0.9;
+  opacity: 0.55;
+}
+
 .node {
   cursor: pointer;
 }
@@ -1567,6 +1660,17 @@ button.ghost {
   stroke: var(--text);
 }
 
+/* Every node is a keyboard stop, so the focus ring is the only thing telling a
+   keyboard reader where they are in the picture. */
+.node:focus-visible {
+  outline: none;
+}
+
+.node:focus-visible circle {
+  stroke: var(--accent);
+  stroke-width: 3;
+}
+
 .node text {
   font-size: 11px;
   fill: var(--muted);
@@ -1577,7 +1681,18 @@ button.ghost {
   fill: var(--muted);
 }
 
-.node-scope.depth-0 circle {
+.node-scope.focus circle {
+  fill: var(--accent);
+}
+
+.node-cluster circle {
+  fill: var(--surface);
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-dasharray: 3 2;
+}
+
+.node-cluster text {
   fill: var(--accent);
 }
 
@@ -1633,6 +1748,10 @@ button.ghost {
 }
 
 .swatch.node-scope {
+  background: var(--muted);
+}
+
+.swatch.node-scope.focus {
   background: var(--accent);
 }
 
@@ -1643,10 +1762,16 @@ button.ghost {
   height: 0.6rem;
 }
 
+.swatch.node-cluster {
+  background: var(--surface);
+  border: 2px dashed var(--accent);
+}
+
 .swatch.edge-containment,
 .swatch.edge-membership,
 .swatch.edge-scope_relation,
-.swatch.edge-knowledge_relation {
+.swatch.edge-knowledge_relation,
+.swatch.edge-cluster_link {
   border-radius: 0;
   height: 0.15rem;
 }
@@ -1665,6 +1790,11 @@ button.ghost {
 
 .swatch.edge-knowledge_relation {
   background: var(--warn);
+}
+
+.swatch.edge-cluster_link {
+  background: var(--accent);
+  opacity: 0.55;
 }
 
 .graph-selection .statement {
