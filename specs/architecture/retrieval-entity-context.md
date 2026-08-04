@@ -84,7 +84,16 @@ ceilings through:
 - `CARTULARY_RETRIEVAL_THOROUGH_DEADLINE_MS`.
 - `CARTULARY_RETRIEVAL_RERANK_TIMEOUT_MS`.
 
-Raw strategy lists remain restricted to internal/system and eval callers.
+Raw strategy lists and rerank overrides remain restricted to internal/system and
+eval callers. The one browser path into that seam is
+`Memory.diagnostic_search/2`, which admits a password-authenticated account
+administrator and passes a `Retrieval.DiagnosticGrant` struct through the
+facade's filters; decoded JSON cannot produce a struct, so a request body
+reaching the same facade cannot forge one. A grant selects strategies, the
+deadline, the rerank stage, and a clamped candidate limit. It never relaxes
+Account, scope, lifecycle, or subject filtering, and it opens no MCP tool or
+HTTP field.
+
 Source filters are applied before fusion. `search` keeps the baseline-contract
 shape by returning governed knowledge and document chunks in one candidate
 collection distinguished by `candidate_type`; `ask` restricts its retrieval to

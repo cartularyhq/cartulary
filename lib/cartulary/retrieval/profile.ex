@@ -6,7 +6,8 @@ defmodule Cartulary.Retrieval.Profile do
 
   Starts with `:fast`, `:balanced`, or `:thorough` defaults, applies the nearest active scope
   override or Account fallback, then the deployment allowlist. Disabled strategies remain visible
-  in the response. Explicit strategy lists are internal-only and unknown names raise.
+  in the response. Explicit strategy lists and rerank overrides are internal-only and unknown names
+  raise.
 
   Defaults report the `f7-1` retrieval/context contract. Overrides combine authored version with a
   settings digest for reproducibility; changing the base identity is a public contract transition.
@@ -38,6 +39,9 @@ defmodule Cartulary.Retrieval.Profile do
     across Accounts.
   * `:strategies` — an explicit strategy list, permitted only together with
     `internal?: true`.
+  * `:rerank` — forces reranking on or off, permitted only together with
+    `internal?: true`. `nil` keeps whatever the resolved profile says, which is
+    what every ordinary request uses.
   * `:internal?` (default false) — asserts the caller is server-side or an
     evaluation harness.
 
@@ -45,7 +49,7 @@ defmodule Cartulary.Retrieval.Profile do
   milliseconds, and deployment-disabled strategies.
 
   Raises `ArgumentError` for an unknown profile name, an unknown strategy name,
-  or a strategy list from a non-internal caller. Raises `KeyError` if the
+  or a strategy list or rerank override from a non-internal caller. Raises `KeyError` if the
   profile configuration is missing a key. The override lookup reads through
   the resource layer as the query's actor, so it is Account-scoped and
   authorization-checked like any other read.
@@ -61,9 +65,10 @@ defmodule Cartulary.Retrieval.Profile do
 
     profile = merge_persisted(base, configured)
     enabled = enabled_strategy_names()
+    internal? = Keyword.get(opts, :internal?, false)
 
     requested =
-      case {Keyword.get(opts, :strategies), Keyword.get(opts, :internal?, false)} do
+      case {Keyword.get(opts, :strategies), internal?} do
         {nil, _internal?} ->
           profile.strategies
 
@@ -74,12 +79,25 @@ defmodule Cartulary.Retrieval.Profile do
           raise ArgumentError, "raw retrieval strategies are restricted to internal/eval callers"
       end
 
+    rerank =
+      case {Keyword.get(opts, :rerank), internal?} do
+        {nil, _internal?} ->
+          profile.rerank
+
+        {rerank, true} when is_boolean(rerank) ->
+          rerank
+
+        _forbidden ->
+          raise ArgumentError, "the rerank override is restricted to internal/eval callers"
+      end
+
     # Deployment allowlisting is final; report removals as disabled.
     selected = Enum.filter(requested, &(&1 in enabled))
     disabled = requested -- selected
 
     Map.merge(profile, %{
       name: name,
+      rerank: rerank,
       strategies: selected,
       strategy_modules: Enum.map(selected, &Map.fetch!(@strategy_modules, &1)),
       disabled_strategies: disabled

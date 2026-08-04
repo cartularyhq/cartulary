@@ -614,6 +614,80 @@ code {
   overflow: auto;
 }
 
+/* A diagnostic run is not a production result, so the panel and everything it
+   returns carry a heavier edge than an ordinary card. The badge says the same
+   thing in words, because an edge alone reads as decoration. */
+.diagnostic-panel {
+  border-left: 3px solid var(--warn);
+}
+
+.strategy-set {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.6rem 0.75rem;
+  margin: 0;
+}
+
+.strategy-set legend {
+  color: var(--muted);
+  font-size: 0.78rem;
+  padding: 0 0.3rem;
+}
+
+.strategy-choice {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  margin-top: 0.35rem;
+}
+
+.strategy-choice input {
+  width: auto;
+  flex: none;
+}
+
+.diagnostic-result {
+  border-top: 1px solid var(--border);
+  margin-top: 1rem;
+  padding-top: 0.9rem;
+}
+
+.diagnostic-candidates {
+  margin: 0 0 0.75rem;
+  padding-left: 2.2rem;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.diagnostic-candidates li {
+  background: var(--surface-2);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.65rem;
+}
+
+.candidate-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+}
+
+.candidate-statement {
+  margin: 0.3rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.candidate-statement mark {
+  background: var(--accent-soft);
+  color: inherit;
+  /* Underline as well as tint so a matched term stays visible without colour. */
+  text-decoration: underline;
+  border-radius: 3px;
+  padding: 0 0.1rem;
+}
+
 /* Placed after the workbench rules rather than in the shell's narrow block:
    these override grid templates declared above, and an earlier media query of
    equal specificity would lose to them. */

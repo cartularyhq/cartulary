@@ -134,6 +134,37 @@ string-keyed value, and belongs to no contract. A bounded run history lives in
 the LiveView only; nothing about a run is persisted, logged, or carried into
 telemetry.
 
+### Retrieval diagnostic mode
+
+The workbench carries one control that is not a tool. Diagnostic mode
+reproduces retrieval behaviour for an account administrator by calling
+`Memory.diagnostic_search/2`, which re-authorizes the caller and owns the
+options; the LiveView also refuses the event, so neither check depends on the
+other. Ordinary `search` and `ask` keep their published defaults, and the mode
+adds no route, MCP tool, or HTTP field.
+
+Naming strategies, disabling the deadline, and forcing reranking are the
+internal seam of `AD-SEAM-3`, not public contract. They are unlocked by a
+`Retrieval.DiagnosticGrant` struct travelling in the facade's filters: decoded
+JSON cannot produce a struct, so the same facade reached over HTTP cannot forge
+one, and a plain map under the same key is ignored. A grant changes which
+strategies run and how long they may take; it never changes Account, scope,
+lifecycle, or subject filtering, so it discloses nothing the caller could not
+already read. The candidate limit is clamped, because a browser form must not
+be able to ask for an unbounded pre-fusion pool.
+
+Diagnostic results are rendered apart from tool runs and labelled as not
+production-equivalent, since a run with an isolated strategy or no deadline is
+evidence about retrieval rather than a better answer. The page reports how many
+candidates rank below the ordinary window without claiming any of them is
+correct, and reports honestly when only scope-ranking strategies contributed.
+
+Query-term highlighting returns plain segments rather than markup, so the
+template escapes statement text on the ordinary path. The copyable request is
+built from an allowlist — scope, query, profile, limit, and diagnostic options —
+so a field added to the form later cannot leak a session id, credential, or
+Account identifier into an export by omission.
+
 ## Non-exposure
 
 The console renders statements, raw observations, and document titles because

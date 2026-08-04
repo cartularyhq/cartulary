@@ -239,8 +239,10 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     Projection
   }
 
+  alias Cartulary.Identity
   alias Cartulary.Memory
   alias Cartulary.Observations.Session
+  alias Cartulary.Retrieval.DiagnosticGrant
   alias Cartulary.Retrieval.{EntityResolver, Indexer, Profile, Query}
   alias Cartulary.Retrieval.Strategies
   alias Cartulary.Topology.{Scope, ScopeRelation}
@@ -1014,6 +1016,116 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     refute "lexical" in result["contributed_strategies"]
   end
 
+  test "retrieval diagnostics reach the internal seam only through an authorized grant" do
+    admin = bootstrap_diagnostic_admin!("diagnostic-admin@example.test")
+    scope_path = "/f7/diagnostic"
+
+    # Deep enough that the observed failure is reproducible: the statement this
+    # test looks for sits at rank 34, well past the ordinary top-12 window.
+    for index <- 1..40 do
+      seed_active_as!(
+        admin,
+        scope_path,
+        "Avery published release checklist number #{index}.",
+        "diagnostic-#{index}"
+      )
+    end
+
+    # Ingest created the scope; the actor's authorized-scope set is a snapshot
+    # taken before it existed.
+    admin = Identity.refresh_actor(admin)
+
+    normal =
+      Memory.search(
+        %{"scope_path" => scope_path, "query" => "release checklist"},
+        admin
+      )
+
+    # The ordinary window is what the observed failure was about: the answer can
+    # sit below it and the response looks identical either way.
+    assert length(normal["candidates"]) == 12
+
+    diagnostic =
+      Memory.diagnostic_search(
+        %{"scope_path" => scope_path, "query" => "release checklist", "limit" => "50"},
+        admin
+      )
+
+    assert length(diagnostic["candidates"]) > 12
+    assert diagnostic["diagnostic"]["default_limit"] == 12
+    assert diagnostic["diagnostic"]["beyond_default_limit"] > 0
+    assert "lexical" in diagnostic["diagnostic"]["query_dependent_strategies"]
+    refute "salience_recency" in diagnostic["diagnostic"]["query_dependent_strategies"]
+
+    # Rank 34: reachable only through the diagnostic limit, which is the whole
+    # point of the mode.
+    deep = Enum.at(diagnostic["candidates"], 33)
+    assert deep["statement"]
+    refute Enum.any?(normal["candidates"], &(&1["id"] == deep["id"]))
+
+    # Strategy isolation and a disabled deadline are the two internal controls,
+    # and they reach retrieval intact.
+    isolated =
+      Memory.diagnostic_search(
+        %{
+          "scope_path" => scope_path,
+          "query" => "release checklist",
+          "strategies" => ["lexical"],
+          "deadline" => "disabled",
+          "rerank" => "false"
+        },
+        admin
+      )
+
+    assert isolated["contributed_strategies"] == ["lexical"]
+    assert isolated["deadline"] == "disabled"
+    assert isolated["diagnostic"]["rerank"] == false
+    assert isolated["diagnostic"]["strategies"] == ["lexical"]
+
+    # The limit is clamped rather than honoured, so one browser form cannot ask
+    # the database for an unbounded pre-fusion pool.
+    clamped =
+      Memory.diagnostic_search(
+        %{"scope_path" => scope_path, "query" => "release", "limit" => "100000"},
+        admin
+      )
+
+    assert clamped["diagnostic"]["limit"] == DiagnosticGrant.max_limit()
+
+    assert_raise ArgumentError, ~r/unknown retrieval strategy/, fn ->
+      Memory.diagnostic_search(
+        %{"scope_path" => scope_path, "query" => "release", "strategies" => ["not_a_strategy"]},
+        admin
+      )
+    end
+
+    # Both halves of the gate refuse at the facade rather than merely hiding the
+    # controls in the browser: a lesser role, and a machine credential holding
+    # the administrative role anyway.
+    member = %{admin | role: :member}
+    machine_admin = %{admin | identity_kind: :api_key}
+
+    for refused <- [member, machine_admin] do
+      assert_raise Ash.Error.Forbidden, fn ->
+        Memory.diagnostic_search(%{"scope_path" => scope_path, "query" => "release"}, refused)
+      end
+    end
+
+    # The grant is a struct precisely so a request body cannot forge one:
+    # decoded JSON produces a plain map, and a plain map is not a grant.
+    assert_raise ArgumentError, ~r/raw retrieval strategies/, fn ->
+      Memory.search(
+        %{
+          "scope_path" => scope_path,
+          "query" => "release",
+          "strategies" => ["lexical"],
+          "_diagnostic" => %{"limit" => 50, "strategies" => ["lexical"]}
+        },
+        member
+      )
+    end
+  end
+
   test "reranker completion, timeout, provider failure, and malformed output are classified" do
     seeded = seed_active!("f7-rerank-outcomes", "/f7/rerank", "Avery writes release notes.")
     original_provider = Application.get_env(:cartulary, :model_provider)
@@ -1769,6 +1881,55 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
         )
 
       %{account: account, actor: actor, scope: scope, knowledge: knowledge}
+    end)
+  end
+
+  # A password-authenticated account administrator, which is the only identity
+  # the retrieval diagnostic accepts. `bootstrap_human` is the ordinary path, so
+  # the actor carries a real credential kind rather than a hand-set field.
+  defp bootstrap_diagnostic_admin!(email) do
+    %{actor: actor} =
+      Identity.bootstrap_human(%{
+        email: email,
+        name: "Diagnostic Admin",
+        password: "correct horse battery staple"
+      })
+
+    actor
+  end
+
+  # Same shape as `seed_active!`, for an Account reached through a resolved
+  # actor rather than through the internal account-key adapter.
+  defp seed_active_as!(admin, scope_path, statement, session_id) do
+    assert {:ok, message} =
+             Memory.ingest_message(
+               %{
+                 "session_id" => session_id,
+                 "scope_path" => scope_path,
+                 "content" => statement
+               },
+               admin
+             )
+
+    assert {:ok, [knowledge]} =
+             Memory.extract_message_for_account(message["id"], admin.account_id)
+
+    knowledge_id = Map.fetch!(knowledge, "id")
+
+    DataLayer.with_actor(admin, fn account, actor ->
+      item =
+        KnowledgeItem
+        |> Ash.Query.filter(id == ^knowledge_id)
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read_one!(actor: actor)
+
+      GovernanceEngine.transition!(
+        item,
+        pipeline_actor(actor),
+        %{state: "active", verification: "auto_verified"},
+        reason: "f7_diagnostic_activate",
+        channel: "pipeline"
+      )
     end)
   end
 

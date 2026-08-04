@@ -25,7 +25,7 @@ Agent API keys work on JSON and MCP, never the console.
 | `/console/graph` | The same data drawn as a graph of scopes, statements, and cross-references |
 | `/console/sources` | Documents, their versions, connectors, sessions, and raw observations |
 | `/console/skills` | Skill requirement cards, and a live readiness check for yourself |
-| `/console/tools` | A workbench for all eight MCP tools, using your signed-in identity and showing the returned payload |
+| `/console/tools` | A workbench for all eight MCP tools, using your signed-in identity and showing the returned payload; account admins also get the retrieval diagnostic |
 | `/console/me` | Everything recorded about you, and your consent and erasure controls |
 | `/console/operations` | Account admins only: readiness, usage and cost, entity-resolution quality, scope retrieval health, gate rules, retrieval tunings |
 | `/governance` | Curators and account admins only: the gate queue and skill-card authoring |
@@ -107,6 +107,52 @@ rebuild the scope's derived data.
 Up to five runs are kept under **Earlier runs** so you can compare a call with
 the one before it. They live in the page only: a reload starts empty, and a
 failed call leaves earlier results in place.
+
+A ranked run that returned as many candidates as it asked for stopped at the
+limit, not at the end of the matches, and the result says so. That note means
+deeper candidates may exist; it does not mean any of them is a better answer.
+
+## Diagnosing retrieval
+
+Account administrators get one extra control at the bottom of `/console/tools`:
+**Retrieval diagnostic**. It is closed until you open it, and opening it changes
+nothing about the ordinary cards — `search` and `ask` keep their normal
+defaults, and no other role sees the panel at all.
+
+The mode exists to reproduce retrieval behaviour, not to serve it. Its results
+are labelled **not production-equivalent** because they are: a diagnostic run
+may do things no request path may do.
+
+| Control | What it does |
+| --- | --- |
+| Limit | Returns up to 100 candidates instead of the ordinary 12 |
+| Strategies | Runs only the strategies you tick, in place of the profile's own |
+| Reranking | Forces the rerank stage on or off instead of following the profile |
+| Keep the latency deadline | Clear it to let every strategy finish |
+| Show only query-dependent candidates | Hides candidates that only scope-ranking strategies voted for |
+
+The result reports how many candidates rank below the ordinary top-12 window.
+That is the honest form of the warning: a normal run would not have shown them,
+and that alone says nothing about whether they are right.
+
+Leaving every strategy box clear runs the profile's own strategies. Ticking only
+strategies that do not read your words — `salience_recency`, `temporal`, and
+`relation_expand` — produces a ranking of the scope rather than of the question;
+combined with **Show only query-dependent candidates** the page returns nothing
+and says why, rather than relabelling the same rows.
+
+Matched query terms are highlighted in the statements shown. **Reproducible
+request** holds a copyable JSON body carrying the scope, query, profile, limit,
+and diagnostic options — and nothing else. No session id, token, cookie, or
+Account identifier is in it, so it is safe to paste into an issue.
+
+Every control is an ordinary checkbox, number, or select and is reachable by
+keyboard in page order. The mode is refused server-side for anyone who is not a
+password-authenticated account administrator, so hiding the panel is a courtesy,
+not the boundary.
+
+Diagnostic mode does not widen what you may read. Account, scope, lifecycle, and
+subject rules apply exactly as they do to an ordinary search.
 
 ## What you see, and why you might see less than a colleague
 

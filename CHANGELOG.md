@@ -21,6 +21,19 @@ changelog entry and contract-version transition.
 
 ### Added
 
+- The tool workbench at `/console/tools` now offers account administrators a
+  retrieval diagnostic mode. It can look past the ordinary twelve-result window
+  up to a clamped cap, isolate internal strategies, disable the latency
+  deadline, force reranking on or off, and show only candidates a
+  query-dependent strategy voted for. Runs are labelled as not
+  production-equivalent, highlight matched query terms through escaped
+  server-rendered markup, and export a copyable request carrying scope, query,
+  profile, limit, and diagnostic options and no credential, session id, or
+  Account identifier. Ordinary `search` and `ask` keep their defaults, and a
+  ranked run that filled its window now says deeper candidates may exist. The
+  internal seam is reached through a `Retrieval.DiagnosticGrant` struct that
+  decoded JSON cannot forge, so no MCP tool or HTTP field is added and the
+  `f7-1` contract identity is unchanged.
 - GitHub Release publication now builds native Linux x86_64, macOS Apple
   Silicon, macOS Intel, and Windows x86_64 packages and their SHA-256 files are attached to a
   GitHub Release with the evaluation report, while the production container is

@@ -36,8 +36,9 @@ defmodule Cartulary.Retrieval.Engine do
     evaluation runs and dream-time rebuilds, never a live request.
   * `:concurrent?` — overrides the application-level concurrency setting; the
     test sandbox turns it off because it owns a single database connection.
-  * `:internal?` and `:strategies` — naming strategies explicitly is restricted
-    to server-side and evaluation callers; profile resolution raises otherwise.
+  * `:internal?`, `:strategies`, and `:rerank` — naming strategies explicitly or
+    forcing the rerank stage on or off is restricted to server-side and
+    evaluation callers; profile resolution raises otherwise.
   * `:inherit?` — set false to ignore any stored per-scope profile override.
 
   Returns profile metadata, latency in milliseconds, contributed, empty, and dropped
