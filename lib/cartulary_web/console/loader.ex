@@ -28,8 +28,8 @@ defmodule CartularyWeb.Console.Loader do
   alias Cartulary.Observations.DocumentVersion
   alias Cartulary.Observations.Message
   alias Cartulary.Observations.Session
-  alias Cartulary.Retrieval.RetrievalProfile
   alias Cartulary.Retrieval.Profile
+  alias Cartulary.Retrieval.RetrievalProfile
   alias Cartulary.Retrieval.Store
   alias Cartulary.Skills.SkillRequirementCard
   alias Cartulary.Topology.RoleGrant

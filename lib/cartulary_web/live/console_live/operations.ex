@@ -143,8 +143,8 @@ defmodule CartularyWeb.ConsoleLive.Operations do
             Next action: {@retrieval_health.next_action}
           </p>
           <p class="hint">
-            Enabled strategies: {Enum.join(Enum.map(@retrieval_health.effective_profile.strategies, &to_string/1), ", ") || "none"}.
-            Disabled: {Enum.join(Enum.map(@retrieval_health.effective_profile.disabled_strategies, &to_string/1), ", ") || "none"}.
+            Enabled strategies: {strategy_names(@retrieval_health.effective_profile.strategies)}.
+            Disabled: {strategy_names(@retrieval_health.effective_profile.disabled_strategies)}.
           </p>
           <p class="hint">
             Probe calls: {@retrieval_health.probe.model_calls}; stored content read: {if @retrieval_health.probe.content_read, do: "yes", else: "no"}.
@@ -395,6 +395,9 @@ defmodule CartularyWeb.ConsoleLive.Operations do
 
   defp percent(rate), do: "#{Float.round(rate * 100.0, 1)}%"
   defp readable_scope_paths(scope_paths), do: scope_paths |> Map.values() |> Enum.sort()
+
+  defp strategy_names([]), do: "none"
+  defp strategy_names(strategies), do: Enum.map_join(strategies, ", ", &to_string/1)
 
   defp remaining(nil), do: "unbounded"
   defp remaining(value), do: "#{value} ms"
