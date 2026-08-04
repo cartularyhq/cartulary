@@ -244,21 +244,6 @@ defmodule CartularyWeb.ConsoleLiveTest do
       assert html =~ "Index health"
       assert html =~ "missing_embeddings — rebuild scope derived data"
 
-      html =
-        render_submit(view, "run", %{
-          "tool" => "search",
-          "session_id" => "console-tools-diagnostics",
-          "scope_path" => "/console-test",
-          "query" => "asynchronous standups",
-          "profile" => "balanced",
-          "limit" => "5",
-          "diagnostic_trace" => "true"
-        })
-
-      assert html =~ "Retrieval diagnostics"
-      assert html =~ "Fusion contribution"
-      assert html =~ "Local rank"
-
       # The previous run is kept so two calls can be compared without rerunning
       # the first one.
       assert html =~ "Earlier runs"
@@ -301,6 +286,134 @@ defmodule CartularyWeb.ConsoleLiveTest do
       html = render_click(view, "clear-runs")
 
       refute html =~ "Result · set_ask_preference"
+    end
+
+    test "the workbench diagnoses retrieval past the ordinary result window", %{
+      conn: conn,
+      admin: admin,
+      admin_token: token
+    } do
+      seeded =
+        for index <- 1..20 do
+          ingest_statement!(
+            admin,
+            "diagnostic-#{index}",
+            "/console-test",
+            "Avery published release checklist number #{index}."
+          )
+        end
+
+      activate_knowledge!(admin, Enum.map(seeded, & &1.id))
+
+      {:ok, view, html} = live(sign_in(conn, token), "/console/tools")
+
+      assert html =~ "Retrieval diagnostic"
+      assert html =~ "Not production-equivalent"
+      # Closed until asked for: the ordinary forms must not change shape because
+      # an administrator happens to be signed in.
+      refute html =~ "Run diagnostic"
+
+      # An ordinary search still runs on the ordinary defaults, and says so when
+      # it stopped at the limit rather than at the end of the matches.
+      normal =
+        render_submit(view, "run", %{
+          "tool" => "search",
+          "session_id" => "console-tools-window",
+          "scope_path" => "/console-test",
+          "query" => "release checklist",
+          "profile" => "balanced"
+        })
+
+      assert normal =~ "deeper candidates may exist"
+
+      html = render_click(view, "toggle-diagnostic")
+
+      assert html =~ "Run diagnostic"
+      assert html =~ ~s|name="strategies[]"|
+      assert html =~ "query-independent"
+      assert html =~ ~s|max="#{CartularyWeb.Console.Diagnostic.limit_cap()}"|
+
+      html =
+        render_submit(view, "run-diagnostic", %{
+          "query" => "release checklist",
+          "scope_path" => "/console-test",
+          "profile" => "balanced",
+          "limit" => "50",
+          "strategies" => ["lexical"],
+          "deadline" => "on"
+        })
+
+      assert html =~ "Diagnostic result · not production-equivalent"
+      assert html =~ "Beyond the ordinary window"
+      assert html =~ "rank below the ordinary"
+      assert html =~ "Reproducible request"
+
+      # The exported request reproduces the run and identifies nobody. It is read
+      # out of its own block: the page also carries the earlier run's context,
+      # and asserting over the whole document would not test the export.
+      request = diagnostic_request(html)
+
+      assert request =~ ~s|&quot;mode&quot;: &quot;diagnostic&quot;|
+      assert request =~ ~s|&quot;limit&quot;: 50|
+      assert request =~ ~s|&quot;strategies&quot;: [\n    &quot;lexical&quot;\n  ]|
+      assert request =~ ~s|&quot;scope_path&quot;: &quot;/console-test&quot;|
+      refute request =~ "console-tools-window"
+      refute request =~ admin.account_id
+      refute request =~ "csrf"
+
+      # Matched query terms are marked, and the marking is server-rendered
+      # escaped markup rather than statement text reaching the page raw.
+      assert html =~ "<mark>release</mark>"
+      assert html =~ "<mark>checklist</mark>"
+
+      # Ranks are the fused positions, so a candidate keeps the place it earned
+      # even once the list below is narrowed.
+      assert html =~ ~s|value="13"|
+
+      # The rank explanation is opt-in, so the run above carries none.
+      refute html =~ "Rank explanation"
+
+      html =
+        render_submit(view, "run-diagnostic", %{
+          "query" => "release checklist",
+          "scope_path" => "/console-test",
+          "profile" => "balanced",
+          "limit" => "50",
+          "strategies" => ["lexical"],
+          "deadline" => "on",
+          "trace" => "on"
+        })
+
+      assert html =~ "Rank explanation"
+      assert html =~ "Fusion contribution"
+      assert html =~ "Local rank"
+      assert html =~ "Local score"
+
+      # Query-dependent-only display is honest about an isolated strategy that
+      # never reads the query: it shows nothing rather than the same rows.
+      html =
+        render_submit(view, "run-diagnostic", %{
+          "query" => "release checklist",
+          "scope_path" => "/console-test",
+          "profile" => "balanced",
+          "limit" => "50",
+          "strategies" => ["salience_recency"],
+          "deadline" => "on",
+          "query_dependent_only" => "on"
+        })
+
+      assert html =~ "No query-dependent strategy voted for any candidate"
+
+      # An unregistered strategy name is refused without naming internals.
+      html =
+        render_submit(view, "run-diagnostic", %{
+          "query" => "release",
+          "scope_path" => "/console-test",
+          "profile" => "balanced",
+          "strategies" => ["not_a_strategy"]
+        })
+
+      assert html =~ "Diagnostic run failed"
     end
 
     test "the workbench carries one run context that every card starts from", %{
@@ -462,6 +575,37 @@ defmodule CartularyWeb.ConsoleLiveTest do
       assert_raise Ash.Error.Forbidden, fn -> Loader.operations(member) end
     end
 
+    test "no retrieval diagnostic controls, and a hand-sent event is refused", %{
+      conn: conn,
+      member_token: token
+    } do
+      {:ok, view, html} = live(sign_in(conn, token), "/console/tools")
+
+      assert html =~ "Tool workbench"
+      refute html =~ "Retrieval diagnostic"
+      refute html =~ ~s|name="strategies[]"|
+
+      # The page not rendering a control is not the gate. An event sent by hand
+      # has to be refused too, and the operation layer refuses it again.
+      assert render_click(view, "toggle-diagnostic") =~ "for account administrators"
+
+      html =
+        render_submit(view, "run-diagnostic", %{
+          "query" => "release",
+          "scope_path" => "/console-test",
+          "strategies" => ["lexical"]
+        })
+
+      assert html =~ "for account administrators"
+      refute html =~ "Diagnostic result"
+
+      assert {:ok, member} = Identity.authenticate_bearer(token)
+
+      assert_raise Ash.Error.Forbidden, fn ->
+        Memory.diagnostic_search(%{"scope_path" => "/", "query" => "release"}, member)
+      end
+    end
+
     test "the explorer offers no undecided lifecycle state as a filter", %{
       conn: conn,
       member_token: token
@@ -550,6 +694,218 @@ defmodule CartularyWeb.ConsoleLiveTest do
       assert html =~ readable.statement
       refute html =~ hidden.statement
       refute html =~ "NeverRenderSharedEntity71"
+    end
+  end
+
+  describe "the scoped graph" do
+    setup [:seed_world]
+
+    test "opens on the shallowest readable scope rather than the whole tree", %{
+      conn: conn,
+      admin: admin,
+      admin_token: token,
+      statement: statement
+    } do
+      admin = Identity.refresh_actor(admin)
+      data = Loader.graph(admin)
+
+      assert data.focus.path == "/"
+      assert data.parent == nil
+      assert Enum.map(data.children, & &1.path) == ["/console-test"]
+      # The child is a drill-down target, not a container: its statements belong
+      # to the view you reach by entering it.
+      assert data.knowledge == []
+
+      html = conn |> sign_in(token) |> get("/console/graph") |> html_response(200)
+
+      assert html =~ "This is the highest scope you can read."
+      assert html =~ "Inside this scope:"
+      refute html =~ statement
+    end
+
+    test "the focus travels in the URL and survives a reload", %{
+      conn: conn,
+      admin_token: token,
+      statement: statement
+    } do
+      html =
+        conn
+        |> sign_in(token)
+        |> get("/console/graph?scope=%2Fconsole-test")
+        |> html_response(200)
+
+      assert html =~ "Up to /"
+      assert html =~ statement
+    end
+
+    test "drilling into a child and back up rewrites the URL", %{conn: conn, admin_token: token} do
+      {:ok, view, _html} = live(sign_in(conn, token), "/console/graph")
+
+      view
+      |> element(".graph-children button[phx-value-scope='/console-test']")
+      |> render_click()
+
+      assert_patched(view, "/console/graph?scope=%2Fconsole-test")
+      assert render(view) =~ "Up to /"
+
+      view |> element("button", "Up to /") |> render_click()
+
+      assert_patched(view, "/console/graph?scope=%2F")
+      assert render(view) =~ "This is the highest scope you can read."
+    end
+
+    test "descendants are an explicit option, not the default", %{
+      conn: conn,
+      admin: admin,
+      admin_token: token,
+      statement: statement
+    } do
+      admin = Identity.refresh_actor(admin)
+
+      refute Loader.graph(admin).descendants?
+      assert Loader.graph(admin, descendants?: true).descendants?
+
+      html =
+        conn
+        |> sign_in(token)
+        |> get("/console/graph?descendants=1")
+        |> html_response(200)
+
+      # The root holds no statement of its own; the subtree's statement appears
+      # only because descendants were asked for.
+      assert html =~ statement
+    end
+
+    test "a shared entity becomes an anonymous hub linking readable statements", %{
+      conn: conn,
+      admin: admin,
+      admin_token: token,
+      knowledge_id: knowledge_id
+    } do
+      neighbor =
+        ingest_statement!(
+          admin,
+          "console-graph-shared",
+          "/console-test",
+          "The release owner publishes the weekly checklist."
+        )
+
+      activate_knowledge!(admin, [knowledge_id, neighbor.id])
+      link_shared_entity!(admin, [knowledge_id, neighbor.id])
+      admin = Identity.refresh_actor(admin)
+
+      data = Loader.graph(admin, scope: "/console-test")
+
+      assert [cluster] = data.clusters
+      assert cluster.label == "Shared entity 1"
+      assert Enum.sort(cluster.knowledge_ids) == Enum.sort([knowledge_id, neighbor.id])
+      refute data.clusters_truncated?
+      # The ordinal is the whole identity a cluster has; nothing carries the
+      # entity row it was grouped by.
+      refute Map.has_key?(cluster, :entity_id)
+
+      html =
+        conn
+        |> sign_in(token)
+        |> get("/console/graph?scope=%2Fconsole-test")
+        |> html_response(200)
+
+      assert html =~ "node-cluster"
+      assert html =~ "Shared entity 1"
+      refute html =~ "NeverRenderSharedEntity71"
+      refute html =~ "NeverRenderSharedSurface71"
+    end
+
+    test "a hub never reaches a statement outside the drawn scope", %{
+      conn: conn,
+      admin: admin,
+      admin_token: token,
+      knowledge_id: knowledge_id
+    } do
+      hidden =
+        ingest_statement!(
+          admin,
+          "console-graph-hidden",
+          "/console-hidden",
+          "The private review also names the release owner."
+        )
+
+      activate_knowledge!(admin, [knowledge_id, hidden.id])
+      link_shared_entity!(admin, [knowledge_id, hidden.id])
+      admin = Identity.refresh_actor(admin)
+
+      # Both statements share an entity and the admin may read both, but only
+      # one is in the drawn scope. A cluster of one member is not a
+      # relationship, so nothing is drawn rather than a hub with a stub line.
+      assert Loader.graph(admin, scope: "/console-test").clusters == []
+
+      html =
+        conn
+        |> sign_in(token)
+        |> get("/console/graph?scope=%2Fconsole-test")
+        |> html_response(200)
+
+      refute html =~ hidden.statement
+    end
+
+    test "a member sees only the scope they hold and no path they do not", %{
+      conn: conn,
+      member_token: member_token
+    } do
+      assert {:ok, member} = Identity.authenticate_bearer(member_token)
+      data = Loader.graph(member)
+
+      assert data.focus.path == "/"
+      assert data.children == []
+      assert data.knowledge == []
+
+      # An unauthorized path in the URL narrows to a readable scope rather than
+      # widening, and never reports whether the requested path exists.
+      assert Loader.graph(member, scope: "/console-test").focus.path == "/"
+
+      html =
+        conn
+        |> sign_in(member_token)
+        |> get("/console/graph?scope=%2Fconsole-test")
+        |> html_response(200)
+
+      refute html =~ "/console-test"
+      assert html =~ "No scope below this one is readable"
+    end
+
+    test "a truncated scope says so and points at the explorer", %{
+      conn: conn,
+      admin: admin,
+      admin_token: token
+    } do
+      admin = Identity.refresh_actor(admin)
+
+      ingest_statement!(
+        admin,
+        "console-graph-second",
+        "/console-test",
+        "The release owner publishes the weekly checklist."
+      )
+
+      data = Loader.graph(admin, scope: "/console-test", limit: 1)
+
+      assert data.shown == 1
+      assert data.total == 2
+      assert data.truncated?
+
+      html =
+        conn
+        |> sign_in(token)
+        |> get("/console/graph?scope=%2Fconsole-test")
+        |> html_response(200)
+
+      # The page's own cap is far above two statements, so this render is the
+      # honest untruncated case and must not claim otherwise. The route out to
+      # the explorer is offered either way, because a graph is never the
+      # complete list.
+      refute html =~ "most confident first"
+      assert html =~ "Open this scope in the explorer"
+      assert html =~ "/console/knowledge?scope=%2Fconsole-test"
     end
   end
 
@@ -1080,6 +1436,13 @@ defmodule CartularyWeb.ConsoleLiveTest do
     |> Ash.Changeset.set_tenant(account_id)
     |> Ash.Changeset.for_create(action, attrs)
     |> Ash.create!(actor: actor)
+  end
+
+  # The copyable request block alone, so an export assertion cannot be satisfied
+  # by something else the page happens to render.
+  defp diagnostic_request(html) do
+    [_match, json] = Regex.run(~r|<pre id="diagnostic-request"[^>]*>(.*?)</pre>|s, html)
+    json
   end
 
   defp sign_in(conn, token), do: init_test_session(conn, governance_token: token)

@@ -39,14 +39,15 @@ reason classes plus pre-fusion cross-strategy disagreement.
 Fusion destroys the evidence of how a candidate arrived, which leaves an
 operator unable to tell a candidate that no strategy generated from one that
 fusion or reranking demoted. `Cartulary.Retrieval.Trace` reconstructs that for a
-single run when the engine is asked for it: per-strategy local rank and score,
-each list's `weight / (k + rank)` contribution, the pre-rerank fused rank, the
-final rank, and why a candidate was or was not reranked. It reports only
-candidates the same response already returned, and the engine builds it after
-ranking, so it changes no ordering. It is returned in the result and nowhere
-else — the diagnostics ETS summary, telemetry metadata, audit rows, and job
-arguments keep their existing allowlisted fields. Local scores stay beside the
-strategy that produced them because they remain incomparable across strategies.
+single run when a `DiagnosticGrant` asks for it: per-strategy local rank and
+score, each list's `weight / (k + rank)` contribution, the pre-rerank fused
+rank, the final rank, and why a candidate was or was not reranked. It reports
+only candidates the same response already returned, and the engine builds it
+after ranking, so it changes no ordering. It is returned in the result and
+nowhere else — the diagnostics ETS summary, telemetry metadata, audit rows, and
+job arguments keep their existing allowlisted fields. Local scores stay beside
+the strategy that produced them because they remain incomparable across
+strategies.
 
 The three strategy sets are disjoint and carry distinct facts: contributed
 returned candidates, empty ran and matched nothing, dropped never produced a
@@ -96,7 +97,16 @@ ceilings through:
 - `CARTULARY_RETRIEVAL_THOROUGH_DEADLINE_MS`.
 - `CARTULARY_RETRIEVAL_RERANK_TIMEOUT_MS`.
 
-Raw strategy lists remain restricted to internal/system and eval callers.
+Raw strategy lists and rerank overrides remain restricted to internal/system and
+eval callers. The one browser path into that seam is
+`Memory.diagnostic_search/2`, which admits a password-authenticated account
+administrator and passes a `Retrieval.DiagnosticGrant` struct through the
+facade's filters; decoded JSON cannot produce a struct, so a request body
+reaching the same facade cannot forge one. A grant selects strategies, the
+deadline, the rerank stage, and a clamped candidate limit. It never relaxes
+Account, scope, lifecycle, or subject filtering, and it opens no MCP tool or
+HTTP field.
+
 Source filters are applied before fusion. `search` keeps the baseline-contract
 shape by returning governed knowledge and document chunks in one candidate
 collection distinguished by `candidate_type`; `ask` restricts its retrieval to
@@ -167,14 +177,17 @@ resource action exposes the caches. Erasure removes affected mentions,
 recomputes/prunes entities, and rebuilds affected projections. Logical import
 excludes the cache and recreates it from governed statements.
 
-Two diagnostic projections preserve that rule. `/console/operations` reports
+Three diagnostic projections preserve that rule. `/console/operations` reports
 Account-wide counts, an observed-alias histogram, singleton-entity rate, and
 mentions-per-entity p50/p95 to a password-authenticated account administrator.
 `/console/knowledge/:id` asks the store only for the count and capped ids of
 co-mentioned statements after applying the reader's authorized scope and
 console lifecycle filters, then loads those statements through the ordinary
-Ash read policy. Neither path returns an entity or mention row to the web
-layer.
+Ash read policy. `/console/graph` asks the store to group the statements it has
+already authorized into shared-entity clusters, which returns member-id arrays
+only: the entity id is a grouping key, singleton groups are dropped, and
+identically-membered groups collapse so the number of resolved entities stays
+private. No path returns an entity or mention row to the web layer.
 
 ## Context projections
 

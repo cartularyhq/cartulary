@@ -9,6 +9,10 @@ defmodule CartularyWeb.Console.Graph do
     the whole client build is one small ES module that starts the LiveView socket.
     Pulling in a graph-drawing library would mean adding both a build step and a script
     exception.
+
+    The picture is centred on one focus scope. Positions are relative to that focus,
+    so the same scope draws the same way whether it is reached from its parent or
+    from a link.
   """
 
   # The SVG coordinate space. Nothing renders outside it, so every computed
@@ -18,48 +22,64 @@ defmodule CartularyWeb.Console.Graph do
   @height 720
 
   # Radius of the innermost ring, and the gap between successive depth rings,
-  # both in SVG units. Together they decide how many depth levels fit before
-  # the outer ring reaches the frame edge: (min(width, height) / 2 - margin -
-  # base) / step, which is five levels below the root at these values.
-  @ring_base 96
-  @ring_step 104
+  # both in SVG units. Together they decide how many depth levels fit below the
+  # focus before the outer ring reaches the frame edge: (min(width, height) / 2
+  # - margin - base) / step, which is two levels at these values. Deeper levels
+  # are clamped onto the frame rather than lost.
+  @ring_base 270
+  @ring_step 55
 
   # Orbit geometry for the statements around a scope. Up to @orbit_capacity
   # statements share one orbit; beyond that a further orbit is added
   # @orbit_step further out, so a scope with many statements grows outward
   # instead of overlapping itself.
-  @orbit_base 44
-  @orbit_step 20
-  @orbit_capacity 10
+  @orbit_base 60
+  @orbit_step 24
+  @orbit_capacity 12
+
+  # Nearest a cluster hub may sit to a scope centre. Hubs are placed at the
+  # centroid of their members, which for a scope whose statements ring it evenly
+  # is the scope itself; without this the hub would be buried under the node it
+  # is meant to sit beside.
+  @cluster_clearance 46
 
   @doc """
-  Positions every scope and statement and returns the drawable model.
+  Positions the focus scope, its drill-down targets, its statements, and the
+  anonymous entity clusters, and returns the drawable model.
 
     Returns `%{width:, height:, nodes:, edges:}`. Each node is `%{id:, kind:, x:, y:,
-    r:, label:, title:, class:, scope_id:}` where `kind` is `:scope` or `:knowledge` and
-    `class` is the CSS class naming its lifecycle state or scope depth.
+    r:, label:, title:, class:, scope_id:}` where `kind` is `:scope`, `:knowledge`, or
+    `:cluster`, and `class` is the CSS class naming its lifecycle state, its depth
+    below the focus, or its role as the focus.
+
+    A cluster node carries no entity identity: its label is an ordinal assigned by
+    the loader and its title counts members.
   """
   def build(data) do
-    scope_positions = place_scopes(data.scopes)
+    focus_path = focus_path(data)
+    scope_positions = place_scopes(data.scopes, focus_path)
     knowledge_positions = place_knowledge(data.knowledge, scope_positions)
-    positions = Map.merge(scope_positions, knowledge_positions)
+    cluster_positions = place_clusters(data.clusters, knowledge_positions, scope_positions)
+    positions = scope_positions |> Map.merge(knowledge_positions) |> Map.merge(cluster_positions)
 
-    %{
-      width: @width,
-      height: @height,
-      nodes: scope_nodes(data, scope_positions) ++ knowledge_nodes(data, knowledge_positions),
-      edges: edges(data, positions)
-    }
+    nodes =
+      scope_nodes(data, scope_positions, focus_path) ++
+        knowledge_nodes(data, knowledge_positions) ++
+        cluster_nodes(data, cluster_positions, knowledge_positions)
+
+    %{width: @width, height: @height, nodes: nodes, edges: edges(data, positions)}
   end
 
-  # Scopes are grouped by depth and spread evenly around their ring. A single
-  # scope at a depth is placed on the vertical axis rather than at an arbitrary
-  # angle, which keeps a shallow tree looking deliberate instead of lopsided.
-  # Within a ring the order is by path, so a scope does not move when a sibling
-  # is added elsewhere in the tree.
-  defp place_scopes(scopes) do
+  defp focus_path(%{focus: nil}), do: nil
+  defp focus_path(%{focus: focus}), do: focus.path
+
+  # Scopes are grouped by how far below the focus they sit and spread evenly
+  # around their ring. The focus itself is the only scope at relative depth 0
+  # and takes the centre. Within a ring the order is by path, so a scope does
+  # not move when a sibling is added elsewhere in the tree.
+  defp place_scopes(scopes, focus_path) do
     scopes
-    |> Enum.group_by(&depth(&1.path))
+    |> Enum.group_by(&relative_depth(&1.path, focus_path))
     |> Enum.flat_map(fn {depth, ring} ->
       ring = Enum.sort_by(ring, & &1.path)
       count = length(ring)
@@ -73,7 +93,7 @@ defmodule CartularyWeb.Console.Graph do
     |> Map.new()
   end
 
-  # The root sits dead centre; everything else is placed on its depth ring.
+  # The focus sits dead centre; everything else is placed on its depth ring.
   # Angles start at the top of the circle and run clockwise, which is the
   # reading order people expect from a radial diagram.
   defp ring_position(0, 0, 1), do: {@width / 2, @height / 2}
@@ -92,7 +112,7 @@ defmodule CartularyWeb.Console.Graph do
   #
   # A statement whose scope is not drawn — possible only if a caller hands in
   # inconsistent data — is dropped rather than placed at the origin, where it
-  # would look like it belonged to the root.
+  # would look like it belonged to the focus.
   defp place_knowledge(knowledge, scope_positions) do
     knowledge
     |> Enum.group_by(& &1.scope_id)
@@ -125,22 +145,77 @@ defmodule CartularyWeb.Console.Graph do
     |> Map.new()
   end
 
-  defp scope_nodes(data, positions) do
+  # A cluster hub is drawn where its members already are — the centroid of their
+  # positions — so its lines stay short and the group reads as a group. A
+  # cluster whose members are all undrawn has nowhere to sit and is dropped.
+  defp place_clusters(clusters, knowledge_positions, scope_positions) do
+    clusters
+    |> Enum.flat_map(fn cluster ->
+      points =
+        Enum.flat_map(cluster.knowledge_ids, fn id ->
+          case Map.fetch(knowledge_positions, id) do
+            {:ok, point} -> [point]
+            :error -> []
+          end
+        end)
+
+      case points do
+        [] -> []
+        _points -> [{cluster.id, points |> centroid() |> clear_of_scopes(scope_positions)}]
+      end
+    end)
+    |> Map.new()
+  end
+
+  defp centroid(points) do
+    count = length(points)
+    {sum_x, sum_y} = Enum.reduce(points, {0.0, 0.0}, fn {x, y}, {ax, ay} -> {ax + x, ay + y} end)
+
+    {sum_x / count, sum_y / count}
+  end
+
+  # Pushes a point radially out of any scope node it landed on. Scopes are
+  # visited in id order and each push is a single step, which keeps the result a
+  # pure function of the input rather than an iterated relaxation.
+  defp clear_of_scopes(point, scope_positions) do
+    scope_positions
+    |> Enum.sort_by(&elem(&1, 0))
+    |> Enum.reduce(point, fn {_id, {sx, sy}}, {x, y} ->
+      dx = x - sx
+      dy = y - sy
+      distance = :math.sqrt(dx * dx + dy * dy)
+
+      if distance < @cluster_clearance do
+        # A hub exactly on a scope centre has no direction to be pushed in;
+        # straight up is chosen so the layout stays deterministic.
+        {ux, uy} = if distance == 0.0, do: {0.0, -1.0}, else: {dx / distance, dy / distance}
+
+        {clamp(sx + ux * @cluster_clearance, @width),
+         clamp(sy + uy * @cluster_clearance, @height)}
+      else
+        {x, y}
+      end
+    end)
+  end
+
+  defp scope_nodes(data, positions, focus_path) do
     Enum.flat_map(data.scopes, fn scope ->
       case Map.fetch(positions, scope.id) do
         {:ok, {x, y}} ->
+          depth = relative_depth(scope.path, focus_path)
+
           [
             %{
               id: scope.id,
               kind: :scope,
               x: x,
               y: y,
-              # The root is drawn larger than its descendants so the centre of
-              # the picture reads as the top of the tree.
-              r: if(depth(scope.path) == 0, do: 22, else: 16),
+              # The focus is drawn larger than the scopes around it so the
+              # centre of the picture reads as where the reader is standing.
+              r: if(depth == 0, do: 24, else: 15),
               label: scope_label(scope),
               title: scope.path,
-              class: "scope depth-#{min(depth(scope.path), 4)}",
+              class: "scope depth-#{min(depth, 4)}#{if depth == 0, do: " focus", else: ""}",
               scope_id: scope.id
             }
           ]
@@ -178,6 +253,35 @@ defmodule CartularyWeb.Console.Graph do
     end)
   end
 
+  # Titles and labels come from the loader's ordinal, never from the entity
+  # cache. Nothing here reads a canonical name, an alias, or a surface form,
+  # because nothing here is given one.
+  defp cluster_nodes(data, positions, knowledge_positions) do
+    Enum.flat_map(data.clusters, fn cluster ->
+      case Map.fetch(positions, cluster.id) do
+        {:ok, {x, y}} ->
+          drawn = Enum.count(cluster.knowledge_ids, &Map.has_key?(knowledge_positions, &1))
+
+          [
+            %{
+              id: cluster.id,
+              kind: :cluster,
+              x: x,
+              y: y,
+              r: 11,
+              label: "E#{cluster.index}",
+              title: "#{cluster.label} — #{drawn} statements",
+              class: "cluster",
+              scope_id: nil
+            }
+          ]
+
+        :error ->
+          []
+      end
+    end)
+  end
+
   defp edges(data, positions) do
     containment =
       Enum.map(data.containment, fn {parent_id, child_id} ->
@@ -195,7 +299,12 @@ defmodule CartularyWeb.Console.Graph do
         &{:knowledge_relation, &1.source_knowledge_id, &1.target_knowledge_id}
       )
 
-    (containment ++ membership ++ scope_relations ++ knowledge_relations)
+    cluster_links =
+      Enum.flat_map(data.clusters, fn cluster ->
+        Enum.map(cluster.knowledge_ids, &{:cluster_link, cluster.id, &1})
+      end)
+
+    (containment ++ membership ++ scope_relations ++ knowledge_relations ++ cluster_links)
     |> Enum.flat_map(fn {kind, from_id, to_id} ->
       with {:ok, {x1, y1}} <- Map.fetch(positions, from_id),
            {:ok, {x2, y2}} <- Map.fetch(positions, to_id) do
@@ -210,6 +319,11 @@ defmodule CartularyWeb.Console.Graph do
   # full path is in the tooltip. The root has no last segment, so it is named.
   defp scope_label(%{path: "/"}), do: "root"
   defp scope_label(scope), do: scope.key
+
+  # How far below the focus a path sits. Without a focus — an actor who can read
+  # no scope, so nothing is drawn — absolute depth is the honest answer.
+  defp relative_depth(path, nil), do: depth(path)
+  defp relative_depth(path, focus_path), do: max(depth(path) - depth(focus_path), 0)
 
   defp depth("/"), do: 0
   defp depth(path), do: path |> String.split("/", trim: true) |> length()

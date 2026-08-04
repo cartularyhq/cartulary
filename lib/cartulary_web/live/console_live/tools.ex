@@ -18,6 +18,13 @@ defmodule CartularyWeb.ConsoleLive.Tools do
 
   Results are rendered only into the signed-in LiveView. They must never be
   copied into logs, telemetry, audit metadata, or job arguments.
+
+  One control on this page is not a tool: diagnostic mode reproduces retrieval
+  behavior for an account administrator through
+  `Cartulary.Memory.diagnostic_search/2`, which re-authorizes the caller and
+  owns the internal options. Its results are deliberately not
+  production-equivalent and are rendered apart from the tool runs so the two
+  cannot be mistaken for each other.
   """
 
   use CartularyWeb, :live_view
@@ -25,7 +32,9 @@ defmodule CartularyWeb.ConsoleLive.Tools do
   import CartularyWeb.ConsoleComponents
 
   alias Cartulary.Governance.McpTools
+  alias Cartulary.Memory
   alias CartularyWeb.Console.Access
+  alias CartularyWeb.Console.Diagnostic
   alias CartularyWeb.Console.Loader
 
   # Kept as a list rather than a map so declaration order is the render order
@@ -178,12 +187,18 @@ defmodule CartularyWeb.ConsoleLive.Tools do
   # into a transcript. Older runs are dropped, never persisted.
   @history_limit 5
 
+  # The candidate limit the memory facade applies when a form names none. Kept
+  # here only to describe a run the page did not set a limit on; the facade
+  # remains the authority.
+  @default_limit 12
+
   @doc """
   Loads authorized scope choices and seeds the shared run context.
   """
   @impl true
   def mount(_params, _session, socket) do
-    scopes = Loader.skills(socket.assigns.current_actor).scopes
+    actor = socket.assigns.current_actor
+    scopes = Loader.skills(actor).scopes
 
     {:ok,
      socket
@@ -191,11 +206,14 @@ defmodule CartularyWeb.ConsoleLive.Tools do
      |> assign(:session_id, "console-#{Ecto.UUID.generate()}")
      |> assign(:scope_path, default_scope_path(scopes))
      |> assign(:runs, [])
-     |> assign(:run_count, 0)}
+     |> assign(:run_count, 0)
+     |> assign(:can_diagnose?, Access.can?(actor, :administer))
+     |> assign(:diagnostic_open?, false)
+     |> assign(:diagnostic, nil)}
   end
 
   @doc """
-  Handles the page's four events.
+  Handles the page's six events.
 
   `"context"` stores the shared session and scope so every card starts from one
   context, and `"new-session"` replaces the session id. `"run"` invokes one
@@ -204,6 +222,11 @@ defmodule CartularyWeb.ConsoleLive.Tools do
   returns one opaque browser message without logging or reflecting action
   internals into the page. Earlier runs survive a failure so the context that
   produced them is not lost, until `"clear-runs"` discards them.
+
+  `"toggle-diagnostic"` opens or closes retrieval diagnostic mode and
+  `"run-diagnostic"` performs one diagnostic run. Both refuse a non-administrator
+  rather than trusting the rendered page, because an event can be sent by hand;
+  the operation layer refuses the run again regardless.
   """
   @impl true
   def handle_event("context", params, socket) do
@@ -219,7 +242,12 @@ defmodule CartularyWeb.ConsoleLive.Tools do
 
   def handle_event("run", %{"tool" => key} = params, socket) do
     with {:ok, tool} <- fetch_tool(key),
-         input <- action_input(tool.action, params),
+         input <-
+           Ash.ActionInput.for_action(
+             McpTools,
+             tool.action,
+             action_arguments(tool.action, params)
+           ),
          {:ok, result} <- run_action(input, socket.assigns.current_actor) do
       count = socket.assigns.run_count + 1
       result = browser_result(tool, params, result, socket.assigns.current_actor)
@@ -229,8 +257,8 @@ defmodule CartularyWeb.ConsoleLive.Tools do
         tool: tool,
         context: context_rows(params),
         summary: summary_rows(tool, result),
-        json: Jason.encode!(result, pretty: true),
-        diagnostic_trace: value(result, "diagnostic_trace")
+        window_note: window_note(tool, params, result),
+        json: Jason.encode!(result, pretty: true)
       }
 
       {:noreply,
@@ -251,6 +279,74 @@ defmodule CartularyWeb.ConsoleLive.Tools do
 
   def handle_event("clear-runs", _params, socket) do
     {:noreply, assign(socket, :runs, [])}
+  end
+
+  def handle_event("toggle-diagnostic", _params, %{assigns: %{can_diagnose?: true}} = socket) do
+    {:noreply, assign(socket, :diagnostic_open?, not socket.assigns.diagnostic_open?)}
+  end
+
+  def handle_event("run-diagnostic", params, %{assigns: %{can_diagnose?: true}} = socket) do
+    query = Map.get(params, "query", "")
+    scope_path = Map.get(params, "scope_path", socket.assigns.scope_path)
+    profile = Map.get(params, "profile", "balanced")
+
+    attrs = %{
+      "query" => query,
+      "scope_path" => scope_path,
+      "profile" => profile,
+      "limit" => Map.get(params, "limit"),
+      "strategies" => Map.get(params, "strategies", []),
+      "deadline" => if(params["deadline"] == "on", do: "enabled", else: "disabled"),
+      "rerank" => params["rerank"],
+      "trace" => params["trace"] == "on"
+    }
+
+    case run_diagnostic(attrs, socket.assigns.current_actor) do
+      {:ok, result} ->
+        block = Map.fetch!(result, "diagnostic")
+        only_dependent? = params["query_dependent_only"] == "on"
+
+        # Stamp the fused rank before filtering, so a narrowed list still shows
+        # where each candidate actually placed rather than renumbering from one.
+        candidates =
+          result
+          |> Map.get("candidates", [])
+          |> Enum.with_index(1)
+          |> Enum.map(fn {candidate, rank} -> Map.put(candidate, "fused_rank", rank) end)
+
+        diagnostic = %{
+          query: query,
+          scope_path: scope_path,
+          profile: profile,
+          block: block,
+          only_dependent?: only_dependent?,
+          candidates:
+            if(only_dependent?,
+              do: Diagnostic.query_dependent_only(candidates, block),
+              else: candidates
+            ),
+          total: length(candidates),
+          trace: Map.get(result, "diagnostic_trace"),
+          request_json: Diagnostic.request_json(scope_path, query, profile, block),
+          json: Jason.encode!(result, pretty: true)
+        }
+
+        {:noreply, socket |> assign(:diagnostic, diagnostic) |> clear_flash()}
+
+      :error ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "Diagnostic run failed. Check the scope, the query, and your access, then try again."
+         )}
+    end
+  end
+
+  # A hand-sent event from anyone else is refused here and would be refused
+  # again by the operation layer; neither check depends on the other.
+  def handle_event(event, _params, socket) when event in ~w(toggle-diagnostic run-diagnostic) do
+    {:noreply, put_flash(socket, :error, "Retrieval diagnostics are for account administrators.")}
   end
 
   @doc """
@@ -322,6 +418,13 @@ defmodule CartularyWeb.ConsoleLive.Tools do
         </details>
       </.panel>
 
+      <.diagnostic_panel
+        :if={@can_diagnose?}
+        open={@diagnostic_open?}
+        diagnostic={@diagnostic}
+        scope_path={@scope_path}
+      />
+
       <section :for={group <- @groups} class="tool-group">
         <header class="group-head">
           <h2>{group.title}</h2>
@@ -330,16 +433,237 @@ defmodule CartularyWeb.ConsoleLive.Tools do
 
         <div class="tool-grid">
           <.tool_panel :for={tool <- tools_in(group.key)} tool={tool}>
-            <.tool_fields
-              tool={tool}
-              session_id={@session_id}
-              scope_path={@scope_path}
-              diagnostics?={Access.can?(@current_actor, :administer)}
-            />
+            <.tool_fields tool={tool} session_id={@session_id} scope_path={@scope_path} />
           </.tool_panel>
         </div>
       </section>
     </.shell>
+    """
+  end
+
+  attr :open, :boolean, required: true
+  attr :diagnostic, :map, default: nil
+  attr :scope_path, :string, required: true
+
+  defp diagnostic_panel(assigns) do
+    assigns =
+      assigns
+      |> assign(:strategy_options, Diagnostic.strategy_options())
+      |> assign(:limit_cap, Diagnostic.limit_cap())
+
+    ~H"""
+    <section class="panel diagnostic-panel" id="retrieval-diagnostic" aria-labelledby="retrieval-diagnostic-title">
+      <header class="tool-head">
+        <div>
+          <h2 id="retrieval-diagnostic-title">Retrieval diagnostic</h2>
+          <p>
+            Reproduce what retrieval did, with the internal controls the ordinary
+            forms deliberately do not offer. Account administrators only.
+          </p>
+        </div>
+        <span class="badge state-pending"><span aria-hidden="true">⚑</span> Not production-equivalent</span>
+      </header>
+
+      <div class="button-row">
+        <button type="button" class="ghost" phx-click="toggle-diagnostic" aria-expanded={to_string(@open)} aria-controls="retrieval-diagnostic-form">
+          {if @open, do: "Close diagnostic mode", else: "Open diagnostic mode"}
+        </button>
+        <span class="hint">Ordinary search and ask keep their normal defaults.</span>
+      </div>
+
+      <div :if={@open} id="retrieval-diagnostic-form">
+        <p class="consequence">
+          A diagnostic run may look past the ordinary result window, run one
+          strategy alone, drop the latency deadline, and turn reranking off. Its
+          order is evidence about retrieval, not a better answer, and it shows
+          only statements you may already read.
+        </p>
+
+        <form phx-submit="run-diagnostic" class="tool-form">
+          <.field label="Query" class="full">
+            <input name="query" required autocomplete="off" placeholder="What should memory find?" />
+          </.field>
+          <.field label="Scope">
+            <input
+              name="scope_path"
+              value={@scope_path}
+              list="scope-options"
+              required
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </.field>
+          <.field label="Retrieval profile">
+            <select name="profile">
+              <option :for={profile <- ~w(fast balanced thorough)} value={profile} selected={profile == "balanced"}>
+                {profile}
+              </option>
+            </select>
+          </.field>
+          <.field label="Limit" help={"Up to #{@limit_cap}. The ordinary window is 12."}>
+            <input name="limit" type="number" min="1" max={@limit_cap} step="1" value="50" />
+          </.field>
+          <.field label="Reranking" help="The profile decides unless you force it.">
+            <select name="rerank">
+              <option value="">profile default</option>
+              <option value="true">forced on</option>
+              <option value="false">forced off</option>
+            </select>
+          </.field>
+
+          <fieldset class="full strategy-set">
+            <legend>Strategies</legend>
+            <p class="field-help">
+              Leave every box clear to run the profile's own strategies. A run
+              whose strategies all ignore the query ranks the scope instead.
+            </p>
+            <label :for={{name, dependent?} <- @strategy_options} class="strategy-choice">
+              <input type="checkbox" name="strategies[]" value={name} />
+              <span>
+                {name}<span :if={not dependent?} class="optional">query-independent</span>
+              </span>
+            </label>
+          </fieldset>
+
+          <label class="full ack">
+            <input type="checkbox" name="deadline" checked />
+            <span>Keep the latency deadline. Clear it to let every strategy finish, which no request path may do.</span>
+          </label>
+
+          <label class="full ack">
+            <input type="checkbox" name="query_dependent_only" />
+            <span>Show only candidates a query-dependent strategy voted for.</span>
+          </label>
+
+          <label class="full ack">
+            <input type="checkbox" name="trace" />
+            <span>Explain the ranking. Scores are local to each strategy and are not comparable between them; compare ranks and fusion contributions.</span>
+          </label>
+
+          <div class="full button-row">
+            <button class="primary" phx-disable-with="Running…">Run diagnostic</button>
+            <span class="technical">Reads <code>search</code> internals</span>
+          </div>
+        </form>
+
+        <.diagnostic_result :if={@diagnostic} diagnostic={@diagnostic} />
+      </div>
+    </section>
+    """
+  end
+
+  attr :diagnostic, :map, required: true
+
+  defp diagnostic_result(assigns) do
+    ~H"""
+    <div class="diagnostic-result">
+      <p class="technical">Diagnostic result · not production-equivalent</p>
+
+      <dl class="run-summary">
+        <div class="run-row">
+          <dt>Candidates</dt>
+          <dd>{@diagnostic.total}</dd>
+        </div>
+        <div class="run-row">
+          <dt>Beyond the ordinary window</dt>
+          <dd>{@diagnostic.block["beyond_default_limit"]} past rank {@diagnostic.block["default_limit"]}</dd>
+        </div>
+        <div class="run-row">
+          <dt>Strategies reading the query</dt>
+          <dd>{strategy_list(@diagnostic.block["query_dependent_strategies"])}</dd>
+        </div>
+        <div class="run-row">
+          <dt>Deadline</dt>
+          <dd>{@diagnostic.block["deadline"]}</dd>
+        </div>
+        <div class="run-row">
+          <dt>Reranking</dt>
+          <dd>{rerank_label(@diagnostic.block["rerank"])}</dd>
+        </div>
+      </dl>
+
+      <p :if={@diagnostic.block["beyond_default_limit"] > 0} class="consequence">
+        {@diagnostic.block["beyond_default_limit"]} candidates rank below the ordinary
+        top-{@diagnostic.block["default_limit"]} window, so a normal run would not have shown them.
+        That does not make them the right answer.
+      </p>
+
+      <p :if={@diagnostic.only_dependent? and @diagnostic.candidates == []} class="consequence">
+        No query-dependent strategy voted for any candidate. Everything this run
+        returned ranked the scope rather than the question.
+      </p>
+
+      <ol :if={@diagnostic.candidates != []} class="diagnostic-candidates">
+        <li :for={candidate <- @diagnostic.candidates} value={candidate["fused_rank"]}>
+          <div class="candidate-head">
+            <span class="muted">{candidate["scope_path"]}</span>
+            <span class="technical">{strategy_list(candidate["strategies"])}</span>
+          </div>
+          <p class="candidate-statement">
+            <%= for {kind, part} <- Diagnostic.segments(candidate["statement"] || "", @diagnostic.query) do %><mark :if={kind == :match}>{part}</mark><span :if={kind == :plain}>{part}</span><% end %>
+          </p>
+        </li>
+      </ol>
+
+      <.rank_trace :if={@diagnostic.trace} trace={@diagnostic.trace} />
+
+      <details class="run-raw">
+        <summary>Reproducible request</summary>
+        <pre id="diagnostic-request" class="code">{@diagnostic.request_json}</pre>
+      </details>
+
+      <details class="run-raw">
+        <summary>Raw payload</summary>
+        <pre id="diagnostic-payload" class="code tool-result">{@diagnostic.json}</pre>
+      </details>
+    </div>
+    """
+  end
+
+  attr :trace, :map, required: true
+
+  defp rank_trace(assigns) do
+    ~H"""
+    <details class="retrieval-trace">
+      <summary>Rank explanation</summary>
+      <p class="hint">
+        Ranks are comparable across strategies. Scores are local to each strategy
+        and are not. <code>outside_rerank_head</code> means the candidate stayed in
+        the fused tail; <code>rerank_unavailable</code> means the reranker did not
+        complete.
+      </p>
+      <div class="table-scroll">
+        <table class="grid compact">
+          <thead>
+            <tr><th>Candidate</th><th>Fused</th><th>Final</th><th>Rerank</th><th>Strategy details</th></tr>
+          </thead>
+          <tbody>
+            <tr :for={candidate <- @trace["candidates"]}>
+              <td><code>{candidate["id"]}</code></td>
+              <td>{candidate["fused_rank"]}</td>
+              <td>{candidate["final_rank"]}</td>
+              <td>{candidate["rerank_status"]}</td>
+              <td>
+                <details>
+                  <summary>{length(candidate["strategies"])} strategies</summary>
+                  <table class="grid compact">
+                    <thead><tr><th>Strategy</th><th>Local rank</th><th>Local score</th><th>Fusion contribution</th></tr></thead>
+                    <tbody>
+                      <tr :for={strategy <- candidate["strategies"]}>
+                        <td>{strategy["strategy"]}</td>
+                        <td>{strategy["local_rank"]}</td>
+                        <td>{number(strategy["local_score"])}</td>
+                        <td>{number(strategy["fusion_contribution"])}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </details>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </details>
     """
   end
 
@@ -390,7 +714,6 @@ defmodule CartularyWeb.ConsoleLive.Tools do
   attr :tool, :map, required: true
   attr :session_id, :string, required: true
   attr :scope_path, :string, required: true
-  attr :diagnostics?, :boolean, default: false
 
   defp tool_fields(%{tool: %{key: "ask"}} = assigns) do
     ~H"""
@@ -399,7 +722,6 @@ defmodule CartularyWeb.ConsoleLive.Tools do
       <textarea name="question" rows="3" required placeholder="What do we know?"></textarea>
     </.field>
     <.profile selected="thorough" />
-    <.diagnostic_trace_request :if={@diagnostics?} />
     """
   end
 
@@ -411,7 +733,6 @@ defmodule CartularyWeb.ConsoleLive.Tools do
     </.field>
     <.profile selected="balanced" />
     <.limit />
-    <.diagnostic_trace_request :if={@diagnostics?} />
     """
   end
 
@@ -590,16 +911,6 @@ defmodule CartularyWeb.ConsoleLive.Tools do
     """
   end
 
-  defp diagnostic_trace_request(assigns) do
-    ~H"""
-    <label class="full diagnostic-trace-request">
-      <input name="diagnostic_trace" type="checkbox" value="true" />
-      <span>Show rank diagnostics for this run</span>
-      <span class="field-help">Admin only. Strategy scores use different scales; compare ranks, not scores.</span>
-    </label>
-    """
-  end
-
   attr :label, :string, required: true
   attr :help, :string, default: nil
   attr :optional, :boolean, default: false
@@ -630,14 +941,14 @@ defmodule CartularyWeb.ConsoleLive.Tools do
     ~H"""
     <p class="technical">Result · {@run.tool.key}</p>
 
+    <p :if={@run.window_note} class="consequence">{@run.window_note}</p>
+
     <dl :if={@run.summary != []} class="run-summary">
       <div :for={{label, value} <- @run.summary} class="run-row">
         <dt>{label}</dt>
         <dd>{value}</dd>
       </div>
     </dl>
-
-    <.diagnostic_trace :if={@run.diagnostic_trace} trace={@run.diagnostic_trace} />
 
     <details :if={@run.context != []} class="run-context">
       <summary>What was submitted</summary>
@@ -656,49 +967,39 @@ defmodule CartularyWeb.ConsoleLive.Tools do
     """
   end
 
-  attr :trace, :map, required: true
+  defp tools_in(group), do: Enum.filter(@tools, &(&1.group == group))
 
-  defp diagnostic_trace(assigns) do
-    ~H"""
-    <details class="retrieval-trace">
-      <summary>Retrieval diagnostics</summary>
-      <p class="hint">Ranks are comparable across strategies. Scores are local to each strategy.</p>
-      <div class="table-scroll">
-        <table class="grid compact">
-          <thead>
-            <tr><th>Candidate</th><th>Fused</th><th>Final</th><th>Rerank</th><th>Strategy details</th></tr>
-          </thead>
-          <tbody>
-            <tr :for={candidate <- @trace["candidates"]}>
-              <td><code>{candidate["id"]}</code></td>
-              <td>{candidate["fused_rank"]}</td>
-              <td>{candidate["final_rank"]}</td>
-              <td>{candidate["rerank_status"]}</td>
-              <td>
-                <details>
-                  <summary>{length(candidate["strategies"])} strategies</summary>
-                  <table class="grid compact">
-                    <thead><tr><th>Strategy</th><th>Local rank</th><th>Local score</th><th>Fusion contribution</th></tr></thead>
-                    <tbody>
-                      <tr :for={strategy <- candidate["strategies"]}>
-                        <td>{strategy["strategy"]}</td>
-                        <td>{strategy["local_rank"]}</td>
-                        <td>{number(strategy["local_score"])}</td>
-                        <td>{number(strategy["fusion_contribution"])}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </details>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </details>
-    """
+  defp strategy_list([]), do: "none"
+  defp strategy_list(names) when is_list(names), do: Enum.join(names, ", ")
+  defp strategy_list(_names), do: "none"
+
+  defp rerank_label(true), do: "forced on"
+  defp rerank_label(false), do: "forced off"
+  defp rerank_label(_value), do: "profile default"
+
+  # A ranked read that filled its window stopped at the limit rather than at the
+  # end of the matches. Saying so is what keeps the top-12 default honest, and it
+  # is said for every viewer, not only the administrators who can diagnose it.
+  defp window_note(%{key: key}, params, result) when key in ["search", "ask"] do
+    limit = parse_limit(Map.get(params, "limit"))
+
+    case Map.get(result, "candidates") do
+      candidates when is_list(candidates) -> Diagnostic.window_note(length(candidates), limit)
+      _other -> nil
+    end
   end
 
-  defp tools_in(group), do: Enum.filter(@tools, &(&1.group == group))
+  defp window_note(_tool, _params, _result), do: nil
+
+  # Mirrors the facade's own fallback so the note describes the limit that ran.
+  defp parse_limit(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {limit, _rest} when limit > 0 -> limit
+      _other -> @default_limit
+    end
+  end
+
+  defp parse_limit(_value), do: @default_limit
 
   defp fetch_tool(key) do
     case Enum.find(@tools, &(&1.key == key)) do
@@ -858,35 +1159,17 @@ defmodule CartularyWeb.ConsoleLive.Tools do
   defp display(value) when is_binary(value), do: value
   defp display(value), do: to_string(value)
 
-  # A non-public argument inside the public parameter map is rejected as
-  # `NoSuchInput`, which fails the whole call rather than the one field, so the
-  # browser-only arguments are applied separately. Both still go through the
-  # action's own casting and validation.
-  defp action_input(action, params) do
-    {public, private} =
-      McpTools
-      |> Ash.Resource.Info.action(action)
-      |> Map.fetch!(:arguments)
-      |> Enum.reduce({%{}, []}, fn argument, {public, private} = unchanged ->
-        parameter = if argument.name == :id, do: "_id", else: to_string(argument.name)
+  defp action_arguments(action, params) do
+    McpTools
+    |> Ash.Resource.Info.action(action)
+    |> Map.fetch!(:arguments)
+    |> Enum.reduce(%{}, fn argument, arguments ->
+      parameter = if argument.name == :id, do: "_id", else: to_string(argument.name)
 
-        case Map.get(params, parameter) do
-          value when value in [nil, ""] ->
-            unchanged
-
-          value ->
-            if argument.public? do
-              {Map.put(public, argument.name, value), private}
-            else
-              {public, [{argument.name, value} | private]}
-            end
-        end
-      end)
-
-    input = Ash.ActionInput.for_action(McpTools, action, public)
-
-    Enum.reduce(private, input, fn {name, value}, input ->
-      Ash.ActionInput.set_private_argument(input, name, value)
+      case Map.get(params, parameter) do
+        value when value in [nil, ""] -> arguments
+        value -> Map.put(arguments, argument.name, value)
+      end
     end)
   end
 
@@ -909,6 +1192,22 @@ defmodule CartularyWeb.ConsoleLive.Tools do
   # Ash normally returns action failures as error tuples. These classes may be
   # raised by a downstream resource instead; keep the browser response equally
   # opaque in both cases so identifiers cannot be probed through error detail.
+  # The operation layer authorizes the run and raises for anyone it refuses, as
+  # well as for an unregistered strategy name. Both stay opaque in the browser
+  # for the same reason a failed tool call does.
+  defp run_diagnostic(attrs, actor) do
+    {:ok, Memory.diagnostic_search(attrs, actor)}
+  rescue
+    _error in [
+      Ash.Error.Forbidden,
+      Ash.Error.Invalid,
+      Ash.Error.Unknown,
+      ArgumentError,
+      KeyError
+    ] ->
+      :error
+  end
+
   defp run_action(input, actor) do
     Ash.run_action(input, actor: actor)
   rescue

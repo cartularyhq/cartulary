@@ -129,7 +129,6 @@ defmodule CartularyWeb.MemoryController do
   def search(conn, params) do
     result =
       params
-      |> drop_browser_only_params()
       |> Memory.search(conn.assigns.current_actor)
 
     json(conn, %{data: result})
@@ -150,7 +149,6 @@ defmodule CartularyWeb.MemoryController do
   def ask(conn, params) do
     result =
       params
-      |> drop_browser_only_params()
       |> Memory.ask(conn.assigns.current_actor)
 
     json(conn, %{data: result})
@@ -212,13 +210,4 @@ defmodule CartularyWeb.MemoryController do
 
     json(conn, %{data: result})
   end
-
-  # The memory facade also serves the browser console, which asks for an
-  # administrator-only rank trace. That aid is not part of the JSON contract, and
-  # the role check behind it would otherwise admit it here: a console operator's
-  # bearer token is the same password identity on both surfaces. Dropping the
-  # parameter at the surface is what keeps the response shape stable.
-  @browser_only_params ~w(diagnostic_trace)
-
-  defp drop_browser_only_params(params), do: Map.drop(params, @browser_only_params)
 end

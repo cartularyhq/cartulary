@@ -256,41 +256,45 @@ defmodule CartularyWeb.MemoryControllerTest do
     assert_trace_id(conn)
   end
 
-  # The rank trace is a browser-only administrator aid, so the JSON surface must
-  # not grow a response field for it. The token here is an account admin's
-  # password identity — the one identity that does receive the trace in the
-  # console — which is exactly why the surface has to drop the parameter rather
-  # than rely on the role check behind it.
-  test "POST /api/v1/search and /ask never return the browser rank trace", %{
+  # Diagnostic options travel as a `DiagnosticGrant` struct precisely so a JSON
+  # body cannot forge one. The token below is an account admin's password
+  # identity — the identity that may run a diagnostic in the console — so a role
+  # check alone would let these bodies through, and only the struct stops them.
+  test "POST /api/v1/search and /ask cannot request diagnostic behaviour", %{
     conn: conn,
     actor: actor,
     token: token
   } do
-    seed_memory!(actor, "http-trace", "/contract/http/trace")
+    seed_memory!(actor, "http-grant", "/contract/http/grant")
 
     search =
       conn
       |> with_identity(token)
       |> post(~p"/api/v1/search", %{
-        "scope_path" => "/contract/http/trace",
+        "scope_path" => "/contract/http/grant",
         "query" => "release summaries",
-        "diagnostic_trace" => true
+        "_diagnostic" => %{"limit" => 100, "trace?" => true, "deadline?" => false},
+        "trace" => true
       })
 
     assert %{"data" => search_data} = json_response(search, 200)
     refute Map.has_key?(search_data, "diagnostic_trace")
+    refute Map.has_key?(search_data, "diagnostic")
+    assert length(search_data["candidates"]) <= 12
 
     ask =
       conn
       |> with_identity(token)
       |> post(~p"/api/v1/ask", %{
-        "scope_path" => "/contract/http/trace",
+        "scope_path" => "/contract/http/grant",
         "question" => "What kind of release summaries does Avery prefer?",
-        "diagnostic_trace" => true
+        "_diagnostic" => %{"limit" => 100, "trace?" => true},
+        "trace" => true
       })
 
     assert %{"data" => ask_data} = json_response(ask, 200)
     refute Map.has_key?(ask_data, "diagnostic_trace")
+    refute Map.has_key?(ask_data, "diagnostic")
   end
 
   # Retrieval plus a grounded answer. With no model credential configured the

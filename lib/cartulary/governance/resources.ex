@@ -1084,8 +1084,6 @@ defmodule Cartulary.Governance.McpTools do
       argument :query, :string, allow_nil?: false, public?: true
       argument :profile, :string, default: "balanced", public?: true
       argument :limit, :integer, public?: true
-      # Browser-only account-admin inspection. This stays out of the MCP schema.
-      argument :diagnostic_trace, :boolean, public?: false
       run {Cartulary.Governance.Actions.McpRead, operation: :search}
     end
 
@@ -1095,7 +1093,6 @@ defmodule Cartulary.Governance.McpTools do
       argument :scope_path, :string, allow_nil?: false, public?: true
       argument :question, :string, allow_nil?: false, public?: true
       argument :profile, :string, default: "thorough", public?: true
-      argument :diagnostic_trace, :boolean, public?: false
       run {Cartulary.Governance.Actions.McpRead, operation: :ask}
     end
 
