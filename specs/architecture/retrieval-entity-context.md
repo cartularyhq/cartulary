@@ -36,6 +36,14 @@ Timeouts are dropped, not retried, and every response preserves the compatible
 dropped-name list while adding content-free component timings and deterministic
 reason classes plus pre-fusion cross-strategy disagreement.
 
+Query-independent strategies are applicability-gated: `Temporal` runs only
+when the request supplies `as_of`; `SalienceRecency` runs only for a blank-text
+governed-memory request. This keeps ordinary text-search heads
+query-dependent, while explicit historical reads and context fallback retain
+their intentional temporal and recency behavior. The profile memberships,
+weights, response fields, and `f7-1` identity are unchanged; this is an
+applicability correction recorded in ADR 0010.
+
 The three strategy sets are disjoint and carry distinct facts: contributed
 returned candidates, empty ran and matched nothing, dropped never produced a
 result. Each strategy declares `query_dependent?/0` — true only for reading

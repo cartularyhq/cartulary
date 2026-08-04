@@ -380,9 +380,10 @@ defmodule Cartulary.Memory do
 
   A strategy that ran and matched nothing lands in `"empty_strategies"`. When
   the text-reading strategies are all in there,
-  `"disagreement"["query_dependent_empty"]` is true and the candidates rank the
-  scope rather than the query — the same shape as a good result, so check the
-  flag rather than the shape.
+  `"disagreement"["query_dependent_empty"]` is true. Ordinary text searches do
+  not add temporal or salience-recency candidates to disguise that absence;
+  blank context fallback and explicit `as_of` reads retain their intentional
+  query-independent paths.
 
   Raises when no Account can be derived from the caller.
   """

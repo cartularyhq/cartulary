@@ -11,6 +11,14 @@ changelog entry and contract-version transition.
 
 ### Fixed
 
+- Ordinary text retrieval no longer lets query-independent temporal or
+  salience-recency lists bury lexical evidence. Temporal now runs only for an
+  explicit `as_of` read; salience-recency remains available for blank-query
+  context fallback, not as a candidate generator for a text search. The named
+  profile memberships, weights, response shape, and `f7-1` identity are
+  unchanged. ADR 0010 records the applicability rule and deterministic
+  micro-ablation evidence.
+
 - Extraction now requests `confidence_percentage` through native strict JSON
   Schema as an integer from `1` through `100`, with concise reasoning and the
   candidate statement preceding it. Validation strips non-digits defensively,

@@ -185,12 +185,15 @@ defmodule Cartulary.Retrieval.Strategies.Temporal do
   def query_dependent?, do: false
 
   @doc """
-  True whenever the query wants governed statements.
+  True only for an explicit point-in-time query that wants governed statements.
 
-  Document chunks have no validity period, so document-only queries skip it.
+  `as_of` is the public temporal intent marker. Running this strategy for every
+  ordinary question would add a query-independent list that can bury lexical
+  evidence. Document chunks have no validity period, so document-only queries
+  skip it too.
   """
   @impl true
-  def applicable?(query), do: query.target in [:knowledge, :all]
+  def applicable?(query), do: not is_nil(query.as_of) and query.target in [:knowledge, :all]
 
   @doc """
   Returns authorized statements scored by whether they were in force at the
@@ -226,10 +229,14 @@ defmodule Cartulary.Retrieval.Strategies.SalienceRecency do
   def query_dependent?, do: false
 
   @doc """
-  True for governed statements; chunks lack its scoring metadata.
+  True only for an empty-text governed-memory request; chunks lack its scoring
+  metadata. Text-bearing searches need query-dependent evidence at the head,
+  while the blank-query path remains available for context fallback.
   """
   @impl true
-  def applicable?(query), do: query.target in [:knowledge, :all]
+  def applicable?(query) do
+    query.target in [:knowledge, :all] and is_binary(query.text) and String.trim(query.text) == ""
+  end
 
   @doc """
   Returns authorized, unexpired statements ranked by confidence, corroboration,

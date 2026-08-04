@@ -241,7 +241,7 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
 
   alias Cartulary.Memory
   alias Cartulary.Observations.Session
-  alias Cartulary.Retrieval.{EntityResolver, Indexer, Profile, Query}
+  alias Cartulary.Retrieval.{Candidate, EntityResolver, Fusion, Indexer, Profile, Query}
   alias Cartulary.Retrieval.Strategies
   alias Cartulary.Topology.{Scope, ScopeRelation}
 
@@ -334,6 +334,73 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     # cannot query the database or raise on an unusual query shape.
     query = %Query{text: "release", target: :knowledge, seed_ids: ["seed"]}
     assert Enum.all?(@strategies, &is_boolean(&1.applicable?(query)))
+    refute Strategies.Temporal.applicable?(query)
+    refute Strategies.SalienceRecency.applicable?(query)
+    assert Strategies.Temporal.applicable?(%{query | as_of: DateTime.utc_now()})
+    assert Strategies.SalienceRecency.applicable?(%{query | text: ""})
+  end
+
+  test "micro-ablation keeps query-independent lists out of an ordinary search head" do
+    target = candidate("answer", :lexical, 1)
+
+    query_independent =
+      for rank <- 1..40 do
+        candidate("recent-#{rank}", :temporal, rank)
+      end
+
+    recency =
+      for rank <- 1..40 do
+        candidate("recent-#{rank}", :salience_recency, rank)
+      end
+
+    # This fixed fixture models the observed failure: one exact lexical answer
+    # versus two full query-independent lists. Their agreeing distractors bury
+    # the answer despite neither list reading the question.
+    baseline =
+      Fusion.reciprocal_rank(
+        [lexical: [target], temporal: query_independent, salience_recency: recency],
+        %{lexical: 1.0, temporal: 0.7, salience_recency: 0.8},
+        50
+      )
+
+    proposed = Fusion.reciprocal_rank([lexical: [target]], %{lexical: 1.0}, 50)
+
+    assert 32 == Enum.find_index(baseline, &(&1.id == target.id)) + 1
+    assert 1 == Enum.find_index(proposed, &(&1.id == target.id)) + 1
+  end
+
+  test "an ordinary question keeps lexical evidence in the default top twelve" do
+    answer =
+      seed_active!(
+        "f7-query-independent-head",
+        "/f7/query-independent-head",
+        "The Polaris envelope is approved for the northbound route."
+      )
+
+    for number <- 1..40 do
+      seed_active!(
+        "f7-query-independent-head",
+        "/f7/query-independent-head",
+        "Recent operations note #{number}: routine status remains green.",
+        "irrelevant-#{number}"
+      )
+    end
+
+    # This is an integration corpus, not a model benchmark: the lexical answer
+    # has to remain visible even when a full recency-shaped corpus exists.
+    result =
+      Memory.search(%{
+        "account_key" => "f7-query-independent-head",
+        "scope_path" => answer.scope.path,
+        "query" => "Which route has the Polaris envelope?",
+        "deadline" => "disabled"
+      })
+
+    answer_rank = Enum.find_index(result["candidates"], &(&1["id"] == answer.knowledge.id))
+
+    assert is_integer(answer_rank) and answer_rank < 12
+    refute "temporal" in result["contributed_strategies"]
+    refute "salience_recency" in result["contributed_strategies"]
   end
 
   test "semantic, lexical, temporal, and salience candidates fuse with pinned identity" do
@@ -534,30 +601,47 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     # has no vectors to compare, entity matching has no resolved mentions, and full-text search
     # found no term in common.
     assert Enum.sort(result["empty_strategies"]) == ["entity_match", "lexical", "semantic"]
-    assert result["contributed_strategies"] == ["temporal"]
+    assert result["contributed_strategies"] == []
 
     # Running and finding nothing is not degradation. Nothing was disabled, timed out, or
     # failed, so the dropped list stays empty and keeps its narrower meaning.
     assert result["dropped_strategies"] == []
 
-    # The point of the flag: what came back is the scope in time order, not an answer, and the
-    # response says so even though its shape is identical to a good result.
+    # The point of the flag: no query-reading strategy found evidence. Ordinary
+    # text searches no longer fill that absence with a scope-ranked list.
     #
     # These two also pin the signal to pre-fusion (FR-API-29). Fusion always emits a ranked
     # list, so anything derived from the fused output could not report "nothing was found"
     # while candidates are being returned. They can only hold together if it was measured
     # before the merge.
     assert result["disagreement"]["query_dependent_empty"]
-    assert result["candidates"] != []
+    assert result["candidates"] == []
 
     # The pre-existing signals cannot express this state, which is why the new one exists.
     # All three read only the strategies that returned something. `low_score` is false because
-    # temporal's scores are fixed steps well above the floor. `disjoint` is true, but vacuously:
-    # with one non-empty list there is no pair to overlap, and it says the same for a healthy
-    # single-strategy run. `strategy_count` counts what survived, never what vanished.
-    refute result["disagreement"]["low_score"]
-    assert result["disagreement"]["disjoint"]
-    assert result["disagreement"]["strategy_count"] == 1
+    # With no non-empty list, the historical health members retain their
+    # documented empty-list values; `query_dependent_empty` is the useful signal.
+    assert result["disagreement"]["low_score"]
+    refute result["disagreement"]["disjoint"]
+    assert result["disagreement"]["strategy_count"] == 0
+  end
+
+  test "an explicit as_of query retains temporal recall" do
+    seeded = seed_active!("f7-as-of", "/f7/as-of", "Avery led the 2025 migration.")
+
+    result =
+      Memory.search(%{
+        "account_key" => "f7-as-of",
+        "scope_path" => seeded.scope.path,
+        "query" => "Who led the migration?",
+        "as_of" => DateTime.utc_now() |> DateTime.to_iso8601(),
+        "strategies" => ["temporal"],
+        "deadline" => "disabled"
+      })
+
+    assert result["contributed_strategies"] == ["temporal"]
+    assert [%{"id" => id}] = result["candidates"]
+    assert id == seeded.knowledge.id
   end
 
   test "lexical ranks a target above distractors that share only part of the query" do
@@ -1843,6 +1927,10 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
       shared_person: shared_person,
       unrelated: unrelated
     }
+  end
+
+  defp candidate(id, strategy, rank) do
+    %Candidate{id: id, score: 1.0, rank: rank, strategy: strategy, record: %{"id" => id}}
   end
 
   defp read_peer!(account_id, actor, key \\ "avery") do
