@@ -162,6 +162,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: erlef/setup-beam@v1
+        id: beam
         with:
           otp-version: "27"
           elixir-version: "1.18"
@@ -169,13 +170,20 @@ jobs:
       # it from the standard library and every dependency takes minutes; checking against a
       # cached one takes seconds. Its own cache key prefix keeps this entry, which covers
       # priv/plts, from being displaced by the test lane's entry, which does not.
+      #
+      # The key carries the *resolved* OTP and Elixir versions, not the requested ranges. A
+      # table built by one compiler is rejected outright by the next one ("Old PLT file"),
+      # and keying on mix.lock alone let a runner-image upgrade reuse a table it could not
+      # read, failing every run until the lock file happened to change.
       - uses: actions/cache@v5
         with:
           path: |
             deps
             _build
             priv/plts
-          key: ${{ runner.os }}-dialyzer-${{ hashFiles('mix.lock') }}
+          key: >-
+            ${{ runner.os }}-dialyzer-otp${{ steps.beam.outputs.otp-version }}-elixir${{
+            steps.beam.outputs.elixir-version }}-${{ hashFiles('mix.lock') }}
       - run: mix deps.get
       - run: mix dialyzer
 

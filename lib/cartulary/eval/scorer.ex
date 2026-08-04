@@ -299,7 +299,7 @@ defmodule Cartulary.Eval.Scorer do
     else
       ranked_refs
       |> Enum.find_index(fn refs ->
-        MapSet.intersection(expected, MapSet.new(refs)) != MapSet.new()
+        not MapSet.disjoint?(expected, MapSet.new(refs))
       end)
       |> case do
         nil -> nil
