@@ -52,6 +52,15 @@ entity or resolved an entity with no statement in the selected authorized
 scope. It never returns entity or statement identity. When a derived index
 needs attention, `next_action` says to rebuild the scope's derived data.
 
+An account administrator can select **Show rank diagnostics for this run**
+before `search` or `ask`. The expandable table shows each returned candidate's
+per-strategy local rank and score, reciprocal-rank contribution, fused rank,
+and final rank. `outside_rerank_head` means the candidate stayed in the fused
+tail; `rerank_unavailable` means the reranker did not complete. Strategy scores
+use different scales, so compare ranks and fusion contributions, not scores
+between strategies. The trace exists only in that browser result and is never
+sent to MCP or HTTP clients, logs, telemetry, audit rows, or jobs.
+
 The operations page adds the same content-safe probe for an administrator-selected
 scope and effective profile. It reports inherited profile version, deadline,
 enabled and disabled strategies, and explicitly shows that the probe made no

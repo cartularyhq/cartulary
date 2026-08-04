@@ -634,6 +634,50 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     end
   end
 
+  test "an account administrator can inspect local, fused, and reranked ranks without changing a normal response" do
+    corpus = seed_ranking_corpus!()
+    admin = %{corpus.target.actor | identity_kind: :password, role: :account_admin}
+
+    traced =
+      Memory.search(
+        %{
+          "scope_path" => corpus.target.scope.path,
+          "query" => "Avery release checklist",
+          "profile" => "thorough",
+          "deadline" => "disabled",
+          "diagnostic_trace" => true
+        },
+        admin
+      )
+
+    assert %{"candidates" => trace_candidates} = traced["diagnostic_trace"]
+    assert Enum.map(trace_candidates, & &1["id"]) == Enum.map(traced["candidates"], & &1["id"])
+
+    assert target = Enum.find(trace_candidates, &(&1["id"] == corpus.target.knowledge.id))
+    assert is_integer(target["fused_rank"])
+    assert is_integer(target["final_rank"])
+    assert target["rerank_status"] in ["reranked", "outside_rerank_head"]
+
+    assert Enum.any?(target["strategies"], fn strategy ->
+             strategy["strategy"] == "lexical" and is_integer(strategy["local_rank"]) and
+               is_number(strategy["local_score"]) and is_number(strategy["fusion_contribution"])
+           end)
+
+    normal =
+      Memory.search(
+        %{
+          "scope_path" => corpus.target.scope.path,
+          "query" => "Avery release checklist",
+          "profile" => "thorough",
+          "deadline" => "disabled",
+          "diagnostic_trace" => true
+        },
+        %{admin | role: :member}
+      )
+
+    refute Map.has_key?(normal, "diagnostic_trace")
+  end
+
   test "relation expansion traverses knowledge relations and shared-entity edges" do
     first = seed_active!("f7-expand", "/f7/expand", "Orchid uses an append-only ledger.")
 

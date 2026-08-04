@@ -244,6 +244,21 @@ defmodule CartularyWeb.ConsoleLiveTest do
       assert html =~ "Index health"
       assert html =~ "missing_embeddings — rebuild scope derived data"
 
+      html =
+        render_submit(view, "run", %{
+          "tool" => "search",
+          "session_id" => "console-tools-diagnostics",
+          "scope_path" => "/console-test",
+          "query" => "asynchronous standups",
+          "profile" => "balanced",
+          "limit" => "5",
+          "diagnostic_trace" => "true"
+        })
+
+      assert html =~ "Retrieval diagnostics"
+      assert html =~ "Fusion contribution"
+      assert html =~ "Local rank"
+
       # The previous run is kept so two calls can be compared without rerunning
       # the first one.
       assert html =~ "Earlier runs"

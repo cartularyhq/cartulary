@@ -423,12 +423,14 @@ defmodule Cartulary.Memory do
           # request from hand-picking retrieval strategies: for anyone else,
           # passing "strategies" makes profile resolution raise.
           internal? = actor.identity_kind == :system
+          diagnostic_trace? = diagnostic_trace?(filters, actor)
 
           opts =
             [
               deadline?: deadline?,
               internal?: internal?,
-              strategies: Map.get(filters, "strategies")
+              strategies: Map.get(filters, "strategies"),
+              diagnostic_trace?: diagnostic_trace?
             ]
             |> Enum.reject(fn {_key, value} -> is_nil(value) end)
 
@@ -1434,6 +1436,15 @@ defmodule Cartulary.Memory do
   defp stringify_top_level(map) do
     Map.new(map, fn {key, value} -> {to_string(key), value} end)
   end
+
+  # This trace is a human administrator aid in the browser workbench. A machine
+  # credential or any lower role gets the ordinary compact result even if it
+  # supplies the hidden argument directly.
+  defp diagnostic_trace?(filters, %Actor{identity_kind: :password, role: :account_admin}) do
+    Map.get(filters, "diagnostic_trace") in [true, "true", "1"]
+  end
+
+  defp diagnostic_trace?(_filters, _actor), do: false
 
   # Callers arrive in both shapes: request params are string-keyed, internal
   # callers and tests use atoms. Everything downstream reads string keys only.

@@ -25,6 +25,7 @@ defmodule CartularyWeb.ConsoleLive.Tools do
   import CartularyWeb.ConsoleComponents
 
   alias Cartulary.Governance.McpTools
+  alias CartularyWeb.Console.Access
   alias CartularyWeb.Console.Loader
 
   # Kept as a list rather than a map so declaration order is the render order
@@ -233,7 +234,8 @@ defmodule CartularyWeb.ConsoleLive.Tools do
         tool: tool,
         context: context_rows(params),
         summary: summary_rows(tool, result),
-        json: Jason.encode!(result, pretty: true)
+        json: Jason.encode!(result, pretty: true),
+        diagnostic_trace: value(result, "diagnostic_trace")
       }
 
       {:noreply,
@@ -333,7 +335,12 @@ defmodule CartularyWeb.ConsoleLive.Tools do
 
         <div class="tool-grid">
           <.tool_panel :for={tool <- tools_in(group.key)} tool={tool}>
-            <.tool_fields tool={tool} session_id={@session_id} scope_path={@scope_path} />
+            <.tool_fields
+              tool={tool}
+              session_id={@session_id}
+              scope_path={@scope_path}
+              diagnostics?={Access.can?(@current_actor, :administer)}
+            />
           </.tool_panel>
         </div>
       </section>
@@ -388,6 +395,7 @@ defmodule CartularyWeb.ConsoleLive.Tools do
   attr :tool, :map, required: true
   attr :session_id, :string, required: true
   attr :scope_path, :string, required: true
+  attr :diagnostics?, :boolean, default: false
 
   defp tool_fields(%{tool: %{key: "ask"}} = assigns) do
     ~H"""
@@ -396,6 +404,7 @@ defmodule CartularyWeb.ConsoleLive.Tools do
       <textarea name="question" rows="3" required placeholder="What do we know?"></textarea>
     </.field>
     <.profile selected="thorough" />
+    <.diagnostic_trace_request :if={@diagnostics?} />
     """
   end
 
@@ -407,6 +416,7 @@ defmodule CartularyWeb.ConsoleLive.Tools do
     </.field>
     <.profile selected="balanced" />
     <.limit />
+    <.diagnostic_trace_request :if={@diagnostics?} />
     """
   end
 
@@ -585,6 +595,16 @@ defmodule CartularyWeb.ConsoleLive.Tools do
     """
   end
 
+  defp diagnostic_trace_request(assigns) do
+    ~H"""
+    <label class="full diagnostic-trace-request">
+      <input name="diagnostic_trace" type="checkbox" value="true" />
+      <span>Show rank diagnostics for this run</span>
+      <span class="field-help">Admin only. Strategy scores use different scales; compare ranks, not scores.</span>
+    </label>
+    """
+  end
+
   attr :label, :string, required: true
   attr :help, :string, default: nil
   attr :optional, :boolean, default: false
@@ -622,6 +642,8 @@ defmodule CartularyWeb.ConsoleLive.Tools do
       </div>
     </dl>
 
+    <.diagnostic_trace :if={@run.diagnostic_trace} trace={@run.diagnostic_trace} />
+
     <details :if={@run.context != []} class="run-context">
       <summary>What was submitted</summary>
       <dl class="run-summary">
@@ -635,6 +657,46 @@ defmodule CartularyWeb.ConsoleLive.Tools do
     <details open={@open} class="run-raw">
       <summary>Raw payload</summary>
       <pre id={"tool-result-#{@run.number}"} class="code tool-result">{@run.json}</pre>
+    </details>
+    """
+  end
+
+  attr :trace, :map, required: true
+
+  defp diagnostic_trace(assigns) do
+    ~H"""
+    <details class="retrieval-trace">
+      <summary>Retrieval diagnostics</summary>
+      <p class="hint">Ranks are comparable across strategies. Scores are local to each strategy.</p>
+      <table>
+        <thead>
+          <tr><th>Candidate</th><th>Fused</th><th>Final</th><th>Rerank</th><th>Strategy details</th></tr>
+        </thead>
+        <tbody>
+          <tr :for={candidate <- @trace["candidates"]}>
+            <td><code>{candidate["id"]}</code></td>
+            <td>{candidate["fused_rank"]}</td>
+            <td>{candidate["final_rank"]}</td>
+            <td>{candidate["rerank_status"]}</td>
+            <td>
+              <details>
+                <summary>{length(candidate["strategies"])} strategies</summary>
+                <table>
+                  <thead><tr><th>Strategy</th><th>Local rank</th><th>Local score</th><th>Fusion contribution</th></tr></thead>
+                  <tbody>
+                    <tr :for={strategy <- candidate["strategies"]}>
+                      <td>{strategy["strategy"]}</td>
+                      <td>{strategy["local_rank"]}</td>
+                      <td>{strategy["local_score"]}</td>
+                      <td>{strategy["fusion_contribution"]}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </details>
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </details>
     """
   end
