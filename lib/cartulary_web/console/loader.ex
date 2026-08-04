@@ -43,6 +43,10 @@ defmodule CartularyWeb.Console.Loader do
   # costs nothing but readability.
   @page_size 25
 
+  # Page sizes the explorer offers. Bounded because the console is a browsing
+  # surface: a reader who needs every row wants the portability archive.
+  @page_sizes [25, 50, 100]
+
   # Upper bound on rows any single list panel loads — recent activity, sessions,
   # messages, documents. The console is a browsing surface, not an export: a
   # panel that would need more than this should be reached through the filtered
@@ -50,13 +54,17 @@ defmodule CartularyWeb.Console.Loader do
   @panel_limit 50
 
   @doc """
-  Rows per page in the knowledge explorer.
+  Default rows per page in the knowledge explorer.
 
-  Exposed so a LiveView can tell whether a full page came back and therefore
-  whether a "next page" control should be offered, without hard-coding the
-  number in a second place.
+  `knowledge_list/2` reports the size it actually used, which may be a larger
+  offered size; this is what it falls back to.
   """
   def page_size, do: @page_size
+
+  @doc """
+  Page sizes the knowledge explorer offers, smallest first.
+  """
+  def page_sizes, do: @page_sizes
 
   @doc """
   Everything the dashboard shows.
@@ -115,14 +123,22 @@ defmodule CartularyWeb.Console.Loader do
   @doc """
   Returns one filtered page of the knowledge explorer.
 
-  The result includes items, scope paths, scopes, page metadata, and total count. It applies
-  the lifecycle and provisional visibility rules from `CartularyWeb.Console.Access`.
+  Beyond the rows themselves the result carries what the page needs to describe
+  its own state honestly: the effective `page_size` and `sort` after clamping,
+  `page_count`, whether any filter narrowed the result (`filtered?`), and how
+  many scopes a selected scope contains (`descendant_count`).
+
+  It applies the lifecycle and provisional visibility rules from
+  `CartularyWeb.Console.Access`.
   """
   def knowledge_list(%Actor{} = actor, filters) when is_map(filters) do
     DataLayer.with_actor(actor, fn account, current_actor ->
       scopes = scopes(account.id, current_actor)
       paths = scope_paths(scopes)
-      page = page_number(filters)
+      scope_path = blank_to_nil(filters["scope"])
+      scope_ids = subtree_scope_ids(scopes, scope_path)
+      page_size = effective_page_size(filters)
+      sort = sort_order(filters)
 
       query =
         actor
@@ -132,19 +148,21 @@ defmodule CartularyWeb.Console.Loader do
           sensitivity: blank_to_nil(filters["sensitivity"]),
           target_level: blank_to_nil(filters["target_level"]),
           subject_self?: filters["subject"] == "me",
-          scope_ids: subtree_scope_ids(scopes, blank_to_nil(filters["scope"]))
+          scope_ids: scope_ids
         )
 
       total = count(query, account.id, current_actor)
+      page_count = max(ceil(total / page_size), 1)
+      # A deep link outlives the filters it was written against, so a page past
+      # the end must land on real rows rather than on a blank that reads as
+      # "nothing matches".
+      page = min(page_number(filters), page_count)
 
       items =
         query
-        # Confidence first, then recency: the most strongly held statements lead,
-        # and equally confident ones are ordered newest first so a fresh
-        # observation is not buried under an old one it agrees with.
-        |> Ash.Query.sort(confidence: :desc, inserted_at: :desc)
-        |> Ash.Query.limit(@page_size)
-        |> Ash.Query.offset((page - 1) * @page_size)
+        |> Ash.Query.sort(sort_terms(sort))
+        |> Ash.Query.limit(page_size)
+        |> Ash.Query.offset((page - 1) * page_size)
         |> Ash.Query.set_tenant(account.id)
         |> Ash.read!(actor: current_actor)
         |> Enum.map(&with_scope_path(&1, paths))
@@ -154,8 +172,12 @@ defmodule CartularyWeb.Console.Loader do
         scopes: scopes,
         scope_paths: paths,
         page: page,
-        page_size: @page_size,
-        total: total
+        page_size: page_size,
+        page_count: page_count,
+        sort: sort,
+        total: total,
+        filtered?: filtered?(filters),
+        descendant_count: descendant_count(scope_ids, scope_path)
       }
     end)
   end
@@ -902,6 +924,39 @@ defmodule CartularyWeb.Console.Loader do
       _other -> 1
     end
   end
+
+  # Offered sizes only. A hand-typed size is a way to ask the database for the
+  # whole table through a browsing surface, and export belongs to the
+  # portability archive.
+  defp effective_page_size(filters) do
+    case Integer.parse(to_string(filters["per_page"] || "")) do
+      {size, _rest} when size in @page_sizes -> size
+      _other -> @page_size
+    end
+  end
+
+  defp sort_order(%{"sort" => "recorded"}), do: "recorded"
+  defp sort_order(_filters), do: "confidence"
+
+  # Confidence first, then recency: the most strongly held statements lead, and
+  # equally confident ones are ordered newest first so a fresh observation is
+  # not buried under an old one it agrees with. Sorting by recency inverts the
+  # pair rather than dropping confidence, so the order stays total.
+  defp sort_terms("recorded"), do: [inserted_at: :desc, confidence: :desc]
+  defp sort_terms(_confidence), do: [confidence: :desc, inserted_at: :desc]
+
+  # Paging and sorting change the view, not the population, so neither counts as
+  # a filter for the purpose of explaining an empty result.
+  defp filtered?(filters) do
+    Enum.any?(~w(scope state kind sensitivity target_level subject), fn key ->
+      blank_to_nil(filters[key]) != nil
+    end)
+  end
+
+  # Scopes contained by the selection, excluding the selection itself.
+  defp descendant_count(nil, _path), do: nil
+  defp descendant_count(_ids, nil), do: nil
+  defp descendant_count(ids, _path), do: max(length(ids) - 1, 0)
 
   defp blank_to_nil(nil), do: nil
   defp blank_to_nil(""), do: nil

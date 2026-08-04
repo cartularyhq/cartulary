@@ -474,9 +474,254 @@ defmodule CartularyWeb.ConsoleLiveTest do
     end
   end
 
+  describe "the knowledge explorer" do
+    setup [:seed_world]
+
+    test "browse is the default mode and runs no retrieval", %{conn: conn, admin_token: token} do
+      html = conn |> sign_in(token) |> get("/console/knowledge") |> html_response(200)
+
+      assert html =~ "Browse"
+      assert html =~ "Find"
+      # Browsing must never issue a search: the two modes answer different
+      # questions and one of them costs a retrieval run.
+      refute html =~ "Retrieval preview"
+      assert html =~ "Statements"
+    end
+
+    test "find mode runs retrieval once a scope is chosen", %{conn: conn, admin_token: token} do
+      html =
+        conn
+        |> sign_in(token)
+        |> get("/console/knowledge?mode=find&q=standups&scope=%2Fconsole-test")
+        |> html_response(200)
+
+      assert html =~ "Retrieval preview"
+      assert html =~ "Strategies used"
+      # The exhaustive list stays reachable underneath, because a ranking miss
+      # is not proof the memory is empty.
+      assert html =~ "Exhaustive list"
+    end
+
+    test "a query with no scope says so instead of listing silently", %{
+      conn: conn,
+      admin_token: token
+    } do
+      html =
+        conn
+        |> sign_in(token)
+        |> get("/console/knowledge?mode=find&q=standups")
+        |> html_response(200)
+
+      refute html =~ "Retrieval preview"
+      assert html =~ "Retrieval needs a scope"
+    end
+
+    test "active filters are summarized and clearable", %{conn: conn, admin_token: token} do
+      html =
+        conn
+        |> sign_in(token)
+        |> get("/console/knowledge?scope=%2Fconsole-test&state=active")
+        |> html_response(200)
+
+      assert html =~ "Active filters"
+      assert html =~ "filter-chip"
+      assert html =~ "Clear all"
+      # Each chip removes only itself, so the other filter survives its link.
+      assert html =~ "state=active"
+    end
+
+    test "the scope control offers typeahead over authorized paths only", %{
+      conn: conn,
+      admin_token: admin_token,
+      member_token: member_token
+    } do
+      html = conn |> sign_in(admin_token) |> get("/console/knowledge") |> html_response(200)
+
+      assert html =~ ~s|list="console-scope-paths"|
+      assert html =~ ~s|<datalist id="console-scope-paths">|
+      assert html =~ ~s|value="/console-test"|
+
+      member = build_conn() |> sign_in(member_token) |> get("/console/knowledge")
+
+      refute html_response(member, 200) =~ ~s|value="/console-test"|
+    end
+
+    test "page size, sort, and an out-of-range page are all bounded", %{admin: admin} do
+      # The bootstrap actor predates the scope ingest created, so it must be
+      # refreshed before it can read anything inside it.
+      admin = Identity.refresh_actor(admin)
+
+      assert %{page_size: 25, sort: "confidence", page: 1} =
+               Loader.knowledge_list(admin, %{})
+
+      assert %{page_size: 100} = Loader.knowledge_list(admin, %{"per_page" => "100"})
+
+      # A hand-typed size would turn a browsing surface into an export.
+      assert %{page_size: 25} = Loader.knowledge_list(admin, %{"per_page" => "5000"})
+      assert %{page_size: 25} = Loader.knowledge_list(admin, %{"per_page" => "not a number"})
+
+      assert %{sort: "recorded"} = Loader.knowledge_list(admin, %{"sort" => "recorded"})
+      assert %{sort: "confidence"} = Loader.knowledge_list(admin, %{"sort" => "id; drop table"})
+
+      # A deep link outlives the filters it was written against.
+      assert %{page: 1, page_count: 1} = Loader.knowledge_list(admin, %{"page" => "99"})
+    end
+
+    test "a scope filter reports how much it contains", %{admin: admin} do
+      admin = Identity.refresh_actor(admin)
+
+      assert %{descendant_count: nil, filtered?: false} = Loader.knowledge_list(admin, %{})
+
+      assert %{descendant_count: 0, filtered?: true} =
+               Loader.knowledge_list(admin, %{"scope" => "/console-test"})
+
+      # The root contains `/console-test`, and a scope filter takes the whole
+      # subtree with it.
+      assert %{descendant_count: 1} = Loader.knowledge_list(admin, %{"scope" => "/"})
+    end
+
+    test "an empty result says which kind of empty it is", %{conn: conn, member_token: token} do
+      # The member holds a non-propagating root grant, so they can read nothing
+      # inside `/console-test` and their unfiltered explorer is genuinely empty.
+      unfiltered = conn |> sign_in(token) |> get("/console/knowledge") |> html_response(200)
+
+      assert unfiltered =~ "You can read no statements at all yet"
+
+      filtered =
+        build_conn()
+        |> sign_in(token)
+        |> get("/console/knowledge?kind=preference")
+        |> html_response(200)
+
+      assert filtered =~ "Nothing matches these filters"
+    end
+
+    test "lifecycle and sensitivity are labelled, not colour-only", %{
+      conn: conn,
+      admin_token: token
+    } do
+      html = conn |> sign_in(token) |> get("/console/knowledge") |> html_response(200)
+
+      assert html =~ "badge-glyph"
+      assert html =~ "What these labels mean"
+      # Enum spelling belongs to the machine; the reader gets prose.
+      assert html =~ "Needs revalidation"
+      refute html =~ ">needs_revalidation<"
+    end
+  end
+
+  describe "the statement page" do
+    setup [:seed_world]
+
+    test "the statement and the available actions lead the page", %{
+      conn: conn,
+      admin_token: token,
+      knowledge_id: id,
+      statement: statement
+    } do
+      html = conn |> sign_in(token) |> get("/console/knowledge/#{id}") |> html_response(200)
+
+      assert html =~ "What you can do"
+
+      # Order is the point of this page: the claim and what to do about it must
+      # come before the evidence that produced it.
+      assert index(html, statement) < index(html, "What you can do")
+      assert index(html, "What you can do") < index(html, "Provenance")
+      assert index(html, "Provenance") < index(html, "How this was produced")
+    end
+
+    test "pipeline and gate metadata stay behind one disclosure", %{
+      conn: conn,
+      admin_token: token,
+      knowledge_id: id
+    } do
+      html = conn |> sign_in(token) |> get("/console/knowledge/#{id}") |> html_response(200)
+
+      assert html =~ ~s|<details class="technical">|
+      assert index(html, ~s|<details class="technical">|) < index(html, "How this was produced")
+    end
+
+    test "an unavailable action explains itself rather than vanishing", %{
+      conn: conn,
+      admin: admin,
+      member_id: member_id,
+      member_token: member_token,
+      knowledge_id: id
+    } do
+      # A provisional statement is visible to its subject alone, so it has to
+      # settle before a reader can be shown the empty-action explanation.
+      activate_knowledge!(admin, [id])
+      admin = Identity.refresh_actor(admin)
+
+      Identity.grant_role(admin, %{
+        "scope_path" => "/console-test",
+        "peer_id" => member_id,
+        "role" => "reader",
+        "propagate" => false
+      })
+
+      html =
+        conn |> sign_in(member_token) |> get("/console/knowledge/#{id}") |> html_response(200)
+
+      assert html =~ "What you can do"
+      assert html =~ "belong to the subject of a statement"
+    end
+
+    test "the list link and the return link preserve filters", %{
+      conn: conn,
+      admin_token: token,
+      knowledge_id: id
+    } do
+      list =
+        conn
+        |> sign_in(token)
+        |> get("/console/knowledge?scope=%2Fconsole-test")
+        |> html_response(200)
+
+      assert list =~ "back=scope"
+
+      detail =
+        build_conn()
+        |> sign_in(token)
+        |> get("/console/knowledge/#{id}?back=#{URI.encode_www_form("scope=/console-test")}")
+        |> html_response(200)
+
+      assert detail =~ "Back to the list"
+      assert detail =~ "/console/knowledge?scope=%2Fconsole-test"
+    end
+
+    test "a foreign return value cannot leave the explorer", %{
+      conn: conn,
+      admin_token: token,
+      knowledge_id: id
+    } do
+      html =
+        conn
+        |> sign_in(token)
+        |> get(
+          "/console/knowledge/#{id}?back=" <>
+            URI.encode_www_form("redirect=https://evil.test/&scope=/console-test")
+        )
+        |> html_response(200)
+
+      # Only the explorer's own filter keys survive, so `back` can name no
+      # destination outside it.
+      refute html =~ "evil.test"
+      assert html =~ "/console/knowledge?scope=%2Fconsole-test"
+    end
+  end
+
   # ----------------------------------------------------------------------------
   # World
   # ----------------------------------------------------------------------------
+
+  # Byte offset of the first occurrence, for asserting page order.
+  defp index(html, needle) do
+    case :binary.match(html, needle) do
+      {start, _length} -> start
+      :nomatch -> flunk("expected the page to contain #{inspect(needle)}")
+    end
+  end
 
   # One Account holding a real administrator, a real member, one ingested
   # observation, and the statement extracted from it. Everything is created
