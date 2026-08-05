@@ -49,7 +49,7 @@ defmodule Cartulary.Pipeline.Extractor do
   # The `prompt_version` actually stamped on provenance and usage rows comes
   # from the resolved `ingest_extractor` role, not from here; the two are kept
   # equal on purpose, so editing the prompt means bumping both.
-  @prompt_version "extract-2"
+  @prompt_version "extract-3"
 
   @doc """
   The identity of the extraction-and-pipeline contract this build implements.
@@ -108,6 +108,16 @@ defmodule Cartulary.Pipeline.Extractor do
         discounted again by Cartulary. Propose sensitivity and the independent
         expiry, revalidation, and relevant-window timestamps. Use no_op by
         omitting the candidate rather than emitting an empty statement.
+
+        The observation carries the time it was made. Resolve every relative
+        date against that time — "last weekend", "yesterday", "next month" —
+        and write the absolute date into the statement itself, because a reader
+        of the statement alone has no other clock.
+
+        Use kind "event" for anything that happened at a point or over a span of
+        time, whatever else it also asserts. Give an event relevant_from, and
+        relevant_until as well when it spans more than an instant. Leave the
+        relevant window empty for a statement with no time of its own.
         """
       },
       %{
@@ -117,6 +127,7 @@ defmodule Cartulary.Pipeline.Extractor do
         Source role: #{Map.get(message, "role", "user")}
         Current scope: #{schema_context.scope_path}
         Known peer keys: #{Enum.join(schema_context.known_peer_keys, ", ")}
+        Observed at: #{observed_at(schema_context.occurred_at)}
 
         Observation:
         #{Map.fetch!(message, "content")}
@@ -157,6 +168,13 @@ defmodule Cartulary.Pipeline.Extractor do
     end
   end
 
+  # Second precision: no observation is dated more finely than that in practice,
+  # and stored microseconds would only spend prompt tokens on digits the model
+  # cannot use.
+  defp observed_at(%DateTime{} = occurred_at) do
+    occurred_at |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+  end
+
   # Assembles the validation context the schema uses to police the model's
   # output. The generated ids in the `put_new` fallbacks only ever apply to
   # standalone callers that pass no context (tooling and tests); the pipeline
@@ -175,6 +193,9 @@ defmodule Cartulary.Pipeline.Extractor do
     |> Map.put_new(:message_id, Map.get(message, "id"))
     |> Map.put(:source_peer_key, source_peer_key)
     |> Map.put(:scope_path, Map.fetch!(message, "scope_path"))
+    # Falls back to now only for a standalone caller that assembled an
+    # observation without one. Both pipeline paths always carry a stored time.
+    |> Map.put(:occurred_at, Map.get(message, "occurred_at") || Cartulary.Clock.utc_now())
     |> Map.put(
       :known_peer_keys,
       message

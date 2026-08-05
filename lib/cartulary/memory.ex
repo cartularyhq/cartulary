@@ -246,7 +246,8 @@ defmodule Cartulary.Memory do
   # Deliberately kept out of the public surface: only the document service calls it, and only
   # it can supply the facts this function cannot derive. `attrs` must carry "id" (the document
   # version id, which becomes the provenance target), "scope_id", "peer_id", "peer_key",
-  # "scope_path", and "content".
+  # "scope_path", "content", and "occurred_at" (the version's observation time, which dates an
+  # event the model leaves undated — a document has no conversational turn to date it).
   #
   # Marking the observation document-sourced keeps message provenance out of the result: the
   # knowledge item's source message list stays empty and its provenance row points at the
@@ -933,6 +934,8 @@ defmodule Cartulary.Memory do
               revalidate_after: item.revalidate_after,
               relevant_from: item.relevant_from,
               relevant_until: item.relevant_until,
+              # Dates an event the model left undated. Nothing else reads it.
+              observed_at: message["occurred_at"],
               extracting_provider: item.provider,
               extracting_model: item.model,
               extracting_model_version: item.model_version,
@@ -1588,17 +1591,29 @@ defmodule Cartulary.Memory do
   # A missing or unusable event time becomes "now" instead of rejecting the
   # observation: clients often have no reliable clock, and the row's own insertion
   # timestamp still records when the system learned of it.
+  #
+  # An offsetless timestamp is read as UTC rather than discarded. `DateTime.from_iso8601/1`
+  # alone rejects one, and the fallback below would then stamp a backfilled turn with the
+  # ingest instant — silently, and with a plausible-looking value. Offsetless is the default
+  # output of common clients, so the strict-only path lost the true time of most backfills.
   defp coerce_datetime!(nil), do: Clock.utc_now()
   defp coerce_datetime!(%DateTime{} = datetime), do: datetime
 
   defp coerce_datetime!(value) when is_binary(value) do
     case DateTime.from_iso8601(value) do
       {:ok, datetime, _offset} -> datetime
-      {:error, _reason} -> Clock.utc_now()
+      {:error, _reason} -> naive_utc(value) || Clock.utc_now()
     end
   end
 
   defp coerce_datetime!(_value), do: Clock.utc_now()
+
+  defp naive_utc(value) do
+    case NaiveDateTime.from_iso8601(value) do
+      {:ok, naive} -> DateTime.from_naive!(naive, "Etc/UTC")
+      {:error, _reason} -> nil
+    end
+  end
 
   # Query-string values arrive as strings. A value that is not cleanly numeric
   # falls back to the default (or to no filter) rather than failing the request;

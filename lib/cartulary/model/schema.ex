@@ -250,7 +250,10 @@ defmodule Cartulary.Model.Schema.Extraction do
         extracting_model: "schema-validation",
         extracting_model_version: "schema-validation",
         prompt_version: "schema-validation",
-        pipeline_version: "f5-1"
+        pipeline_version: "f5-1",
+        # The real write anchors an undated event to this. Withholding it here would
+        # reject a candidate the pipeline can in fact record.
+        observed_at: Map.get(context, :occurred_at)
       })
 
     changeset =
