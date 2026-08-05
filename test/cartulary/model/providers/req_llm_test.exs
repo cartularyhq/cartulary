@@ -142,6 +142,16 @@ defmodule Cartulary.Model.Providers.ReqLLMTest do
              Adapter.chat(config, [%{role: "user", content: "hi"}], [])
   end
 
+  test "transport timeout defaults use ReqLLM's req_http_options channel" do
+    config =
+      stubbed_role(completion("stop", %{"role" => "assistant", "content" => "hello"}))
+      |> update_in([Access.key!(:options)], fn options ->
+        Map.put(options, "pool_timeout", 120_000)
+      end)
+
+    assert {:ok, %Result{value: "hello"}} = Adapter.chat(config, @messages, [])
+  end
+
   describe "structured/4 on a 200 response with no object" do
     test "OpenRouter structured generation uses its native JSON-schema response path" do
       config =

@@ -46,8 +46,9 @@ defmodule Cartulary.Model.Providers.ReqLLM do
   # output — capping `max_tokens` alone only truncates a call after that
   # spend already happened.
   @request_option_keys ~w(
-    base_url max_tokens max_retries pool_timeout receive_timeout request_timeout temperature top_p reasoning_effort
+    base_url max_tokens max_retries receive_timeout temperature top_p reasoning_effort
   )a
+  @req_http_option_keys ~w(pool_timeout)a
 
   @doc """
   Generates one schema-constrained object.
@@ -211,7 +212,9 @@ defmodule Cartulary.Model.Providers.ReqLLM do
 
   # Builds the outbound request options: allowlisted configured values, then the
   # resolved credential, then per-call overrides last so a caller's explicit
-  # timeout or temperature wins over the stored default.
+  # timeout or temperature wins over the stored default. ReqLLM validates its
+  # generation options before a request is built; transport-only options must
+  # stay nested under its supported `:req_http_options` escape hatch.
   defp request_opts(%Role{options: options}, overrides) do
     configured =
       @request_option_keys
@@ -222,9 +225,17 @@ defmodule Cartulary.Model.Providers.ReqLLM do
         end
       end)
 
+    req_http_options =
+      @req_http_option_keys
+      |> Enum.reduce([], fn key, acc ->
+        value = Keyword.get(overrides, key, Map.get(options, Atom.to_string(key)))
+        if is_nil(value), do: acc, else: [{key, value} | acc]
+      end)
+
     configured
     |> maybe_put(:api_key, resolve_api_key(options))
     |> Keyword.merge(Keyword.take(overrides, @request_option_keys))
+    |> maybe_put(:req_http_options, req_http_options)
   end
 
   # OpenRouter's forced synthetic tool is not reliable for gpt-oss models: it

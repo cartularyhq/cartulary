@@ -428,7 +428,6 @@ generation_options = %{
   "max_tokens" => env_integer.("CARTULARY_MODEL_MAX_TOKENS", "8192"),
   "reasoning_effort" => env_get.("CARTULARY_MODEL_REASONING_EFFORT", "low"),
   "receive_timeout" => env_integer.("CARTULARY_MODEL_RECEIVE_TIMEOUT_MS", "120000"),
-  "request_timeout" => env_positive_integer!.("CARTULARY_MODEL_REQUEST_TIMEOUT_MS", "300000"),
   "pool_timeout" => env_positive_integer!.("CARTULARY_MODEL_POOL_TIMEOUT_MS", "120000")
 }
 
