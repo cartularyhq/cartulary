@@ -213,8 +213,9 @@ defmodule Cartulary.Model.Providers.ReqLLM do
   # Builds the outbound request options: allowlisted configured values, then the
   # resolved credential, then per-call overrides last so a caller's explicit
   # timeout or temperature wins over the stored default. ReqLLM validates its
-  # generation options before a request is built; transport-only options must
-  # stay nested under its supported `:req_http_options` escape hatch.
+  # generation options before a request is built. Req forwards pool and idle
+  # options directly, but needs its supported callback hook for Finch's total
+  # request deadline.
   defp request_opts(%Role{options: options}, overrides) do
     configured =
       @request_option_keys
@@ -232,10 +233,36 @@ defmodule Cartulary.Model.Providers.ReqLLM do
         if is_nil(value), do: acc, else: [{key, value} | acc]
       end)
 
+    request_timeout =
+      Keyword.get(overrides, :request_timeout, Map.get(options, "request_timeout"))
+
     configured
     |> maybe_put(:api_key, resolve_api_key(options))
     |> Keyword.merge(Keyword.take(overrides, @request_option_keys))
-    |> maybe_put(:req_http_options, req_http_options)
+    |> maybe_put(
+      :req_http_options,
+      maybe_put(req_http_options, :finch_request, finch_request(request_timeout))
+    )
+  end
+
+  # Req 0.6 passes only pool_timeout and receive_timeout to Finch. Its callback
+  # hook keeps that behaviour while adding Finch's HTTP/1 total-response cap.
+  defp finch_request(nil), do: nil
+
+  defp finch_request(request_timeout) do
+    fn request, finch_request, finch_name, finch_options ->
+      case Finch.request(
+             finch_request,
+             finch_name,
+             Keyword.put(finch_options, :request_timeout, request_timeout)
+           ) do
+        {:ok, response} ->
+          {request, Req.Response.new(response)}
+
+        {:error, error} ->
+          {request, error}
+      end
+    end
   end
 
   # OpenRouter's forced synthetic tool is not reliable for gpt-oss models: it
