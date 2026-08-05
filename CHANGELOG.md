@@ -73,6 +73,13 @@ changelog entry and contract-version transition.
   period and omit the pair. The addition is additive; the retrieval contract
   remains `f7-1`.
 
+- The `ask` prompt now shows the answerer each statement's validity window as
+  `(true from <date>)` or `(true from <date> until <date>)`, and instructs it to
+  date a relative phrase from that window rather than from today. Previously the
+  answering prompt carried only `[id] statement`, so a model shown "last
+  weekend" had nothing to resolve it against. Dates only; nothing beyond the
+  retrieved statements and their windows enters the prompt.
+
 - `/console/graph` is now a scoped explorer rather than a global picture. It
   opens on one scope, keeps that scope and the descendants option in the URL,
   and offers a breadcrumb, a parent control, and chips for the readable scopes

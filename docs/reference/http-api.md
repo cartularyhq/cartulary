@@ -204,6 +204,10 @@ Returns the search payload merged with `answer`, `citations`, and `abstained`.
 Retrieval is restricted to knowledge items, so citations are governed
 statements. `abstained: true` is an ordinary outcome.
 
+The answerer sees each statement with its validity window and is told to date a
+relative phrase from that window rather than from today, so a statement reading
+"last weekend" is answered with the date the claim held.
+
 | `citations` | `abstained` | Meaning |
 | --- | --- | --- |
 | non-empty | `false` | The cited statements establish the answer. |
