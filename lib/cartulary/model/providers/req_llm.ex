@@ -259,9 +259,6 @@ defmodule Cartulary.Model.Providers.ReqLLM do
         {:ok, response} ->
           {request, Req.Response.new(response)}
 
-        {:error, %Mint.TransportError{reason: reason}} ->
-          {request, Req.TransportError.exception(reason: reason)}
-
         {:error, error} ->
           {request, error}
       end
