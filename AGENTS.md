@@ -30,6 +30,8 @@ the task explicitly changes the blueprint.
 
 ## Writing style
 
+Use ASD-STE100 Simplified Technical English.
+
 Write for a busy reader.
 
 - Lead with the point. Use short sentences and short paragraphs.
