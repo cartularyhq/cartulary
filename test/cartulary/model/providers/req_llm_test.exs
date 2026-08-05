@@ -25,6 +25,8 @@ defmodule Cartulary.Model.Providers.ReqLLMTest.StubPlug do
   end
 
   defp respond(conn, opts) do
+    if delay = Keyword.get(opts, :delay), do: Process.sleep(delay)
+
     conn
     |> Plug.Conn.put_resp_content_type("application/json")
     |> Plug.Conn.send_resp(200, Jason.encode!(Keyword.fetch!(opts, :body)))
@@ -33,7 +35,7 @@ end
 
 defmodule Cartulary.Model.Providers.ReqLLMTest do
   @moduledoc """
-  Pins two properties of the HTTP model adapter.
+  Pins three properties of the HTTP model adapter.
 
   First, that `reasoning_effort` reaches the underlying `req_llm` library as the
   atom its option schema requires, not the string role configuration stores it
@@ -45,7 +47,12 @@ defmodule Cartulary.Model.Providers.ReqLLMTest do
   every single generation call for any role that sets it, which is exactly
   what shipped in `a566d30` before this file existed.
 
-  Second, that a call which completes with HTTP 200 but carries no usable value
+  Second, that the configured total request deadline reaches Finch even when
+  the idle receive timeout has not elapsed. Req 0.6 does not forward that
+  Finch option itself, so losing the callback would let a slow response run
+  until the provider closes it.
+
+  Third, that a call which completes with HTTP 200 but carries no usable value
   is named for *why* it is unusable. An aggregator can answer 200 with a choice
   whose finish reason is `error` (its upstream failed mid-generation),
   `length` (the answer was cut off before the tool arguments closed), or
@@ -142,14 +149,22 @@ defmodule Cartulary.Model.Providers.ReqLLMTest do
              Adapter.chat(config, [%{role: "user", content: "hi"}], [])
   end
 
-  test "transport timeout defaults use ReqLLM's req_http_options channel" do
+  test "the total request timeout reaches Finch through Req's callback" do
     config =
-      stubbed_role(completion("stop", %{"role" => "assistant", "content" => "hello"}))
+      stubbed_role(
+        completion("stop", %{"role" => "assistant", "content" => "hello"}),
+        delay: 200
+      )
       |> update_in([Access.key!(:options)], fn options ->
-        Map.put(options, "pool_timeout", 120_000)
+        Map.merge(options, %{
+          "pool_timeout" => 120_000,
+          "receive_timeout" => 1_000,
+          "request_timeout" => 50
+        })
       end)
 
-    assert {:ok, %Result{value: "hello"}} = Adapter.chat(config, @messages, [])
+    assert {:error, %ReqLLM.Error.API.Request{cause: %Finch.TransportError{reason: :timeout}}} =
+             Adapter.chat(config, @messages, [])
   end
 
   describe "structured/4 on a 200 response with no object" do

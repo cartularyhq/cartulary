@@ -84,7 +84,8 @@ surfaces report the available version and retain their normal deployment flow.
 | `CARTULARY_MODEL_LOCAL_FALLBACK` | `true` in dev, off in prod | Deterministic local adapter |
 | `CARTULARY_MODEL_REASONING_EFFORT` | `low` | Reasoning-token budget shared by all three generation roles |
 | `CARTULARY_MODEL_MAX_TOKENS` | `8192` | Output-token cap shared by all three generation roles |
-| `CARTULARY_MODEL_RECEIVE_TIMEOUT_MS` | `120000` | Request timeout (ms) shared by all three generation roles |
+| `CARTULARY_MODEL_RECEIVE_TIMEOUT_MS` | `120000` | Maximum idle wait (ms) between response chunks |
+| `CARTULARY_MODEL_REQUEST_TIMEOUT_MS` | `300000` | Total model-call ceiling (ms) shared by all three generation roles |
 | `CARTULARY_MODEL_STREAM_POOL_SIZE` | `16` | Connections in each shared HTTP/1 shard |
 | `CARTULARY_MODEL_STREAM_POOL_COUNT` | `1` | Shared HTTP/1 shard count; raise only for a measured shard bottleneck |
 | `CARTULARY_MODEL_POOL_TIMEOUT_MS` | `120000` | Maximum wait (ms) to check out a model HTTP connection |
@@ -100,6 +101,8 @@ surfaces report the available version and retain their normal deployment flow.
     chosen model requires it.
 
 `CARTULARY_MODEL_RECEIVE_TIMEOUT_MS` bounds the wait between response chunks.
+`CARTULARY_MODEL_REQUEST_TIMEOUT_MS` bounds the complete response, even when a
+provider continues sending chunks or keep-alives.
 
 `CARTULARY_MODEL_STREAM_POOL_SIZE` must cover concurrent hosted model calls,
 not just one role. Finch chooses a shard randomly when the count exceeds one,

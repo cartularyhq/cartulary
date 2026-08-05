@@ -422,12 +422,15 @@ generation_version =
 #   from other vendors do not match that pattern, so without an explicit
 #   override here they get ReqLLM's plain 30-second chat timeout, which a
 #   genuinely slow reasoning call can exceed even with the two settings above.
+# - request_timeout caps the whole HTTP exchange. Unlike receive_timeout, it
+#   does not reset whenever a provider streams another chunk or keep-alive.
 generation_options = %{
   "api_key_ref" => "env:OPENROUTER_API_KEY",
   "base_url" => env_get.("CARTULARY_OPENAI_COMPAT_BASE_URL", "https://openrouter.ai/api/v1"),
   "max_tokens" => env_integer.("CARTULARY_MODEL_MAX_TOKENS", "8192"),
   "reasoning_effort" => env_get.("CARTULARY_MODEL_REASONING_EFFORT", "low"),
   "receive_timeout" => env_integer.("CARTULARY_MODEL_RECEIVE_TIMEOUT_MS", "120000"),
+  "request_timeout" => env_positive_integer!.("CARTULARY_MODEL_REQUEST_TIMEOUT_MS", "300000"),
   "pool_timeout" => env_positive_integer!.("CARTULARY_MODEL_POOL_TIMEOUT_MS", "120000")
 }
 
