@@ -204,6 +204,10 @@ Returns the search payload merged with `answer`, `citations`, `abstained`, and
 `answer_confidence`. Retrieval is restricted to knowledge items, so citations
 are governed statements. `abstained: true` is an ordinary outcome.
 
+The answerer sees each statement with its validity window and is told to date a
+relative phrase from that window rather than from today, so a statement reading
+"last weekend" is answered with the date the claim held.
+
 `answer_confidence` is an integer from 0 to 100. For a model answer it is the
 model's own probability that the answer is correct. The model always answers:
 it states what the retrieved statements make most probable instead of refusing,

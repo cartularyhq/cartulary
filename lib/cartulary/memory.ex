@@ -1435,17 +1435,35 @@ defmodule Cartulary.Memory do
     end
   end
 
+  # Renders a candidate's validity window, or "" when it has none.
+  #
+  # A statement is written to read on its own, but extraction cannot always put an absolute
+  # date in one — "last weekend" survives into the text. The window is then the only thing
+  # that can date the claim, and a model shown the sentence alone resolves the phrase against
+  # its own idea of today. Dates only: no retrieved statement is finer-grained than a day.
+  defp validity_suffix(row) do
+    case {row["relevant_from"], row["relevant_until"]} do
+      {nil, _until} -> ""
+      {from, nil} -> " (true from #{date_only(from)})"
+      {from, until} -> " (true from #{date_only(from)} until #{date_only(until)})"
+    end
+  end
+
+  defp date_only(%DateTime{} = at), do: at |> DateTime.to_date() |> Date.to_iso8601()
+
   # Builds the grounded question prompt and validates what comes back.
   #
   # Every statement is prefixed with its knowledge id so the model can cite by id,
-  # and nothing beyond the retrieved statements enters the prompt — the model is
-  # never given free rein over the Account's memory. The call goes through the
-  # model gateway rather than a provider directly, which is what keeps usage
-  # accounting, provenance, and provider choice in one place.
+  # and nothing beyond the retrieved statements and their validity windows enters
+  # the prompt — the model is never given free rein over the Account's memory. The
+  # call goes through the model gateway rather than a provider directly, which is
+  # what keeps usage accounting, provenance, and provider choice in one place.
   defp model_answer(question, candidates, model_context) do
     memory_context =
       candidates
-      |> Enum.map_join("\n", fn row -> "[#{row["id"]}] #{row["statement"]}" end)
+      |> Enum.map_join("\n", fn row ->
+        "[#{row["id"]}] #{row["statement"]}#{validity_suffix(row)}"
+      end)
 
     prompt = """
     Answer the question using only the cited Cartulary memory statements.
@@ -1459,6 +1477,8 @@ defmodule Cartulary.Memory do
     3. If the statements barely bear on the question, still give the most probable answer they allow and set answer_confidence low, near 0.
 
     Cite every statement your answer rests on, including a low-confidence one. An answer with no surviving citation is discarded.
+
+    A statement may be followed by "(true from ...)" or "(true from ... until ...)": when the claim held. Use it to date an answer whose statement says only "last weekend" or "yesterday". Do not date such a phrase from today's date.
 
     Question: #{question}
 
