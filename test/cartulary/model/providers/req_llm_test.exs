@@ -146,7 +146,7 @@ defmodule Cartulary.Model.Providers.ReqLLMTest do
     config =
       stubbed_role(completion("stop", %{"role" => "assistant", "content" => "hello"}))
       |> update_in([Access.key!(:options)], fn options ->
-        Map.merge(options, %{"request_timeout" => 300_000, "pool_timeout" => 120_000})
+        Map.put(options, "pool_timeout", 120_000)
       end)
 
     assert {:ok, %Result{value: "hello"}} = Adapter.chat(config, @messages, [])

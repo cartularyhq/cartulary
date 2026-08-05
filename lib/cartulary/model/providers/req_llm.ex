@@ -48,7 +48,7 @@ defmodule Cartulary.Model.Providers.ReqLLM do
   @request_option_keys ~w(
     base_url max_tokens max_retries receive_timeout temperature top_p reasoning_effort
   )a
-  @req_http_option_keys ~w(pool_timeout request_timeout)a
+  @req_http_option_keys ~w(pool_timeout)a
 
   @doc """
   Generates one schema-constrained object.
