@@ -166,6 +166,12 @@ defmodule Cartulary.Model.Providers.ReqLLM do
 
   @doc """
   Reranks documents against a query, returning the endpoint's ranked results.
+
+  A dedicated rerank endpoint is preferred when the configured model supports
+  one. General-purpose reasoning models, including the shipped OpenRouter
+  default, do not expose that capability. Those models produce the same
+  index-and-score contract through strict structured generation instead of
+  making every `:thorough` request drop its reranker.
   """
   @impl true
   def rerank(%Role{} = config, query, documents, opts) do
@@ -183,9 +189,80 @@ defmodule Cartulary.Model.Providers.ReqLLM do
            metadata: %{result_count: length(response.results)}
          }}
 
+      {:error, %ReqLLM.Error.Invalid.Parameter{parameter: parameter}}
+      when is_binary(parameter) ->
+        if String.ends_with?(parameter, "does not support reranking operations") do
+          rerank_with_structured_generation(config, query, documents, opts)
+        else
+          {:error, %ReqLLM.Error.Invalid.Parameter{parameter: parameter}}
+        end
+
       {:error, error} ->
         {:error, error}
     end
+  end
+
+  defp rerank_with_structured_generation(config, query, documents, opts) do
+    messages = [
+      %{
+        role: "system",
+        content:
+          "Rank the supplied documents by relevance to the query. Return every index exactly once. Higher relevance_score means more relevant."
+      },
+      %{
+        role: "user",
+        content:
+          Jason.encode!(%{
+            query: query,
+            documents:
+              documents
+              |> Enum.with_index()
+              |> Enum.map(fn {document, index} -> %{index: index, document: document} end)
+          })
+      }
+    ]
+
+    case ReqLLM.generate_object(
+           model_spec(config),
+           messages,
+           rerank_schema(),
+           structured_request_opts(config, opts)
+         ) do
+      {:ok, response} ->
+        rankings = response |> ReqLLM.Response.object() |> Map.get("rankings", [])
+
+        {:ok,
+         %Result{
+           value: rankings,
+           usage: usage(response.usage),
+           metadata: %{result_count: length(rankings)}
+         }}
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp rerank_schema do
+    %{
+      "type" => "object",
+      "properties" => %{
+        "rankings" => %{
+          "type" => "array",
+          "items" => %{
+            "type" => "object",
+            "properties" => %{
+              "index" => %{"type" => "integer", "minimum" => 0},
+              "relevance_score" => %{"type" => "number"}
+            },
+            "required" => ["index", "relevance_score"],
+            "additionalProperties" => false
+          }
+        }
+      },
+      "required" => ["rankings"],
+      "additionalProperties" => false
+    }
   end
 
   # An OpenAI-compatible endpoint is addressed as the OpenAI provider plus an

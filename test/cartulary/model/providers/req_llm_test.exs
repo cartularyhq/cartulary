@@ -167,6 +167,33 @@ defmodule Cartulary.Model.Providers.ReqLLMTest do
              Adapter.chat(config, @messages, [])
   end
 
+  test "a generation-only model reranks through strict structured output" do
+    config =
+      stubbed_role(
+        completion("stop", %{
+          "role" => "assistant",
+          "content" =>
+            ~s({"rankings":[{"index":1,"relevance_score":0.9},{"index":0,"relevance_score":0.2}]})
+        }),
+        test_pid: self()
+      )
+
+    assert {:ok,
+            %Result{
+              value: [
+                %{"index" => 1, "relevance_score" => 0.9},
+                %{"index" => 0, "relevance_score" => 0.2}
+              ]
+            }} = Adapter.rerank(config, "relationship status", ["first", "second"], [])
+
+    assert_receive {:req_llm_request, request}
+
+    assert %{"type" => "json_schema", "json_schema" => %{"strict" => true}} =
+             request["response_format"]
+
+    assert request["messages"] |> List.last() |> Map.fetch!("content") =~ "relationship status"
+  end
+
   describe "structured/4 on a 200 response with no object" do
     test "OpenRouter structured generation uses its native JSON-schema response path" do
       config =
