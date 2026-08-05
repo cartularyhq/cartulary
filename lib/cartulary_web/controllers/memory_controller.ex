@@ -142,9 +142,11 @@ defmodule CartularyWeb.MemoryController do
     latency than a bare search.
 
     Returns `%{"data" => result}`: the search payload merged with `answer`, `citations`,
-    and `abstained`. The answer is grounded in the returned candidates — when nothing
-    supports the question the action abstains instead of inventing one, so treat
-    `abstained == true` as an ordinary outcome and not an error.
+    `abstained`, and `answer_confidence`. The answer is grounded in the returned candidates
+    — when nothing supports the question the action abstains instead of inventing one, so
+    treat `abstained == true` as an ordinary outcome and not an error.
+    `answer_confidence` is a 0-100 percentage; a model answer below the abstention
+    threshold abstains regardless of what the model claimed.
   """
   def ask(conn, params) do
     result =

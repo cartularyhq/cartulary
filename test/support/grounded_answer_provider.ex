@@ -21,19 +21,23 @@ defmodule Cartulary.Model.GroundedAnswerProvider do
   alias Cartulary.Model.Providers.Deterministic
 
   @supported_answer "The recorded statements do not establish this, but they support a preference for concise weekly release summaries."
+  @inferred_answer "Avery most likely prefers concise weekly release summaries."
 
   @doc """
   Arms the dialectic response mode and clears all previously recorded prompts.
 
   Supported modes are `:grounded_abstention`,
-  `:grounded_abstention_with_invented_citation`, and
-  `:unsupported_assertion`. Returns `:ok`; raises for an unsupported mode.
+  `:grounded_abstention_with_invented_citation`, `:unsupported_assertion`,
+  `:confident_inference`, and `:low_confidence_inference`. Returns `:ok`; raises
+  for an unsupported mode.
   """
   def start!(mode)
       when mode in [
              :grounded_abstention,
              :grounded_abstention_with_invented_citation,
-             :unsupported_assertion
+             :unsupported_assertion,
+             :confident_inference,
+             :low_confidence_inference
            ] do
     state = %{mode: mode, prompts: []}
 
@@ -107,20 +111,47 @@ defmodule Cartulary.Model.GroundedAnswerProvider do
     value =
       case mode do
         :grounded_abstention ->
-          %{"answer" => @supported_answer, "citations" => [cited_id], "abstained" => true}
+          %{
+            "answer" => @supported_answer,
+            "citations" => [cited_id],
+            "abstained" => true,
+            "answer_confidence" => 30
+          }
 
         :grounded_abstention_with_invented_citation ->
           %{
             "answer" => @supported_answer,
             "citations" => [cited_id, "invented-knowledge-id"],
-            "abstained" => true
+            "abstained" => true,
+            "answer_confidence" => 30
           }
 
         :unsupported_assertion ->
           %{
             "answer" => "This assertion has no retrieved support.",
             "citations" => ["invented-knowledge-id"],
-            "abstained" => false
+            "abstained" => false,
+            "answer_confidence" => 90
+          }
+
+        # A tier-2 inference the model is sure enough of to present as a
+        # conclusion, which must survive as `abstained => false`.
+        :confident_inference ->
+          %{
+            "answer" => @inferred_answer,
+            "citations" => [cited_id],
+            "abstained" => false,
+            "answer_confidence" => 80
+          }
+
+        # The same inference below the threshold. The model claims a conclusion
+        # and must not get one.
+        :low_confidence_inference ->
+          %{
+            "answer" => @inferred_answer,
+            "citations" => [cited_id],
+            "abstained" => false,
+            "answer_confidence" => 20
           }
       end
 

@@ -40,6 +40,26 @@ changelog entry and contract-version transition.
 
 ### Changed
 
+- `ask` no longer refuses. The answering prompt now instructs the model to state
+  what the retrieved statements make most probable and to carry its uncertainty
+  in a new `answer_confidence` percentage rather than replying `not known`. The
+  response gains `answer_confidence`, an integer from `0` through `100`, on
+  every path: the model's own probability when a model answered, `40` for the
+  model-free statement concatenation, and `0` for the empty abstention. A model
+  answer below `50` sets `abstained` whatever the model claimed, so a cited,
+  abstained, low-confidence answer is now the ordinary shape for a weakly
+  supported inference. The one reply that is not an attempt at the question is
+  the empty abstention used when no retrieved statement survived grounding; its
+  text now reports that state instead of saying `not known`. Citation
+  intersection, retrieval, and the `f7-1` identity are unchanged.
+
+- Evaluation reports now carry `answer_confidence` per question and
+  `mean_answer_confidence` per group, both `nil` when the answer stated no
+  probability, so the abstention threshold can be tuned against measured
+  calibration. The metric is reported, not gated: it is deliberately absent from
+  the required-metric list. The additions are additive to `f11-2`; committed
+  `f11-1` evidence is unchanged.
+
 - `/console/graph` is now a scoped explorer rather than a global picture. It
   opens on one scope, keeps that scope and the descendants option in the URL,
   and offers a breadcrumb, a parent control, and chips for the readable scopes

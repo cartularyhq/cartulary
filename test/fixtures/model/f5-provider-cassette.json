@@ -65,7 +65,8 @@
         "value": {
           "answer": "Avery prefers weekly summaries.",
           "citations": ["knowledge-1"],
-          "abstained": false
+          "abstained": false,
+          "answer_confidence": 90
         },
         "usage": {"input_tokens": 20, "output_tokens": 8}
       },

@@ -511,9 +511,15 @@ defmodule Cartulary.Model.Schema.DialecticAnswer do
   @moduledoc """
   The structured shape for a grounded answer to a question.
 
-  Requires answer text, knowledge-id citations, and explicit `abstained` status.
-  The status is independent of citation presence: a cited answer may abstain
-  from a conclusion while explaining what the cited evidence does support.
+  Requires answer text, knowledge-id citations, an explicit `abstained` status,
+  and an `answer_confidence` percentage. The status is independent of citation
+  presence: a cited answer may abstain from a conclusion while explaining what
+  the cited evidence does support.
+
+  `answer_confidence` is the model's own probability, 0-100, that the answer it
+  gave is correct. It is reported separately from `abstained` because the two
+  answer different questions, but the caller may still derive one from the
+  other.
 
   This module checks citation shape. The caller must separately verify every id was shown to the
   model.
@@ -522,7 +528,7 @@ defmodule Cartulary.Model.Schema.DialecticAnswer do
   @behaviour Cartulary.Model.Schema
 
   @doc """
-  The answer/citations/abstained object schema sent to the provider.
+  The answer/citations/abstained/answer_confidence object schema sent to the provider.
   """
   @impl true
   def json_schema do
@@ -532,19 +538,22 @@ defmodule Cartulary.Model.Schema.DialecticAnswer do
       "properties" => %{
         "answer" => %{"type" => "string"},
         "citations" => %{"type" => "array", "items" => %{"type" => "string"}},
-        "abstained" => %{"type" => "boolean"}
+        "abstained" => %{"type" => "boolean"},
+        "answer_confidence" => %{"type" => "integer", "minimum" => 0, "maximum" => 100}
       },
-      "required" => ~w(answer citations abstained)
+      "required" => ~w(answer citations abstained answer_confidence)
     }
   end
 
   @doc """
-  Validates a dialectic response into `{:ok, %{answer:, citations:, abstained:}}`.
+  Validates a dialectic response into
+  `{:ok, %{answer:, citations:, abstained:, answer_confidence:}}`.
 
-  All three fields must be present and correctly typed, with every citation a
-  string. Anything else returns `{:error, messages}` and the generator retries
-  within its repair budget. The context argument is unused: unlike extraction,
-  nothing here depends on the caller's scope or peers.
+  All four fields must be present and correctly typed, with every citation a
+  string and the confidence an integer percentage. Anything else returns
+  `{:error, messages}` and the generator retries within its repair budget. The
+  context argument is unused: unlike extraction, nothing here depends on the
+  caller's scope or peers.
   """
   @impl true
   def cast(object, _context) when is_map(object) do
@@ -552,9 +561,19 @@ defmodule Cartulary.Model.Schema.DialecticAnswer do
     citations = Map.get(object, "citations", Map.get(object, :citations))
     abstained = Map.get(object, "abstained", Map.get(object, :abstained))
 
+    confidence =
+      Map.get(object, "answer_confidence", Map.get(object, :answer_confidence))
+
     if is_binary(answer) and is_list(citations) and Enum.all?(citations, &is_binary/1) and
-         is_boolean(abstained) do
-      {:ok, %{answer: answer, citations: citations, abstained: abstained}}
+         is_boolean(abstained) and is_integer(confidence) and confidence >= 0 and
+         confidence <= 100 do
+      {:ok,
+       %{
+         answer: answer,
+         citations: citations,
+         abstained: abstained,
+         answer_confidence: confidence
+       }}
     else
       {:error, ["dialectic answer does not satisfy its response schema"]}
     end
