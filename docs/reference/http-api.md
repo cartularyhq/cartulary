@@ -111,7 +111,7 @@ Records one raw observation. The only write path an agent has.
 | `scope_path` | yes | — | Created on demand |
 | `content` | yes | — | The observation text |
 | `role` | no | `"user"` | Speaker role |
-| `occurred_at` | no | now | For backfill |
+| `occurred_at` | no | now | ISO 8601, for backfill. No offset means UTC; an unparseable value falls back to now |
 
 Returns **202** after the raw observation and extraction job commit:
 
@@ -175,6 +175,12 @@ Returns `{"data": result}` with the profile name, `profile_version` (`"f7-1"`),
 the fused `candidates`, and three per-strategy outcomes:
 `contributed_strategies` (returned candidates), `empty_strategies` (ran, matched
 nothing), and `dropped_strategies` (disabled, timed out, or failed).
+Each knowledge candidate carries `relevant_from` and `relevant_until` — the
+window in which the claim is true, both nullable, and both populated for a
+statement of kind `event`. Use them to date an answer; the statement text alone
+may say "last weekend". Document-chunk candidates have no validity period and
+omit the pair.
+
 The additive `retrieval_outcomes` field reports component status, reason class,
 elapsed milliseconds, and remaining budget without query or candidate content.
 `pre_rerank_remaining_ms` reports the budget available before reranking.

@@ -135,6 +135,34 @@ defmodule Cartulary.F4RealGateABGovernanceTest do
     assert %DateTime{} = second.revalidate_after
   end
 
+  test "editing an event's wording keeps the validity window the original carried" do
+    %{actor: actor} = bootstrap_human!("edit-window")
+
+    knowledge =
+      ingest!(
+        actor,
+        "edit-window-item",
+        "/private/work",
+        "Avery shipped the release train checklist on Tuesday."
+      )
+
+    # The premise: this really is a dated event, so there is a window to lose.
+    assert knowledge.kind == "event"
+    assert %DateTime{} = window_start = knowledge.relevant_from
+
+    validation = validation_for!(actor, knowledge.id)
+
+    edited =
+      Engine.decide(actor, validation.id, "edit", %{
+        "statement" => "Avery shipped the release train checklist on Tuesday 4 July 2023."
+      })
+
+    # A correction to the wording is not a claim that the event has no date. Dropping
+    # the window here would silently undate an event that arrived with one, and the
+    # replacement is the row retrieval serves from then on.
+    assert DateTime.compare(edited.replacement.relevant_from, window_start) == :eq
+  end
+
   test "curator Gate A actions are human-only and scope-held proposals never surface" do
     %{actor: actor} = bootstrap_human!("curator")
 

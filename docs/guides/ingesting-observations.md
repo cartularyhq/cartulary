@@ -80,6 +80,16 @@ then let the `ingest` job lane work through them. The belief-time and valid-time
 distinction means a backfilled message is correctly treated as newly *learned*
 but possibly long *true*.
 
+Send `occurred_at` as ISO 8601. An offset is honoured; a timestamp without one
+is read as UTC. A value that cannot be parsed falls back to the current time,
+which silently dates the turn to the moment you loaded it — check the stored
+`occurred_at` on the first few messages of a backfill before running the rest.
+
+`occurred_at` matters more than it looks. It is what the extractor resolves
+"last weekend" or "yesterday" against, and what dates an event whose statement
+carries no absolute date of its own. Load a transcript without it and every
+statement it produces is anchored to your import run.
+
 ## Replaying is safe
 
 Deterministic idempotency makes replay merge provenance instead of duplicating

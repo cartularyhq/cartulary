@@ -409,6 +409,36 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     refute "salience_recency" in result["contributed_strategies"]
   end
 
+  test "a candidate carries the validity window a caller needs to date it" do
+    # An event statement whose own words are relative. Without the window on the
+    # candidate, a reader has no date at all and anchors "last weekend" to
+    # whatever date it happens to hold — which is how a July answer becomes an
+    # October one.
+    seeded =
+      seed_active!(
+        "f7-validity",
+        "/f7/validity",
+        "Caroline joined a mentorship program on the weekend before last.",
+        "session-1",
+        occurred_at: "2023-07-17T14:31:00Z"
+      )
+
+    result =
+      Memory.search(%{
+        "account_key" => "f7-validity",
+        "scope_path" => seeded.scope.path,
+        "query" => "When did Caroline join a mentorship program?",
+        "deadline" => "disabled"
+      })
+
+    assert [candidate | _] = result["candidates"]
+    assert candidate["id"] == seeded.knowledge.id
+    assert candidate["kind"] == "event"
+
+    assert DateTime.compare(candidate["relevant_from"], ~U[2023-07-17 14:31:00Z]) == :eq
+    assert Map.has_key?(candidate, "relevant_until")
+  end
+
   test "semantic, lexical, temporal, and salience candidates fuse with pinned identity" do
     seeded = seed_active!("f7-fusion", "/f7/fusion", "Avery prefers concise release summaries.")
 
@@ -2126,16 +2156,27 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
   # is transitioned to `active` through the ordinary governance engine under the pipeline
   # actor — deliberately going through the engine, not around it, so the transition writes
   # its lifecycle and audit records like any other.
-  defp seed_active!(account_key, scope_path, statement, session_id \\ "session-1") do
+  defp seed_active!(
+         account_key,
+         scope_path,
+         statement,
+         session_id \\ "session-1",
+         overrides \\ []
+       ) do
     assert {:ok, message} =
-             Memory.ingest_message(%{
-               "account_key" => account_key,
-               "session_id" => session_id,
-               "scope_path" => scope_path,
-               "peer_key" => "avery",
-               "peer_name" => "Avery",
-               "content" => statement
-             })
+             Memory.ingest_message(
+               Map.merge(
+                 %{
+                   "account_key" => account_key,
+                   "session_id" => session_id,
+                   "scope_path" => scope_path,
+                   "peer_key" => "avery",
+                   "peer_name" => "Avery",
+                   "content" => statement
+                 },
+                 Map.new(overrides, fn {key, value} -> {to_string(key), value} end)
+               )
+             )
 
     assert {:ok, [knowledge]} = Memory.extract_message(message["id"], account_key)
 

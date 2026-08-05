@@ -81,15 +81,28 @@ defmodule Cartulary.Knowledge.KnowledgeItem do
         :pipeline_version
       ]
 
+      # When the observation was made. Not an attribute: it belongs to the source, not to the
+      # claim, and it is only ever used to date an event the caller left undated.
+      argument :observed_at, :utc_datetime_usec
+
       # Derives `statement_hash` from the statement text. The hash is never accepted from the
       # caller, because deduplication, corroboration merging, and the content-safe audit chain
       # all key off it.
       change Cartulary.Knowledge.Changes.HashStatement
 
+      # Runs before the validation below, which is what lets a caller supply either an explicit
+      # `relevant_from` or the observation time to derive one from.
+      change Cartulary.Knowledge.Changes.AnchorEventValidity
+
       validate attribute_in(:kind, ~w(fact preference event relation skill))
       validate attribute_in(:sensitivity, ~w(public internal personal restricted))
       validate attribute_in(:state, ~w(proposed))
       validate attribute_in(:target_level, ~w(peer scope account))
+
+      # An event asserts that something happened at a time, so a row claiming one has to say
+      # when. Enforced on the row rather than at each writer: a caller that knows neither the
+      # date nor the observation time does not know enough to record an event at all.
+      validate present(:relevant_from), where: [attribute_equals(:kind, "event")]
     end
 
     # Re-observing the same statement corroborates the existing row instead of creating a
