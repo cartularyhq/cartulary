@@ -42,10 +42,22 @@ defmodule Cartulary.Model.Providers.Deterministic do
   def structured(_config, messages, _schema, opts) do
     value =
       case Keyword.get(opts, :task) do
-        :extraction -> %{"items" => extraction_items(messages, opts)}
-        :reasoning -> %{"items" => [], "relations" => []}
-        :dialectic -> %{"answer" => "not known", "citations" => [], "abstained" => true}
-        _other -> %{}
+        :extraction ->
+          %{"items" => extraction_items(messages, opts)}
+
+        :reasoning ->
+          %{"items" => [], "relations" => []}
+
+        :dialectic ->
+          %{
+            "answer" => "not known",
+            "citations" => [],
+            "abstained" => true,
+            "answer_confidence" => 0
+          }
+
+        _other ->
+          %{}
       end
 
     {:ok, %Result{value: value, metadata: %{fallback: true}}}

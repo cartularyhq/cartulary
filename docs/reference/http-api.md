@@ -194,19 +194,31 @@ retrieval. A raw `strategies` override is refused for external callers.
 `question` is required; every `search` field is also accepted, but `profile`
 defaults to `"thorough"`.
 
-Returns the search payload merged with `answer`, `citations`, and `abstained`.
-Retrieval is restricted to knowledge items, so citations are governed
-statements. `abstained: true` is an ordinary outcome.
+Returns the search payload merged with `answer`, `citations`, `abstained`, and
+`answer_confidence`. Retrieval is restricted to knowledge items, so citations
+are governed statements. `abstained: true` is an ordinary outcome.
 
-| `citations` | `abstained` | Meaning |
-| --- | --- | --- |
-| non-empty | `false` | The cited statements establish the answer. |
-| non-empty | `true` | The cited statements support the qualified answer but do not establish a conclusion. |
-| empty | `true` | Nothing retrieved supports an answer; `answer` is `"not known"`. |
+`answer_confidence` is an integer from 0 to 100. For a model answer it is the
+model's own probability that the answer is correct. The model always answers:
+it states what the retrieved statements make most probable instead of refusing,
+and a weak answer arrives with a low `answer_confidence` rather than as a
+refusal. A model answer below 50 sets `abstained: true` whatever the model
+claimed.
+
+| `citations` | `abstained` | `answer_confidence` | Meaning |
+| --- | --- | --- | --- |
+| non-empty | `false` | 50-100 | The cited statements support the answer well enough to act on. |
+| non-empty | `true` | 0-49 | The cited statements make the answer the most probable one, but weakly. Read it as a lead. |
+| empty | `true` | 0 | No retrieved statement survived to ground an answer on. |
+
+The model-free replies report fixed confidences instead: 0 when nothing was
+retrieved, and 40 when the deployment has no model configured or the provider
+errored and the top statements are returned directly.
 
 Citation ids not present in the retrieved candidates are removed before the
 response is returned. If none survive, the response uses the empty abstention
-regardless of what the model claimed.
+regardless of what the model claimed, and `answer` reports that no statements
+were retrieved.
 
 A missing `question` raises rather than answering over an empty query.
 

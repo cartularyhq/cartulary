@@ -177,16 +177,22 @@ missing and the fastest retrieval profile filled in live.
 Projection updates preserve dirty marking, bounded delta compaction, source ids,
 and PubSub/ETS invalidation. A model call does not belong on this read path.
 
-## Ask abstains
+## Ask answers with a confidence
 
 `ask` retrieves with the `thorough` profile, restricts retrieval to knowledge
 items so that citations are governed statements, and answers over what it
-found. It may set `abstained` while retaining a qualified answer and citations:
-that means the evidence supports what the answer says but does not establish a
-conclusion. When nothing supports the question it returns `not known`, an empty
-citation list, and `abstained == true`.
+found. It does not refuse: it states what the retrieved statements make most
+probable and reports `answer_confidence`, an integer from 0 to 100, for its own
+certainty.
 
-Treat `abstained == true` as an ordinary outcome. An answer invented from an
-empty candidate set would be worse than silence. Every model citation is
-intersected with the retrieved candidate ids before the response leaves the
-server, and no surviving citation means the empty abstention wins.
+A model answer below 50 also sets `abstained`. That pair — cited answer, low
+confidence, `abstained == true` — is the normal shape for a weakly supported
+inference. Treat it as a lead to check rather than a conclusion to act on.
+
+One reply is not an attempt at the question: when no retrieved statement
+survives, the response is an empty citation list, `abstained == true`, and
+`answer_confidence` 0. That reports the state of the index, not the subject. An
+answer invented from an empty candidate set would be worse than silence. Every
+model citation is intersected with the retrieved candidate ids before the
+response leaves the server, and no surviving citation means that empty
+abstention wins.

@@ -326,7 +326,10 @@ defmodule CartularyWeb.MemoryControllerTest do
                # so `abstained == true` is an ordinary outcome and not a
                # failure a client should retry.
                "abstained" => false,
-               "citations" => [_ | _]
+               "citations" => [_ | _],
+               # The model-free path states no probability of its own, so it
+               # reports the fixed confidence of a statement concatenation.
+               "answer_confidence" => 40
              }
            } = json_response(conn, 200)
 
@@ -362,7 +365,8 @@ defmodule CartularyWeb.MemoryControllerTest do
                "answer" =>
                  "The recorded statements do not establish this, but they support a preference for concise weekly release summaries.",
                "abstained" => true,
-               "citations" => [_ | _]
+               "citations" => [_ | _],
+               "answer_confidence" => 30
              }
            } = json_response(conn, 200)
 
