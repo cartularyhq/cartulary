@@ -85,6 +85,10 @@ defmodule Cartulary.Knowledge.KnowledgeItem do
       # claim, and it is only ever used to date an event the caller left undated.
       argument :observed_at, :utc_datetime_usec
 
+      # Canonicalises the statement text first, so the hash below and the readability validation
+      # both see the same form the row will store.
+      change Cartulary.Knowledge.Changes.NormalizeStatement
+
       # Derives `statement_hash` from the statement text. The hash is never accepted from the
       # caller, because deduplication, corroboration merging, and the content-safe audit chain
       # all key off it.
@@ -93,6 +97,10 @@ defmodule Cartulary.Knowledge.KnowledgeItem do
       # Runs before the validation below, which is what lets a caller supply either an explicit
       # `relevant_from` or the observation time to derive one from.
       change Cartulary.Knowledge.Changes.AnchorEventValidity
+
+      # A statement a reader cannot read is not knowledge, whatever else is valid about the row.
+      # Enforced here rather than at the extractor so no write path can bypass it.
+      validate Cartulary.Knowledge.Validations.ReadableStatement
 
       validate attribute_in(:kind, ~w(fact preference event relation skill))
       validate attribute_in(:sensitivity, ~w(public internal personal restricted))
@@ -313,6 +321,45 @@ defmodule Cartulary.Knowledge.KnowledgeItem do
     attribute :deleted_at, :utc_datetime_usec
     create_timestamp :inserted_at
     update_timestamp :updated_at
+  end
+end
+
+defmodule Cartulary.Knowledge.Validations.ReadableStatement do
+  @moduledoc """
+  Keeps unreadable text out of the statement column.
+
+  A statement is the knowledge atom and the only durable record of a claim, so a row whose text
+  a reader cannot understand is worse than no row: it is retrievable, citable, and permanent.
+  The failure this stops is a model generation that collapses into repeated ellipsis or
+  invisible padding. Such text satisfies `min_length: 1`, satisfies the extraction schema, and
+  reaches the console looking like knowledge.
+
+  `Cartulary.Knowledge.Statement` holds the rule itself and states what it does not catch.
+  """
+
+  use Ash.Resource.Validation
+
+  alias Cartulary.Knowledge.Statement
+
+  @doc """
+  Rejects statement text that carries too few real characters to read.
+
+  Returns `:ok`, including when the changeset has no statement — a missing one is the
+  attribute's own `allow_nil?` failure, and reporting it twice tells a caller nothing extra.
+  """
+  @impl true
+  def validate(changeset, _opts, _context) do
+    case Ash.Changeset.get_attribute(changeset, :statement) do
+      statement when is_binary(statement) ->
+        if Statement.prose?(statement) do
+          :ok
+        else
+          {:error, field: :statement, message: "must be readable text, not filler characters"}
+        end
+
+      _other ->
+        :ok
+    end
   end
 end
 
