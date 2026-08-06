@@ -386,7 +386,8 @@ defmodule Cartulary.Documents.Service do
           peer_key: owner.key,
           scope_path: scope.path,
           role: "document",
-          content: parsed.text
+          content: parsed.text,
+          occurred_at: version.occurred_at
         })
 
       with {:ok, items} <- Extractor.extract(observation, extract_context) do

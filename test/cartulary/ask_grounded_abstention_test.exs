@@ -100,6 +100,27 @@ defmodule Cartulary.AskGroundedAbstentionTest do
     assert result["abstained"]
   end
 
+  test "shows the answerer when a dated statement was true" do
+    bootstrap = bootstrap_human!("dated")
+
+    {_knowledge_id, scope_path, _session_id} =
+      seed_memory!(bootstrap.actor, "dated",
+        content: "Avery ran the northbound migration on the weekend before the freeze.",
+        occurred_at: "2023-07-17T14:31:00Z"
+      )
+
+    {:ok, actor} = Identity.authenticate_bearer(bootstrap.token)
+    use_answer_mode!(:grounded_abstention)
+
+    ask(actor, scope_path)
+
+    # The statement's own words are relative, so the window is the only thing in
+    # the prompt that can date it. Without it the model answers "the weekend
+    # before the freeze" and resolves it against whatever date it holds.
+    assert [prompt] = GroundedAnswerProvider.prompts()
+    assert prompt =~ "2023-07-17"
+  end
+
   test "strips invented citations and falls back only when none survive" do
     bootstrap = bootstrap_human!("intersection")
     {knowledge_id, scope_path, _session_id} = seed_memory!(bootstrap.actor, "intersection")
@@ -186,19 +207,22 @@ defmodule Cartulary.AskGroundedAbstentionTest do
     })
   end
 
-  defp seed_memory!(actor, suffix) do
+  defp seed_memory!(actor, suffix, overrides \\ []) do
     scope_path = "/ask-grounding/#{suffix}"
     session_id = "ask-#{suffix}-session"
 
     assert {:ok, message} =
              Memory.ingest_message(
-               %{
-                 "session_id" => session_id,
-                 "scope_path" => scope_path,
-                 "peer_key" => "ask-#{suffix}-peer",
-                 "role" => "user",
-                 "content" => "Avery prefers concise weekly release summaries."
-               },
+               Map.merge(
+                 %{
+                   "session_id" => session_id,
+                   "scope_path" => scope_path,
+                   "peer_key" => "ask-#{suffix}-peer",
+                   "role" => "user",
+                   "content" => "Avery prefers concise weekly release summaries."
+                 },
+                 Map.new(overrides, fn {key, value} -> {to_string(key), value} end)
+               ),
                actor
              )
 

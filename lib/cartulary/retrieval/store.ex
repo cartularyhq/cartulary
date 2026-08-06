@@ -16,10 +16,20 @@ defmodule Cartulary.Retrieval.Store do
   alias Cartulary.Repo
 
   # Shared caller-facing knowledge shape; only scope path comes from the joined scope.
+  #
+  # The validity window travels with every candidate. A statement is written to read on its
+  # own, but a reader that has to date one — "when did this happen" — needs the window rather
+  # than the prose, and a candidate without it can only be dated against the reader's own clock.
+  #
+  # The window is stored UTC-in-naive, and raw SQL returns it that way. `AT TIME ZONE 'UTC'`
+  # makes it a `timestamptz`, so it reaches a caller as an instant with an offset instead of a
+  # bare wall-clock reading they would have to guess a zone for.
   @knowledge_columns """
   k.id, k.scope_id, s.path AS scope_path, k.statement, k.kind, k.confidence,
   k.sensitivity, k.state, k.source_message_ids, k.extracting_model,
-  k.extracting_provider, k.pipeline_version, k.corroboration_count
+  k.extracting_provider, k.pipeline_version, k.corroboration_count,
+  k.relevant_from AT TIME ZONE 'UTC' AS relevant_from,
+  k.relevant_until AT TIME ZONE 'UTC' AS relevant_until
   """
 
   alias Cartulary.Retrieval.LexicalQueryAnalyzer
@@ -39,7 +49,8 @@ defmodule Cartulary.Retrieval.Store do
   @knowledge_shortlist_columns """
   id, scope_id, scope_path, statement, kind, confidence,
   sensitivity, state, source_message_ids, extracting_model,
-  extracting_provider, pipeline_version, corroboration_count
+  extracting_provider, pipeline_version, corroboration_count,
+  relevant_from, relevant_until
   """
 
   @doc """

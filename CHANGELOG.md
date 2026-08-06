@@ -11,6 +11,19 @@ changelog entry and contract-version transition.
 
 ### Fixed
 
+- `POST /api/v1/ingest` no longer discards an `occurred_at` that carries no UTC
+  offset. `2023-07-17T14:31:00` is now read as UTC; previously only the strict
+  offset-bearing form parsed, and everything else fell back to the current time,
+  so a backfilled transcript was silently stamped with its import instant. An
+  unparseable value still falls back to now, which remains documented. The
+  offsetless form is the default output of common clients, so this affected most
+  backfills.
+
+- A curator edit no longer drops the validity window. The replacement row now
+  carries the original's `relevant_from` and `relevant_until`: correcting wording
+  is not a claim that the statement has no date. The governed lifecycle contract
+  remains `f4-1`.
+
 - Ordinary text retrieval no longer lets query-independent temporal or
   salience-recency lists bury lexical evidence. Temporal now runs only for an
   explicit `as_of` read; salience-recency remains available for blank-query
@@ -59,6 +72,33 @@ changelog entry and contract-version transition.
   calibration. The metric is reported, not gated: it is deliberately absent from
   the required-metric list. The additions are additive to `f11-2`; committed
   `f11-1` evidence is unchanged.
+
+- Extraction is now told when the observation was made, and an event is
+  guaranteed to be datable. The prompt gains an `Observed at` line and two
+  rules: resolve every relative date — "last weekend", "yesterday" — against
+  that time and write the absolute date into the statement, and label anything
+  that happened at a point or over a span as kind `event` with a
+  `relevant_from`, plus `relevant_until` when it spans more than an instant.
+  `KnowledgeItem.create_from_pipeline` takes an `observed_at` argument, fills a
+  missing `relevant_from` on an event from it, and then refuses an event that
+  still has none. Document extraction supplies the document version's
+  `occurred_at` for the same purpose. Other kinds stay undated. Extracted
+  provenance now records prompt `extract-3`; the pipeline contract remains
+  `f5-1`.
+
+- Knowledge candidates returned by `POST /api/v1/search` and `/api/v1/ask` now
+  carry `relevant_from` and `relevant_until`. Without them a caller could only
+  date a statement from its prose, so an unanchored "last weekend" was resolved
+  against the reader's own clock. Document-chunk candidates have no validity
+  period and omit the pair. The addition is additive; the retrieval contract
+  remains `f7-1`.
+
+- The `ask` prompt now shows the answerer each statement's validity window as
+  `(true from <date>)` or `(true from <date> until <date>)`, and instructs it to
+  date a relative phrase from that window rather than from today. Previously the
+  answering prompt carried only `[id] statement`, so a model shown "last
+  weekend" had nothing to resolve it against. Dates only; nothing beyond the
+  retrieved statements and their windows enters the prompt.
 
 - `/console/graph` is now a scoped explorer rather than a global picture. It
   opens on one scope, keeps that scope and the descendants option in the URL,

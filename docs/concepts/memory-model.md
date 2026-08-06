@@ -80,6 +80,11 @@ Keep these dimensions independent:
   statement whose subject is the colleague and whose source is the agent.
 - **Belief time is not valid time.** A fact can be freshly learned and long
   expired, or old and still true.
+- **An event always carries a valid time.** A statement of kind `event` claims
+  something happened at a time, so it must have `relevant_from`, and
+  `relevant_until` as well when it spans more than an instant. When extraction
+  produces no date, the observation's `occurred_at` anchors the event instead.
+  Other kinds stay undated unless the claim really has a window.
 - **Confidence is not sensitivity.** Being very sure of something does not
   license sharing it more widely.
 

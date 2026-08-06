@@ -925,6 +925,11 @@ defmodule Cartulary.Governance.Engine do
         # so the corrected statement retains its provenance.
         supersedes_id: knowledge.id,
         source_message_ids: knowledge.source_message_ids,
+        # An edit corrects wording, never when the claim was true. Dropping the window
+        # would silently undate an event that arrived with one, and the replacement is
+        # the row retrieval serves from here on.
+        relevant_from: knowledge.relevant_from,
+        relevant_until: knowledge.relevant_until,
         # No model produced this text; the marker distinguishes curator-authored rows from
         # extracted ones. "f4-1" is the version identity of the governed lifecycle contract
         # (proposals enter as proposed or provisional and are gated). Changing that string is

@@ -7,6 +7,9 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest.Provider do
   revision and supersession expectations exact. Chat and rerank fail because
   this path must not call them.
 
+  A sentence naming a weekday is labelled an event and left undated, which is
+  the case a document has to handle without a conversational turn to date it.
+
   The suite installs it in node-global configuration and runs synchronously.
   """
 
@@ -27,7 +30,7 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest.Provider do
         %{
           "reasoning" => "The source states this directly.",
           "statement" => statement,
-          "kind" => "fact",
+          "kind" => kind(statement),
           "subject_type" => "peer",
           "subject_ref" => Keyword.fetch!(opts, :source_peer_key),
           "confidence_percentage" => 82,
@@ -65,6 +68,12 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest.Provider do
 
   @impl true
   def rerank(_config, _query, _documents, _opts), do: {:error, :not_used}
+
+  defp kind(statement) do
+    if statement =~ ~r/\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b/,
+      do: "event",
+      else: "fact"
+  end
 end
 
 defmodule Cartulary.F6DocumentsConnectorsSyncTest.Connector do
@@ -290,6 +299,31 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest do
              )
 
     assert extracted =~ "Native office-style extraction"
+  end
+
+  test "an event derived from a document is anchored to the version's observation time" do
+    %{account: account, actor: actor, scope: scope} = context!("f6-event-window")
+
+    assert {:ok, %{version: version}} =
+             Documents.ingest_bytes(actor, %{
+               scope_id: scope.id,
+               external_id: "changelog",
+               title: "Release changelog",
+               media_type: "text/markdown",
+               bytes: "The northbound migration ran on Tuesday before the freeze."
+             })
+
+    assert {:ok, _processed} = Documents.process_version_for_account(version.id, account.id)
+
+    %{knowledge: knowledge} = document_derivations(account.id, actor, version.document_id)
+
+    # A document has no conversational turn to date it, so the version's own
+    # observation time is the anchor. Without one this path would either write an
+    # undatable event or fail the resource's own rule that an event is datable.
+    events = Enum.filter(knowledge, &(&1.kind == "event"))
+    assert events != []
+
+    assert Enum.all?(events, &(DateTime.compare(&1.relevant_from, version.occurred_at) == :eq))
   end
 
   test "incremental connector sync detects hashes, supersedes prior knowledge, and tombstones deletes" do
