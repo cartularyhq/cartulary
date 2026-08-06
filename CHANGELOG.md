@@ -11,6 +11,19 @@ changelog entry and contract-version transition.
 
 ### Fixed
 
+- A model generation that collapses into filler no longer becomes knowledge.
+  Statement text such as `Melanie told the … …… … statement…… ...` satisfied
+  `min_length: 1` and every structural check, so it reached the console looking
+  like a fact. `Cartulary.Knowledge.Statement` now states the readability rule:
+  a statement must carry letters or digits, and above a short floor at least
+  60% of its non-space characters must be. Extraction reports the failure to the
+  model, which repairs or fails the observation for retry; the
+  `create_from_pipeline` action enforces the same rule so no write path can
+  bypass it. Statement text is also canonicalized before hashing — invisible
+  padding and whitespace runs are removed — so two observations that differ only
+  in padding corroborate one row. The rule does not catch a repetition of real
+  words. The `f5-1` extraction and pipeline contract is unchanged.
+
 - `POST /api/v1/ingest` no longer discards an `occurred_at` that carries no UTC
   offset. `2023-07-17T14:31:00` is now read as UTC; previously only the strict
   offset-bearing form parsed, and everything else fell back to the current time,
