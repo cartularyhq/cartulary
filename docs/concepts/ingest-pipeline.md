@@ -81,8 +81,12 @@ is automatic and has no operator setting.
 Candidates must match schemas derived from their Ash resources. Invalid output
 gets bounded repair attempts, then rejection.
 
-Extraction also does three things a naive extractor gets wrong:
+Extraction also does four things a naive extractor gets wrong:
 
+- **Refuses unreadable text.** A model can collapse into repeated ellipsis or
+  invisible padding. Such a statement is rejected: a durable claim must carry
+  letters or digits, and above a short length most of its characters must. The
+  model is asked to rewrite it; if it cannot, the observation waits for retry.
 - **Resolves subject independently of source.** Who a statement is about is
   decided on its own, not assumed to be the speaker.
 - **Discounts hearsay.** "Dana said the deadline moved" is weaker evidence about
