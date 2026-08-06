@@ -246,11 +246,21 @@ Returns `{"data": context}` with `knowledge`, `session_summary`, `scope_cards`,
 `entity_cards`, `peer_profile`, `profile_version`, and two diagnostics:
 `projection_cache_hit` and `fast_fallback`.
 
-Each entity card contains a bounded `summary`, the strictest source
-`sensitivity`, `summary_mode`, `summary_provenance`, and its allowlisted
-governed `knowledge`. A card requires at least three active source statements
-in one scope. Entity ids, canonical names, aliases, and mention surface forms
-are never returned.
+Each entity card contains a `label`, a `kind`, the strictest source
+`sensitivity`, a bounded `summary` with its `summary_mode` and
+`summary_provenance`, and its allowlisted governed `knowledge`.
+
+A card requires at least two active source statements in one scope. A summary
+requires three: below that, `summary` and `summary_provenance` are `null` and
+`summary_mode` is `"none"`. Treat all three as optional.
+
+`label` is a surface form taken from that card's own sources in that card's own
+scope, and `kind` is one of `person`, `org`, `system`, or `concept`, recomputed
+from the same forms. Either may be `null`. Entity ids, canonical names, and
+aliases are never returned, and no surface form from another scope is returned.
+
+At most eight cards are returned per scope, ordered by source count. Cards are
+spent against the character budget before individual statements.
 
 No generation model is ever called on this path.
 

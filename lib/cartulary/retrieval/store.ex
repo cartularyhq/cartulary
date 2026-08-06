@@ -745,23 +745,32 @@ defmodule Cartulary.Retrieval.Store do
   statements read as one link rather than hinting at how many entities resolved.
 
   Returns `%{count:, clusters:}` where `count` is the number of distinct groups
-  before `limit` and each cluster is a sorted list of statement ids. The entity
-  id is a grouping key only and is never selected.
+  before `limit`. Each cluster is `%{members:, entity_ids:}`: a sorted list of
+  statement ids, and the entity ids that produced exactly that membership.
+
+  `entity_ids` is a private cache coordinate for the caller's own lookups, such
+  as finding a group's entity card. It must not reach a payload, and a group
+  holding more than one id must not disclose that count. Callers that cannot
+  honour both rules should ignore the field.
   """
   def shared_entity_clusters(account_id, knowledge_ids, limit)
       when is_list(knowledge_ids) and is_integer(limit) and limit > 0 and knowledge_ids != [] do
     sql = """
     WITH grouped AS (
-      SELECT array_agg(DISTINCT m.knowledge_item_id::text
+      SELECT m.entity_id,
+             array_agg(DISTINCT m.knowledge_item_id::text
                        ORDER BY m.knowledge_item_id::text) AS members
       FROM entity_mentions AS m
       WHERE m.account_id = $1 AND m.knowledge_item_id = ANY($2)
       GROUP BY m.entity_id
       HAVING count(DISTINCT m.knowledge_item_id) >= 2
     ), distinct_groups AS (
-      SELECT DISTINCT members FROM grouped
+      SELECT members,
+             array_agg(DISTINCT entity_id::text ORDER BY entity_id::text) AS entity_ids
+      FROM grouped
+      GROUP BY members
     )
-    SELECT members, count(*) OVER()::bigint AS total_count
+    SELECT members, entity_ids, count(*) OVER()::bigint AS total_count
     FROM distinct_groups
     ORDER BY members
     LIMIT $3
@@ -770,7 +779,12 @@ defmodule Cartulary.Retrieval.Store do
     rows = all(sql, [db_uuid!(account_id), db_uuids!(knowledge_ids), limit])
     count = if rows == [], do: 0, else: rows |> hd() |> Map.fetch!("total_count")
 
-    %{count: count, clusters: Enum.map(rows, &Map.fetch!(&1, "members"))}
+    clusters =
+      Enum.map(rows, fn row ->
+        %{members: Map.fetch!(row, "members"), entity_ids: Map.fetch!(row, "entity_ids")}
+      end)
+
+    %{count: count, clusters: clusters}
   end
 
   def shared_entity_clusters(_account_id, _knowledge_ids, _limit),

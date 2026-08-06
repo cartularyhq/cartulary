@@ -133,5 +133,10 @@ then.
 
 ## What you will not find
 
-No surface returns entity rows, names, aliases, surface forms, or ids. These
-internal caches improve matching without affecting authorization boundaries.
+Search and ask return no entity rows, names, aliases, surface forms, or ids.
+These internal caches improve matching without affecting authorization
+boundaries.
+
+`get_context` is the one exception, and a narrow one: an entity card names
+itself with a wording from its own scope. See
+[Context](context.md#the-response).

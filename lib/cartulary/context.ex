@@ -29,8 +29,9 @@ defmodule Cartulary.Context do
 
   * Do not add a model call, a rerank, or an entity lookup to this path.
   * Do not relax the `dirty == false` filter to raise the cache hit rate.
-  * Do not expose entity rows, canonical names, aliases, surface forms, or entity ids here; entity
-    cards deliberately carry only a summary and governed statement fields.
+  * Do not expose entity rows, canonical names, aliases, or entity ids here. A card's `label` and
+    `kind` are precomputed by the pipeline from that card's own in-scope sources; this module
+    passes them through and must never derive them from the entity cache.
   """
 
   alias Cartulary.Context.Cache
@@ -40,6 +41,12 @@ defmodule Cartulary.Context do
   alias Cartulary.Retrieval.Query
 
   require Ash.Query
+
+  # Unit: cards per authorized scope. Entity cards are spent before governed statements, and the
+  # budget stops at the first value that does not fit, so an unbounded list of cheap cards would
+  # push ranked knowledge out of the payload entirely. The mention spotter fires on every
+  # capitalised token, which makes that a real shape rather than a worst case.
+  @entity_cards_per_scope 8
 
   @doc """
   Builds one context payload for an already-authenticated caller.
@@ -125,6 +132,7 @@ defmodule Cartulary.Context do
             |> Ash.Query.set_tenant(account_id)
             |> Ash.read!(actor: actor)
             |> Enum.sort_by(&entity_card_order/1, :desc)
+            |> Enum.take(@entity_cards_per_scope)
             |> Enum.map(& &1.content)
 
           Cache.put(cache_key, cards)
@@ -133,9 +141,15 @@ defmodule Cartulary.Context do
     end)
   end
 
+  # Ordered by source coverage, then by the best confidence among those sources, then by label so
+  # equally-supported cards keep a stable order. Label before cache key matters: the key holds the
+  # entity UUID, which re-resolution can change, and the per-scope cap would otherwise make that
+  # churn visible as cards appearing and disappearing between requests.
   defp entity_card_order(projection) do
     confidences = Enum.map(projection.content["knowledge"] || [], &(&1["confidence"] || 0.0))
-    {length(projection.source_ids), Enum.max(confidences, fn -> 0.0 end), projection.cache_key}
+
+    {length(projection.source_ids), Enum.max(confidences, fn -> 0.0 end),
+     projection.content["label"] || "", projection.cache_key}
   end
 
   # One card per authorized scope, in the order the caller's scopes were resolved (nearest

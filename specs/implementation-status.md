@@ -157,14 +157,17 @@ Details: `specs/architecture/documents-connectors-sync.md`.
 - Knowledge and document chunks use PostgreSQL `vector` values with pinned
   provider/model/version/dimension identity, HNSW cosine indexes, and PG-FTS
   GIN indexes.
-- Entity and EntityMention rows are internal rebuildable caches. They are never
-  exposed through HTTP, MCP, SDK, LiveView, projections, or retrieval
-  responses.
+- Entity and EntityMention rows are internal rebuildable caches. The rows are
+  never exposed through HTTP, MCP, SDK, LiveView, or retrieval responses. An
+  entity card carries one surface form as its label and a kind recomputed from
+  the card's own in-scope forms (ADR 0011); no other cache field is readable,
+  and nothing reads the entity row itself.
 - The account-admin operations page exposes content-free resolution health:
   cache counts, observed-alias buckets, singleton rate, and
   mentions-per-entity p50/p95. Statement detail exposes only the count and
-  links for co-mentioned statements that the reader can already read; no
-  entity identity or surface form crosses the retrieval boundary.
+  links for co-mentioned statements that the reader can already read; no entity
+  identity crosses the retrieval boundary, and no surface form crosses it
+  outside an entity card's own scope.
 - Per-scope index coverage is readable and reported: statement, embedded, and
   mention counts plus embedding identities, on `/console/scopes` and as a
   telemetry event on every completed projection refresh. Those indexes are

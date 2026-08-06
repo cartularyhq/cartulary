@@ -198,7 +198,9 @@ Unresolved mentions degrade retrieval coverage; they never block ingest.
 Mentions inherit visibility exclusively from their knowledge statement.
 EntityMatch returns statement candidates without entity rows, names, aliases,
 surface forms, or entity ids. No Phoenix route, MCP resource, or public
-resource action exposes the caches. Erasure removes affected mentions,
+resource action exposes the caches. One exception, ADR 0011: an entity card
+carries a `label` chosen from that card's own in-scope surface forms, and a
+`kind` recomputed from them. Neither reads the entity row. Erasure removes affected mentions,
 recomputes/prunes entities, and rebuilds affected projections. Logical import
 excludes the cache and recreates it from governed statements.
 
@@ -219,7 +221,8 @@ private. No path returns an entity or mention row to the web layer.
 `projection_refresh` runs `:thorough` retrieval at dream-time, then updates:
 
 - one active-only scope card per scope;
-- one entity card per scope/entity with at least three distinct active source statements;
+- one entity card per scope/entity with at least two distinct active source
+  statements, summarised only at three (ADR 0011);
 - one peer profile slice per subject Peer/scope, containing active knowledge
   plus only that subject's provisional knowledge; and
 - one active-only session summary per session.

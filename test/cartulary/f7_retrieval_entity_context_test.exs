@@ -1580,7 +1580,7 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     assert dirty["fast_fallback"] == true
   end
 
-  test "entity cards summarize three active sources without exposing the entity cache" do
+  test "entity cards name their scope-local referent and drop the summary at two sources" do
     first =
       seed_active!(
         "f7-entity-card",
@@ -1603,6 +1603,30 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
         "/f7/entity-card",
         "The billing service restricts salary export access.",
         "entity-card-3"
+      )
+
+    ungoverned_a =
+      seed_ungoverned!(
+        "f7-entity-card",
+        "/f7/entity-card",
+        "Zap remains under discussion for the billing rollout.",
+        "entity-card-4"
+      )
+
+    ungoverned_b =
+      seed_ungoverned!(
+        "f7-entity-card",
+        "/f7/entity-card",
+        "Zap has no owner assigned yet.",
+        "entity-card-5"
+      )
+
+    ungoverned_c =
+      seed_ungoverned!(
+        "f7-entity-card",
+        "/f7/entity-card",
+        "Zap was raised again in the weekly review.",
+        "entity-card-6"
       )
 
     DataLayer.with_account_key("f7-entity-card", fn account, actor ->
@@ -1639,6 +1663,27 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
         )
       end)
 
+      # Three statements that never went active, mentioning the same entity by a form that would
+      # win if the label were drawn from the whole mention cache: it ties "billing service" on
+      # frequency and beats it on the shortest tie-break. The card must ignore all three, because
+      # none of them is one of its sources. Three is the count that makes this discriminating —
+      # the retracted third source keeps its own mention in the cache, so two would still lose.
+      Enum.each([ungoverned_a, ungoverned_b, ungoverned_c], fn seeded ->
+        create!(
+          EntityMention,
+          :create_from_pipeline,
+          %{
+            knowledge_item_id: seeded.knowledge.id,
+            scope_id: seeded.scope.id,
+            entity_id: entity.id,
+            surface_form: "Zap",
+            confidence: 1.0
+          },
+          account.id,
+          pipeline
+        )
+      end)
+
       assert {:ok, %{entity_cards: 1}} = Builder.refresh_scope(account.id, first.scope.id)
 
       projection =
@@ -1663,17 +1708,52 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     assert card["sensitivity"] == "personal"
     assert length(card["knowledge"]) == 3
 
+    # The label is the scope-local surface form, and the kind is recomputed from it. The entity
+    # row says "system"; recomputation says "concept". That divergence is the point: the stored
+    # kind is frozen at the first spelling ever seen, in whatever scope that was.
+    assert card["label"] == "billing service"
+    assert card["kind"] == "concept"
+
     for private_field <- ~w(entity_id canonical_name aliases surface_form) do
       refute Map.has_key?(card, private_field)
       refute Enum.any?(card["knowledge"], &Map.has_key?(&1, private_field))
     end
 
-    # Dropping below the three-active-source threshold retires the old card. The mention cache
-    # may still contain the retracted statement until its own rebuild, so this also proves that
-    # card eligibility comes from governed lifecycle state rather than mention presence alone.
+    # Two sources still earn a card, but never a summary: a pair rarely yields a brief worth a
+    # model call, so all three summary fields go empty while the label survives.
     DataLayer.with_account_key("f7-entity-card", fn account, actor ->
       GovernanceEngine.transition!(
         third.knowledge,
+        pipeline_actor(actor),
+        %{state: "retracted"},
+        reason: "f7_entity_card_retracted",
+        channel: "pipeline"
+      )
+
+      assert {:ok, %{entity_cards: 1}} = Builder.refresh_scope(account.id, first.scope.id)
+    end)
+
+    paired =
+      Memory.get_context(
+        %{"scope_path" => first.scope.path, "budget_chars" => 50_000},
+        first.actor
+      )
+
+    assert [pair_card] = paired["entity_cards"]
+    # "Invoice Runner" was the most frequent form until its statement was retracted. The label
+    # follows the card's own sources, so it does not survive them.
+    assert pair_card["label"] == "billing service"
+    assert is_nil(pair_card["summary"])
+    assert pair_card["summary_mode"] == "none"
+    assert is_nil(pair_card["summary_provenance"])
+    assert length(pair_card["knowledge"]) == 2
+
+    # Dropping below the two-active-source threshold retires the card. The mention cache may
+    # still contain the retracted statements until its own rebuild, so this also proves that card
+    # eligibility comes from governed lifecycle state rather than mention presence alone.
+    DataLayer.with_account_key("f7-entity-card", fn account, actor ->
+      GovernanceEngine.transition!(
+        second.knowledge,
         pipeline_actor(actor),
         %{state: "retracted"},
         reason: "f7_entity_card_retracted",
@@ -1690,6 +1770,95 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
       )
 
     assert refreshed["entity_cards"] == []
+  end
+
+  test "get_context caps entity cards per scope and orders equal cards by label" do
+    account_key = "f7-entity-card-cap"
+    scope_path = "/f7/entity-card-cap"
+
+    # Ten two-source cards in one scope. Cards are spent before governed statements, so without a
+    # cap a scope full of cheap cards would push ranked knowledge out of the payload entirely.
+    seeded =
+      Enum.map(1..10, fn index ->
+        letter = <<?A + index - 1>>
+
+        [
+          seed_active!(
+            account_key,
+            scope_path,
+            "Team #{letter} owns the #{letter} rollout.",
+            "cap-#{index}-a"
+          ),
+          seed_active!(
+            account_key,
+            scope_path,
+            "Team #{letter} reports on the #{letter} rollout.",
+            "cap-#{index}-b"
+          )
+        ]
+      end)
+
+    first = seeded |> hd() |> hd()
+
+    DataLayer.with_account_key(account_key, fn account, actor ->
+      pipeline = pipeline_actor(actor)
+
+      seeded
+      |> Enum.with_index(1)
+      |> Enum.each(fn {pair, index} ->
+        letter = <<?A + index - 1>>
+        ids = Enum.map(pair, & &1.knowledge.id)
+
+        entity =
+          create!(
+            Entity,
+            :create_from_pipeline,
+            %{
+              canonical_name: "never-rendered-#{index}",
+              kind: "concept",
+              aliases: ["never-rendered-#{index}"],
+              derived_from: ids
+            },
+            account.id,
+            pipeline
+          )
+
+        Enum.each(pair, fn seed ->
+          create!(
+            EntityMention,
+            :create_from_pipeline,
+            %{
+              knowledge_item_id: seed.knowledge.id,
+              scope_id: seed.scope.id,
+              entity_id: entity.id,
+              surface_form: "Team #{letter}",
+              confidence: 1.0
+            },
+            account.id,
+            pipeline
+          )
+        end)
+      end)
+
+      assert {:ok, %{entity_cards: 10}} = Builder.refresh_scope(account.id, first.scope.id)
+    end)
+
+    context =
+      Memory.get_context(
+        %{"scope_path" => scope_path, "budget_chars" => 200_000},
+        first.actor
+      )
+
+    cards = context["entity_cards"]
+    assert length(cards) == 8
+
+    # Every card here has two sources and the same best confidence, so the label is what decides
+    # which eight survive. The previous final key was the entity UUID, which re-resolution can
+    # change; that would make the surviving set churn between requests.
+    labels = Enum.map(cards, & &1["label"])
+    assert labels == Enum.sort(labels, :desc)
+    assert "Team A" not in labels
+    assert "Team J" in labels
   end
 
   test "scope and session projections keep provisional statements private to their subject" do
@@ -2207,6 +2376,41 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
           reason: "f7_test_activate",
           channel: "pipeline"
         )
+
+      %{account: account, actor: actor, scope: scope, knowledge: knowledge}
+    end)
+  end
+
+  # Same as `seed_active!` up to the point of governance: the statement is extracted and stays in
+  # its post-extraction state, so it never becomes a card source.
+  defp seed_ungoverned!(account_key, scope_path, statement, session_id) do
+    assert {:ok, message} =
+             Memory.ingest_message(%{
+               "account_key" => account_key,
+               "session_id" => session_id,
+               "scope_path" => scope_path,
+               "peer_key" => "avery",
+               "peer_name" => "Avery",
+               "content" => statement
+             })
+
+    assert {:ok, [knowledge]} = Memory.extract_message(message["id"], account_key)
+    knowledge_id = Map.fetch!(knowledge, "id")
+
+    DataLayer.with_account_key(account_key, fn account, actor ->
+      scope =
+        Scope
+        |> Ash.Query.filter(path == ^scope_path)
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read_one!(actor: actor)
+
+      knowledge =
+        KnowledgeItem
+        |> Ash.Query.filter(id == ^knowledge_id)
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read_one!(actor: actor)
+
+      refute knowledge.state == "active"
 
       %{account: account, actor: actor, scope: scope, knowledge: knowledge}
     end)

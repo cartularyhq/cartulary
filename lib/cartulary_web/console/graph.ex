@@ -45,15 +45,17 @@ defmodule CartularyWeb.Console.Graph do
 
   @doc """
   Positions the focus scope, its drill-down targets, its statements, and the
-  anonymous entity clusters, and returns the drawable model.
+  entity clusters, and returns the drawable model.
 
     Returns `%{width:, height:, nodes:, edges:}`. Each node is `%{id:, kind:, x:, y:,
     r:, label:, title:, class:, scope_id:}` where `kind` is `:scope`, `:knowledge`, or
     `:cluster`, and `class` is the CSS class naming its lifecycle state, its depth
     below the focus, or its role as the focus.
 
-    A cluster node carries no entity identity: its label is an ordinal assigned by
-    the loader and its title counts members.
+    A cluster node carries no entity id. Its label is the scope-local name the
+    loader resolved from the cluster's entity card, truncated to fit, or an
+    ordinal when the loader supplied no name. Its title carries the full label
+    and the member count.
   """
   def build(data) do
     focus_path = focus_path(data)
@@ -253,9 +255,9 @@ defmodule CartularyWeb.Console.Graph do
     end)
   end
 
-  # Titles and labels come from the loader's ordinal, never from the entity
-  # cache. Nothing here reads a canonical name, an alias, or a surface form,
-  # because nothing here is given one.
+  # Titles and labels come from the loader, which supplies a scope-local label only when the
+  # group resolved to exactly one entity and that entity has a clean card in a drawn scope.
+  # Everything else keeps the ordinal. Nothing here reads the entity cache directly.
   defp cluster_nodes(data, positions, knowledge_positions) do
     Enum.flat_map(data.clusters, fn cluster ->
       case Map.fetch(positions, cluster.id) do
@@ -269,7 +271,7 @@ defmodule CartularyWeb.Console.Graph do
               x: x,
               y: y,
               r: 11,
-              label: "E#{cluster.index}",
+              label: cluster_node_label(cluster),
               title: "#{cluster.label} — #{drawn} statements",
               class: "cluster",
               scope_id: nil
@@ -281,6 +283,21 @@ defmodule CartularyWeb.Console.Graph do
       end
     end)
   end
+
+  # Unit: characters. A node label sits under a 22px circle in a fixed-width diagram, so a long
+  # name has to be cut here rather than left to overlap its neighbours. The full label stays in
+  # the hover title and the side panel.
+  @cluster_label_chars 18
+
+  defp cluster_node_label(%{labelled?: true, label: label}) do
+    if String.length(label) > @cluster_label_chars do
+      String.slice(label, 0, @cluster_label_chars - 1) <> "…"
+    else
+      label
+    end
+  end
+
+  defp cluster_node_label(cluster), do: "E#{cluster.index}"
 
   defp edges(data, positions) do
     containment =
