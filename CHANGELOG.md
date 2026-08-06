@@ -11,6 +11,23 @@ changelog entry and contract-version transition.
 
 ### Fixed
 
+- One flaky entity-card summary call no longer aborts a whole scope rebuild.
+  `Cartulary.Context.Builder` raised on any failed summary generation, and that
+  raise travelled out of `Cartulary.Retrieval.Rebuild.scope/2`, so a single
+  provider timeout reported the rebuild as failed and made the caller re-run
+  entity resolution — even though the embeddings and entity rows from the same
+  call were already committed. A scope needs one summary call per qualifying
+  entity cluster, so a few-hundred-statement scope hit this on nearly every
+  attempt. The card now degrades instead: `summary` and `summary_provenance`
+  are `null` and `summary_mode` is the new value `"unavailable"`, the same shape
+  a two-source card already produces, and the label, sensitivity, and governed
+  statements are written as usual. The card stays readable, not dirty, and the
+  next refresh retries the summary. `refresh_scope/2` returns
+  `entity_card_summaries_unavailable`, and each failure logs the Account, the
+  scope, and the error class. `get_context` callers already had to treat the
+  three summary fields as optional. The `f7-1` retrieval and context contract is
+  unchanged.
+
 - A model generation that collapses into filler no longer becomes knowledge.
   Statement text such as `Melanie told the … …… … statement…… ...` satisfied
   `min_length: 1` and every structural check, so it reached the console looking

@@ -252,7 +252,9 @@ Each entity card contains a `label`, a `kind`, the strictest source
 
 A card requires at least two active source statements in one scope. A summary
 requires three: below that, `summary` and `summary_provenance` are `null` and
-`summary_mode` is `"none"`. Treat all three as optional.
+`summary_mode` is `"none"`. A summary the model failed to produce reads the same
+way with `summary_mode` `"unavailable"`, and a later rebuild retries it. Treat
+all three fields as optional.
 
 `label` is a surface form taken from that card's own sources in that card's own
 scope, and `kind` is one of `person`, `org`, `system`, or `concept`, recomputed

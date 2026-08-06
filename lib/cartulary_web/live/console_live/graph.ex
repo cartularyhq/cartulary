@@ -352,6 +352,10 @@ defmodule CartularyWeb.ConsoleLive.Graph do
               <p><.expandable text={elem(@selected, 1).summary} length={220} /></p>
             </div>
 
+            <p :if={summary_unavailable?(elem(@selected, 1))} class="hint">
+              The brief for these statements could not be written. A later rebuild retries it.
+            </p>
+
             <%!--
               Two lists once a card exists, because a card is built from active statements only
               while the drawn set also holds the viewer's own provisional ones. A cluster can
@@ -436,6 +440,11 @@ defmodule CartularyWeb.ConsoleLive.Graph do
   defp summary_mode_label("model"), do: "written by a model"
   defp summary_mode_label("source_extract"), do: "extracted from the sources"
   defp summary_mode_label(_mode), do: "derived"
+
+  # A card whose summary call failed carries no summary text, so it never reaches
+  # `summary_mode_label/1`. Say so, because the alternative reading — too few statements to earn a
+  # brief — is a different and permanent condition.
+  defp summary_unavailable?(cluster), do: Map.get(cluster, :summary_mode) == "unavailable"
 
   defp knowledge_query(%{focus: focus}), do: [scope: focus.path]
 
