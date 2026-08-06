@@ -1749,6 +1749,16 @@ button.ghost {
   opacity: 0.55;
 }
 
+/* Co-mention. Dotted and faint on purpose: it is the weakest claim on the
+   diagram — two referents shared a sentence — and must not read as heavily as
+   a governed statement relation. */
+.edge-co_mention {
+  stroke: var(--muted);
+  stroke-dasharray: 1 4;
+  stroke-width: 1.1;
+  opacity: 0.7;
+}
+
 .node {
   cursor: pointer;
 }
@@ -1873,6 +1883,7 @@ button.ghost {
 .swatch.edge-membership,
 .swatch.edge-scope_relation,
 .swatch.edge-knowledge_relation,
+.swatch.edge-co_mention,
 .swatch.edge-cluster_link {
   border-radius: 0;
   height: 0.15rem;
@@ -1897,6 +1908,11 @@ button.ghost {
 .swatch.edge-cluster_link {
   background: var(--accent);
   opacity: 0.55;
+}
+
+.swatch.edge-co_mention {
+  background: var(--muted);
+  opacity: 0.7;
 }
 
 .graph-selection .statement {

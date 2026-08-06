@@ -264,6 +264,10 @@ defmodule CartularyWeb.ConsoleLive.Graph do
               <li><span class="swatch edge-containment"></span> Containment</li>
               <li><span class="swatch edge-membership"></span> Statement lives in scope</li>
               <li><span class="swatch edge-cluster_link"></span> Statement shares that entity</li>
+              <li>
+                <span class="swatch edge-co_mention"></span>
+                Named together — both were mentioned in one statement. Not a stated relation
+              </li>
               <li><span class="swatch edge-scope_relation"></span> Scope relation</li>
               <li><span class="swatch edge-knowledge_relation"></span> Statement relation</li>
             </ul>

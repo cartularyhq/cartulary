@@ -142,6 +142,15 @@ changelog entry and contract-version transition.
 
 ### Added
 
+- The console graph now joins two named hubs whose entities were mentioned in
+  the same statement. Both ends of the line come from one statement the reader
+  is already shown, so it discloses nothing beyond what is on the page. It means
+  "named together", not "related to": Cartulary records no relations between
+  entities and this edge does not create one, so the legend and the console
+  guide both say so. Only named hubs take part — joining an unnamed one would
+  let a reader count the referents inside a collapsed group by counting the
+  lines leaving it, which is what the collapse exists to prevent.
+
 - Entity cards now carry a `label` and a `kind`, and the console graph names a
   shared-entity hub instead of showing only an ordinal. The label is a surface
   form taken from that card's own sources in that card's own scope, so it is

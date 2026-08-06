@@ -987,6 +987,110 @@ defmodule CartularyWeb.ConsoleLiveTest do
       refute html =~ "NeverRenderSharedSurface71"
     end
 
+    test "two entities named in one statement join their hubs", %{
+      admin: admin,
+      knowledge_id: knowledge_id
+    } do
+      second =
+        ingest_statement!(
+          admin,
+          "console-graph-comention",
+          "/console-test",
+          "The release owner keeps the deploy calendar."
+        )
+
+      third =
+        ingest_statement!(
+          admin,
+          "console-graph-comention",
+          "/console-test",
+          "The billing service bills on the deploy calendar."
+        )
+
+      activate_knowledge!(admin, [knowledge_id, second.id, third.id])
+
+      # Distinct membership sets, so neither group is collapsed, and both share the first
+      # statement, which is what makes them co-mentioned.
+      link_named_entities!(admin, [
+        {"release owner", [knowledge_id, second.id]},
+        {"deploy calendar", [second.id, third.id]}
+      ])
+
+      admin = Identity.refresh_actor(admin)
+      data = Loader.graph(admin, scope: "/console-test")
+
+      assert length(data.clusters) == 2
+      assert Enum.all?(data.clusters, & &1.labelled?)
+      assert [{source, target}] = data.cluster_edges
+      assert source != target
+      assert Enum.sort([source, target]) == Enum.sort(Enum.map(data.clusters, & &1.id))
+
+      # The edge carries ordinals, never the grouping coordinate it was resolved through.
+      refute data |> inspect() |> String.contains?("entity_id")
+    end
+
+    test "an unnamed hub takes no co-mention edge", %{
+      admin: admin,
+      knowledge_id: knowledge_id
+    } do
+      # An unnamed hub is either a collapsed group or one with no usable card. Joining it would
+      # let a reader count the entities inside it by counting the lines leaving it, which is
+      # exactly what the collapse prevents.
+      second =
+        ingest_statement!(
+          admin,
+          "console-graph-unnamed",
+          "/console-test",
+          "The release owner keeps the deploy calendar."
+        )
+
+      third =
+        ingest_statement!(
+          admin,
+          "console-graph-unnamed",
+          "/console-test",
+          "The billing service bills on the deploy calendar."
+        )
+
+      activate_knowledge!(admin, [knowledge_id, second.id, third.id])
+
+      # No refresh runs, so neither group has a card and neither hub is named.
+      DataLayer.with_actor(admin, fn account, actor ->
+        pipeline = pipeline_actor(actor)
+
+        Enum.each(
+          [
+            {"release owner", [knowledge_id, second.id]},
+            {"deploy calendar", [second.id, third.id]}
+          ],
+          fn {form, ids} ->
+            entity =
+              create!(
+                Entity,
+                :create_from_pipeline,
+                %{
+                  canonical_name: "NeverRenderCanonical-#{form}",
+                  kind: "concept",
+                  aliases: [form],
+                  derived_from: ids
+                },
+                account.id,
+                pipeline
+              )
+
+            Enum.each(ids, &create_mention!(account.id, pipeline, &1, entity.id, form))
+          end
+        )
+      end)
+
+      admin = Identity.refresh_actor(admin)
+      data = Loader.graph(admin, scope: "/console-test")
+
+      assert length(data.clusters) == 2
+      refute Enum.any?(data.clusters, & &1.labelled?)
+      assert data.cluster_edges == []
+    end
+
     test "a peer profile in a drawn scope never reaches the graph payload", %{
       admin: admin,
       knowledge_id: knowledge_id
@@ -1689,6 +1793,48 @@ defmodule CartularyWeb.ConsoleLiveTest do
   # Links the statements through one entity that every mention spells the same way, then builds
   # the projections. The shared spelling is what gives the card a label; `link_shared_entity!`
   # deliberately varies its forms and produces a card with a lexically-chosen one.
+  # Links several entities in one pass, each with its own spelling and its own statement set, then
+  # builds the projections once. `link_named_entity!` refreshes per call, which is fine for one
+  # entity and wrong for a co-mention fixture: the entities have to exist together before the
+  # cards are built.
+  defp link_named_entities!(admin, specs) do
+    DataLayer.with_actor(admin, fn account, actor ->
+      pipeline = pipeline_actor(actor)
+
+      Enum.each(specs, fn {surface_form, knowledge_ids} ->
+        entity =
+          create!(
+            Entity,
+            :create_from_pipeline,
+            %{
+              canonical_name: "NeverRenderCanonical-#{surface_form}",
+              kind: "concept",
+              aliases: [surface_form],
+              derived_from: knowledge_ids
+            },
+            account.id,
+            pipeline
+          )
+
+        Enum.each(
+          knowledge_ids,
+          &create_mention!(account.id, pipeline, &1, entity.id, surface_form)
+        )
+      end)
+
+      {_form, ids} = hd(specs)
+
+      scope_id =
+        KnowledgeItem
+        |> Ash.Query.filter(id == ^hd(ids))
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read_one!(actor: pipeline)
+        |> Map.fetch!(:scope_id)
+
+      Cartulary.Context.Builder.refresh_scope(account.id, scope_id)
+    end)
+  end
+
   defp link_named_entity!(admin, knowledge_ids, surface_form) do
     DataLayer.with_actor(admin, fn account, actor ->
       pipeline = pipeline_actor(actor)

@@ -321,7 +321,13 @@ defmodule CartularyWeb.Console.Graph do
         Enum.map(cluster.knowledge_ids, &{:cluster_link, cluster.id, &1})
       end)
 
-    (containment ++ membership ++ scope_relations ++ knowledge_relations ++ cluster_links)
+    co_mentions =
+      data
+      |> Map.get(:cluster_edges, [])
+      |> Enum.map(fn {source, target} -> {:co_mention, source, target} end)
+
+    (containment ++
+       membership ++ scope_relations ++ knowledge_relations ++ cluster_links ++ co_mentions)
     |> Enum.flat_map(fn {kind, from_id, to_id} ->
       with {:ok, {x1, y1}} <- Map.fetch(positions, from_id),
            {:ok, {x2, y2}} <- Map.fetch(positions, to_id) do
