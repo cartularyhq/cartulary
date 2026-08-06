@@ -171,23 +171,39 @@ The console renders statements, raw observations, and document titles because
 an authorized person must be able to read them in order to judge them. It never
 renders:
 
-- **entity rows or entity mentions** — canonical names, aliases, surface forms,
-  and entity identifiers. Their rows span every scope that mentioned a name, so
-  drawing them would carry names across the boundary the scope tree exists to
-  keep. Their read actions are pipeline-only, so an accidental query fails
-  loudly rather than leaking;
+- **entity rows or entity mentions** — canonical names, aliases, and entity
+  identifiers. Their rows span every scope that mentioned a name, so drawing
+  them would carry names across the boundary the scope tree exists to keep.
+  Their read actions are pipeline-only, so an accidental query fails loudly
+  rather than leaking. ADR 0011 admits one surface form, and only as an entity
+  card's precomputed label; see below;
 - **embedding vectors and chunk contents** — rebuildable caches; counts and
   identities only;
 - **password hashes, API key hashes, connector secrets, blob bytes.**
 
-Reader projection does not create an exception for entities. Deriving a label
-only from visible statements would avoid returning stored aliases, but grouping
-those statements would still disclose the resolver's conclusion that they
-share a referent. It would also turn a pipeline-only resource into an
-actor-specific live query whose safety depends on every policy and resolver
-change. Curator investigations therefore remain statement-shaped: scoped
-retrieval followed by the visible provenance, supersession, and relations on a
-statement page.
+Reader projection still does not create an exception, and ADR 0011 is not one
+either. It answers both halves of the original objection rather than trading
+them away.
+
+Disclosing that statements share a referent was already the graph's behaviour:
+anonymous cluster hubs have always drawn the resolver's conclusion. That half of
+the argument protected nothing.
+
+The second half — that a derived label would become an actor-specific live query
+over a pipeline-only resource — is what the design avoids. The label is computed
+once, by the pipeline, into the entity card, from the surface forms of that
+card's own source statements in that card's own scope. The console reads the
+projection, which is scope-gated like every other card, and reads neither
+`Entity` nor `EntityMention`. No policy or resolver change can widen it, because
+no query crosses that boundary at read time.
+
+A hub is named only when its cluster resolved to exactly one entity. Groups with
+identical membership stay collapsed and stay anonymous, so the count of resolved
+entities remains private.
+
+Curator investigations otherwise remain statement-shaped: scoped retrieval
+followed by the visible provenance, supersession, and relations on a statement
+page.
 
 Rendered text never enters logs, telemetry, audit entries, or job arguments.
 

@@ -22,7 +22,9 @@ defmodule CartularyWeb.ConsoleLiveTest do
   alias Cartulary.Knowledge.Entity
   alias Cartulary.Knowledge.EntityMention
   alias Cartulary.Knowledge.KnowledgeItem
+  alias Cartulary.Knowledge.Projection
   alias Cartulary.Memory
+  alias Cartulary.Topology.Scope
   alias CartularyWeb.Console.Loader
 
   require Ash.Query
@@ -816,6 +818,305 @@ defmodule CartularyWeb.ConsoleLiveTest do
       refute html =~ "NeverRenderSharedSurface71"
     end
 
+    test "a hub takes its name from the card, never from the entity row", %{
+      conn: conn,
+      admin: admin,
+      admin_token: token,
+      knowledge_id: knowledge_id
+    } do
+      neighbor =
+        ingest_statement!(
+          admin,
+          "console-graph-named",
+          "/console-test",
+          "The release owner publishes the weekly checklist."
+        )
+
+      activate_knowledge!(admin, [knowledge_id, neighbor.id])
+      link_named_entity!(admin, [knowledge_id, neighbor.id], "release owner")
+      admin = Identity.refresh_actor(admin)
+
+      data = Loader.graph(admin, scope: "/console-test")
+
+      assert [cluster] = data.clusters
+      assert cluster.label == "release owner"
+      assert cluster.labelled?
+      # The label is the scope-local surface form. The entity row's own name is never read, and
+      # the grouping coordinate still does not travel with the cluster.
+      refute Map.has_key?(cluster, :entity_id)
+
+      html =
+        conn
+        |> sign_in(token)
+        |> get("/console/graph?scope=%2Fconsole-test")
+        |> html_response(200)
+
+      assert html =~ "release owner"
+      refute html =~ "NeverRenderCanonical72"
+    end
+
+    test "the graph renders its empty state for a peer who holds no grant", %{
+      conn: conn,
+      admin: admin
+    } do
+      # `focus` is nil for this actor, and the page has a dedicated state for it. Anything in the
+      # loader that dereferences focus without a nil clause turns that state into a 500.
+      token = create_ungranted_peer!(admin)
+
+      html =
+        conn
+        |> sign_in(token)
+        |> get("/console/graph")
+        |> html_response(200)
+
+      assert html =~ "You hold no grant on any scope"
+    end
+
+    test "a cluster is described by the card in the scope its statements live in", %{
+      admin: admin,
+      knowledge_id: knowledge_id
+    } do
+      # Cards exist per scope and the drawn set is the focus plus its descendants, never its
+      # ancestors. A cluster whose statements sit in a child scope must still find its own card.
+      child =
+        ingest_statement!(
+          admin,
+          "console-graph-child",
+          "/console-test/child",
+          "The release owner signs off the child rollout."
+        )
+
+      sibling =
+        ingest_statement!(
+          admin,
+          "console-graph-child",
+          "/console-test/child",
+          "The release owner reviews the child runbook."
+        )
+
+      activate_knowledge!(admin, [knowledge_id, child.id, sibling.id])
+      link_named_entity!(admin, [child.id, sibling.id], "release owner")
+      admin = Identity.refresh_actor(admin)
+
+      data = Loader.graph(admin, scope: "/console-test", descendants?: true)
+
+      assert [cluster] = data.clusters
+      assert cluster.label == "release owner"
+      assert Enum.sort(cluster.knowledge_ids) == Enum.sort([child.id, sibling.id])
+    end
+
+    test "selecting a named hub shows its card and separates what the summary covers", %{
+      conn: conn,
+      admin: admin,
+      admin_token: token,
+      knowledge_id: knowledge_id
+    } do
+      neighbor =
+        ingest_statement!(
+          admin,
+          "console-graph-panel",
+          "/console-test",
+          "The release owner publishes the weekly checklist."
+        )
+
+      third =
+        ingest_statement!(
+          admin,
+          "console-graph-panel",
+          "/console-test",
+          "The release owner signs off each deploy."
+        )
+
+      activate_knowledge!(admin, [knowledge_id, neighbor.id, third.id])
+      link_named_entity!(admin, [knowledge_id, neighbor.id, third.id], "release owner")
+      admin = Identity.refresh_actor(admin)
+
+      data = Loader.graph(admin, scope: "/console-test")
+      assert [cluster] = data.clusters
+
+      {:ok, view, _html} = live(conn |> sign_in(token), "/console/graph?scope=%2Fconsole-test")
+
+      html =
+        view
+        |> element("g.node-cluster[phx-value-id='#{cluster.id}']")
+        |> render_click()
+
+      assert html =~ "release owner"
+      assert html =~ "kind-concept"
+      assert html =~ "Summary"
+      # Three sources, so the deterministic provider extracted rather than invented.
+      assert html =~ "extracted from the sources"
+      assert html =~ "Summarised"
+      # Every member is a card source here, so the second list must not appear at all.
+      refute html =~ "Not in the summary"
+    end
+
+    test "an unnamed hub shows neither a summary nor the two member lists", %{
+      conn: conn,
+      admin: admin,
+      admin_token: token,
+      knowledge_id: knowledge_id
+    } do
+      neighbor =
+        ingest_statement!(
+          admin,
+          "console-graph-plain",
+          "/console-test",
+          "The release owner publishes the weekly checklist."
+        )
+
+      activate_knowledge!(admin, [knowledge_id, neighbor.id])
+      link_shared_entity!(admin, [knowledge_id, neighbor.id])
+      admin = Identity.refresh_actor(admin)
+
+      data = Loader.graph(admin, scope: "/console-test")
+      assert [cluster] = data.clusters
+      refute cluster.labelled?
+
+      {:ok, view, _html} = live(conn |> sign_in(token), "/console/graph?scope=%2Fconsole-test")
+
+      html =
+        view
+        |> element("g.node-cluster[phx-value-id='#{cluster.id}']")
+        |> render_click()
+
+      assert html =~ "Shared entity 1"
+      assert html =~ "waiting to be rebuilt"
+      refute html =~ "Summarised"
+      refute html =~ "Not in the summary"
+      refute html =~ "NeverRenderSharedSurface71"
+    end
+
+    test "two entities named in one statement join their hubs", %{
+      admin: admin,
+      knowledge_id: knowledge_id
+    } do
+      second =
+        ingest_statement!(
+          admin,
+          "console-graph-comention",
+          "/console-test",
+          "The release owner keeps the deploy calendar."
+        )
+
+      third =
+        ingest_statement!(
+          admin,
+          "console-graph-comention",
+          "/console-test",
+          "The billing service bills on the deploy calendar."
+        )
+
+      activate_knowledge!(admin, [knowledge_id, second.id, third.id])
+
+      # Distinct membership sets, so neither group is collapsed, and both share the first
+      # statement, which is what makes them co-mentioned.
+      link_named_entities!(admin, [
+        {"release owner", [knowledge_id, second.id]},
+        {"deploy calendar", [second.id, third.id]}
+      ])
+
+      admin = Identity.refresh_actor(admin)
+      data = Loader.graph(admin, scope: "/console-test")
+
+      assert length(data.clusters) == 2
+      assert Enum.all?(data.clusters, & &1.labelled?)
+      assert [{source, target}] = data.cluster_edges
+      assert source != target
+      assert Enum.sort([source, target]) == Enum.sort(Enum.map(data.clusters, & &1.id))
+
+      # The edge carries ordinals, never the grouping coordinate it was resolved through.
+      refute data |> inspect() |> String.contains?("entity_id")
+    end
+
+    test "an unnamed hub takes no co-mention edge", %{
+      admin: admin,
+      knowledge_id: knowledge_id
+    } do
+      # An unnamed hub is either a collapsed group or one with no usable card. Joining it would
+      # let a reader count the entities inside it by counting the lines leaving it, which is
+      # exactly what the collapse prevents.
+      second =
+        ingest_statement!(
+          admin,
+          "console-graph-unnamed",
+          "/console-test",
+          "The release owner keeps the deploy calendar."
+        )
+
+      third =
+        ingest_statement!(
+          admin,
+          "console-graph-unnamed",
+          "/console-test",
+          "The billing service bills on the deploy calendar."
+        )
+
+      activate_knowledge!(admin, [knowledge_id, second.id, third.id])
+
+      # No refresh runs, so neither group has a card and neither hub is named.
+      DataLayer.with_actor(admin, fn account, actor ->
+        pipeline = pipeline_actor(actor)
+
+        Enum.each(
+          [
+            {"release owner", [knowledge_id, second.id]},
+            {"deploy calendar", [second.id, third.id]}
+          ],
+          fn {form, ids} ->
+            entity =
+              create!(
+                Entity,
+                :create_from_pipeline,
+                %{
+                  canonical_name: "NeverRenderCanonical-#{form}",
+                  kind: "concept",
+                  aliases: [form],
+                  derived_from: ids
+                },
+                account.id,
+                pipeline
+              )
+
+            Enum.each(ids, &create_mention!(account.id, pipeline, &1, entity.id, form))
+          end
+        )
+      end)
+
+      admin = Identity.refresh_actor(admin)
+      data = Loader.graph(admin, scope: "/console-test")
+
+      assert length(data.clusters) == 2
+      refute Enum.any?(data.clusters, & &1.labelled?)
+      assert data.cluster_edges == []
+    end
+
+    test "a peer profile in a drawn scope never reaches the graph payload", %{
+      admin: admin,
+      knowledge_id: knowledge_id
+    } do
+      # `Knowledge.Projection` authorizes reads on `scope_id` alone and filters neither kind nor
+      # peer, so the graph's own `kind` filter is the only thing keeping another subject's
+      # provisional slice out of this payload. Drop it and this sentinel appears.
+      neighbor =
+        ingest_statement!(
+          admin,
+          "console-graph-peer",
+          "/console-test",
+          "The release owner publishes the weekly checklist."
+        )
+
+      activate_knowledge!(admin, [knowledge_id, neighbor.id])
+      link_named_entity!(admin, [knowledge_id, neighbor.id], "release owner")
+      seed_peer_profile!(admin, "/console-test", "NeverRenderPeerProfile73")
+      admin = Identity.refresh_actor(admin)
+
+      rendered = admin |> Loader.graph(scope: "/console-test") |> inspect()
+
+      assert rendered =~ "release owner"
+      refute rendered =~ "NeverRenderPeerProfile73"
+    end
+
     test "a hub never reaches a statement outside the drawn scope", %{
       conn: conn,
       admin: admin,
@@ -1292,6 +1593,45 @@ defmodule CartularyWeb.ConsoleLiveTest do
     %{id: peer_id, token: token}
   end
 
+  # A password peer with no role grant at all. They authenticate, so every console page must
+  # render its empty state for them rather than raise.
+  defp create_ungranted_peer!(admin) do
+    DataLayer.with_actor(admin, fn account, actor ->
+      peer =
+        Peer
+        |> Ash.Changeset.new()
+        |> Ash.Changeset.set_tenant(account.id)
+        |> Ash.Changeset.for_create(:register_with_password, %{
+          key: "console-ungranted",
+          name: "Console Ungranted",
+          kind: "human",
+          email: "ungranted@example.test",
+          password: @password,
+          password_confirmation: @password
+        })
+        |> Ash.create!(actor: Actor.for_account(account, role: :system))
+
+      ExternalIdentity
+      |> Ash.Changeset.new()
+      |> Ash.Changeset.set_tenant(account.id)
+      |> Ash.Changeset.for_create(:create, %{
+        peer_id: peer.id,
+        provider: "password",
+        subject: "ungranted@example.test",
+        email: "ungranted@example.test",
+        assurance: "medium",
+        linked_at: Clock.utc_now(),
+        active: true
+      })
+      |> Ash.create!(actor: actor)
+
+      peer.id
+    end)
+
+    {:ok, %{token: token}} = Identity.sign_in_password("ungranted@example.test", @password)
+    token
+  end
+
   defp seed_resolution_metrics!(admin, knowledge_id) do
     DataLayer.with_actor(admin, fn account, actor ->
       pipeline = pipeline_actor(actor)
@@ -1402,6 +1742,130 @@ defmodule CartularyWeb.ConsoleLiveTest do
           "NeverRenderSharedSurface71-#{index}"
         )
       end)
+    end)
+  end
+
+  # A peer-profile projection standing in for another subject's provisional slice. It is given
+  # the *same* entity id as the scope's real entity card on purpose: that is what makes the
+  # loader's `kind` filter load-bearing rather than decorative. Without the filter both rows land
+  # under one `{scope, entity}` key and the sentinel can win.
+  defp seed_peer_profile!(admin, scope_path, sentinel) do
+    DataLayer.with_actor(admin, fn account, actor ->
+      pipeline = pipeline_actor(actor)
+
+      scope =
+        Scope
+        |> Ash.Query.filter(path == ^scope_path)
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read_one!(actor: pipeline)
+
+      card =
+        Projection
+        |> Ash.Query.filter(scope_id == ^scope.id and kind == "entity_card")
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read!(actor: pipeline)
+        |> List.first()
+
+      refute is_nil(card), "fixture needs an entity card before seeding the collision"
+
+      create!(
+        Projection,
+        :upsert_from_pipeline,
+        %{
+          cache_key: "peer:#{scope.id}:sentinel",
+          scope_id: scope.id,
+          peer_id: admin.peer_id,
+          entity_id: card.entity_id,
+          kind: "peer_profile",
+          content: %{
+            "label" => sentinel,
+            "summary" => sentinel,
+            "knowledge" => [%{"id" => Ash.UUID.generate(), "statement" => sentinel}]
+          },
+          source_ids: []
+        },
+        account.id,
+        pipeline
+      )
+    end)
+  end
+
+  # Links the statements through one entity that every mention spells the same way, then builds
+  # the projections. The shared spelling is what gives the card a label; `link_shared_entity!`
+  # deliberately varies its forms and produces a card with a lexically-chosen one.
+  # Links several entities in one pass, each with its own spelling and its own statement set, then
+  # builds the projections once. `link_named_entity!` refreshes per call, which is fine for one
+  # entity and wrong for a co-mention fixture: the entities have to exist together before the
+  # cards are built.
+  defp link_named_entities!(admin, specs) do
+    DataLayer.with_actor(admin, fn account, actor ->
+      pipeline = pipeline_actor(actor)
+
+      Enum.each(specs, fn {surface_form, knowledge_ids} ->
+        entity =
+          create!(
+            Entity,
+            :create_from_pipeline,
+            %{
+              canonical_name: "NeverRenderCanonical-#{surface_form}",
+              kind: "concept",
+              aliases: [surface_form],
+              derived_from: knowledge_ids
+            },
+            account.id,
+            pipeline
+          )
+
+        Enum.each(
+          knowledge_ids,
+          &create_mention!(account.id, pipeline, &1, entity.id, surface_form)
+        )
+      end)
+
+      {_form, ids} = hd(specs)
+
+      scope_id =
+        KnowledgeItem
+        |> Ash.Query.filter(id == ^hd(ids))
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read_one!(actor: pipeline)
+        |> Map.fetch!(:scope_id)
+
+      Cartulary.Context.Builder.refresh_scope(account.id, scope_id)
+    end)
+  end
+
+  defp link_named_entity!(admin, knowledge_ids, surface_form) do
+    DataLayer.with_actor(admin, fn account, actor ->
+      pipeline = pipeline_actor(actor)
+
+      entity =
+        create!(
+          Entity,
+          :create_from_pipeline,
+          %{
+            canonical_name: "NeverRenderCanonical72",
+            kind: "person",
+            aliases: [surface_form],
+            derived_from: knowledge_ids
+          },
+          account.id,
+          pipeline
+        )
+
+      Enum.each(
+        knowledge_ids,
+        &create_mention!(account.id, pipeline, &1, entity.id, surface_form)
+      )
+
+      scope_id =
+        KnowledgeItem
+        |> Ash.Query.filter(id == ^hd(knowledge_ids))
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read_one!(actor: pipeline)
+        |> Map.fetch!(:scope_id)
+
+      Cartulary.Context.Builder.refresh_scope(account.id, scope_id)
     end)
   end
 

@@ -343,9 +343,24 @@ this scope*. The focus is in the URL, so a view is linkable and survives a
 reload. Tick **Include descendant scopes** to pull the whole subtree into one
 picture; that is off by default because on a real Account it is unreadable.
 
-A dashed hub labelled `E1`, `E2`, … is a **shared entity**: the statements it
-links resolved to the same thing. Select the hub to list them. The thing itself
-is never named — see below.
+A dashed hub is a **shared entity**: the statements it links resolved to the
+same thing. Select the hub to list them.
+
+A hub is named after a wording used in this scope when one referent explains
+the whole group. Otherwise it keeps an ordinal — `E1`, `E2`, … — which happens
+when more than one referent shares exactly that set of statements, or when the
+group's card has not been rebuilt since the last lifecycle change. The panel
+says which.
+
+A named hub also carries a short brief, written during background refresh. When
+that call fails the panel says the brief could not be written and a later
+rebuild retries it. The hub's name and statements are unaffected.
+
+A faint dotted line between two named hubs means **named together**: both
+referents appeared in one statement. It is not a stated relation. Cartulary
+records no relations between entities, so read this as co-occurrence and
+nothing more. Unnamed hubs are never joined this way, because the count of
+lines leaving a hub would otherwise reveal how many referents it holds.
 
 Other lines are **containment**, **scope relations** between non-parent scopes,
 and **knowledge relations** between statements.
@@ -357,18 +372,16 @@ as complete, and links to the explorer for the complete list.
 
 ## What the console deliberately does not show
 
-- **Resolved entities.** Entity and mention rows are a private recall cache
-  whose rows span every scope that ever mentioned a name. Showing them would
-  carry names across the boundary the scope tree exists to keep, so no
-  canonical name, alias, surface form, or entity identifier appears anywhere in
-  the console — including the graph. Account admins see only aggregate cache
-  quality signals on the operations page. Statement detail may link readable
-  statements that share an entity, and the graph may draw them as a group, but
-  neither names the entity: a group is identified by an ordinal assigned as the
-  page is drawn, and two entities shared by the same statements read as one
-  group so the count of resolved entities stays private. A group needs at least
-  two readable statements in the drawn scope, so a hub never implies that some
-  statement you cannot see exists.
+- **The entity cache itself.** Entity and mention rows span every scope that
+  ever mentioned a name, so no canonical name, alias, or entity identifier
+  appears anywhere in the console. A hub's name is not read from those rows: it
+  is a wording taken from the statements in the group's own scope, which the
+  same panel already shows you. Nothing carries a name across a scope boundary.
+  Account admins see only aggregate cache quality signals on the operations
+  page. Two entities shared by exactly the same statements still read as one
+  unnamed group, so the count of resolved entities stays private. A group needs
+  at least two readable statements in the drawn scope, so a hub never implies
+  that some statement you cannot see exists.
 - **Embedding vectors and document chunks.** Rebuildable derived caches with no
   meaning to a reader. Chunk counts are shown; chunk contents are not.
 - **Credentials.** Password hashes, API key hashes, and connector secrets are

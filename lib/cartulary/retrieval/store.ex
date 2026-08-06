@@ -745,23 +745,32 @@ defmodule Cartulary.Retrieval.Store do
   statements read as one link rather than hinting at how many entities resolved.
 
   Returns `%{count:, clusters:}` where `count` is the number of distinct groups
-  before `limit` and each cluster is a sorted list of statement ids. The entity
-  id is a grouping key only and is never selected.
+  before `limit`. Each cluster is `%{members:, entity_ids:}`: a sorted list of
+  statement ids, and the entity ids that produced exactly that membership.
+
+  `entity_ids` is a private cache coordinate for the caller's own lookups, such
+  as finding a group's entity card. It must not reach a payload, and a group
+  holding more than one id must not disclose that count. Callers that cannot
+  honour both rules should ignore the field.
   """
   def shared_entity_clusters(account_id, knowledge_ids, limit)
       when is_list(knowledge_ids) and is_integer(limit) and limit > 0 and knowledge_ids != [] do
     sql = """
     WITH grouped AS (
-      SELECT array_agg(DISTINCT m.knowledge_item_id::text
+      SELECT m.entity_id,
+             array_agg(DISTINCT m.knowledge_item_id::text
                        ORDER BY m.knowledge_item_id::text) AS members
       FROM entity_mentions AS m
       WHERE m.account_id = $1 AND m.knowledge_item_id = ANY($2)
       GROUP BY m.entity_id
       HAVING count(DISTINCT m.knowledge_item_id) >= 2
     ), distinct_groups AS (
-      SELECT DISTINCT members FROM grouped
+      SELECT members,
+             array_agg(DISTINCT entity_id::text ORDER BY entity_id::text) AS entity_ids
+      FROM grouped
+      GROUP BY members
     )
-    SELECT members, count(*) OVER()::bigint AS total_count
+    SELECT members, entity_ids, count(*) OVER()::bigint AS total_count
     FROM distinct_groups
     ORDER BY members
     LIMIT $3
@@ -770,11 +779,61 @@ defmodule Cartulary.Retrieval.Store do
     rows = all(sql, [db_uuid!(account_id), db_uuids!(knowledge_ids), limit])
     count = if rows == [], do: 0, else: rows |> hd() |> Map.fetch!("total_count")
 
-    %{count: count, clusters: Enum.map(rows, &Map.fetch!(&1, "members"))}
+    clusters =
+      Enum.map(rows, fn row ->
+        %{members: Map.fetch!(row, "members"), entity_ids: Map.fetch!(row, "entity_ids")}
+      end)
+
+    %{count: count, clusters: clusters}
   end
 
   def shared_entity_clusters(_account_id, _knowledge_ids, _limit),
     do: %{count: 0, clusters: []}
+
+  @doc """
+  Pairs the entities that are named together inside one statement.
+
+  Co-mention is not a semantic relation. It says two referents appeared in the same sentence, not
+  that they are related, and there is no entity-relation table behind it. A caller that renders
+  these must say so.
+
+  `knowledge_ids` must already be authorized, exactly as for `shared_entity_clusters/3`: both ends
+  of every pair come from one statement in that set, which is what makes an edge disclose nothing
+  the caller has not already decided to show.
+
+  `entity_ids` narrows the result to entities the caller can already draw. Passing the full set
+  would return pairs whose endpoints have no node, and an edge to nowhere reports that an unseen
+  entity exists.
+
+  Returns a list of `{left, right}` tuples, each ordered and deduplicated, so one pair appears
+  once however many statements produced it. Returns `[]` when either list is empty.
+  """
+  def co_mentioned_entity_pairs(account_id, knowledge_ids, entity_ids)
+      when is_list(knowledge_ids) and is_list(entity_ids) and knowledge_ids != [] and
+             entity_ids != [] do
+    # The strict inequality does both jobs: it drops the self-pair a join of a row against itself
+    # would produce, and it keeps only one direction of each pair.
+    sql = """
+    SELECT DISTINCT left_side.entity_id::text AS left_id,
+                    right_side.entity_id::text AS right_id
+    FROM entity_mentions AS left_side
+    JOIN entity_mentions AS right_side
+      ON right_side.account_id = left_side.account_id
+     AND right_side.knowledge_item_id = left_side.knowledge_item_id
+     AND right_side.entity_id > left_side.entity_id
+    WHERE left_side.account_id = $1
+      AND left_side.knowledge_item_id = ANY($2)
+      AND left_side.entity_id = ANY($3)
+      AND right_side.entity_id = ANY($3)
+    ORDER BY left_id, right_id
+    """
+
+    sql
+    |> all([db_uuid!(account_id), db_uuids!(knowledge_ids), db_uuids!(entity_ids)])
+    |> Enum.map(&{Map.fetch!(&1, "left_id"), Map.fetch!(&1, "right_id")})
+  end
+
+  def co_mentioned_entity_pairs(_account_id, _knowledge_ids, _entity_ids), do: []
 
   @doc """
   Counts, per scope, how much of the retrievable corpus is actually indexed.

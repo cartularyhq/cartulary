@@ -17,6 +17,7 @@ settled by the blueprint specs.
 | `0008-restricted-database-role-for-rls-enforcement.md` | A NOSUPERUSER NOBYPASSRLS role is what makes Postgres row-level security actually enforce. |
 | `0009-scope-bounded-entity-cards.md` | Per-scope entity summaries are projections over governed statements, never content on the entity cache. |
 | `0010-query-independent-retrieval-applicability.md` | Query-independent retrieval runs only for explicit temporal or blank-context requests. |
+| `0011-scope-local-entity-card-labels.md` | A card names its referent with a surface form from its own scope, and recomputes the kind rather than reading the entity row. |
 
 Conventions for future ADRs:
 

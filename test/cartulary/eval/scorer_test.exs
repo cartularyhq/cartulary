@@ -97,6 +97,37 @@ defmodule Cartulary.Eval.ScorerTest do
     assert score["abstained"]
   end
 
+  # The answering path reports its own certainty, and the report carries it so a
+  # threshold can be tuned against measured calibration rather than guessed. A
+  # replayed result from before the field existed reports nil, which keeps it
+  # out of the mean instead of dragging it toward zero.
+  test "reports answer confidence and averages only the answers that state one" do
+    question = %{expected: ["weekly"], evidence_refs: [], abstention_expected: false}
+
+    confident =
+      Scorer.score_question(
+        question,
+        %{"answer" => "weekly", "abstained" => false, "answer_confidence" => 80},
+        []
+      )
+
+    unstated = Scorer.score_question(question, %{"answer" => "weekly"}, [])
+
+    out_of_range =
+      Scorer.score_question(
+        question,
+        %{"answer" => "weekly", "answer_confidence" => 140},
+        []
+      )
+
+    assert confident["answer_confidence"] == 80
+    assert unstated["answer_confidence"] == nil
+    assert out_of_range["answer_confidence"] == nil
+
+    assert Scorer.summarize([confident, unstated])["overall"]["mean_answer_confidence"] == 80.0
+    assert Scorer.summarize([unstated])["overall"]["mean_answer_confidence"] == nil
+  end
+
   test "scores cited inconclusive prose by text when an answer is expected" do
     question = %{
       expected: ["concise weekly release summaries"],

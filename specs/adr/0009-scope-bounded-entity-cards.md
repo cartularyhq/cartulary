@@ -6,6 +6,10 @@
 
 Accepted.
 
+**Amended by ADR 0011** (`specs/adr/0011-scope-local-entity-card-labels.md`): a card may carry a
+scope-local surface form as its label and a recomputed kind, the card threshold is two sources,
+and the summary threshold remains three. Amendments are marked in place below.
+
 ## Context
 
 Retrieval returns individual governed statements. An agent asking what is known
@@ -31,9 +35,9 @@ key are private coordinates. Neither appears in context output.
 
 The projection builder groups `EntityMention` rows by entity, then dereferences
 them to governed statements in the same scope. A card is built only when at
-least three distinct source statements are `active`. `provisional` statements
-are excluded because an entity card has no subject Peer whose provisional
-visibility it could inherit.
+least three distinct source statements are `active` (ADR 0011: two).
+`provisional` statements are excluded because an entity card has no subject Peer
+whose provisional visibility it could inherit.
 
 The dream reasoner produces one bounded paragraph from the governed statements.
 The deterministic local provider instead concatenates the same sources, so an
@@ -51,18 +55,23 @@ ship together; the stored maximum is the projection-side filter point.
 Cards are returned in the additive `entity_cards` member of `get_context` after
 scope cards and before individual knowledge in the budget order. Existing
 fields and retrieval behavior remain `f7-1`. Dirty marking stays scope-wide.
-A rebuild that finds fewer than three active sources leaves any old card dirty.
+A rebuild that finds fewer than three active sources leaves any old card dirty
+(ADR 0011: fewer than two, and ADR 0011 restates the `f7-1` hold on its own
+terms because it changes existing fields).
 
 ## Consequences
 
-- Entity rows and their id, canonical-name, alias, and surface-form fields
-  remain absent from every public payload. Summary prose may repeat text from
-  its governed statements.
+- Entity rows and their id, canonical-name, and alias fields remain absent from
+  every public payload. Summary prose may repeat text from its governed
+  statements. ADR 0011 admits one surface form per card as its label, chosen
+  from that card's own sources in its own scope.
 - Scope authorization and Account isolation remain unchanged.
 - Summary cost is bounded by the three-source threshold and one call per
-  qualifying scope/entity pair.
+  qualifying scope/entity pair. ADR 0011 keeps this threshold on the summary
+  while lowering the threshold for the card itself.
 - The context response grows only when a card fits the caller's character
-  budget.
+  budget. ADR 0011 adds a per-scope cap, because a lower card threshold would
+  otherwise let cheap cards displace ranked statements.
 - Embedding cards or admitting them as retrieval candidates remains deferred.
   That change must dereference to governed `source_ids` and pass an evaluation
   ablation before altering any retrieval profile.

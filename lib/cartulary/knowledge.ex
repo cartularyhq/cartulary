@@ -923,7 +923,9 @@ defmodule Cartulary.Knowledge.EntityMention do
   Rebuildable link between a statement and an entity mention.
 
   It is pipeline-internal retrieval data. Erasure and import recompute it from surviving governed
-  statements, and no external surface may expose it.
+  statements. No external surface may read these rows. One derived value leaves: the pipeline may
+  fold a mention's `surface_form` into an entity card as that card's label, bounded to the card's
+  own sources in its own scope.
   """
 
   use Cartulary.Resource, domain: Cartulary.Knowledge, table: "entity_mentions"
@@ -969,7 +971,8 @@ defmodule Cartulary.Knowledge.EntityMention do
     attribute :scope_id, :uuid, allow_nil?: false
     attribute :entity_id, :uuid, allow_nil?: false
 
-    # The exact text that matched inside the statement. Content-bearing, hence never exposed.
+    # The exact text that matched inside the statement. Content-bearing, so it leaves this cache
+    # only as an entity card's label, and only when the card's own sources supply it (ADR 0011).
     attribute :surface_form, :string, allow_nil?: false
 
     # How sure the resolver is about this link. When retrieval expands from one statement to

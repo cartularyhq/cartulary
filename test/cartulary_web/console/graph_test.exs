@@ -99,12 +99,57 @@ defmodule CartularyWeb.Console.GraphTest do
       assert :math.sqrt(:math.pow(hub.x - focus.x, 2) + :math.pow(hub.y - focus.y, 2)) >= 40
     end
 
-    test "names a cluster by ordinal and member count only" do
+    test "names an unlabelled cluster by ordinal and member count only" do
       hub = sample() |> Graph.build() |> Map.fetch!(:nodes) |> Enum.find(&(&1.kind == :cluster))
 
       assert hub.title == "Shared entity 1 — 2 statements"
       assert hub.label == "E1"
       refute Map.has_key?(hub, :entity_id)
+    end
+
+    test "names a labelled cluster after its card, and still carries no entity id" do
+      data =
+        put_in(sample().clusters, [labelled_cluster(1, ["k-strong", "k-weak"], "billing service")])
+
+      hub = data |> Graph.build() |> Map.fetch!(:nodes) |> Enum.find(&(&1.kind == :cluster))
+
+      assert hub.label == "billing service"
+      assert hub.title == "billing service — 2 statements"
+      refute Map.has_key?(hub, :entity_id)
+    end
+
+    test "truncates a node label that would overlap its neighbours" do
+      # The full label stays reachable through the hover title and the side panel.
+      data =
+        put_in(sample().clusters, [
+          labelled_cluster(1, ["k-strong", "k-weak"], "Continental Reinsurance Group")
+        ])
+
+      hub = data |> Graph.build() |> Map.fetch!(:nodes) |> Enum.find(&(&1.kind == :cluster))
+
+      assert hub.label == "Continental Reins…"
+      assert hub.title == "Continental Reinsurance Group — 2 statements"
+    end
+
+    test "draws a co-mention edge between two named hubs" do
+      data = %{
+        sample()
+        | clusters: [
+            labelled_cluster(1, ["k-strong"], "Helix"),
+            labelled_cluster(2, ["k-weak"], "Ada")
+          ],
+          cluster_edges: [{"cluster-1", "cluster-2"}]
+      }
+
+      assert Enum.any?(Graph.build(data).edges, &(&1.kind == :co_mention))
+    end
+
+    test "drops a co-mention edge whose hub is not drawn" do
+      # The loader already refuses to emit one, but a line to a hub that is not on the page would
+      # report that an undrawn group exists, so the layout refuses it too.
+      data = %{sample() | cluster_edges: [{"cluster-1", "cluster-99"}]}
+
+      refute Enum.any?(Graph.build(data).edges, &(&1.kind == :co_mention))
     end
 
     test "renders no entity node and no entity field" do
@@ -151,6 +196,7 @@ defmodule CartularyWeb.Console.GraphTest do
       relations: [%{source_scope_id: "s-team", target_scope_id: "s-ops", kind: "related"}],
       knowledge_edges: [relation("k-weak", "k-strong")],
       clusters: [cluster(1, ["k-strong", "k-weak"])],
+      cluster_edges: [],
       clusters_truncated?: false,
       scope_paths: %{"s-team" => "/team", "s-ops" => "/team/ops"},
       all_scopes: [],
@@ -191,8 +237,15 @@ defmodule CartularyWeb.Console.GraphTest do
       id: "cluster-#{index}",
       index: index,
       label: "Shared entity #{index}",
+      labelled?: false,
       knowledge_ids: knowledge_ids
     }
+  end
+
+  defp labelled_cluster(index, knowledge_ids, label) do
+    index
+    |> cluster(knowledge_ids)
+    |> Map.merge(%{label: label, labelled?: true, entity_kind: "concept"})
   end
 
   defp relation(source, target) do

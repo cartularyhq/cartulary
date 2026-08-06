@@ -200,23 +200,35 @@ retrieval. A raw `strategies` override is refused for external callers.
 `question` is required; every `search` field is also accepted, but `profile`
 defaults to `"thorough"`.
 
-Returns the search payload merged with `answer`, `citations`, and `abstained`.
-Retrieval is restricted to knowledge items, so citations are governed
-statements. `abstained: true` is an ordinary outcome.
+Returns the search payload merged with `answer`, `citations`, `abstained`, and
+`answer_confidence`. Retrieval is restricted to knowledge items, so citations
+are governed statements. `abstained: true` is an ordinary outcome.
 
 The answerer sees each statement with its validity window and is told to date a
 relative phrase from that window rather than from today, so a statement reading
 "last weekend" is answered with the date the claim held.
 
-| `citations` | `abstained` | Meaning |
-| --- | --- | --- |
-| non-empty | `false` | The cited statements establish the answer. |
-| non-empty | `true` | The cited statements support the qualified answer but do not establish a conclusion. |
-| empty | `true` | Nothing retrieved supports an answer; `answer` is `"not known"`. |
+`answer_confidence` is an integer from 0 to 100. For a model answer it is the
+model's own probability that the answer is correct. The model always answers:
+it states what the retrieved statements make most probable instead of refusing,
+and a weak answer arrives with a low `answer_confidence` rather than as a
+refusal. A model answer below 50 sets `abstained: true` whatever the model
+claimed.
+
+| `citations` | `abstained` | `answer_confidence` | Meaning |
+| --- | --- | --- | --- |
+| non-empty | `false` | 50-100 | The cited statements support the answer well enough to act on. |
+| non-empty | `true` | 0-49 | The cited statements make the answer the most probable one, but weakly. Read it as a lead. |
+| empty | `true` | 0 | No retrieved statement survived to ground an answer on. |
+
+The model-free replies report fixed confidences instead: 0 when nothing was
+retrieved, and 40 when the deployment has no model configured or the provider
+errored and the top statements are returned directly.
 
 Citation ids not present in the retrieved candidates are removed before the
 response is returned. If none survive, the response uses the empty abstention
-regardless of what the model claimed.
+regardless of what the model claimed, and `answer` reports that no statements
+were retrieved.
 
 A missing `question` raises rather than answering over an empty query.
 
@@ -234,11 +246,23 @@ Returns `{"data": context}` with `knowledge`, `session_summary`, `scope_cards`,
 `entity_cards`, `peer_profile`, `profile_version`, and two diagnostics:
 `projection_cache_hit` and `fast_fallback`.
 
-Each entity card contains a bounded `summary`, the strictest source
-`sensitivity`, `summary_mode`, `summary_provenance`, and its allowlisted
-governed `knowledge`. A card requires at least three active source statements
-in one scope. Entity ids, canonical names, aliases, and mention surface forms
-are never returned.
+Each entity card contains a `label`, a `kind`, the strictest source
+`sensitivity`, a bounded `summary` with its `summary_mode` and
+`summary_provenance`, and its allowlisted governed `knowledge`.
+
+A card requires at least two active source statements in one scope. A summary
+requires three: below that, `summary` and `summary_provenance` are `null` and
+`summary_mode` is `"none"`. A summary the model failed to produce reads the same
+way with `summary_mode` `"unavailable"`, and a later rebuild retries it. Treat
+all three fields as optional.
+
+`label` is a surface form taken from that card's own sources in that card's own
+scope, and `kind` is one of `person`, `org`, `system`, or `concept`, recomputed
+from the same forms. Either may be `null`. Entity ids, canonical names, and
+aliases are never returned, and no surface form from another scope is returned.
+
+At most eight cards are returned per scope, ordered by source count. Cards are
+spent against the character budget before individual statements.
 
 No generation model is ever called on this path.
 

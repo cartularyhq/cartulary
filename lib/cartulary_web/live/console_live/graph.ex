@@ -4,14 +4,17 @@ defmodule CartularyWeb.ConsoleLive.Graph do
   @moduledoc """
   Read-only `/console/graph` explorer for one scope at a time.
 
-  The view is focused rather than global: one scope, its statements, the
-  anonymous entity clusters linking them, and the readable scopes below it as
-  drill-down targets. The focus and the descendants option live in the URL, so a
-  view is linkable and survives reload.
+  The view is focused rather than global: one scope, its statements, the entity
+  clusters linking them, and the readable scopes below it as drill-down targets.
+  The focus and the descendants option live in the URL, so a view is linkable and
+  survives reload.
 
-  Entity caches, names, aliases, surface forms, and ids must never appear; a
-  cluster is identified by an ordinal assigned per render. Geometry is
-  deterministic server-side SVG: no inline scripts, randomness, or wall clock.
+  Entity caches, canonical names, aliases, and ids must never appear. A hub shows
+  a name only when the loader supplies one from that cluster's entity card, drawn
+  from the card's own sources in its own scope; otherwise the identity is an
+  ordinal assigned per render. Geometry is deterministic server-side SVG: no
+  inline scripts, randomness, or wall clock.
+
   The page reports when statement or cluster limits truncate the graph.
   """
 
@@ -255,11 +258,16 @@ defmodule CartularyWeb.ConsoleLive.Graph do
               </li>
               <li>
                 <span class="swatch node-cluster"></span>
-                Shared entity — statements that resolved to the same thing
+                Shared entity — statements that resolved to the same thing. Named after a form
+                used in this scope when one referent explains the whole group
               </li>
               <li><span class="swatch edge-containment"></span> Containment</li>
               <li><span class="swatch edge-membership"></span> Statement lives in scope</li>
               <li><span class="swatch edge-cluster_link"></span> Statement shares that entity</li>
+              <li>
+                <span class="swatch edge-co_mention"></span>
+                Named together — both were mentioned in one statement. Not a stated relation
+              </li>
               <li><span class="swatch edge-scope_relation"></span> Scope relation</li>
               <li><span class="swatch edge-knowledge_relation"></span> Statement relation</li>
             </ul>
@@ -313,17 +321,79 @@ defmodule CartularyWeb.ConsoleLive.Graph do
 
           <div :if={match?({:cluster, _cluster}, @selected)} class="graph-selection">
             <h3>{elem(@selected, 1).label}</h3>
-            <p class="hint">
-              These statements resolved to the same thing. What that thing is stays inside the
-              recall cache and is not shown anywhere in the console.
+
+            <div :if={Map.get(elem(@selected, 1), :entity_kind)} class="badge-row">
+              <.badge family="kind" value={elem(@selected, 1).entity_kind} />
+              <.badge
+                :if={Map.get(elem(@selected, 1), :sensitivity)}
+                family="sensitivity"
+                value={elem(@selected, 1).sensitivity}
+              />
+            </div>
+
+            <%!--
+              Three reasons a hub stays unnamed, and they are not interchangeable. A card that
+              exists but yielded no usable form is a different situation from having no card at
+              all, and saying "waiting to be rebuilt" there would be wrong.
+            --%>
+            <p :if={not elem(@selected, 1).labelled?} class="hint">
+              {unlabelled_reason(elem(@selected, 1))}
             </p>
-            <ul class="cluster-members">
+
+            <%!--
+              The summary is written by a model from the statements below it. Governed statements
+              and derived prose must not read alike, so this follows the left-border-plus-word
+              pattern the write-capable tool cards and the retrieval diagnostic already use.
+            --%>
+            <div :if={Map.get(elem(@selected, 1), :summary)} class="derived-summary">
+              <p class="muted">
+                Summary · {summary_mode_label(elem(@selected, 1).summary_mode)}
+              </p>
+              <p><.expandable text={elem(@selected, 1).summary} length={220} /></p>
+            </div>
+
+            <p :if={summary_unavailable?(elem(@selected, 1))} class="hint">
+              The brief for these statements could not be written. A later rebuild retries it.
+            </p>
+
+            <%!--
+              Two lists once a card exists, because a card is built from active statements only
+              while the drawn set also holds the viewer's own provisional ones. A cluster can
+              therefore carry members its summary never read, and one merged list would imply
+              coverage the card does not have. With no card there is nothing to be outside of, so
+              the split would be noise.
+            --%>
+            <ul :if={not carded?(elem(@selected, 1))} class="cluster-members">
               <li :for={item <- cluster_members(@data, elem(@selected, 1))}>
                 <.link navigate={~p"/console/knowledge/#{item.id}"}>
                   <.expandable text={item.statement} length={110} />
                 </.link>
               </li>
             </ul>
+
+            <div :if={carded?(elem(@selected, 1))}>
+              <h4 :if={cluster_summarised(@data, elem(@selected, 1)) != []}>Summarised</h4>
+              <ul :if={cluster_summarised(@data, elem(@selected, 1)) != []} class="cluster-members">
+                <li :for={item <- cluster_summarised(@data, elem(@selected, 1))}>
+                  <.link navigate={~p"/console/knowledge/#{item.id}"}>
+                    <.expandable text={item.statement} length={110} />
+                  </.link>
+                </li>
+              </ul>
+
+              <h4 :if={cluster_unsummarised(@data, elem(@selected, 1)) != []}>Not in the summary</h4>
+              <ul
+                :if={cluster_unsummarised(@data, elem(@selected, 1)) != []}
+                class="cluster-members"
+              >
+                <li :for={item <- cluster_unsummarised(@data, elem(@selected, 1))}>
+                  <.link navigate={~p"/console/knowledge/#{item.id}"}>
+                    <.expandable text={item.statement} length={110} />
+                  </.link>
+                </li>
+              </ul>
+            </div>
+
             <button type="button" class="ghost" phx-click="deselect">Clear selection</button>
           </div>
         </aside>
@@ -342,6 +412,39 @@ defmodule CartularyWeb.ConsoleLive.Graph do
     |> Enum.flat_map(&List.wrap(Map.get(by_id, &1)))
     |> Enum.sort_by(& &1.id)
   end
+
+  defp cluster_summarised(data, cluster) do
+    covered = MapSet.new(Map.get(cluster, :card_knowledge_ids) || [])
+    Enum.filter(cluster_members(data, cluster), &MapSet.member?(covered, &1.id))
+  end
+
+  defp cluster_unsummarised(data, cluster) do
+    covered = MapSet.new(Map.get(cluster, :card_knowledge_ids) || [])
+    Enum.reject(cluster_members(data, cluster), &MapSet.member?(covered, &1.id))
+  end
+
+  # A cluster the loader matched to a clean entity card. Distinct from `labelled?`: a card can
+  # exist and still yield no usable name.
+  defp carded?(cluster), do: Map.has_key?(cluster, :summary_mode)
+
+  defp unlabelled_reason(cluster) do
+    if carded?(cluster) do
+      "These statements resolved to the same thing. No wording used in this scope reads as a " <>
+        "name for it."
+    else
+      "These statements resolved to the same thing. It has no name here: either more than one " <>
+        "referent shares this exact set of statements, or its card is waiting to be rebuilt."
+    end
+  end
+
+  defp summary_mode_label("model"), do: "written by a model"
+  defp summary_mode_label("source_extract"), do: "extracted from the sources"
+  defp summary_mode_label(_mode), do: "derived"
+
+  # A card whose summary call failed carries no summary text, so it never reaches
+  # `summary_mode_label/1`. Say so, because the alternative reading — too few statements to earn a
+  # brief — is a different and permanent condition.
+  defp summary_unavailable?(cluster), do: Map.get(cluster, :summary_mode) == "unavailable"
 
   defp knowledge_query(%{focus: focus}), do: [scope: focus.path]
 

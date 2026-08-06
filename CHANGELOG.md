@@ -11,6 +11,23 @@ changelog entry and contract-version transition.
 
 ### Fixed
 
+- One flaky entity-card summary call no longer aborts a whole scope rebuild.
+  `Cartulary.Context.Builder` raised on any failed summary generation, and that
+  raise travelled out of `Cartulary.Retrieval.Rebuild.scope/2`, so a single
+  provider timeout reported the rebuild as failed and made the caller re-run
+  entity resolution — even though the embeddings and entity rows from the same
+  call were already committed. A scope needs one summary call per qualifying
+  entity cluster, so a few-hundred-statement scope hit this on nearly every
+  attempt. The card now degrades instead: `summary` and `summary_provenance`
+  are `null` and `summary_mode` is the new value `"unavailable"`, the same shape
+  a two-source card already produces, and the label, sensitivity, and governed
+  statements are written as usual. The card stays readable, not dirty, and the
+  next refresh retries the summary. `refresh_scope/2` returns
+  `entity_card_summaries_unavailable`, and each failure logs the Account, the
+  scope, and the error class. `get_context` callers already had to treat the
+  three summary fields as optional. The `f7-1` retrieval and context contract is
+  unchanged.
+
 - A model generation that collapses into filler no longer becomes knowledge.
   Statement text such as `Melanie told the … …… … statement…… ...` satisfied
   `min_length: 1` and every structural check, so it reached the console looking
@@ -66,6 +83,39 @@ changelog entry and contract-version transition.
 
 ### Changed
 
+- An entity card is now built from two active source statements instead of
+  three, but a summary still needs three. On a two-source card `summary` and
+  `summary_provenance` are `null` and `summary_mode` is the new value `"none"`,
+  so callers of `get_context` must treat all three summary fields as optional.
+  The summary threshold applies whatever the provider, including the
+  deterministic one where a summary costs nothing, because one release must
+  behave the same everywhere. `get_context` also caps entity cards at eight per
+  scope, ordered by source count: cards are spent against the character budget
+  before individual statements, so a lower card threshold would otherwise let
+  cheap cards displace ranked knowledge. The retrieval and context contract
+  stays `f7-1` — a deliberate hold, recorded in ADR 0011, not an additive
+  change.
+
+- `ask` no longer refuses. The answering prompt now instructs the model to state
+  what the retrieved statements make most probable and to carry its uncertainty
+  in a new `answer_confidence` percentage rather than replying `not known`. The
+  response gains `answer_confidence`, an integer from `0` through `100`, on
+  every path: the model's own probability when a model answered, `40` for the
+  model-free statement concatenation, and `0` for the empty abstention. A model
+  answer below `50` sets `abstained` whatever the model claimed, so a cited,
+  abstained, low-confidence answer is now the ordinary shape for a weakly
+  supported inference. The one reply that is not an attempt at the question is
+  the empty abstention used when no retrieved statement survived grounding; its
+  text now reports that state instead of saying `not known`. Citation
+  intersection, retrieval, and the `f7-1` identity are unchanged.
+
+- Evaluation reports now carry `answer_confidence` per question and
+  `mean_answer_confidence` per group, both `nil` when the answer stated no
+  probability, so the abstention threshold can be tuned against measured
+  calibration. The metric is reported, not gated: it is deliberately absent from
+  the required-metric list. The additions are additive to `f11-2`; committed
+  `f11-1` evidence is unchanged.
+
 - Extraction is now told when the observation was made, and an event is
   guaranteed to be datable. The prompt gains an `Observed at` line and two
   rules: resolve every relative date — "last weekend", "yesterday" — against
@@ -108,6 +158,27 @@ changelog entry and contract-version transition.
   complete list.
 
 ### Added
+
+- The console graph now joins two named hubs whose entities were mentioned in
+  the same statement. Both ends of the line come from one statement the reader
+  is already shown, so it discloses nothing beyond what is on the page. It means
+  "named together", not "related to": Cartulary records no relations between
+  entities and this edge does not create one, so the legend and the console
+  guide both say so. Only named hubs take part — joining an unnamed one would
+  let a reader count the referents inside a collapsed group by counting the
+  lines leaving it, which is what the collapse exists to prevent.
+
+- Entity cards now carry a `label` and a `kind`, and the console graph names a
+  shared-entity hub instead of showing only an ordinal. The label is a surface
+  form taken from that card's own sources in that card's own scope, so it is
+  text the card already returns; `Entity.canonical_name` and `Entity.kind` stay
+  unreadable, because both are account-global and the stored kind is frozen at
+  the first spelling ever seen. The kind is recomputed from the card's own forms
+  and is one of `person`, `org`, `system`, or `concept`. A hub is named only
+  when its group resolved to exactly one entity: groups that share identical
+  membership are still collapsed and still keep an ordinal, so the number of
+  resolved entities stays private. Labels are English-only and either field may
+  be `null`. Recorded in ADR 0011, which amends ADR 0009.
 
 - The tool workbench at `/console/tools` now offers account administrators a
   retrieval diagnostic mode. It can look past the ordinary twelve-result window

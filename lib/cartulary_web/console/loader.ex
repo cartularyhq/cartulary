@@ -370,17 +370,11 @@ defmodule CartularyWeb.Console.Loader do
           @graph_cluster_limit
         )
 
-      clusters =
-        shared.clusters
-        |> Enum.with_index(1)
-        |> Enum.map(fn {members, index} ->
-          %{
-            id: "cluster-#{index}",
-            index: index,
-            label: "Shared entity #{index}",
-            knowledge_ids: members
-          }
-        end)
+      cards = entity_cards(account.id, current_actor, drawn_scope_ids)
+      member_scopes = Map.new(knowledge, &{&1.id, &1.scope_id})
+
+      indexed = Enum.with_index(shared.clusters, 1)
+      clusters = Enum.map(indexed, &cluster(&1, cards, focus_ids(focus), member_scopes))
 
       %{
         focus: focus,
@@ -394,6 +388,7 @@ defmodule CartularyWeb.Console.Loader do
         relations: relations,
         knowledge_edges: knowledge_edges,
         clusters: clusters,
+        cluster_edges: cluster_edges(account.id, knowledge, indexed, clusters),
         clusters_truncated?: shared.count > length(clusters),
         scope_paths: paths,
         all_scopes: scopes,
@@ -402,6 +397,117 @@ defmodule CartularyWeb.Console.Loader do
         truncated?: total > length(knowledge)
       }
     end)
+  end
+
+  # Entity cards for every drawn scope, keyed by scope and entity.
+  #
+  # The `kind` filter is load-bearing, not tidiness. `Knowledge.Projection` authorizes reads on
+  # `scope_id` alone and filters neither kind nor peer, so dropping it would return peer-profile
+  # rows — another subject's provisional content — to anyone who can read the scope. Dirty rows
+  # are excluded for the same reason every other reader excludes them: their content predates a
+  # lifecycle change.
+  defp entity_cards(account_id, actor, scope_ids) do
+    Projection
+    |> Ash.Query.filter(
+      scope_id in ^MapSet.to_list(scope_ids) and kind == "entity_card" and dirty == false
+    )
+    |> Ash.Query.set_tenant(account_id)
+    |> Ash.read!(actor: actor)
+    |> Map.new(&{{&1.scope_id, &1.entity_id}, &1})
+  end
+
+  # A cluster is a membership set, not an entity: `shared_entity_clusters/3` collapses groups that
+  # share identical membership so the graph never reports how many entities resolved. Naming a
+  # collapsed group would undo that, so only a single-entity group is named, and the entity id
+  # itself stays out of the returned map — the ordinal remains the whole public identity.
+  defp cluster({%{members: members, entity_ids: entity_ids}, index}, cards, focus_ids, scopes) do
+    base = %{
+      id: "cluster-#{index}",
+      index: index,
+      label: "Shared entity #{index}",
+      labelled?: false,
+      knowledge_ids: members
+    }
+
+    case entity_ids do
+      [entity_id] ->
+        Map.merge(base, card_facts(cards, card_order(members, focus_ids, scopes), entity_id))
+
+      _collapsed ->
+        base
+    end
+  end
+
+  # Edges between hubs whose entities were named in the same statement.
+  #
+  # Only named hubs take part. An unnamed hub is either a collapsed group or a group with no
+  # usable card, and both stay anonymous on purpose: joining them would let a reader count the
+  # entities inside a collapsed group by counting the lines leaving it, which is the disclosure
+  # the collapse exists to prevent.
+  #
+  # The entity id stays inside this function. What leaves is a pair of cluster ids, which are the
+  # ordinals the graph already shows.
+  defp cluster_edges(account_id, knowledge, indexed, clusters) do
+    labelled = MapSet.new(Enum.filter(clusters, & &1.labelled?), & &1.id)
+
+    cluster_by_entity =
+      for {%{entity_ids: [entity_id]}, index} <- indexed,
+          MapSet.member?(labelled, "cluster-#{index}"),
+          into: %{},
+          do: {entity_id, "cluster-#{index}"}
+
+    account_id
+    |> Store.co_mentioned_entity_pairs(
+      Enum.map(knowledge, & &1.id),
+      Map.keys(cluster_by_entity)
+    )
+    |> Enum.flat_map(fn {left, right} ->
+      case {Map.fetch(cluster_by_entity, left), Map.fetch(cluster_by_entity, right)} do
+        {{:ok, source}, {:ok, target}} when source != target -> [{source, target}]
+        _unresolved -> []
+      end
+    end)
+    |> Enum.uniq()
+  end
+
+  # Cards exist per scope, and a cluster's members can span the focus and the child scopes drawn
+  # with it. Prefer the scope the reader chose, then the scope holding most of the members, so the
+  # description comes from where the statements actually live. Ancestors are deliberately absent:
+  # they are never in the drawn set, so a card is never loaded for one.
+  defp card_order(members, focus_ids, scopes) do
+    ranked =
+      members
+      |> Enum.flat_map(&List.wrap(Map.get(scopes, &1)))
+      |> Enum.frequencies()
+      |> Enum.sort_by(fn {scope_id, count} -> {-count, scope_id} end)
+      |> Enum.map(&elem(&1, 0))
+
+    Enum.uniq(focus_ids ++ ranked)
+  end
+
+  defp card_facts(cards, card_order, entity_id) do
+    card_order
+    |> Enum.find_value(&Map.get(cards, {&1, entity_id}))
+    |> case do
+      nil ->
+        %{}
+
+      card ->
+        facts = %{
+          label: card.content["label"],
+          entity_kind: card.content["kind"],
+          summary: card.content["summary"],
+          summary_mode: card.content["summary_mode"],
+          sensitivity: card.content["sensitivity"],
+          card_knowledge_ids: Enum.map(card.content["knowledge"] || [], & &1["id"])
+        }
+
+        # Every candidate form can be rejected, which leaves a card with no label. Dropping the
+        # key rather than merging nil keeps the ordinal the caller already set.
+        if is_nil(facts.label),
+          do: Map.delete(facts, :label),
+          else: Map.put(facts, :labelled?, true)
+    end
   end
 
   # The focus falls back to the shallowest readable scope — the root when the

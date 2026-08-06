@@ -17,7 +17,8 @@ defmodule Cartulary.Eval.Scorer do
     "not enough information",
     "no information available",
     "i don't know",
-    "cannot answer"
+    "cannot answer",
+    "no memory statements were retrieved"
   ]
 
   @doc """
@@ -26,8 +27,9 @@ defmodule Cartulary.Eval.Scorer do
   Inputs are a normalized question, answer result, benchmark evidence labels, and optional
   full-context token count. Citation labels must already be translated from durable ids.
 
-  Returns string-keyed correctness, citation, relevance, and token-efficiency metrics.
-  Missing fields lower scores through safe defaults; this function does not raise.
+  Returns string-keyed correctness, citation, relevance, and token-efficiency metrics, plus
+  the answer's reported `"answer_confidence"` or `nil` when it stated none. Missing fields
+  lower scores through safe defaults; this function does not raise.
   """
   def score_question(question, result, cited_refs, opts \\ []) do
     expected = Map.get(question, :expected, [])
@@ -35,6 +37,7 @@ defmodule Cartulary.Eval.Scorer do
     candidates = Map.get(result, "candidates", [])
     abstention_expected? = Map.get(question, :abstention_expected, false)
     abstained? = Map.get(result, "abstained", false) == true or not_known?(answer)
+    answer_confidence = answer_confidence(result)
     token_f1 = best_token_f1(answer, expected)
     contains_expected? = contains_expected?(answer, expected)
     exact_match? = exact_match?(answer, expected)
@@ -57,6 +60,7 @@ defmodule Cartulary.Eval.Scorer do
       "token_f1" => token_f1,
       "abstention_expected" => abstention_expected?,
       "abstained" => abstained?,
+      "answer_confidence" => answer_confidence,
       "correct" => correct?,
       "citation_hit" => citation.hit?,
       "citation_recall" => citation.recall,
@@ -112,9 +116,10 @@ defmodule Cartulary.Eval.Scorer do
 
   Within a group, `"abstention_accuracy"` is `nil` when no question there expected a
   refusal. That distinguishes "there was nothing to abstain from" from "every abstention
-  was wrong", which a 0.0 would not. The three `"mean_model_*"` means are `nil` when no
-  question in the group carries a model-judge score, and are absent altogether from an
-  empty group. `"latency_ms"` is a map of mean, median, 95th percentile, and maximum; the
+  was wrong", which a 0.0 would not. The three `"mean_model_*"` means and
+  `"mean_answer_confidence"` are `nil` when no question in the group carries the underlying
+  score, and are absent altogether from an empty group.
+  `"latency_ms"` is a map of mean, median, 95th percentile, and maximum; the
   remaining aggregates are numbers. An empty input still produces zeroes rather than an
   empty map.
   """
@@ -204,6 +209,7 @@ defmodule Cartulary.Eval.Scorer do
       "mean_end_to_end_tokens" => mean(results, &Map.get(&1, "end_to_end_tokens")),
       "mean_full_context_tokens" => mean(results, &Map.get(&1, "full_context_tokens")),
       "mean_token_efficiency_ratio" => mean(results, &Map.get(&1, "token_efficiency_ratio")),
+      "mean_answer_confidence" => optional_mean(results, "answer_confidence"),
       "mean_model_groundedness" => optional_mean(results, "model_groundedness"),
       "mean_model_context_relevance" => optional_mean(results, "model_context_relevance"),
       "mean_model_answer_relevance" => optional_mean(results, "model_answer_relevance"),
@@ -392,6 +398,16 @@ defmodule Cartulary.Eval.Scorer do
     |> String.replace(~r/[^[:alnum:]\s]+/u, " ")
     |> String.replace(~r/\s+/, " ")
     |> String.trim()
+  end
+
+  # A 0-100 integer the answering model stated about itself. Anything else, including a
+  # replayed result from before the field existed, scores as nil rather than zero: no
+  # probability was reported, which is not the same as a probability of none.
+  defp answer_confidence(result) do
+    case Map.get(result, "answer_confidence") do
+      value when is_integer(value) and value >= 0 and value <= 100 -> value
+      _value -> nil
+    end
   end
 
   defp not_known?(answer) do

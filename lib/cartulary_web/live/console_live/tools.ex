@@ -1067,6 +1067,7 @@ defmodule CartularyWeb.ConsoleLive.Tools do
     rows([
       {"Answer", truncate(to_string(value(result, "answer") || ""), 600)},
       {"Abstained", value(result, "abstained")},
+      {"Answer confidence", value(result, "answer_confidence")},
       {"Citations", count(result, "citations")},
       {"Candidates", count(result, "candidates")},
       {"Index health", retrieval_health(result)},

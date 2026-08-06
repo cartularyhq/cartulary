@@ -125,11 +125,11 @@ curl -fsS -X POST http://127.0.0.1:4000/api/v1/ask \
   -d '{"question":"Who approves the weekly roundup copy?","scope_path":"/marketing/social"}'
 ```
 
-If nothing supports the question, `abstained` is `true`, `citations` is empty,
-and the answer is `not known`. An abstained response with citations is instead
-a qualified explanation of what those statements support without claiming
-they establish a conclusion.
-That is a correct outcome, not an error.
+The answer carries `answer_confidence`, an integer from 0 to 100. `ask` does
+not refuse: a weakly supported answer arrives with a low confidence and
+`abstained` set to `true`, still with the citations behind it. Read that as a
+lead, not a conclusion. If no statement was retrieved at all, `citations` is
+empty and the answer says so. Both are correct outcomes, not errors.
 
 ## 5. Check readiness before running a skill
 

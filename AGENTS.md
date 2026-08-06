@@ -247,8 +247,11 @@ weighted reciprocal-rank fusion under the remaining deadline, and report
 contributed/dropped strategies.
 
 Entities and mentions are internal rebuildable caches. Never expose their
-names, aliases, surface forms, ids, vectors, or chunk contents. Expansion
-requires access to both relation endpoints. Keep vector/FTS indices,
+names, aliases, ids, vectors, or chunk contents. One surface form may appear as
+an entity card's label, and only when it comes from that card's own sources in
+that card's own scope; `Entity.canonical_name` and `Entity.kind` are
+account-global and stay unreadable. Expansion requires access to both relation
+endpoints. Keep vector/FTS indices,
 projections, invalidation, and erasure/import rebuilds aligned.
 
 Evidence: `test/cartulary/f7_retrieval_entity_context_test.exs`.
@@ -262,7 +265,8 @@ state and curator visibility follow its narrowing rules. All reads go through
 `CartularyWeb.Console.Loader` inside `DataLayer.with_actor/2`; role-only reads
 are pre-gated. Writes delegate to the operation layer, which reauthorizes them.
 
-Never expose entities, vectors, chunks, hashes, or secrets. Keep styles in
+Never expose entities, vectors, chunks, hashes, or secrets, except an entity
+card's scope-local label and recomputed kind. Keep styles in
 `console.css`, use no inline script/style, and render deterministic server-side
 SVG without randomness or wall clock.
 

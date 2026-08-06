@@ -546,17 +546,28 @@ defmodule Cartulary.Memory do
   statements, and every citation it returns is dropped unless it matches an id
   that was actually retrieved for this question. An answer whose citations all
   fail that check is replaced by an empty abstention, so a caller may rely on
-  every id in `"citations"` being real and retrieved. A cited answer may also
-  carry `"abstained" => true`; that combination means the statements support
-  the returned qualification or inference but do not establish a conclusion.
+  every id in `"citations"` being real and retrieved.
+
+  The model never refuses. It answers with whatever the retrieved statements
+  make most probable and states its own certainty as `"answer_confidence"`, a
+  0-100 percentage. A model answer below the abstention threshold carries
+  `"abstained" => true` whatever the model claimed, so a cited, abstained answer
+  is the normal shape for a weakly supported inference: read it as a lead, not a
+  conclusion. The model-free replies below report fixed confidences instead,
+  since no model stated a probability for them.
+
+  The one reply that is not an attempt at the question is the empty abstention
+  used when no retrieved statement survived to ground an answer on. That is a
+  statement about the index, not about the subject.
 
   When the deployment has no real model configured, and when a configured
   provider errors, the reply falls back to concatenating the top retrieved
   statements and citing exactly those, rather than inventing prose or silently
   switching providers.
 
-  Returns the `search/2` map with `"answer"`, `"citations"`, and `"abstained"`
-  merged in. Raises under the same conditions as `search/2`.
+  Returns the `search/2` map with `"answer"`, `"citations"`, `"abstained"`, and
+  `"answer_confidence"` merged in. Raises under the same conditions as
+  `search/2`.
   """
   def ask(attrs, identity_actor \\ nil) do
     Observability.with_span(:memory, "cartulary.memory.ask", fn ->
@@ -586,7 +597,8 @@ defmodule Cartulary.Memory do
       Observability.set_attributes(:memory, %{
         "cartulary.ask.candidate_count" => length(candidates),
         "cartulary.ask.used_model" => used_model?,
-        "cartulary.ask.abstained" => Map.get(answer, "abstained", false)
+        "cartulary.ask.abstained" => Map.get(answer, "abstained", false),
+        "cartulary.ask.answer_confidence" => Map.get(answer, "answer_confidence", 0)
       })
 
       Map.merge(retrieval, answer)
@@ -1370,6 +1382,23 @@ defmodule Cartulary.Memory do
     |> Map.new(fn {key, value} -> {Atom.to_string(key), value} end)
   end
 
+  # Percent. Below this the model's own stated probability is too low to present
+  # its inference as a conclusion, so the answer abstains while keeping its text
+  # and citations. Applies only to model answers: the model-free paths assert
+  # nothing of their own to be unsure about.
+  @inference_abstain_below 50
+
+  # The one reply that is not an attempt at the question. The model is told
+  # never to refuse, so this text is reachable only when no retrieved statement
+  # survived to ground an answer on, which is a state of the index rather than
+  # an answer about the subject.
+  @no_evidence_answer "No memory statements were retrieved for this question."
+
+  # Percent. What a concatenation of the top retrieved statements is worth: real
+  # evidence, but not an inference anyone made, so it sits below the threshold
+  # without being zero.
+  @fallback_confidence 40
+
   # Nothing retrieved means nothing to ground an answer in, so abstain without
   # spending a model call.
   defp answer_question(_attrs, question, []), do: {fallback_answer(question, []), false}
@@ -1438,10 +1467,18 @@ defmodule Cartulary.Memory do
 
     prompt = """
     Answer the question using only the cited Cartulary memory statements.
-    Return JSON: {"answer":"...", "citations":["knowledge-id"], "abstained":false}.
-    If the statements support a conclusion but do not establish it, return one sentence: {"answer":"The recorded statements do not establish this, but <what they do support>.", "citations":["knowledge-id"], "abstained":true}.
-    Keep the qualifier and supported inference in that one sentence, and cite every statement the inference rests on.
-    If no statement bears on the question, return {"answer":"not known", "citations":[], "abstained":true}.
+    Return JSON: {"answer":"...", "citations":["knowledge-id"], "abstained":false, "answer_confidence":0}.
+    answer_confidence is your own probability, an integer from 0 to 100, that the answer you gave is correct.
+
+    Always give your best answer. Never reply "not known", "unknown", "no information available", or "cannot answer": state what the statements make most probable and let answer_confidence carry your uncertainty.
+
+    1. If a statement states the answer, give it and set answer_confidence high.
+    2. If no statement states the answer, infer the most probable one from the statements, use an explicit likelihood word, and set answer_confidence to how probable it is.
+    3. If the statements barely bear on the question, still give the most probable answer they allow and set answer_confidence low, near 0.
+
+    Cite every statement your answer rests on, including a low-confidence one. An answer with no surviving citation is discarded.
+
+    A statement may be followed by "(true from ...)" or "(true from ... until ...)": when the claim held. Use it to date an answer whose statement says only "last weekend" or "yesterday". Do not date such a phrase from today's date.
 
     A statement may be followed by "(true from ...)" or "(true from ... until ...)": when the claim held. Use it to date an answer whose statement says only "last weekend" or "yesterday". Do not date such a phrase from today's date.
 
@@ -1479,10 +1516,15 @@ defmodule Cartulary.Memory do
         if citations == [] do
           fallback_answer(question, [])
         else
+          # The model may always abstain; below the threshold it no longer gets
+          # to claim the opposite. An inference it is itself unsure of is
+          # returned with its statements and its number, not as a conclusion.
           %{
             "answer" => decoded.answer,
             "citations" => citations,
-            "abstained" => decoded.abstained
+            "abstained" =>
+              decoded.abstained or decoded.answer_confidence < @inference_abstain_below,
+            "answer_confidence" => decoded.answer_confidence
           }
         end
 
@@ -1500,12 +1542,19 @@ defmodule Cartulary.Memory do
   defp provider_override(Cartulary.Model.Providers.Deterministic), do: nil
   defp provider_override(provider), do: provider
 
-  # Model-free answers. With no candidates the only honest reply is an
-  # abstention; with candidates, the highest-ranked statements are concatenated
-  # and each one is cited, so even the fallback answer stays traceable to the
-  # knowledge it came from.
+  # Model-free answers. With no grounded statement to stand on the reply reports
+  # that state rather than guessing, because the answering contract is that
+  # every answer rests on retrieved knowledge and there is none here; with
+  # candidates, the highest-ranked statements are concatenated and each one is
+  # cited, so even the fallback answer stays traceable to the knowledge it came
+  # from.
   defp fallback_answer(_question, []),
-    do: %{"answer" => "not known", "citations" => [], "abstained" => true}
+    do: %{
+      "answer" => @no_evidence_answer,
+      "citations" => [],
+      "abstained" => true,
+      "answer_confidence" => 0
+    }
 
   defp fallback_answer(_question, candidates) do
     # Four statements: enough to cover a typical question while keeping the reply
@@ -1515,7 +1564,8 @@ defmodule Cartulary.Memory do
     %{
       "answer" => Enum.map_join(top, " ", & &1["statement"]),
       "citations" => Enum.map(top, & &1["id"]),
-      "abstained" => false
+      "abstained" => false,
+      "answer_confidence" => @fallback_confidence
     }
   end
 

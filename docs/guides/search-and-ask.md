@@ -92,19 +92,25 @@ curl -fsS -X POST http://127.0.0.1:4000/api/v1/ask \
 `question` is required. All `search` parameters apply; `profile` defaults to
 `thorough`.
 
-The response is the search payload plus `answer`, `citations`, and `abstained`.
+The response is the search payload plus `answer`, `citations`, `abstained`, and
+`answer_confidence`.
 
-!!! tip "Abstention is a feature"
-    Treat `abstained` as an ordinary outcome. With non-empty `citations`, the
-    answer explains what the cited evidence supports while admitting that it
-    does not establish a conclusion. With an empty citation list, the answer is
-    `not known`. An answer invented from an empty candidate set is worse than
+!!! tip "Read the confidence, not only the answer"
+    `ask` does not refuse. It answers with what the retrieved statements make
+    most probable and reports its certainty as `answer_confidence`, an integer
+    from 0 to 100. Below 50 the response also sets `abstained`, which marks the
+    answer as a lead rather than a conclusion. Both still carry citations, so
+    you can check the reasoning yourself.
+
+    An empty citation list with `abstained` means no statement survived to
+    ground an answer on. That is a report about the index, not a guess about
+    the subject. An answer invented from an empty candidate set is worse than
     silence, and much harder to notice.
 
 Retrieval for `ask` is restricted to knowledge items, so every citation is a
 governed statement rather than a raw message. Citation ids the model invented
 or did not retrieve are removed; if none survive, the answer becomes the empty
-abstention.
+abstention with `answer_confidence` 0.
 
 ## Choosing a profile
 
@@ -127,5 +133,10 @@ then.
 
 ## What you will not find
 
-No surface returns entity rows, names, aliases, surface forms, or ids. These
-internal caches improve matching without affecting authorization boundaries.
+Search and ask return no entity rows, names, aliases, surface forms, or ids.
+These internal caches improve matching without affecting authorization
+boundaries.
+
+`get_context` is the one exception, and a narrow one: an entity card names
+itself with a wording from its own scope. See
+[Context](context.md#the-response).

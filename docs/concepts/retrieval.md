@@ -116,9 +116,15 @@ callers cannot select strategies directly.
 Dream-time entity resolution links aliases such as "Dana", "Dana R.", and
 "our copy lead" across validated statements.
 
-Entity rows and mentions are **rebuildable, pipeline-internal caches**, and
-they are exposed through no public surface at all — not HTTP, not MCP, not the
-SDK helpers, not LiveView, not projection payloads, not retrieval responses.
+Entity rows and mentions are **rebuildable, pipeline-internal caches**. The
+rows themselves reach no surface: no canonical name, alias, or entity id
+appears in HTTP, MCP, SDK, LiveView, projection, or retrieval output.
+
+One exception, and it is bounded by scope. An entity card may name itself with
+a wording drawn from that card's own source statements in that card's own
+scope, and may report a `kind` recomputed from the same wordings. Both are text
+the card already returns, so neither carries a name across a scope boundary.
+The entity row is not read to produce them.
 
 Resolution errors affect accuracy, never scope or Account authorization.
 Erasure and archive import rebuild entities from surviving governed statements.
@@ -177,16 +183,22 @@ missing and the fastest retrieval profile filled in live.
 Projection updates preserve dirty marking, bounded delta compaction, source ids,
 and PubSub/ETS invalidation. A model call does not belong on this read path.
 
-## Ask abstains
+## Ask answers with a confidence
 
 `ask` retrieves with the `thorough` profile, restricts retrieval to knowledge
 items so that citations are governed statements, and answers over what it
-found. It may set `abstained` while retaining a qualified answer and citations:
-that means the evidence supports what the answer says but does not establish a
-conclusion. When nothing supports the question it returns `not known`, an empty
-citation list, and `abstained == true`.
+found. It does not refuse: it states what the retrieved statements make most
+probable and reports `answer_confidence`, an integer from 0 to 100, for its own
+certainty.
 
-Treat `abstained == true` as an ordinary outcome. An answer invented from an
-empty candidate set would be worse than silence. Every model citation is
-intersected with the retrieved candidate ids before the response leaves the
-server, and no surviving citation means the empty abstention wins.
+A model answer below 50 also sets `abstained`. That pair — cited answer, low
+confidence, `abstained == true` — is the normal shape for a weakly supported
+inference. Treat it as a lead to check rather than a conclusion to act on.
+
+One reply is not an attempt at the question: when no retrieved statement
+survives, the response is an empty citation list, `abstained == true`, and
+`answer_confidence` 0. That reports the state of the index, not the subject. An
+answer invented from an empty candidate set would be worse than silence. Every
+model citation is intersected with the retrieved candidate ids before the
+response leaves the server, and no surviving citation means that empty
+abstention wins.

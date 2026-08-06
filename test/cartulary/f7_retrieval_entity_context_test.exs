@@ -207,6 +207,42 @@ defmodule Cartulary.F7RetrievalEntityContextTest.RerankFailureProvider do
   end
 end
 
+defmodule Cartulary.F7RetrievalEntityContextTest.CardSummaryFailureProvider do
+  @moduledoc """
+  Provider whose entity-card summary call fails and whose other calls do not.
+
+  Used to prove that one failed summary degrades its own card instead of
+  discarding the embeddings and entity rows the same rebuild committed.
+  """
+
+  @behaviour Cartulary.Model.Provider
+
+  alias Cartulary.Model.Providers.Deterministic
+
+  @impl true
+  def structured(config, messages, schema, opts),
+    do: Deterministic.structured(config, messages, schema, opts)
+
+  @impl true
+  def chat(config, messages, opts) do
+    if Keyword.get(opts, :task) == :entity_card do
+      {:error, %Mint.TransportError{reason: :timeout}}
+    else
+      Deterministic.chat(config, messages, opts)
+    end
+  end
+
+  # The deterministic provider refuses to embed, so indexing borrows the suite's fixture vectors.
+  # The rebuild must reach its third stage for this failure injection to mean anything.
+  @impl true
+  def embed(config, texts, opts),
+    do: Cartulary.F7RetrievalEntityContextTest.Provider.embed(config, texts, opts)
+
+  @impl true
+  def rerank(config, query, documents, opts),
+    do: Deterministic.rerank(config, query, documents, opts)
+end
+
 defmodule Cartulary.F7RetrievalEntityContextTest do
   @moduledoc """
   Pins retrieval, private entity caches, and reasoning-free context assembly.
@@ -1580,7 +1616,7 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     assert dirty["fast_fallback"] == true
   end
 
-  test "entity cards summarize three active sources without exposing the entity cache" do
+  test "entity cards name their scope-local referent and drop the summary at two sources" do
     first =
       seed_active!(
         "f7-entity-card",
@@ -1603,6 +1639,30 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
         "/f7/entity-card",
         "The billing service restricts salary export access.",
         "entity-card-3"
+      )
+
+    ungoverned_a =
+      seed_ungoverned!(
+        "f7-entity-card",
+        "/f7/entity-card",
+        "Zap remains under discussion for the billing rollout.",
+        "entity-card-4"
+      )
+
+    ungoverned_b =
+      seed_ungoverned!(
+        "f7-entity-card",
+        "/f7/entity-card",
+        "Zap has no owner assigned yet.",
+        "entity-card-5"
+      )
+
+    ungoverned_c =
+      seed_ungoverned!(
+        "f7-entity-card",
+        "/f7/entity-card",
+        "Zap was raised again in the weekly review.",
+        "entity-card-6"
       )
 
     DataLayer.with_account_key("f7-entity-card", fn account, actor ->
@@ -1639,6 +1699,27 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
         )
       end)
 
+      # Three statements that never went active, mentioning the same entity by a form that would
+      # win if the label were drawn from the whole mention cache: it ties "billing service" on
+      # frequency and beats it on the shortest tie-break. The card must ignore all three, because
+      # none of them is one of its sources. Three is the count that makes this discriminating —
+      # the retracted third source keeps its own mention in the cache, so two would still lose.
+      Enum.each([ungoverned_a, ungoverned_b, ungoverned_c], fn seeded ->
+        create!(
+          EntityMention,
+          :create_from_pipeline,
+          %{
+            knowledge_item_id: seeded.knowledge.id,
+            scope_id: seeded.scope.id,
+            entity_id: entity.id,
+            surface_form: "Zap",
+            confidence: 1.0
+          },
+          account.id,
+          pipeline
+        )
+      end)
+
       assert {:ok, %{entity_cards: 1}} = Builder.refresh_scope(account.id, first.scope.id)
 
       projection =
@@ -1663,17 +1744,52 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     assert card["sensitivity"] == "personal"
     assert length(card["knowledge"]) == 3
 
+    # The label is the scope-local surface form, and the kind is recomputed from it. The entity
+    # row says "system"; recomputation says "concept". That divergence is the point: the stored
+    # kind is frozen at the first spelling ever seen, in whatever scope that was.
+    assert card["label"] == "billing service"
+    assert card["kind"] == "concept"
+
     for private_field <- ~w(entity_id canonical_name aliases surface_form) do
       refute Map.has_key?(card, private_field)
       refute Enum.any?(card["knowledge"], &Map.has_key?(&1, private_field))
     end
 
-    # Dropping below the three-active-source threshold retires the old card. The mention cache
-    # may still contain the retracted statement until its own rebuild, so this also proves that
-    # card eligibility comes from governed lifecycle state rather than mention presence alone.
+    # Two sources still earn a card, but never a summary: a pair rarely yields a brief worth a
+    # model call, so all three summary fields go empty while the label survives.
     DataLayer.with_account_key("f7-entity-card", fn account, actor ->
       GovernanceEngine.transition!(
         third.knowledge,
+        pipeline_actor(actor),
+        %{state: "retracted"},
+        reason: "f7_entity_card_retracted",
+        channel: "pipeline"
+      )
+
+      assert {:ok, %{entity_cards: 1}} = Builder.refresh_scope(account.id, first.scope.id)
+    end)
+
+    paired =
+      Memory.get_context(
+        %{"scope_path" => first.scope.path, "budget_chars" => 50_000},
+        first.actor
+      )
+
+    assert [pair_card] = paired["entity_cards"]
+    # "Invoice Runner" was the most frequent form until its statement was retracted. The label
+    # follows the card's own sources, so it does not survive them.
+    assert pair_card["label"] == "billing service"
+    assert is_nil(pair_card["summary"])
+    assert pair_card["summary_mode"] == "none"
+    assert is_nil(pair_card["summary_provenance"])
+    assert length(pair_card["knowledge"]) == 2
+
+    # Dropping below the two-active-source threshold retires the card. The mention cache may
+    # still contain the retracted statements until its own rebuild, so this also proves that card
+    # eligibility comes from governed lifecycle state rather than mention presence alone.
+    DataLayer.with_account_key("f7-entity-card", fn account, actor ->
+      GovernanceEngine.transition!(
+        second.knowledge,
         pipeline_actor(actor),
         %{state: "retracted"},
         reason: "f7_entity_card_retracted",
@@ -1690,6 +1806,212 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
       )
 
     assert refreshed["entity_cards"] == []
+  end
+
+  test "a failed entity card summary degrades one card instead of the whole rebuild" do
+    account_key = "f7-card-summary-failure"
+    scope_path = "/f7/card-summary-failure"
+
+    first =
+      seed_active!(
+        account_key,
+        scope_path,
+        "The ledger service owns invoice generation.",
+        "card-summary-1"
+      )
+
+    second =
+      seed_active!(
+        account_key,
+        scope_path,
+        "The ledger service pages the finance on-call after failed settlement.",
+        "card-summary-2"
+      )
+
+    third =
+      seed_active!(
+        account_key,
+        scope_path,
+        "The ledger service retries settlement twice before it escalates.",
+        "card-summary-3"
+      )
+
+    DataLayer.with_account_key(account_key, fn account, actor ->
+      pipeline = pipeline_actor(actor)
+      sources = [first, second, third]
+
+      entity =
+        create!(
+          Entity,
+          :create_from_pipeline,
+          %{
+            canonical_name: "ledger service",
+            kind: "system",
+            aliases: ["ledger service"],
+            derived_from: Enum.map(sources, & &1.knowledge.id)
+          },
+          account.id,
+          pipeline
+        )
+
+      Enum.each(sources, fn seeded ->
+        create!(
+          EntityMention,
+          :create_from_pipeline,
+          %{
+            knowledge_item_id: seeded.knowledge.id,
+            scope_id: seeded.scope.id,
+            entity_id: entity.id,
+            surface_form: "ledger service",
+            confidence: 1.0
+          },
+          account.id,
+          pipeline
+        )
+      end)
+    end)
+
+    original_provider = Application.get_env(:cartulary, :model_provider)
+
+    on_exit(fn ->
+      if original_provider do
+        Application.put_env(:cartulary, :model_provider, original_provider)
+      else
+        Application.delete_env(:cartulary, :model_provider)
+      end
+    end)
+
+    Application.put_env(
+      :cartulary,
+      :model_provider,
+      Cartulary.F7RetrievalEntityContextTest.CardSummaryFailureProvider
+    )
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        DataLayer.with_account_key(account_key, fn account, _actor ->
+          # Three sources earn a summary and the provider refuses it. The refresh still succeeds
+          # and reports the degraded card, because the alternative — raising — throws away the
+          # two committed stages the same rebuild already paid for.
+          assert {:ok, %{entity_cards: 1, entity_card_summaries_unavailable: 1}} =
+                   Builder.refresh_scope(account.id, first.scope.id)
+        end)
+      end)
+
+    assert log =~ "entity card summary unavailable"
+    assert log =~ "Mint.TransportError"
+    # The failure is diagnosable from ids and an error class alone. A statement in a log line is
+    # a content leak whatever the log level.
+    refute log =~ "invoice generation"
+
+    context =
+      Memory.get_context(
+        %{"scope_path" => first.scope.path, "budget_chars" => 50_000},
+        first.actor
+      )
+
+    # Everything the card is built from survives the missing brief: the summary reads exactly as
+    # it does below the source threshold, and only `summary_mode` distinguishes the two.
+    assert [card] = context["entity_cards"]
+    assert card["label"] == "ledger service"
+    assert is_nil(card["summary"])
+    assert card["summary_mode"] == "unavailable"
+    assert is_nil(card["summary_provenance"])
+    assert length(card["knowledge"]) == 3
+
+    # The whole three-stage rebuild now completes with the same provider, and the embeddings its
+    # first stage commits are what the raise used to make the caller redo.
+    assert {:ok, %{index: %{indexed: 3}}} =
+             Cartulary.Retrieval.rebuild_scope(first.account.id, first.scope.id)
+
+    coverage =
+      first.account.id
+      |> Cartulary.Retrieval.index_coverage([first.scope.id])
+      |> Map.fetch!(first.scope.id)
+
+    assert coverage.statement_count == 3
+    assert coverage.embedded_count == 3
+  end
+
+  test "get_context caps entity cards per scope and orders equal cards by label" do
+    account_key = "f7-entity-card-cap"
+    scope_path = "/f7/entity-card-cap"
+
+    seed = seed_active!(account_key, scope_path, "Ten teams share the rollout calendar.", "cap-1")
+
+    # The cap and its sort key live in `Cartulary.Context`, not in the builder, so the cards are
+    # written directly rather than driven through ingest and extraction. Ten identical-weight
+    # cards is the shape that matters: every one has two sources and the same best confidence, so
+    # the label alone decides which eight survive.
+    DataLayer.with_account_key(account_key, fn account, actor ->
+      pipeline = pipeline_actor(actor)
+
+      Enum.each(1..10, fn index ->
+        letter = <<?A + index - 1>>
+        entity_id = Ash.UUID.generate()
+
+        create!(
+          Projection,
+          :upsert_from_pipeline,
+          %{
+            cache_key: "entity:#{seed.scope.id}:#{entity_id}",
+            scope_id: seed.scope.id,
+            entity_id: entity_id,
+            kind: "entity_card",
+            sensitivity: "internal",
+            content: %{
+              "scope_id" => seed.scope.id,
+              "label" => "Team #{letter}",
+              "kind" => "concept",
+              "summary" => nil,
+              "summary_mode" => "none",
+              "summary_provenance" => nil,
+              "sensitivity" => "internal",
+              "knowledge" => [
+                %{
+                  "id" => Ash.UUID.generate(),
+                  "statement" => "Team #{letter} owns it.",
+                  "confidence" => 0.5
+                },
+                %{
+                  "id" => Ash.UUID.generate(),
+                  "statement" => "Team #{letter} reports on it.",
+                  "confidence" => 0.5
+                }
+              ]
+            },
+            source_ids: [Ash.UUID.generate(), Ash.UUID.generate()]
+          },
+          account.id,
+          pipeline
+        )
+      end)
+    end)
+
+    context =
+      Memory.get_context(
+        %{"scope_path" => scope_path, "budget_chars" => 200_000},
+        seed.actor
+      )
+
+    cards = context["entity_cards"]
+    assert length(cards) == 8
+
+    # The previous final sort key was the cache key, which carries the entity UUID and changes
+    # under re-resolution. With a cap in place that churn would decide which cards a caller sees.
+    labels = Enum.map(cards, & &1["label"])
+    assert labels == Enum.sort(labels, :desc)
+
+    assert labels == [
+             "Team J",
+             "Team I",
+             "Team H",
+             "Team G",
+             "Team F",
+             "Team E",
+             "Team D",
+             "Team C"
+           ]
   end
 
   test "scope and session projections keep provisional statements private to their subject" do
@@ -2207,6 +2529,41 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
           reason: "f7_test_activate",
           channel: "pipeline"
         )
+
+      %{account: account, actor: actor, scope: scope, knowledge: knowledge}
+    end)
+  end
+
+  # Same as `seed_active!` up to the point of governance: the statement is extracted and stays in
+  # its post-extraction state, so it never becomes a card source.
+  defp seed_ungoverned!(account_key, scope_path, statement, session_id) do
+    assert {:ok, message} =
+             Memory.ingest_message(%{
+               "account_key" => account_key,
+               "session_id" => session_id,
+               "scope_path" => scope_path,
+               "peer_key" => "avery",
+               "peer_name" => "Avery",
+               "content" => statement
+             })
+
+    assert {:ok, [knowledge]} = Memory.extract_message(message["id"], account_key)
+    knowledge_id = Map.fetch!(knowledge, "id")
+
+    DataLayer.with_account_key(account_key, fn account, actor ->
+      scope =
+        Scope
+        |> Ash.Query.filter(path == ^scope_path)
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read_one!(actor: actor)
+
+      knowledge =
+        KnowledgeItem
+        |> Ash.Query.filter(id == ^knowledge_id)
+        |> Ash.Query.set_tenant(account.id)
+        |> Ash.read_one!(actor: actor)
+
+      refute knowledge.state == "active"
 
       %{account: account, actor: actor, scope: scope, knowledge: knowledge}
     end)

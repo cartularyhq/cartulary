@@ -2,13 +2,15 @@
 
 defmodule Cartulary.AskGroundedAbstentionTest do
   @moduledoc """
-  Pins the three grounded outcomes of `Memory.ask/2` and its MCP wrapper.
+  Pins the grounded outcomes of `Memory.ask/2` and its MCP wrapper.
 
-  A conclusive answer is cited and not abstained; a supported but inconclusive
-  answer is cited and abstained; an answer with no surviving retrieved citation
-  is replaced by the empty `not known` abstention. The tests use an offline
-  provider whose invented ids exercise the same citation intersection used in
-  production, and run synchronously because provider selection is node-global.
+  A confident answer is cited and not abstained; a low-confidence answer keeps
+  its text and citations but abstains whatever the model claimed; an answer with
+  no surviving retrieved citation is replaced by the empty abstention. The
+  prompt is also pinned to instruct the model never to refuse, because a refusal
+  is what the confidence percentage replaced. The tests use an offline provider
+  whose invented ids exercise the same citation intersection used in production,
+  and run synchronously because provider selection is node-global.
   """
 
   use Cartulary.DataCase, async: false
@@ -24,6 +26,8 @@ defmodule Cartulary.AskGroundedAbstentionTest do
   require Ash.Query
 
   @supported_answer "The recorded statements do not establish this, but they support a preference for concise weekly release summaries."
+  @inferred_answer "Avery most likely prefers concise weekly release summaries."
+  @no_evidence_answer "No memory statements were retrieved for this question."
 
   setup do
     original_provider = Application.get_env(:cartulary, :model_provider)
@@ -52,14 +56,48 @@ defmodule Cartulary.AskGroundedAbstentionTest do
     assert result["answer"] == @supported_answer
     assert result["citations"] == [knowledge_id]
     assert result["abstained"]
+    assert result["answer_confidence"] == 30
 
     assert [prompt] = GroundedAnswerProvider.prompts()
 
     assert prompt =~
-             "If the statements support a conclusion but do not establish it, return one sentence"
+             "Always give your best answer. Never reply \"not known\", \"unknown\", \"no information available\", or \"cannot answer\""
 
     assert prompt =~
-             "Keep the qualifier and supported inference in that one sentence, and cite every statement the inference rests on."
+             "infer the most probable one from the statements, use an explicit likelihood word"
+
+    assert prompt =~
+             "Cite every statement your answer rests on, including a low-confidence one."
+  end
+
+  test "keeps a confident inference as a conclusion" do
+    bootstrap = bootstrap_human!("confident")
+    {knowledge_id, scope_path, _session_id} = seed_memory!(bootstrap.actor, "confident")
+    {:ok, actor} = Identity.authenticate_bearer(bootstrap.token)
+    use_answer_mode!(:confident_inference)
+
+    result = ask(actor, scope_path)
+
+    assert result["answer"] == @inferred_answer
+    assert result["citations"] == [knowledge_id]
+    assert result["answer_confidence"] == 80
+    refute result["abstained"]
+  end
+
+  test "abstains on a low-confidence inference while keeping its text and citations" do
+    bootstrap = bootstrap_human!("low-confidence")
+    {knowledge_id, scope_path, _session_id} = seed_memory!(bootstrap.actor, "low-confidence")
+    {:ok, actor} = Identity.authenticate_bearer(bootstrap.token)
+    use_answer_mode!(:low_confidence_inference)
+
+    result = ask(actor, scope_path)
+
+    # The fixture claims a conclusion at 20. The answer survives as a lead, the
+    # claim does not.
+    assert result["answer"] == @inferred_answer
+    assert result["citations"] == [knowledge_id]
+    assert result["answer_confidence"] == 20
+    assert result["abstained"]
   end
 
   test "shows the answerer when a dated statement was true" do
@@ -96,14 +134,15 @@ defmodule Cartulary.AskGroundedAbstentionTest do
     assert partially_grounded["abstained"]
 
     # Rearming replaces the fixture response and clears its prompt log. This
-    # time every citation is invented and the provider claims a conclusion;
-    # empty grounding evidence still wins over that claim.
+    # time every citation is invented and the provider claims a conclusion at
+    # 90; empty grounding evidence still wins over that claim.
     use_answer_mode!(:unsupported_assertion)
 
     assert %{
-             "answer" => "not known",
+             "answer" => @no_evidence_answer,
              "citations" => [],
-             "abstained" => true
+             "abstained" => true,
+             "answer_confidence" => 0
            } = ask(actor, scope_path)
   end
 
@@ -128,9 +167,10 @@ defmodule Cartulary.AskGroundedAbstentionTest do
     use_answer_mode!(:grounded_abstention)
 
     assert %{
-             "answer" => "not known",
+             "answer" => @no_evidence_answer,
              "citations" => [],
-             "abstained" => true
+             "abstained" => true,
+             "answer_confidence" => 0
            } = ask(actor, scope_path)
 
     assert GroundedAnswerProvider.prompts() == []
@@ -156,6 +196,7 @@ defmodule Cartulary.AskGroundedAbstentionTest do
     assert result["answer"] == @supported_answer
     assert result["citations"] == [knowledge_id]
     assert result["abstained"]
+    assert result["answer_confidence"] == 30
   end
 
   defp bootstrap_human!(suffix) do

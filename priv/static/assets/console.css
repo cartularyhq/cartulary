@@ -1676,6 +1676,20 @@ button.ghost {
   gap: 0.35rem;
 }
 
+/* Derived prose, not governed knowledge. Borrows the left-border marking that
+   .tool-panel.is-write and .diagnostic-panel already use for "this block is
+   different in kind", so a card summary cannot be mistaken for a statement. */
+.derived-summary {
+  margin: 0.5rem 0;
+  padding-left: 0.6rem;
+  border-left: 3px solid var(--border);
+  font-size: 0.85rem;
+}
+
+.derived-summary p {
+  margin: 0.2rem 0;
+}
+
 .graph-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;
@@ -1733,6 +1747,16 @@ button.ghost {
   stroke: var(--accent);
   stroke-width: 0.9;
   opacity: 0.55;
+}
+
+/* Co-mention. Dotted and faint on purpose: it is the weakest claim on the
+   diagram — two referents shared a sentence — and must not read as heavily as
+   a governed statement relation. */
+.edge-co_mention {
+  stroke: var(--muted);
+  stroke-dasharray: 1 4;
+  stroke-width: 1.1;
+  opacity: 0.7;
 }
 
 .node {
@@ -1859,6 +1883,7 @@ button.ghost {
 .swatch.edge-membership,
 .swatch.edge-scope_relation,
 .swatch.edge-knowledge_relation,
+.swatch.edge-co_mention,
 .swatch.edge-cluster_link {
   border-radius: 0;
   height: 0.15rem;
@@ -1883,6 +1908,11 @@ button.ghost {
 .swatch.edge-cluster_link {
   background: var(--accent);
   opacity: 0.55;
+}
+
+.swatch.edge-co_mention {
+  background: var(--muted);
+  opacity: 0.7;
 }
 
 .graph-selection .statement {
