@@ -54,7 +54,18 @@ with a concise validation-only reasoning string and its natural-language
 statement, then an integer `confidence_percentage` from 1 through 100. The
 validator strips non-digits from that field, checks the range, and divides by
 100 before it passes the resulting confidence to governance. Reasoning is not
-persisted, metered, or logged. Each candidate also includes:
+persisted, metered, or logged.
+
+Statement text is canonicalized — invisible characters removed, whitespace runs
+collapsed — before it is hashed, and then measured against the readability rule
+in `Cartulary.Knowledge.Statement`: it must carry letters or digits, and above a
+24-character floor at least 60% of its non-space characters must be. A decoding
+collapse into repeated ellipsis measures below 0.40 where observed prose
+measures 0.79 and above. The cast reports the failure so the repair prompt can
+act on it, and `create_from_pipeline` validates the same rule so the resource,
+not the extractor, is the gate. Repeated real words are not detected.
+
+Each candidate also includes:
 
 - kind, sensitivity, and target level;
 - peer or current-scope subject, independently of the source Peer;

@@ -61,6 +61,7 @@ defmodule Cartulary.Model.Schema.Extraction do
   @behaviour Cartulary.Model.Schema
 
   alias Cartulary.Knowledge.KnowledgeItem
+  alias Cartulary.Knowledge.Statement
 
   # Candidate fields taken straight from the knowledge resource's attributes.
   # `confidence_percentage` is normalized to the persisted `confidence` value
@@ -196,7 +197,7 @@ defmodule Cartulary.Model.Schema.Extraction do
   # Confidence is computed rather than copied: see `hearsay_confidence/4`.
   defp cast_item(item, context) when is_map(item) do
     with {:ok, _reasoning} <- non_empty_string(item, "reasoning"),
-         {:ok, statement} <- non_empty_string(item, "statement"),
+         {:ok, statement} <- readable_statement(item),
          {:ok, kind} <- enum(item, "kind", allowed(:kind)),
          {:ok, subject_type} <- enum(item, "subject_type", @subject_types),
          {:ok, subject_ref} <- valid_subject_ref(item, subject_type, context),
@@ -291,6 +292,22 @@ defmodule Cartulary.Model.Schema.Extraction do
   end
 
   defp allowed(name), do: Map.fetch!(@allowed, name)
+
+  # The resource rejects unreadable text as well, but only as a whole-candidate changeset
+  # failure. Checking here too is what turns that into a message the repair prompt can act on,
+  # which is the difference between the model rewriting the statement and it retrying the same
+  # collapse.
+  defp readable_statement(item) do
+    with {:ok, statement} <- non_empty_string(item, "statement") do
+      normalized = Statement.normalize(statement)
+
+      if Statement.prose?(normalized) do
+        {:ok, normalized}
+      else
+        {:error, ["statement must be readable text, not repeated filler characters"]}
+      end
+    end
+  end
 
   defp non_empty_string(item, key) do
     case fetch(item, key) do
