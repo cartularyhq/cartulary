@@ -523,12 +523,18 @@ defmodule Cartulary.Retrieval.EntityResolver do
     end)
   end
 
-  # A cheap English-centric guess at what kind of thing a name refers to,
-  # kept as metadata only. Nothing in retrieval branches on the answer, so a
-  # wrong guess is harmless and it is not worth a model call. `concept` is the
-  # catch-all, and the ordering matters: an address containing a company suffix
-  # is still classed by its `@` as a person.
-  defp infer_kind(surface) do
+  @doc """
+  A cheap English-centric guess at what kind of thing a name refers to.
+
+  Returns one of `"person"`, `"org"`, `"system"`, or `"concept"`. The order of the branches is
+  the contract: an address that also carries a company suffix stays a person.
+
+  Nothing in retrieval branches on the answer, so a wrong guess costs nothing there and is not
+  worth a model call. `Cartulary.Context.EntityLabel` does surface it on a card, where a wrong
+  guess is visible but still harmless. Callers must reuse this function rather than copy the
+  rules; two implementations would drift apart silently.
+  """
+  def infer_kind(surface) do
     cond do
       String.contains?(surface, "@") -> "person"
       String.match?(surface, ~r/\b(?:Inc|LLC|Ltd|Corp|Org)\b/) -> "org"

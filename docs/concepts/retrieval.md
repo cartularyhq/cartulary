@@ -116,9 +116,15 @@ callers cannot select strategies directly.
 Dream-time entity resolution links aliases such as "Dana", "Dana R.", and
 "our copy lead" across validated statements.
 
-Entity rows and mentions are **rebuildable, pipeline-internal caches**, and
-they are exposed through no public surface at all — not HTTP, not MCP, not the
-SDK helpers, not LiveView, not projection payloads, not retrieval responses.
+Entity rows and mentions are **rebuildable, pipeline-internal caches**. The
+rows themselves reach no surface: no canonical name, alias, or entity id
+appears in HTTP, MCP, SDK, LiveView, projection, or retrieval output.
+
+One exception, and it is bounded by scope. An entity card may name itself with
+a wording drawn from that card's own source statements in that card's own
+scope, and may report a `kind` recomputed from the same wordings. Both are text
+the card already returns, so neither carries a name across a scope boundary.
+The entity row is not read to produce them.
 
 Resolution errors affect accuracy, never scope or Account authorization.
 Erasure and archive import rebuild entities from surviving governed statements.

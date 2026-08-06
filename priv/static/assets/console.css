@@ -1676,6 +1676,20 @@ button.ghost {
   gap: 0.35rem;
 }
 
+/* Derived prose, not governed knowledge. Borrows the left-border marking that
+   .tool-panel.is-write and .diagnostic-panel already use for "this block is
+   different in kind", so a card summary cannot be mistaken for a statement. */
+.derived-summary {
+  margin: 0.5rem 0;
+  padding-left: 0.6rem;
+  border-left: 3px solid var(--border);
+  font-size: 0.85rem;
+}
+
+.derived-summary p {
+  margin: 0.2rem 0;
+}
+
 .graph-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;

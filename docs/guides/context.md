@@ -32,7 +32,10 @@ curl -fsS -X POST http://127.0.0.1:4000/api/v1/context \
     "scope_cards": [ ... ],
     "entity_cards": [
       {
+        "label": "billing service",
+        "kind": "concept",
         "summary": "The billing service owns invoice generation and pages finance after failed settlement.",
+        "summary_mode": "model",
         "sensitivity": "internal",
         "knowledge": [ ... ]
       }
@@ -49,8 +52,11 @@ curl -fsS -X POST http://127.0.0.1:4000/api/v1/context \
   provisional statements, within budget.
 - **`session_summary`** — active statements used to warm this session.
 - **`scope_cards`** — active statements each ancestor scope contributes.
-- **`entity_cards`** — short per-entity briefs built from at least three active
-  governed statements in one scope. Cards expose no entity-cache metadata.
+- **`entity_cards`** — short per-entity briefs built from at least two active
+  governed statements in one scope, capped at eight per scope. The `label` and
+  `kind` come from the card's own sources in its own scope. A summary needs
+  three sources, so on a two-source card `summary` is `null` and `summary_mode`
+  is `"none"`. Cards expose no entity ids, canonical names, or aliases.
 - **`peer_profile`** — active and provisional statements about the calling
   peer. Another peer's provisional statements are never included.
 - **`projection_cache_hit`** — a stored projection was reused.

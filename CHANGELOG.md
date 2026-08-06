@@ -66,6 +66,19 @@ changelog entry and contract-version transition.
 
 ### Changed
 
+- An entity card is now built from two active source statements instead of
+  three, but a summary still needs three. On a two-source card `summary` and
+  `summary_provenance` are `null` and `summary_mode` is the new value `"none"`,
+  so callers of `get_context` must treat all three summary fields as optional.
+  The summary threshold applies whatever the provider, including the
+  deterministic one where a summary costs nothing, because one release must
+  behave the same everywhere. `get_context` also caps entity cards at eight per
+  scope, ordered by source count: cards are spent against the character budget
+  before individual statements, so a lower card threshold would otherwise let
+  cheap cards displace ranked knowledge. The retrieval and context contract
+  stays `f7-1` — a deliberate hold, recorded in ADR 0011, not an additive
+  change.
+
 - `ask` no longer refuses. The answering prompt now instructs the model to state
   what the retrieved statements make most probable and to carry its uncertainty
   in a new `answer_confidence` percentage rather than replying `not known`. The
@@ -128,6 +141,18 @@ changelog entry and contract-version transition.
   complete list.
 
 ### Added
+
+- Entity cards now carry a `label` and a `kind`, and the console graph names a
+  shared-entity hub instead of showing only an ordinal. The label is a surface
+  form taken from that card's own sources in that card's own scope, so it is
+  text the card already returns; `Entity.canonical_name` and `Entity.kind` stay
+  unreadable, because both are account-global and the stored kind is frozen at
+  the first spelling ever seen. The kind is recomputed from the card's own forms
+  and is one of `person`, `org`, `system`, or `concept`. A hub is named only
+  when its group resolved to exactly one entity: groups that share identical
+  membership are still collapsed and still keep an ordinal, so the number of
+  resolved entities stays private. Labels are English-only and either field may
+  be `null`. Recorded in ADR 0011, which amends ADR 0009.
 
 - The tool workbench at `/console/tools` now offers account administrators a
   retrieval diagnostic mode. It can look past the ordinary twelve-result window

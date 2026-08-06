@@ -18,6 +18,7 @@ defmodule Cartulary.Context.Builder do
 
   alias Cartulary.Clock
   alias Cartulary.Context.Cache
+  alias Cartulary.Context.EntityLabel
   alias Cartulary.Context.ProjectionKey
   alias Cartulary.DataLayer
   alias Cartulary.Knowledge.{EntityMention, KnowledgeItem, Projection}
@@ -29,9 +30,16 @@ defmodule Cartulary.Context.Builder do
 
   require Ash.Query
 
-  # Unit: distinct governed statements. Singleton and pair mentions do not justify a separate
-  # summary or its model cost; three sources are enough to form a minimally useful entity brief.
-  @entity_card_min_sources 3
+  # Unit: distinct governed statements. A single mention identifies nothing a reader could not
+  # get from the statement itself, so two sources is the point at which a card starts to say
+  # something the sources do not say separately.
+  @entity_card_min_sources 2
+
+  # Unit: distinct governed statements. Held above the card threshold because a summary is the
+  # only part of a card that can cost a model call, and a pair rarely yields a brief worth that
+  # call. Applied whatever the provider: the deterministic path concatenates sources for free,
+  # but exempting it would give offline nodes different content from the same release.
+  @entity_card_summary_min_sources 3
 
   # Unit: Unicode characters. Entity cards prime a turn rather than replace search, so one short
   # paragraph leaves most of the context budget for governed statements and other projections.
@@ -220,6 +228,15 @@ defmodule Cartulary.Context.Builder do
         sensitivity = strictest_sensitivity(items)
         {summary, provenance, mode} = entity_summary!(items, account_id, actor)
 
+        # Only forms carried by statements that became sources of this card. A mention whose
+        # statement was dropped as inactive must not name the card.
+        source_ids = MapSet.new(items, & &1.id)
+
+        forms =
+          mentions
+          |> Enum.filter(&MapSet.member?(source_ids, &1.knowledge_item_id))
+          |> Enum.map(& &1.surface_form)
+
         [
           %{
             cache_key: "entity:#{scope.id}:#{entity_id}",
@@ -229,9 +246,11 @@ defmodule Cartulary.Context.Builder do
             sensitivity: sensitivity,
             content: %{
               "scope_id" => scope.id,
+              "label" => EntityLabel.label(forms),
+              "kind" => EntityLabel.kind(forms),
               "summary" => summary,
               "summary_mode" => mode,
-              "summary_provenance" => stringify_keys(provenance),
+              "summary_provenance" => provenance && stringify_keys(provenance),
               "sensitivity" => sensitivity,
               "knowledge" => Enum.map(items, &knowledge_map/1)
             },
@@ -242,9 +261,9 @@ defmodule Cartulary.Context.Builder do
     end)
   end
 
-  # A merge, split, retraction, or erasure can leave a formerly useful card below the source
-  # threshold. Keep the rebuildable row for replay, but make it unreadable until enough active
-  # sources exist again and a later upsert clears the flag.
+  # A merge, split, retraction, or erasure can leave a formerly useful card below
+  # `@entity_card_min_sources`. Keep the rebuildable row for replay, but make it unreadable until
+  # enough active sources exist again and a later upsert clears the flag.
   defp retire_stale_entity_cards!(account_id, actor, scope_id, current_entity_ids) do
     Projection
     |> Ash.Query.filter(scope_id == ^scope_id and kind == "entity_card")
@@ -258,6 +277,13 @@ defmodule Cartulary.Context.Builder do
       |> Ash.update!(actor: actor, authorize?: false)
     end)
   end
+
+  # A pair gets a card but no summary, so the caller must treat all three summary fields as
+  # optional. The threshold is checked here rather than at the call site to keep the "when does a
+  # provider get called" question answerable from one place.
+  defp entity_summary!(items, _account_id, _actor)
+       when length(items) < @entity_card_summary_min_sources,
+       do: {nil, nil, "none"}
 
   defp entity_summary!(items, account_id, actor) do
     context = %{account_id: account_id, actor: actor}
