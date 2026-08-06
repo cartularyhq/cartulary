@@ -200,7 +200,13 @@ EntityMatch returns statement candidates without entity rows, names, aliases,
 surface forms, or entity ids. No Phoenix route, MCP resource, or public
 resource action exposes the caches. One exception, ADR 0011: an entity card
 carries a `label` chosen from that card's own in-scope surface forms, and a
-`kind` recomputed from them. Neither reads the entity row. Erasure removes affected mentions,
+`kind` recomputed from them. Neither reads the entity row.
+
+The console graph may also join two named hubs whose entities were mentioned in
+one statement. Both ends come from a single statement the reader is already
+shown, so the edge discloses nothing further, and only named hubs take part:
+joining an unnamed hub would let a reader count the entities a collapsed group
+holds. The edge means co-occurrence. No entity-relation table exists. Erasure removes affected mentions,
 recomputes/prunes entities, and rebuilds affected projections. Logical import
 excludes the cache and recreates it from governed statements.
 

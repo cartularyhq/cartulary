@@ -373,10 +373,8 @@ defmodule CartularyWeb.Console.Loader do
       cards = entity_cards(account.id, current_actor, drawn_scope_ids)
       member_scopes = Map.new(knowledge, &{&1.id, &1.scope_id})
 
-      clusters =
-        shared.clusters
-        |> Enum.with_index(1)
-        |> Enum.map(&cluster(&1, cards, focus_ids(focus), member_scopes))
+      indexed = Enum.with_index(shared.clusters, 1)
+      clusters = Enum.map(indexed, &cluster(&1, cards, focus_ids(focus), member_scopes))
 
       %{
         focus: focus,
@@ -390,6 +388,7 @@ defmodule CartularyWeb.Console.Loader do
         relations: relations,
         knowledge_edges: knowledge_edges,
         clusters: clusters,
+        cluster_edges: cluster_edges(account.id, knowledge, indexed, clusters),
         clusters_truncated?: shared.count > length(clusters),
         scope_paths: paths,
         all_scopes: scopes,
@@ -437,6 +436,38 @@ defmodule CartularyWeb.Console.Loader do
       _collapsed ->
         base
     end
+  end
+
+  # Edges between hubs whose entities were named in the same statement.
+  #
+  # Only named hubs take part. An unnamed hub is either a collapsed group or a group with no
+  # usable card, and both stay anonymous on purpose: joining them would let a reader count the
+  # entities inside a collapsed group by counting the lines leaving it, which is the disclosure
+  # the collapse exists to prevent.
+  #
+  # The entity id stays inside this function. What leaves is a pair of cluster ids, which are the
+  # ordinals the graph already shows.
+  defp cluster_edges(account_id, knowledge, indexed, clusters) do
+    labelled = MapSet.new(Enum.filter(clusters, & &1.labelled?), & &1.id)
+
+    cluster_by_entity =
+      for {%{entity_ids: [entity_id]}, index} <- indexed,
+          MapSet.member?(labelled, "cluster-#{index}"),
+          into: %{},
+          do: {entity_id, "cluster-#{index}"}
+
+    account_id
+    |> Store.co_mentioned_entity_pairs(
+      Enum.map(knowledge, & &1.id),
+      Map.keys(cluster_by_entity)
+    )
+    |> Enum.flat_map(fn {left, right} ->
+      case {Map.fetch(cluster_by_entity, left), Map.fetch(cluster_by_entity, right)} do
+        {{:ok, source}, {:ok, target}} when source != target -> [{source, target}]
+        _unresolved -> []
+      end
+    end)
+    |> Enum.uniq()
   end
 
   # Cards exist per scope, and a cluster's members can span the focus and the child scopes drawn

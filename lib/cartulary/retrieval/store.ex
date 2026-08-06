@@ -791,6 +791,51 @@ defmodule Cartulary.Retrieval.Store do
     do: %{count: 0, clusters: []}
 
   @doc """
+  Pairs the entities that are named together inside one statement.
+
+  Co-mention is not a semantic relation. It says two referents appeared in the same sentence, not
+  that they are related, and there is no entity-relation table behind it. A caller that renders
+  these must say so.
+
+  `knowledge_ids` must already be authorized, exactly as for `shared_entity_clusters/3`: both ends
+  of every pair come from one statement in that set, which is what makes an edge disclose nothing
+  the caller has not already decided to show.
+
+  `entity_ids` narrows the result to entities the caller can already draw. Passing the full set
+  would return pairs whose endpoints have no node, and an edge to nowhere reports that an unseen
+  entity exists.
+
+  Returns a list of `{left, right}` tuples, each ordered and deduplicated, so one pair appears
+  once however many statements produced it. Returns `[]` when either list is empty.
+  """
+  def co_mentioned_entity_pairs(account_id, knowledge_ids, entity_ids)
+      when is_list(knowledge_ids) and is_list(entity_ids) and knowledge_ids != [] and
+             entity_ids != [] do
+    # The strict inequality does both jobs: it drops the self-pair a join of a row against itself
+    # would produce, and it keeps only one direction of each pair.
+    sql = """
+    SELECT DISTINCT left_side.entity_id::text AS left_id,
+                    right_side.entity_id::text AS right_id
+    FROM entity_mentions AS left_side
+    JOIN entity_mentions AS right_side
+      ON right_side.account_id = left_side.account_id
+     AND right_side.knowledge_item_id = left_side.knowledge_item_id
+     AND right_side.entity_id > left_side.entity_id
+    WHERE left_side.account_id = $1
+      AND left_side.knowledge_item_id = ANY($2)
+      AND left_side.entity_id = ANY($3)
+      AND right_side.entity_id = ANY($3)
+    ORDER BY left_id, right_id
+    """
+
+    sql
+    |> all([db_uuid!(account_id), db_uuids!(knowledge_ids), db_uuids!(entity_ids)])
+    |> Enum.map(&{Map.fetch!(&1, "left_id"), Map.fetch!(&1, "right_id")})
+  end
+
+  def co_mentioned_entity_pairs(_account_id, _knowledge_ids, _entity_ids), do: []
+
+  @doc """
   Counts, per scope, how much of the retrievable corpus is actually indexed.
 
   Embeddings and entity mentions are written by a background rebuild, so a scope

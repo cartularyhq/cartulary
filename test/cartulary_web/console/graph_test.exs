@@ -131,6 +131,27 @@ defmodule CartularyWeb.Console.GraphTest do
       assert hub.title == "Continental Reinsurance Group — 2 statements"
     end
 
+    test "draws a co-mention edge between two named hubs" do
+      data = %{
+        sample()
+        | clusters: [
+            labelled_cluster(1, ["k-strong"], "Helix"),
+            labelled_cluster(2, ["k-weak"], "Ada")
+          ],
+          cluster_edges: [{"cluster-1", "cluster-2"}]
+      }
+
+      assert Enum.any?(Graph.build(data).edges, &(&1.kind == :co_mention))
+    end
+
+    test "drops a co-mention edge whose hub is not drawn" do
+      # The loader already refuses to emit one, but a line to a hub that is not on the page would
+      # report that an undrawn group exists, so the layout refuses it too.
+      data = %{sample() | cluster_edges: [{"cluster-1", "cluster-99"}]}
+
+      refute Enum.any?(Graph.build(data).edges, &(&1.kind == :co_mention))
+    end
+
     test "renders no entity node and no entity field" do
       layout = Graph.build(sample())
 
@@ -175,6 +196,7 @@ defmodule CartularyWeb.Console.GraphTest do
       relations: [%{source_scope_id: "s-team", target_scope_id: "s-ops", kind: "related"}],
       knowledge_edges: [relation("k-weak", "k-strong")],
       clusters: [cluster(1, ["k-strong", "k-weak"])],
+      cluster_edges: [],
       clusters_truncated?: false,
       scope_paths: %{"s-team" => "/team", "s-ops" => "/team/ops"},
       all_scopes: [],

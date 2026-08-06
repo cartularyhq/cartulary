@@ -352,6 +352,12 @@ when more than one referent shares exactly that set of statements, or when the
 group's card has not been rebuilt since the last lifecycle change. The panel
 says which.
 
+A faint dotted line between two named hubs means **named together**: both
+referents appeared in one statement. It is not a stated relation. Cartulary
+records no relations between entities, so read this as co-occurrence and
+nothing more. Unnamed hubs are never joined this way, because the count of
+lines leaving a hub would otherwise reveal how many referents it holds.
+
 Other lines are **containment**, **scope relations** between non-parent scopes,
 and **knowledge relations** between statements.
 
