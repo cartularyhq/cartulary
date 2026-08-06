@@ -1480,6 +1480,8 @@ defmodule Cartulary.Memory do
 
     A statement may be followed by "(true from ...)" or "(true from ... until ...)": when the claim held. Use it to date an answer whose statement says only "last weekend" or "yesterday". Do not date such a phrase from today's date.
 
+    A statement may be followed by "(true from ...)" or "(true from ... until ...)": when the claim held. Use it to date an answer whose statement says only "last weekend" or "yesterday". Do not date such a phrase from today's date.
+
     Question: #{question}
 
     Memory:
