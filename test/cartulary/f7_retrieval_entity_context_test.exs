@@ -1776,89 +1776,81 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     account_key = "f7-entity-card-cap"
     scope_path = "/f7/entity-card-cap"
 
-    # Ten two-source cards in one scope. Cards are spent before governed statements, so without a
-    # cap a scope full of cheap cards would push ranked knowledge out of the payload entirely.
-    seeded =
-      Enum.map(1..10, fn index ->
-        letter = <<?A + index - 1>>
+    seed = seed_active!(account_key, scope_path, "Ten teams share the rollout calendar.", "cap-1")
 
-        [
-          seed_active!(
-            account_key,
-            scope_path,
-            "Team #{letter} owns the #{letter} rollout.",
-            "cap-#{index}-a"
-          ),
-          seed_active!(
-            account_key,
-            scope_path,
-            "Team #{letter} reports on the #{letter} rollout.",
-            "cap-#{index}-b"
-          )
-        ]
-      end)
-
-    first = seeded |> hd() |> hd()
-
+    # The cap and its sort key live in `Cartulary.Context`, not in the builder, so the cards are
+    # written directly rather than driven through ingest and extraction. Ten identical-weight
+    # cards is the shape that matters: every one has two sources and the same best confidence, so
+    # the label alone decides which eight survive.
     DataLayer.with_account_key(account_key, fn account, actor ->
       pipeline = pipeline_actor(actor)
 
-      seeded
-      |> Enum.with_index(1)
-      |> Enum.each(fn {pair, index} ->
+      Enum.each(1..10, fn index ->
         letter = <<?A + index - 1>>
-        ids = Enum.map(pair, & &1.knowledge.id)
+        entity_id = Ash.UUID.generate()
 
-        entity =
-          create!(
-            Entity,
-            :create_from_pipeline,
-            %{
-              canonical_name: "never-rendered-#{index}",
-              kind: "concept",
-              aliases: ["never-rendered-#{index}"],
-              derived_from: ids
+        create!(
+          Projection,
+          :upsert_from_pipeline,
+          %{
+            cache_key: "entity:#{seed.scope.id}:#{entity_id}",
+            scope_id: seed.scope.id,
+            entity_id: entity_id,
+            kind: "entity_card",
+            sensitivity: "internal",
+            content: %{
+              "scope_id" => seed.scope.id,
+              "label" => "Team #{letter}",
+              "kind" => "concept",
+              "summary" => nil,
+              "summary_mode" => "none",
+              "summary_provenance" => nil,
+              "sensitivity" => "internal",
+              "knowledge" => [
+                %{
+                  "id" => Ash.UUID.generate(),
+                  "statement" => "Team #{letter} owns it.",
+                  "confidence" => 0.5
+                },
+                %{
+                  "id" => Ash.UUID.generate(),
+                  "statement" => "Team #{letter} reports on it.",
+                  "confidence" => 0.5
+                }
+              ]
             },
-            account.id,
-            pipeline
-          )
-
-        Enum.each(pair, fn seed ->
-          create!(
-            EntityMention,
-            :create_from_pipeline,
-            %{
-              knowledge_item_id: seed.knowledge.id,
-              scope_id: seed.scope.id,
-              entity_id: entity.id,
-              surface_form: "Team #{letter}",
-              confidence: 1.0
-            },
-            account.id,
-            pipeline
-          )
-        end)
+            source_ids: [Ash.UUID.generate(), Ash.UUID.generate()]
+          },
+          account.id,
+          pipeline
+        )
       end)
-
-      assert {:ok, %{entity_cards: 10}} = Builder.refresh_scope(account.id, first.scope.id)
     end)
 
     context =
       Memory.get_context(
         %{"scope_path" => scope_path, "budget_chars" => 200_000},
-        first.actor
+        seed.actor
       )
 
     cards = context["entity_cards"]
     assert length(cards) == 8
 
-    # Every card here has two sources and the same best confidence, so the label is what decides
-    # which eight survive. The previous final key was the entity UUID, which re-resolution can
-    # change; that would make the surviving set churn between requests.
+    # The previous final sort key was the cache key, which carries the entity UUID and changes
+    # under re-resolution. With a cap in place that churn would decide which cards a caller sees.
     labels = Enum.map(cards, & &1["label"])
     assert labels == Enum.sort(labels, :desc)
-    assert "Team A" not in labels
-    assert "Team J" in labels
+
+    assert labels == [
+             "Team J",
+             "Team I",
+             "Team H",
+             "Team G",
+             "Team F",
+             "Team E",
+             "Team D",
+             "Team C"
+           ]
   end
 
   test "scope and session projections keep provisional statements private to their subject" do
