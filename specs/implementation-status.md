@@ -162,6 +162,10 @@ Details: `specs/architecture/documents-connectors-sync.md`.
   entity card carries one surface form as its label and a kind recomputed from
   the card's own in-scope forms (ADR 0011); no other cache field is readable,
   and nothing reads the entity row itself.
+- A failed entity-card summary model call degrades that one card to
+  `summary_mode: "unavailable"` instead of failing the scope rebuild. The
+  refresh result counts the degraded cards. Retry is the next refresh; nothing
+  re-requests the summary sooner.
 - The account-admin operations page exposes content-free resolution health:
   cache counts, observed-alias buckets, singleton rate, and
   mentions-per-entity p50/p95. Statement detail exposes only the count and

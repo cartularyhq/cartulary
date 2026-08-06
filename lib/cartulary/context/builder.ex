@@ -11,6 +11,10 @@ defmodule Cartulary.Context.Builder do
   database connection, then writes every projection in one short transaction. A model failure
   therefore leaves the prior projection set intact for job retry.
 
+  A failed entity-card summary is the exception: it degrades that one card instead of failing the
+  refresh, because the caller's rebuild has already committed embeddings and entity resolution
+  that a raise here would force it to redo.
+
   `mark_dirty/3` must share the lifecycle-change transaction; otherwise stale content could remain
   readable. Both operations invalidate node-local copies cluster-wide. Incremental merges are
   capped and periodically compacted to bound growth and drift.
@@ -29,6 +33,7 @@ defmodule Cartulary.Context.Builder do
   alias Cartulary.Topology.Scope
 
   require Ash.Query
+  require Logger
 
   # Unit: distinct governed statements. A single mention identifies nothing a reader could not
   # get from the statement itself, so two sources is the point at which a card starts to say
@@ -52,9 +57,10 @@ defmodule Cartulary.Context.Builder do
   summaries contain active statements only. A subject's peer-profile slice additionally contains
   that subject's provisional statements. Soft-deleted rows are excluded from every projection.
 
-  Returns `{:ok, map}` with the scope card's id and the number of entity card, peer profile, and
-  session summary projections written. Raises if the transaction fails, a required entity summary
-  model call fails, or an underlying Ash call fails.
+  Returns `{:ok, map}` with the scope card's id, the number of entity card, peer profile, and
+  session summary projections written, and `entity_card_summaries_unavailable`: cards that earned
+  a summary but whose model call failed. Raises if the transaction fails or an underlying Ash call
+  fails.
 
   Replays are safe because projections are upserted by cache key.
   """
@@ -197,6 +203,7 @@ defmodule Cartulary.Context.Builder do
          %{
            scope_card: scope_projection.id,
            entity_cards: length(entity_projections),
+           entity_card_summaries_unavailable: count_unavailable_summaries(entity_attrs),
            peer_profiles: length(peer_projections),
            session_summaries: length(session_projections)
          }}
@@ -226,7 +233,7 @@ defmodule Cartulary.Context.Builder do
       else
         items = preserve_rank(items, knowledge)
         sensitivity = strictest_sensitivity(items)
-        {summary, provenance, mode} = entity_summary!(items, account_id, actor)
+        {summary, provenance, mode} = entity_summary!(items, scope.id, account_id, actor)
 
         # Only forms carried by statements that became sources of this card. A mention whose
         # statement was dropped as inactive must not name the card.
@@ -281,11 +288,11 @@ defmodule Cartulary.Context.Builder do
   # A pair gets a card but no summary, so the caller must treat all three summary fields as
   # optional. The threshold is checked here rather than at the call site to keep the "when does a
   # provider get called" question answerable from one place.
-  defp entity_summary!(items, _account_id, _actor)
+  defp entity_summary!(items, _scope_id, _account_id, _actor)
        when length(items) < @entity_card_summary_min_sources,
        do: {nil, nil, "none"}
 
-  defp entity_summary!(items, account_id, actor) do
+  defp entity_summary!(items, scope_id, account_id, actor) do
     context = %{account_id: account_id, actor: actor}
     config = Cartulary.Model.role_config(:dream_reasoner, context)
 
@@ -312,13 +319,38 @@ defmodule Cartulary.Context.Builder do
           {String.slice(String.trim(summary), 0, @entity_card_summary_chars), provenance, "model"}
 
         {:ok, _summary, _provenance} ->
-          raise "entity card summary model returned empty text"
+          unavailable_summary(account_id, scope_id, "empty_text")
 
         {:error, reason} ->
-          raise "entity card summary model failed: #{inspect(reason)}"
+          unavailable_summary(account_id, scope_id, error_class(reason))
       end
     end
   end
+
+  # One provider call per qualifying cluster means a scope with many entities is near-certain to
+  # meet a timeout eventually. Raising here would discard the embeddings and entity resolution the
+  # same rebuild already committed, so the card falls back to the shape a two-source card already
+  # produces and the next refresh retries the call. The card stays readable rather than dirty: its
+  # label and governed statements are unaffected by the missing brief, and hiding them would lose
+  # more than the summary is worth. Content-safe fields only; the provider's own error detail is
+  # already recorded by the model layer.
+  defp unavailable_summary(account_id, scope_id, error_class) do
+    Logger.warning("entity card summary unavailable",
+      account_id: account_id,
+      scope_id: scope_id,
+      error_class: error_class
+    )
+
+    {nil, nil, "unavailable"}
+  end
+
+  defp count_unavailable_summaries(entity_attrs) do
+    Enum.count(entity_attrs, &(&1.content["summary_mode"] == "unavailable"))
+  end
+
+  defp error_class(%module{}), do: inspect(module)
+  defp error_class(error) when is_atom(error), do: Atom.to_string(error)
+  defp error_class(_error), do: "model_error"
 
   defp grounded_summary(items) do
     items

@@ -207,6 +207,42 @@ defmodule Cartulary.F7RetrievalEntityContextTest.RerankFailureProvider do
   end
 end
 
+defmodule Cartulary.F7RetrievalEntityContextTest.CardSummaryFailureProvider do
+  @moduledoc """
+  Provider whose entity-card summary call fails and whose other calls do not.
+
+  Used to prove that one failed summary degrades its own card instead of
+  discarding the embeddings and entity rows the same rebuild committed.
+  """
+
+  @behaviour Cartulary.Model.Provider
+
+  alias Cartulary.Model.Providers.Deterministic
+
+  @impl true
+  def structured(config, messages, schema, opts),
+    do: Deterministic.structured(config, messages, schema, opts)
+
+  @impl true
+  def chat(config, messages, opts) do
+    if Keyword.get(opts, :task) == :entity_card do
+      {:error, %Mint.TransportError{reason: :timeout}}
+    else
+      Deterministic.chat(config, messages, opts)
+    end
+  end
+
+  # The deterministic provider refuses to embed, so indexing borrows the suite's fixture vectors.
+  # The rebuild must reach its third stage for this failure injection to mean anything.
+  @impl true
+  def embed(config, texts, opts),
+    do: Cartulary.F7RetrievalEntityContextTest.Provider.embed(config, texts, opts)
+
+  @impl true
+  def rerank(config, query, documents, opts),
+    do: Deterministic.rerank(config, query, documents, opts)
+end
+
 defmodule Cartulary.F7RetrievalEntityContextTest do
   @moduledoc """
   Pins retrieval, private entity caches, and reasoning-free context assembly.
@@ -1770,6 +1806,131 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
       )
 
     assert refreshed["entity_cards"] == []
+  end
+
+  test "a failed entity card summary degrades one card instead of the whole rebuild" do
+    account_key = "f7-card-summary-failure"
+    scope_path = "/f7/card-summary-failure"
+
+    first =
+      seed_active!(
+        account_key,
+        scope_path,
+        "The ledger service owns invoice generation.",
+        "card-summary-1"
+      )
+
+    second =
+      seed_active!(
+        account_key,
+        scope_path,
+        "The ledger service pages the finance on-call after failed settlement.",
+        "card-summary-2"
+      )
+
+    third =
+      seed_active!(
+        account_key,
+        scope_path,
+        "The ledger service retries settlement twice before it escalates.",
+        "card-summary-3"
+      )
+
+    DataLayer.with_account_key(account_key, fn account, actor ->
+      pipeline = pipeline_actor(actor)
+      sources = [first, second, third]
+
+      entity =
+        create!(
+          Entity,
+          :create_from_pipeline,
+          %{
+            canonical_name: "ledger service",
+            kind: "system",
+            aliases: ["ledger service"],
+            derived_from: Enum.map(sources, & &1.knowledge.id)
+          },
+          account.id,
+          pipeline
+        )
+
+      Enum.each(sources, fn seeded ->
+        create!(
+          EntityMention,
+          :create_from_pipeline,
+          %{
+            knowledge_item_id: seeded.knowledge.id,
+            scope_id: seeded.scope.id,
+            entity_id: entity.id,
+            surface_form: "ledger service",
+            confidence: 1.0
+          },
+          account.id,
+          pipeline
+        )
+      end)
+    end)
+
+    original_provider = Application.get_env(:cartulary, :model_provider)
+
+    on_exit(fn ->
+      if original_provider do
+        Application.put_env(:cartulary, :model_provider, original_provider)
+      else
+        Application.delete_env(:cartulary, :model_provider)
+      end
+    end)
+
+    Application.put_env(
+      :cartulary,
+      :model_provider,
+      Cartulary.F7RetrievalEntityContextTest.CardSummaryFailureProvider
+    )
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        DataLayer.with_account_key(account_key, fn account, _actor ->
+          # Three sources earn a summary and the provider refuses it. The refresh still succeeds
+          # and reports the degraded card, because the alternative — raising — throws away the
+          # two committed stages the same rebuild already paid for.
+          assert {:ok, %{entity_cards: 1, entity_card_summaries_unavailable: 1}} =
+                   Builder.refresh_scope(account.id, first.scope.id)
+        end)
+      end)
+
+    assert log =~ "entity card summary unavailable"
+    assert log =~ "Mint.TransportError"
+    # The failure is diagnosable from ids and an error class alone. A statement in a log line is
+    # a content leak whatever the log level.
+    refute log =~ "invoice generation"
+
+    context =
+      Memory.get_context(
+        %{"scope_path" => first.scope.path, "budget_chars" => 50_000},
+        first.actor
+      )
+
+    # Everything the card is built from survives the missing brief: the summary reads exactly as
+    # it does below the source threshold, and only `summary_mode` distinguishes the two.
+    assert [card] = context["entity_cards"]
+    assert card["label"] == "ledger service"
+    assert is_nil(card["summary"])
+    assert card["summary_mode"] == "unavailable"
+    assert is_nil(card["summary_provenance"])
+    assert length(card["knowledge"]) == 3
+
+    # The whole three-stage rebuild now completes with the same provider, and the embeddings its
+    # first stage commits are what the raise used to make the caller redo.
+    assert {:ok, %{index: %{indexed: 3}}} =
+             Cartulary.Retrieval.rebuild_scope(first.account.id, first.scope.id)
+
+    coverage =
+      first.account.id
+      |> Cartulary.Retrieval.index_coverage([first.scope.id])
+      |> Map.fetch!(first.scope.id)
+
+    assert coverage.statement_count == 3
+    assert coverage.embedded_count == 3
   end
 
   test "get_context caps entity cards per scope and orders equal cards by label" do

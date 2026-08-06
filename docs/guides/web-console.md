@@ -352,6 +352,10 @@ when more than one referent shares exactly that set of statements, or when the
 group's card has not been rebuilt since the last lifecycle change. The panel
 says which.
 
+A named hub also carries a short brief, written during background refresh. When
+that call fails the panel says the brief could not be written and a later
+rebuild retries it. The hub's name and statements are unaffected.
+
 A faint dotted line between two named hubs means **named together**: both
 referents appeared in one statement. It is not a stated relation. Cartulary
 records no relations between entities, so read this as co-occurrence and
