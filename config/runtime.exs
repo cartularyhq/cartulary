@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
 # Boot-time environment configuration. Process variables override `.env`; strict
 # security and topology settings raise instead of guessing.
@@ -153,18 +153,18 @@ env_otlp_config = fn ->
 end
 
 # A `mix release` build does not start the web server unless told to, so that
-# `bin/cartulary eval` and `bin/migrate` can run the same release without
+# `bin/memhouse eval` and `bin/migrate` can run the same release without
 # binding a port. `bin/server`, the launcher shipped in the release overlay,
 # exports it.
 #
-#     PHX_SERVER=true bin/cartulary start
+#     PHX_SERVER=true bin/memhouse start
 if System.get_env("PHX_SERVER") do
-  config :cartulary, CartularyWeb.Endpoint, server: true
+  config :memhouse, CartularyWeb.Endpoint, server: true
 end
 
 # HTTP listener port. Strict parse: a typo must fail loudly rather than land the
 # node on port 0 or a neighbouring service's port.
-config :cartulary, CartularyWeb.Endpoint, http: [port: env_integer!.("PORT", "4000")]
+config :memhouse, CartularyWeb.Endpoint, http: [port: env_integer!.("PORT", "4000")]
 
 # Set by the release boot scripts to the unpacked release directory; falls back
 # to the working directory when running from source. Used to locate the pg0
@@ -186,7 +186,7 @@ database_url =
 # pg0 initialises the cluster with on first start, so changing the username or
 # password after the data directory exists will not re-create the role.
 pg0_port = env_integer!.("CARTULARY_PG0_PORT", "5432")
-pg0_database = env_get.("CARTULARY_PG0_DATABASE", "cartulary")
+pg0_database = env_get.("CARTULARY_PG0_DATABASE", "memhouse")
 pg0_username = env_get.("CARTULARY_PG0_USERNAME", "postgres")
 pg0_password = env_get.("CARTULARY_PG0_PASSWORD", "postgres")
 
@@ -217,7 +217,7 @@ effective_database_url =
 # lets a source checkout fall back to the username/hostname settings in
 # `config/dev.exs` or `config/test.exs`.
 if effective_database_url not in [nil, ""] do
-  config :cartulary, Cartulary.Repo,
+  config :memhouse, MemHouse.Repo,
     url: effective_database_url,
     # Database connections held open by this node. Sizing it above the server's
     # max_connections divided by the node count causes connection errors under
@@ -229,9 +229,9 @@ end
 # Only a production node in external mode is required to have been given a URL.
 # Elsewhere a missing URL is legitimate: pg0 mode builds its own, and source
 # checkouts have per-environment Repo credentials.
-config :cartulary, :require_database_url, config_env() == :prod and database_mode == "external"
+config :memhouse, :require_database_url, config_env() == :prod and database_mode == "external"
 
-config :cartulary, :database,
+config :memhouse, :database,
   mode: database_mode,
   database_url: effective_database_url,
   # The database role the running node's connections switch to, and which the
@@ -259,7 +259,7 @@ config :cartulary, :database,
     # never fetches a database binary from the network. Startup validation
     # rejects a relative path or a file that is not readable and executable.
     binary: env_get.("CARTULARY_PG0_BINARY", Path.join(release_root, "bin/pg0")),
-    name: env_get.("CARTULARY_PG0_NAME", "cartulary"),
+    name: env_get.("CARTULARY_PG0_NAME", "memhouse"),
     # Must match the PostgreSQL version of the pinned asset. A mismatch means
     # the data directory cannot be opened by the binary that ships with it.
     postgres_version: env_get.("CARTULARY_PG0_POSTGRES_VERSION", "18.1.0"),
@@ -269,7 +269,7 @@ config :cartulary, :database,
     data_dir:
       env_get.(
         "CARTULARY_PG0_DATA_DIR",
-        Path.expand("~/.cartulary/pg0/instances/cartulary/data")
+        Path.expand("~/.memhouse/pg0/instances/memhouse/data")
       ),
     port: pg0_port,
     username: pg0_username,
@@ -282,11 +282,11 @@ config :cartulary, :database,
 # requires enough ReqLLM Finch connections below. Start from a measured provider
 # limit rather than assuming the upstream can sustain arbitrary parallelism.
 oban_queues =
-  Application.fetch_env!(:cartulary, Oban)
+  Application.fetch_env!(:memhouse, Oban)
   |> Keyword.fetch!(:queues)
   |> Keyword.put(:ingest, env_positive_integer!.("CARTULARY_INGEST_QUEUE_LIMIT", "10"))
 
-config :cartulary, Oban, queues: oban_queues
+config :memhouse, Oban, queues: oban_queues
 
 update_auto =
   case env_get.("CARTULARY_AUTO_UPDATE", "off") do
@@ -310,13 +310,13 @@ update_platform =
       "linux-x86_64"
   end
 
-config :cartulary, :update,
+config :memhouse, :update,
   enabled: env_bool!.("CARTULARY_UPDATE_CHECK", true),
   database_mode: database_mode,
   source:
     env_get.(
       "CARTULARY_UPDATE_SOURCE",
-      "https://api.github.com/repos/cartularyhq/cartulary/releases/latest"
+      "https://api.github.com/repos/memhousehq/memhouse/releases/latest"
     ),
   public_key:
     env_get.("CARTULARY_UPDATE_PUBLIC_KEY", "rgklaZ7eR1NlTXW5SPNdKlbvVmMyyAiJ6H3rfFvnZxM="),
@@ -343,7 +343,7 @@ auth_signing_secret =
         64 bytes. Generate an independent random secret.
         """
       else
-        :cartulary
+        :memhouse
         |> Application.fetch_env!(CartularyWeb.Endpoint)
         |> Keyword.fetch!(:secret_key_base)
       end
@@ -353,9 +353,9 @@ auth_signing_secret =
 # do not select it for a request. Which Account a request operates on is derived
 # from the caller's verified credential, so no deployment variable can be used to
 # reach another Account's data.
-config :cartulary, :identity,
+config :memhouse, :identity,
   account_key: env_get.("CARTULARY_FREE_ACCOUNT_KEY", "local"),
-  account_name: env_get.("CARTULARY_FREE_ACCOUNT_NAME", "Local Cartulary"),
+  account_name: env_get.("CARTULARY_FREE_ACCOUNT_NAME", "Local MemHouse"),
   signing_secret: auth_signing_secret
 
 # Tests never contact a provider, even when the developer's shell exports a real
@@ -457,7 +457,7 @@ config :req_llm,
 # a deliberate contract transition that obliges a maintainer to add a changelog
 # entry and update the contract regression evidence, which is why it is a literal
 # here rather than an environment lookup.
-config :cartulary, :model_roles,
+config :memhouse, :model_roles,
   embedder: %{
     # Ortex runs an ONNX model from files on this machine: no network call and
     # no download, so embedding works offline once the artifact paths below are
@@ -536,7 +536,7 @@ retrieval_strategy_names = %{
   "relation_expand" => :relation_expand
 }
 
-retrieval_profiles = Application.fetch_env!(:cartulary, :retrieval_profiles)
+retrieval_profiles = Application.fetch_env!(:memhouse, :retrieval_profiles)
 
 # An unknown name raises rather than being ignored. Silently dropping a
 # misspelled strategy would quietly degrade recall with no visible symptom.
@@ -602,14 +602,14 @@ retrieval_profiles =
     )
   )
 
-config :cartulary, :retrieval_profiles, retrieval_profiles
+config :memhouse, :retrieval_profiles, retrieval_profiles
 
 # Legacy single-credential configuration, predating per-role settings. The
 # ReqLLM provider still consults it, and an `api_key` set here would win over a
 # role's own reference — so it stays nil by design. The reference only names
 # where the credential lives; the provider reads the variable at call time, so
 # no key is copied into application configuration.
-config :cartulary, :models,
+config :memhouse, :models,
   base_url: generation_options["base_url"],
   api_key: nil,
   api_key_ref: "env:OPENROUTER_API_KEY"
@@ -675,8 +675,8 @@ model_costs =
     {role, normalized}
   end)
 
-config :cartulary, :budget_limits, budget_limits
-config :cartulary, :model_cost_per_million, model_costs
+config :memhouse, :budget_limits, budget_limits
+config :memhouse, :model_cost_per_million, model_costs
 
 # Where original document bytes are stored. This is an infrastructure seam:
 # swapping the adapter changes where blobs live and nothing else. Supersession,
@@ -685,8 +685,8 @@ config :cartulary, :model_cost_per_million, model_costs
 # would put data somewhere the operator did not intend.
 blob_adapter =
   case env_get.("CARTULARY_BLOB_ADAPTER", "local") do
-    "local" -> Cartulary.Documents.BlobStore.Local
-    "s3" -> Cartulary.Documents.BlobStore.S3
+    "local" -> MemHouse.Documents.BlobStore.Local
+    "s3" -> MemHouse.Documents.BlobStore.S3
     invalid -> raise "unsupported CARTULARY_BLOB_ADAPTER: #{inspect(invalid)}"
   end
 
@@ -696,10 +696,10 @@ blob_adapter =
 # which is why it is not used there.
 default_blob_root =
   if config_env() == :prod,
-    do: "/var/lib/cartulary/blobs",
-    else: Path.join(System.tmp_dir!(), "cartulary-blobs-#{config_env()}")
+    do: "/var/lib/memhouse/blobs",
+    else: Path.join(System.tmp_dir!(), "memhouse-blobs-#{config_env()}")
 
-config :cartulary, :documents,
+config :memhouse, :documents,
   blob_adapter: blob_adapter,
   # Must be absolute; startup validation rejects a relative path. Blobs stored
   # here are content-addressed and are part of the backup set, not a cache.
@@ -707,7 +707,7 @@ config :cartulary, :documents,
   # Required when the adapter is s3; startup validation refuses to boot without
   # it rather than failing later on the first upload.
   s3_bucket: env_get.("CARTULARY_S3_BUCKET", nil),
-  s3_prefix: env_get.("CARTULARY_S3_PREFIX", "cartulary"),
+  s3_prefix: env_get.("CARTULARY_S3_PREFIX", "memhouse"),
   # Chunk geometry in characters; the overlap keeps a sentence that straddles a
   # boundary retrievable from either chunk. Chunks and their embeddings are
   # rebuildable caches, so changing these values does not re-chunk documents
@@ -749,7 +749,7 @@ otel_db_statement =
 # prompts, answers, restricted knowledge, or credentials. The defaults enable the
 # categories that describe a workflow end to end and leave Ecto off, because
 # per-query spans bury the meaningful ones in noise.
-config :cartulary, :observability,
+config :memhouse, :observability,
   db_statement: otel_db_statement,
   http_spans: env_bool.("CARTULARY_OTEL_HTTP_SPANS_ENABLED", true),
   phoenix_spans: env_bool.("CARTULARY_OTEL_PHOENIX_SPANS_ENABLED", true),
@@ -772,15 +772,15 @@ config :cartulary, :observability,
 config :opentelemetry,
   resource: %{
     :service => %{
-      name: env_get.("OTEL_SERVICE_NAME", "cartulary-dev"),
-      namespace: "cartulary"
+      name: env_get.("OTEL_SERVICE_NAME", "memhouse-dev"),
+      namespace: "memhouse"
     },
     :deployment => %{
       environment: env_get.("CARTULARY_ENVIRONMENT", "development")
     },
-    "cartulary.experiment.name" => env_get.("CARTULARY_EXPERIMENT_NAME", "local-dev"),
-    "cartulary.experiment.run_id" => env_get.("CARTULARY_EXPERIMENT_RUN_ID", "manual"),
-    "cartulary.retrieval.variant" => env_get.("CARTULARY_RETRIEVAL_VARIANT", "poc-baseline")
+    "memhouse.experiment.name" => env_get.("CARTULARY_EXPERIMENT_NAME", "local-dev"),
+    "memhouse.experiment.run_id" => env_get.("CARTULARY_EXPERIMENT_RUN_ID", "manual"),
+    "memhouse.retrieval.variant" => env_get.("CARTULARY_RETRIEVAL_VARIANT", "poc-baseline")
   },
   sampler: env_sampler.()
 
@@ -798,13 +798,13 @@ else
 end
 
 # Declares this process has no human governance participant, so
-# Cartulary.Governance.Engine auto-grants the subject-consent step it would
+# MemHouse.Governance.Engine auto-grants the subject-consent step it would
 # otherwise block on for personal knowledge aimed above peer level, for every
 # Account in this process. Off by default; the per-Account
 # consent_mode: "auto" attribute is the narrower alternative when only some
 # Accounts in a shared deployment are synthetic.
 unattended? = env_true?.("CARTULARY_GOVERNANCE_UNATTENDED")
-config :cartulary, :governance, unattended: unattended?
+config :memhouse, :governance, unattended: unattended?
 
 if unattended? do
   require Logger
@@ -831,9 +831,9 @@ if config_env() == :prod do
 
   # Optional DNS-based clustering for multi-node deployments. Unset means the
   # node runs alone; clustering is not required for either database mode.
-  config :cartulary, :dns_cluster_query, env_get.("DNS_CLUSTER_QUERY", nil)
+  config :memhouse, :dns_cluster_query, env_get.("DNS_CLUSTER_QUERY", nil)
 
-  config :cartulary, CartularyWeb.Endpoint,
+  config :memhouse, CartularyWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
     http: [
       # Enable IPv6 and bind on all interfaces.
@@ -851,7 +851,7 @@ if config_env() == :prod do
   # protocol header. To terminate TLS in the release itself instead, add an
   # `https` key to the endpoint configuration:
   #
-  #     config :cartulary, CartularyWeb.Endpoint,
+  #     config :memhouse, CartularyWeb.Endpoint,
   #       https: [
   #         ...,
   #         port: 443,

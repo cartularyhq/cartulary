@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Model.Embedding.Ortex do
+defmodule MemHouse.Model.Embedding.Ortex do
   @moduledoc """
   Runs a local ONNX sentence-embedding model: tokenize, infer, pool, normalize.
 
@@ -282,14 +282,14 @@ defmodule Cartulary.Model.Embedding.Ortex do
     do: raise(ArgumentError, "unsupported ONNX embedding input #{inspect(name)}")
 end
 
-defmodule Cartulary.Model.Embedding.ReqLLM do
+defmodule MemHouse.Model.Embedding.ReqLLM do
   @moduledoc """
   An `AshAi.EmbeddingModel` backed by an HTTP endpoint, delegating both
   callbacks straight to the library's own adapter.
 
   It exists so the API-backed option is named next to the local ONNX one.
   Nothing in the current build selects it: the model layer reaches an HTTP
-  embedding endpoint through `Cartulary.Model.Providers.ReqLLM` instead, and no
+  embedding endpoint through `MemHouse.Model.Providers.ReqLLM` instead, and no
   resource declares an `AshAi` vectorized attribute.
 
   Embedding through an endpoint means embedded text leaves the machine, and it

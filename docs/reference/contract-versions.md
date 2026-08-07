@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0 -->
+<!-- SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0 -->
 
 # Contract versions
 
@@ -19,7 +19,7 @@ contract transition.
 | `f10-1` | `GET /api/ready` | Readiness payload shape |
 | `f11-1`, `f11-suite-1` | Evaluation reports | Report schema and release bundle |
 | `f11-surface-contracts-1` | Surface contract inventory | Which surfaces exist, are gated, or are unavailable |
-| `cartulary-account-1` | Logical archive manifests | Account archive schema |
+| `memhouse-account-1` | Logical archive manifests | Account archive schema |
 
 ## Application version versus contract version
 

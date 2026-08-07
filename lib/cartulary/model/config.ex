@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Model.Config do
+defmodule MemHouse.Model.Config do
   @moduledoc """
   Resolves the one pinned configuration in force for each model role.
 
@@ -38,7 +38,7 @@ defmodule Cartulary.Model.Config do
     `local_fallback?/1` before letting its output stand in for a real answer.
   """
 
-  alias Cartulary.Model.ModelRoleConfig
+  alias MemHouse.Model.ModelRoleConfig
 
   require Ash.Query
 
@@ -199,7 +199,7 @@ defmodule Cartulary.Model.Config do
     # read matches nothing and resolution falls back to the compiled defaults — a silently
     # wrong answer, since everything the call produces would then be stamped with a provider
     # and model that never ran.
-    Cartulary.DataLayer.in_account_transaction(account_id, fn ->
+    MemHouse.DataLayer.in_account_transaction(account_id, fn ->
       ModelRoleConfig
       |> Ash.Query.filter(role == ^Atom.to_string(role) and active == true and is_nil(scope_id))
       |> Ash.Query.sort(version: :desc)
@@ -222,7 +222,7 @@ defmodule Cartulary.Model.Config do
   # value for the extractor and pipeline, whose change obliges a maintainer to
   # add a changelog entry and refresh the contract evidence.
   defp runtime(role) do
-    roles = Application.fetch_env!(:cartulary, :model_roles)
+    roles = Application.fetch_env!(:memhouse, :model_roles)
     values = roles |> Keyword.fetch!(role) |> Map.new()
 
     %Role{

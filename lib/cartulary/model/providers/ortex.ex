@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Model.Providers.Ortex do
+defmodule MemHouse.Model.Providers.Ortex do
   @moduledoc """
   Provider adapter for the local ONNX embedding runtime.
 
@@ -9,11 +9,11 @@ defmodule Cartulary.Model.Providers.Ortex do
   require a `model_version` bump and re-embedding.
   """
 
-  @behaviour Cartulary.Model.Provider
+  @behaviour MemHouse.Model.Provider
 
-  alias Cartulary.Model.Config.Role
-  alias Cartulary.Model.Embedding.Ortex
-  alias Cartulary.Model.Provider.Result
+  alias MemHouse.Model.Config.Role
+  alias MemHouse.Model.Embedding.Ortex
+  alias MemHouse.Model.Provider.Result
 
   @doc """
   Not supported: this is an embedding runtime and cannot generate objects.

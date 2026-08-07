@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Model.Embedding do
+defmodule MemHouse.Model.Embedding do
   @moduledoc """
   The embedding entry point, and the guard that keeps vector spaces from mixing.
 
@@ -28,8 +28,8 @@ defmodule Cartulary.Model.Embedding do
     identity and retrying. The plan says the whole corpus must be re-embedded.
   """
 
-  alias Cartulary.Model.Config
-  alias Cartulary.Model.Gateway
+  alias MemHouse.Model.Config
+  alias MemHouse.Model.Gateway
 
   defmodule Result do
     @moduledoc """

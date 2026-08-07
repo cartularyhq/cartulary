@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Pipeline.Preparations.DeclareAccount do
+defmodule MemHouse.Pipeline.Preparations.DeclareAccount do
   @moduledoc """
   Declares the queried Account to the database before a pipeline run is read.
 
@@ -19,7 +19,7 @@ defmodule Cartulary.Pipeline.Preparations.DeclareAccount do
 
   use Ash.Resource.Preparation
 
-  alias Cartulary.DataLayer
+  alias MemHouse.DataLayer
 
   @doc """
   Adds a before-action hook that declares the query's tenant Account.
@@ -43,7 +43,7 @@ defmodule Cartulary.Pipeline.Preparations.DeclareAccount do
   end
 end
 
-defmodule Cartulary.Pipeline.Changes.DeclareAccount do
+defmodule MemHouse.Pipeline.Changes.DeclareAccount do
   @moduledoc """
   Declares the run's own Account to the database before a pipeline run is written.
 
@@ -61,7 +61,7 @@ defmodule Cartulary.Pipeline.Changes.DeclareAccount do
 
   use Ash.Resource.Change
 
-  alias Cartulary.DataLayer
+  alias MemHouse.DataLayer
 
   @doc """
   Adds a before-action hook that declares the updated row's Account.

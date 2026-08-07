@@ -1,8 +1,8 @@
-<!-- SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0 -->
+<!-- SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0 -->
 
 # Memory model
 
-Everything Cartulary stores hangs off four structures — Account, Scope, Peer,
+Everything MemHouse stores hangs off four structures — Account, Scope, Peer,
 and Knowledge — plus the raw observations knowledge is derived from.
 
 ```mermaid
@@ -23,7 +23,7 @@ Every durable row belongs to one Account, derived from the authenticated
 identity and enforced by Phoenix, Ash policies, and PostgreSQL row-level
 security. Without a transaction Account, RLS returns no rows.
 
-No request value selects tenancy. Legacy `x-cartulary-account-key` and
+No request value selects tenancy. Legacy `x-memhouse-account-key` and
 `account_key` values are accepted but ignored.
 
 The community build serves a single Account. Multi-Account operation is an

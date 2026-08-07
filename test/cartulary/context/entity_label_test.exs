@@ -1,9 +1,9 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Context.EntityLabelTest do
+defmodule MemHouse.Context.EntityLabelTest do
   use ExUnit.Case, async: true
 
-  alias Cartulary.Context.EntityLabel
+  alias MemHouse.Context.EntityLabel
 
   describe "label/1" do
     test "prefers the form carried by the most source statements" do

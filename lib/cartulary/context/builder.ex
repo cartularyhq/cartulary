@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Context.Builder do
+defmodule MemHouse.Context.Builder do
   @moduledoc """
   Rebuilds one scope's derived cards, peer-profile slices, and session summaries.
 
@@ -20,17 +20,17 @@ defmodule Cartulary.Context.Builder do
   capped and periodically compacted to bound growth and drift.
   """
 
-  alias Cartulary.Clock
-  alias Cartulary.Context.Cache
-  alias Cartulary.Context.EntityLabel
-  alias Cartulary.Context.ProjectionKey
-  alias Cartulary.DataLayer
-  alias Cartulary.Knowledge.{EntityMention, KnowledgeItem, Projection}
-  alias Cartulary.Model.Config
-  alias Cartulary.Model.Gateway
-  alias Cartulary.Observations.Session
-  alias Cartulary.Retrieval.Query
-  alias Cartulary.Topology.Scope
+  alias MemHouse.Clock
+  alias MemHouse.Context.Cache
+  alias MemHouse.Context.EntityLabel
+  alias MemHouse.Context.ProjectionKey
+  alias MemHouse.DataLayer
+  alias MemHouse.Knowledge.{EntityMention, KnowledgeItem, Projection}
+  alias MemHouse.Model.Config
+  alias MemHouse.Model.Gateway
+  alias MemHouse.Observations.Session
+  alias MemHouse.Retrieval.Query
+  alias MemHouse.Topology.Scope
 
   require Ash.Query
   require Logger
@@ -294,9 +294,9 @@ defmodule Cartulary.Context.Builder do
 
   defp entity_summary!(items, scope_id, account_id, actor) do
     context = %{account_id: account_id, actor: actor}
-    config = Cartulary.Model.role_config(:dream_reasoner, context)
+    config = MemHouse.Model.role_config(:dream_reasoner, context)
 
-    if Gateway.provider_module(config, context) == Cartulary.Model.Providers.Deterministic do
+    if Gateway.provider_module(config, context) == MemHouse.Model.Providers.Deterministic do
       {grounded_summary(items), Config.provenance(config), "source_extract"}
     else
       messages = [
@@ -314,7 +314,7 @@ defmodule Cartulary.Context.Builder do
         }
       ]
 
-      case Cartulary.Model.chat(:dream_reasoner, messages, context, task: :entity_card) do
+      case MemHouse.Model.chat(:dream_reasoner, messages, context, task: :entity_card) do
         {:ok, summary, provenance} when is_binary(summary) and summary != "" ->
           {String.slice(String.trim(summary), 0, @entity_card_summary_chars), provenance, "model"}
 
@@ -482,7 +482,7 @@ defmodule Cartulary.Context.Builder do
 
     ranked_ids =
       query
-      |> Cartulary.Retrieval.retrieve(:thorough,
+      |> MemHouse.Retrieval.retrieve(:thorough,
         deadline?: false,
         concurrent?: false,
         internal?: true
@@ -504,7 +504,7 @@ defmodule Cartulary.Context.Builder do
 
   # Missing compaction configuration is a deployment error; do not change drift bounds silently.
   defp retrieval_config(key) do
-    :cartulary
+    :memhouse
     |> Application.fetch_env!(:retrieval_profiles)
     |> Keyword.fetch!(key)
   end

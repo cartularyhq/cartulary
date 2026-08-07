@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
 defmodule CartularyWeb.ConsoleComponents do
   @moduledoc """
@@ -13,7 +13,7 @@ defmodule CartularyWeb.ConsoleComponents do
 
   use CartularyWeb, :html
 
-  alias Cartulary.Actor
+  alias MemHouse.Actor
   alias CartularyWeb.Console.Access
 
   # One sentence per enum value, phrased for a reader deciding what to do next.
@@ -59,7 +59,7 @@ defmodule CartularyWeb.ConsoleComponents do
       <header class="topbar">
         <a class="brand" href={~p"/console"}>
           <span class="brand-mark">◈</span>
-          <span class="brand-name">Cartulary</span>
+          <span class="brand-name">MemHouse</span>
         </a>
 
         <div class="identity">

@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.PostgrexVectorExtension do
+defmodule MemHouse.PostgrexVectorExtension do
   @moduledoc """
   Encodes and decodes pgvector values for Postgrex.
 
@@ -76,7 +76,7 @@ defmodule Cartulary.PostgrexVectorExtension do
   end
 end
 
-# Builds `Cartulary.PostgrexTypes`, the type module the repository is configured
+# Builds `MemHouse.PostgrexTypes`, the type module the repository is configured
 # to use: the vector extension above plus everything Ecto's PostgreSQL adapter
 # normally installs. Appending rather than replacing is essential — dropping the
 # stock extensions would break every ordinary column type.
@@ -85,7 +85,7 @@ end
 # to exist before a connection can reference it. That is also why the repository
 # setting that names it is a compile-time configuration rather than a runtime one.
 Postgrex.Types.define(
-  Cartulary.PostgrexTypes,
-  [Cartulary.PostgrexVectorExtension] ++ Ecto.Adapters.Postgres.extensions(),
+  MemHouse.PostgrexTypes,
+  [MemHouse.PostgrexVectorExtension] ++ Ecto.Adapters.Postgres.extensions(),
   []
 )

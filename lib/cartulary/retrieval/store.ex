@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Retrieval.Store do
+defmodule MemHouse.Retrieval.Store do
   @moduledoc """
   Implements read-only retrieval SQL that cannot be expressed through Ash.
 
@@ -13,7 +13,7 @@ defmodule Cartulary.Retrieval.Store do
   remain resource-action-only.
   """
 
-  alias Cartulary.Repo
+  alias MemHouse.Repo
 
   # Shared caller-facing knowledge shape; only scope path comes from the joined scope.
   #
@@ -32,7 +32,7 @@ defmodule Cartulary.Retrieval.Store do
   k.relevant_until AT TIME ZONE 'UTC' AS relevant_until
   """
 
-  alias Cartulary.Retrieval.LexicalQueryAnalyzer
+  alias MemHouse.Retrieval.LexicalQueryAnalyzer
 
   # How many base-ranked rows stay eligible for the proximity bonus. The bonus is a second
   # `tsquery` evaluated per row, roughly an order of magnitude dearer than the base rank, so it
@@ -59,7 +59,7 @@ defmodule Cartulary.Retrieval.Store do
   Searches requested targets and ranks with `ts_rank_cd`, then merges and truncates to `limit`.
 
   A query spelling a websearch operator keeps the documented `websearch` parse. Any other query is
-  normalized by `Cartulary.Retrieval.LexicalQueryAnalyzer` and matches the disjunction of the
+  normalized by `MemHouse.Retrieval.LexicalQueryAnalyzer` and matches the disjunction of the
   resulting terms, because `websearch_to_tsquery` joins bare terms with `AND` and a one-sentence
   statement rarely carries every content word of a question. `ts_rank_cd` still orders by how many
   query terms a row covers and how densely.
@@ -325,7 +325,7 @@ defmodule Cartulary.Retrieval.Store do
   `Postgrex.Error` if the statement fails.
   """
   def temporal(query, limit) do
-    as_of = query.as_of || Cartulary.Clock.utc_now()
+    as_of = query.as_of || MemHouse.Clock.utc_now()
 
     sql = """
     SELECT #{@knowledge_columns},

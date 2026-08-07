@@ -1,11 +1,11 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Mix.Tasks.Cartulary.Portability.Import do
+defmodule Mix.Tasks.MemHouse.Portability.Import do
   @moduledoc """
   Loads a previously exported Account archive into a fresh installation, or verifies
     one without touching the database.
 
-    mix cartulary.
+    mix memhouse.
   """
 
   use Mix.Task
@@ -33,10 +33,10 @@ defmodule Mix.Tasks.Cartulary.Portability.Import do
     # Both branches match strictly on `{:ok, _}`: an unexpected result must abort loudly
     # rather than print a success line over a partially applied import.
     if Keyword.get(opts, :validate_only, false) do
-      {:ok, result} = Cartulary.Portability.validate(input)
+      {:ok, result} = MemHouse.Portability.validate(input)
       Mix.shell().info("Archive valid: #{result.account_id} (#{result.manifest_hash})")
     else
-      {:ok, result} = Cartulary.Portability.import(input)
+      {:ok, result} = MemHouse.Portability.import(input)
       Mix.shell().info("Imported #{result.account_id}; derived rebuilds enqueued")
     end
   end

@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Portability.AuditVerifier do
+defmodule MemHouse.Portability.AuditVerifier do
   @moduledoc """
   Verifies the archive's content-safe audit hash chain.
 
@@ -8,7 +8,7 @@ defmodule Cartulary.Portability.AuditVerifier do
   duplicate, reordered, or altered event rejects the archive before import writes begin.
   """
 
-  alias Cartulary.Governance.Audit
+  alias MemHouse.Governance.Audit
 
   @doc """
   Verifies a list of archived audit events, in any order.

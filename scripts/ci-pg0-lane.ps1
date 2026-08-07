@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 #
 # Windows packaged-release verification: build the Windows package, boot its
 # embedded pg0 from an empty data root, wait for readiness, then run the full
@@ -6,8 +6,8 @@
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$LaneRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("cartulary-f11-pg0-" + [guid]::NewGuid())
-$ReleaseRoot = Join-Path $RepoRoot "_build\prod\rel\cartulary"
+$LaneRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("memhouse-f11-pg0-" + [guid]::NewGuid())
+$ReleaseRoot = Join-Path $RepoRoot "_build\prod\rel\memhouse"
 $ReleaseLog = Join-Path $LaneRoot "release.log"
 $ReleaseErrorLog = Join-Path $LaneRoot "release-error.log"
 $ReleaseProcess = $null
@@ -18,11 +18,11 @@ New-Item -ItemType Directory -Force $LaneRoot | Out-Null
 try {
   & (Join-Path $RepoRoot "scripts\package-release.ps1")
 
-  $env:CARTULARY_AUTH_SIGNING_SECRET = "cartulary-f11-ci-only-signing-secret-that-is-longer-than-sixty-four-bytes"
+  $env:CARTULARY_AUTH_SIGNING_SECRET = "memhouse-f11-ci-only-signing-secret-that-is-longer-than-sixty-four-bytes"
   $env:CARTULARY_AUTO_MIGRATE = "true"
   $env:CARTULARY_DATABASE_MODE = "pg0"
   $env:CARTULARY_DATA_ROOT = (Join-Path $LaneRoot "data")
-  $env:CARTULARY_PG0_NAME = "cartulary-f11-ci"
+  $env:CARTULARY_PG0_NAME = "memhouse-f11-ci"
   $env:CARTULARY_PG0_PORT = "55431"
   $env:DATABASE_URL = ""
   $env:PORT = "4101"
@@ -67,9 +67,9 @@ try {
   $Succeeded = $true
 }
 finally {
-  if (Test-Path (Join-Path $ReleaseRoot "bin\cartulary.bat")) {
+  if (Test-Path (Join-Path $ReleaseRoot "bin\memhouse.bat")) {
     try {
-      & (Join-Path $ReleaseRoot "bin\cartulary.bat") stop | Out-Null
+      & (Join-Path $ReleaseRoot "bin\memhouse.bat") stop | Out-Null
     }
     catch {
       # The process may have failed before the release launcher accepted commands.

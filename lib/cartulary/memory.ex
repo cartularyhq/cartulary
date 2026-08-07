@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Memory do
+defmodule MemHouse.Memory do
   @moduledoc """
   Account-scoped facade for ingest, extraction, retrieval, context, and skill
   readiness. HTTP, MCP, evaluation, and jobs use it instead of resources.
@@ -18,31 +18,31 @@ defmodule Cartulary.Memory do
   its authorized-scope set is a snapshot. Keep raw strategy overrides internal.
   """
 
-  alias Cartulary.Accounts.Peer
-  alias Cartulary.Actor
-  alias Cartulary.Clock
-  alias Cartulary.DataLayer
-  alias Cartulary.Governance.Audit
-  alias Cartulary.Governance.Engine
-  alias Cartulary.Identity.RoleResolver
-  alias Cartulary.Knowledge.Attribution
-  alias Cartulary.Knowledge.KnowledgeItem
-  alias Cartulary.Knowledge.LifecycleEvent
-  alias Cartulary.Knowledge.Provenance
-  alias Cartulary.Observability
-  alias Cartulary.Observations.Message
-  alias Cartulary.Observations.Session
-  alias Cartulary.Observations.SessionParticipant
-  alias Cartulary.Observations.SessionScope
-  alias Cartulary.Operations.PipelineRun
-  alias Cartulary.Pipeline.Extractor
-  alias Cartulary.Pipeline.Idempotency
-  alias Cartulary.Pipeline.Lock
-  alias Cartulary.Retrieval.DiagnosticGrant
-  alias Cartulary.Retrieval.Profile
-  alias Cartulary.Retrieval.Query, as: RetrievalQuery
-  alias Cartulary.Skills
-  alias Cartulary.Topology.Scope
+  alias MemHouse.Accounts.Peer
+  alias MemHouse.Actor
+  alias MemHouse.Clock
+  alias MemHouse.DataLayer
+  alias MemHouse.Governance.Audit
+  alias MemHouse.Governance.Engine
+  alias MemHouse.Identity.RoleResolver
+  alias MemHouse.Knowledge.Attribution
+  alias MemHouse.Knowledge.KnowledgeItem
+  alias MemHouse.Knowledge.LifecycleEvent
+  alias MemHouse.Knowledge.Provenance
+  alias MemHouse.Observability
+  alias MemHouse.Observations.Message
+  alias MemHouse.Observations.Session
+  alias MemHouse.Observations.SessionParticipant
+  alias MemHouse.Observations.SessionScope
+  alias MemHouse.Operations.PipelineRun
+  alias MemHouse.Pipeline.Extractor
+  alias MemHouse.Pipeline.Idempotency
+  alias MemHouse.Pipeline.Lock
+  alias MemHouse.Retrieval.DiagnosticGrant
+  alias MemHouse.Retrieval.Profile
+  alias MemHouse.Retrieval.Query, as: RetrievalQuery
+  alias MemHouse.Skills
+  alias MemHouse.Topology.Scope
 
   require Ash.Query
 
@@ -82,14 +82,14 @@ defmodule Cartulary.Memory do
   observation into a caller-visible ingest error.
   """
   def ingest_message(attrs, identity_actor \\ nil) do
-    Observability.with_span(:memory, "cartulary.memory.ingest_message", fn ->
+    Observability.with_span(:memory, "memhouse.memory.ingest_message", fn ->
       attrs = attrs |> normalize_attrs() |> put_identity_actor(identity_actor)
 
       # Content-safe tracing: the message's role and length, never its text.
       Observability.set_attributes(:memory, %{
-        "cartulary.ingest.enqueue_extract" => true,
-        "cartulary.message.role" => Map.get(attrs, "role", "user"),
-        "cartulary.message.content_length" =>
+        "memhouse.ingest.enqueue_extract" => true,
+        "memhouse.message.role" => Map.get(attrs, "role", "user"),
+        "memhouse.message.content_length" =>
           String.length(to_string(Map.get(attrs, "content", "")))
       })
 
@@ -135,7 +135,7 @@ defmodule Cartulary.Memory do
           record_to_map(message)
         end)
 
-      Observability.set_attribute(:memory, "cartulary.message.id", message["id"])
+      Observability.set_attribute(:memory, "memhouse.message.id", message["id"])
       {:ok, message}
     end)
   end
@@ -161,8 +161,8 @@ defmodule Cartulary.Memory do
   end
 
   defp do_ingest_status(message_id, identity_actor) do
-    Observability.with_span(:memory, "cartulary.memory.ingest_status", fn ->
-      Observability.set_attribute(:memory, "cartulary.message.id", message_id)
+    Observability.with_span(:memory, "memhouse.memory.ingest_status", fn ->
+      Observability.set_attribute(:memory, "memhouse.message.id", message_id)
 
       %{}
       |> put_identity_actor(identity_actor)
@@ -191,8 +191,8 @@ defmodule Cartulary.Memory do
   neither a second creation lifecycle event nor a second gate decision.
   """
   def extract_message(message_id, account_key \\ nil) do
-    Observability.with_span(:memory, "cartulary.memory.extract_message", fn ->
-      Observability.set_attribute(:memory, "cartulary.message.id", message_id)
+    Observability.with_span(:memory, "memhouse.memory.extract_message", fn ->
+      Observability.set_attribute(:memory, "memhouse.message.id", message_id)
       account_key = account_key || DataLayer.message_account_key!(message_id)
 
       # The Account is resolved by key only in this first, short transaction; everything
@@ -221,8 +221,8 @@ defmodule Cartulary.Memory do
   `extract_message/2`.
   """
   def extract_message_for_account(message_id, account_id) do
-    Observability.with_span(:memory, "cartulary.memory.extract_message", fn ->
-      Observability.set_attribute(:memory, "cartulary.message.id", message_id)
+    Observability.with_span(:memory, "memhouse.memory.extract_message", fn ->
+      Observability.set_attribute(:memory, "memhouse.message.id", message_id)
 
       {message, context} =
         DataLayer.with_account_id(
@@ -314,7 +314,7 @@ defmodule Cartulary.Memory do
   caller.
   """
   def query_knowledge(filters, identity_actor \\ nil) do
-    Observability.with_span(:memory, "cartulary.memory.query_knowledge", fn ->
+    Observability.with_span(:memory, "memhouse.memory.query_knowledge", fn ->
       filters = filters |> normalize_attrs() |> put_identity_actor(identity_actor)
       state = Map.get(filters, "state", "active")
       limit = parse_int(Map.get(filters, "limit"), @default_limit)
@@ -326,9 +326,9 @@ defmodule Cartulary.Memory do
           scope_paths = Map.new(scopes, &{&1.id, &1.path})
 
           Observability.set_attributes(:memory, %{
-            "cartulary.knowledge.state" => state,
-            "cartulary.query.limit" => limit,
-            "cartulary.query.scope_count" => length(scope_ids)
+            "memhouse.knowledge.state" => state,
+            "memhouse.query.limit" => limit,
+            "memhouse.query.scope_count" => length(scope_ids)
           })
 
           scope_ids
@@ -344,7 +344,7 @@ defmodule Cartulary.Memory do
           end)
         end)
 
-      Observability.set_attribute(:memory, "cartulary.query.result_count", length(rows))
+      Observability.set_attribute(:memory, "memhouse.query.result_count", length(rows))
       rows
     end)
   end
@@ -370,7 +370,7 @@ defmodule Cartulary.Memory do
   - `"strategies"` — a raw strategy override. Only an internal system identity
     may pass it; retrieval raises `ArgumentError` for anyone else, because
     strategy names are an internal seam rather than a public contract.
-  - `"_diagnostic"` — a `Cartulary.Retrieval.DiagnosticGrant`, which supplies
+  - `"_diagnostic"` — a `MemHouse.Retrieval.DiagnosticGrant`, which supplies
     the limit, strategy list, deadline, and rerank setting in place of the keys
     above, and may ask for the `"diagnostic_trace"` rank explanation. Only
     `diagnostic_search/2` builds one, and decoded JSON cannot produce a struct,
@@ -396,7 +396,7 @@ defmodule Cartulary.Memory do
   Raises when no Account can be derived from the caller.
   """
   def search(filters, identity_actor \\ nil) do
-    Observability.with_span(:memory, "cartulary.memory.search", fn ->
+    Observability.with_span(:memory, "memhouse.memory.search", fn ->
       filters = filters |> normalize_attrs() |> put_identity_actor(identity_actor)
       query = Map.get(filters, "query", "")
       scope_path = Map.get(filters, "scope_path", "/poc")
@@ -451,25 +451,25 @@ defmodule Cartulary.Memory do
             ]
             |> Enum.reject(fn {_key, value} -> is_nil(value) end)
 
-          {Cartulary.Retrieval.retrieve(retrieval_query, profile, opts), length(scopes)}
+          {MemHouse.Retrieval.retrieve(retrieval_query, profile, opts), length(scopes)}
         end)
 
       Observability.set_attributes(:memory, %{
-        "cartulary.retrieval.profile" => retrieval.profile,
-        "cartulary.retrieval.profile_version" => retrieval.profile_version,
-        "cartulary.retrieval.strategy_count" => length(retrieval.contributed_strategies),
+        "memhouse.retrieval.profile" => retrieval.profile,
+        "memhouse.retrieval.profile_version" => retrieval.profile_version,
+        "memhouse.retrieval.strategy_count" => length(retrieval.contributed_strategies),
         # Counts only; a degraded run is otherwise indistinguishable from a good one in traces.
-        "cartulary.retrieval.empty_strategy_count" => length(retrieval.empty_strategies),
-        "cartulary.retrieval.query_dependent_empty" =>
+        "memhouse.retrieval.empty_strategy_count" => length(retrieval.empty_strategies),
+        "memhouse.retrieval.query_dependent_empty" =>
           retrieval.disagreement["query_dependent_empty"],
-        "cartulary.query.limit" => limit,
-        "cartulary.query.text_length" => String.length(query),
-        "cartulary.query.scope_count" => scope_count
+        "memhouse.query.limit" => limit,
+        "memhouse.query.text_length" => String.length(query),
+        "memhouse.query.scope_count" => scope_count
       })
 
       Observability.set_attributes(:memory, %{
-        "cartulary.retrieval.candidate_count" => length(retrieval.candidates),
-        "cartulary.retrieval.latency_ms" => retrieval.latency_ms
+        "memhouse.retrieval.candidate_count" => length(retrieval.candidates),
+        "memhouse.retrieval.latency_ms" => retrieval.latency_ms
       })
 
       stringify_top_level(retrieval)
@@ -497,7 +497,7 @@ defmodule Cartulary.Memory do
   latency bound), `"rerank"` (a boolean forcing the rerank stage on or off), and
   `"trace"` (asks for the rank explanation). Everything else is dropped rather
   than forwarded, so the exported request is exactly what ran. The limit is
-  clamped to `Cartulary.Retrieval.DiagnosticGrant.max_limit/0`.
+  clamped to `MemHouse.Retrieval.DiagnosticGrant.max_limit/0`.
 
   Returns the `search/2` map with a string-keyed `"diagnostic"` block holding
   the requested options, the strategies that read the query text, the ordinary
@@ -570,14 +570,14 @@ defmodule Cartulary.Memory do
   `search/2`.
   """
   def ask(attrs, identity_actor \\ nil) do
-    Observability.with_span(:memory, "cartulary.memory.ask", fn ->
+    Observability.with_span(:memory, "memhouse.memory.ask", fn ->
       attrs = attrs |> normalize_attrs() |> put_identity_actor(identity_actor)
       question = Map.fetch!(attrs, "question")
       profile = Map.get(attrs, "profile", "thorough")
 
       Observability.set_attributes(:memory, %{
-        "cartulary.ask.question_length" => String.length(question),
-        "cartulary.retrieval.profile" => profile
+        "memhouse.ask.question_length" => String.length(question),
+        "memhouse.retrieval.profile" => profile
       })
 
       # The actor already travels inside `attrs`, so the single-argument call
@@ -595,10 +595,10 @@ defmodule Cartulary.Memory do
       {answer, used_model?} = answer_question(attrs, question, candidates)
 
       Observability.set_attributes(:memory, %{
-        "cartulary.ask.candidate_count" => length(candidates),
-        "cartulary.ask.used_model" => used_model?,
-        "cartulary.ask.abstained" => Map.get(answer, "abstained", false),
-        "cartulary.ask.answer_confidence" => Map.get(answer, "answer_confidence", 0)
+        "memhouse.ask.candidate_count" => length(candidates),
+        "memhouse.ask.used_model" => used_model?,
+        "memhouse.ask.abstained" => Map.get(answer, "abstained", false),
+        "memhouse.ask.answer_confidence" => Map.get(answer, "answer_confidence", 0)
       })
 
       Map.merge(retrieval, answer)
@@ -625,19 +625,19 @@ defmodule Cartulary.Memory do
   Raises when no Account can be derived from the caller.
   """
   def get_context(attrs, identity_actor \\ nil) do
-    Observability.with_span(:memory, "cartulary.memory.get_context", fn ->
+    Observability.with_span(:memory, "memhouse.memory.get_context", fn ->
       attrs = attrs |> normalize_attrs() |> put_identity_actor(identity_actor)
 
       context =
         with_account(attrs, fn account, actor ->
           scopes = visible_scopes(account.id, actor, Map.get(attrs, "scope_path", "/poc"))
-          Cartulary.Context.get(account, actor, scopes, attrs)
+          MemHouse.Context.get(account, actor, scopes, attrs)
         end)
 
       Observability.set_attributes(:memory, %{
-        "cartulary.context.knowledge_count" => length(context["knowledge"]),
-        "cartulary.context.projection_cache_hit" => context["projection_cache_hit"],
-        "cartulary.context.fast_fallback" => context["fast_fallback"]
+        "memhouse.context.knowledge_count" => length(context["knowledge"]),
+        "memhouse.context.projection_cache_hit" => context["projection_cache_hit"],
+        "memhouse.context.fast_fallback" => context["fast_fallback"]
       })
 
       context
@@ -851,7 +851,7 @@ defmodule Cartulary.Memory do
   # this shared one transaction.
   defp extract_then_write(account_id, message_id, message, context) do
     with {:ok, items} <- Extractor.extract(message, context) do
-      Observability.set_attribute(:memory, "cartulary.extract.item_count", length(items))
+      Observability.set_attribute(:memory, "memhouse.extract.item_count", length(items))
 
       DataLayer.with_account_id(
         account_id,
@@ -1117,7 +1117,7 @@ defmodule Cartulary.Memory do
   # untouched, so a provider failure still reaches the caller as an error tuple
   # that the durable job can retry on.
   defp record_extraction_result({:ok, knowledge}) do
-    Observability.set_attribute(:memory, "cartulary.knowledge.created_count", length(knowledge))
+    Observability.set_attribute(:memory, "memhouse.knowledge.created_count", length(knowledge))
     {:ok, knowledge}
   end
 
@@ -1224,7 +1224,7 @@ defmodule Cartulary.Memory do
       scope_ids = Enum.map(scopes, & &1.id)
 
       linked_ids =
-        Cartulary.Topology.ScopeRelation
+        MemHouse.Topology.ScopeRelation
         |> Ash.Query.filter(source_scope_id in ^scope_ids or target_scope_id in ^scope_ids)
         |> Ash.Query.set_tenant(account_id)
         |> Ash.read!(actor: actor)
@@ -1254,7 +1254,7 @@ defmodule Cartulary.Memory do
 
   # Every durable write in this module goes through here so two things are always
   # set before the action runs: the tenant, which pins the Account for Ash
-  # multitenancy, and the Cartulary actor in the changeset context, which the
+  # multitenancy, and the MemHouse actor in the changeset context, which the
   # after-action changes (audit chaining and job enqueue) fall back to when the
   # action's own context does not carry an actor.
   defp create!(resource, action, attrs, account_id, actor) do
@@ -1266,7 +1266,7 @@ defmodule Cartulary.Memory do
     |> Ash.create!(actor: actor)
   end
 
-  # Account selection, most trusted source first. Only a real `Cartulary.Actor`
+  # Account selection, most trusted source first. Only a real `MemHouse.Actor`
   # struct matches the first clause, and decoded JSON can never produce a struct,
   # so a request body cannot smuggle an identity in under this key. The key and id
   # clauses are internal adapters for background work and evaluation runs. The
@@ -1419,15 +1419,15 @@ defmodule Cartulary.Memory do
           actor: actor
         }
 
-        {context, Cartulary.Model.role_config(:dialectic_agent, context)}
+        {context, MemHouse.Model.role_config(:dialectic_agent, context)}
       end)
 
-    provider = Cartulary.Model.Gateway.provider_module(config, context)
+    provider = MemHouse.Model.Gateway.provider_module(config, context)
 
     # A deployment whose answering role is still the built-in deterministic
     # provider, with no real provider injected, answers from the retrieved
     # statements instead of pretending to reason.
-    if Cartulary.Model.Config.local_fallback?(config) and
+    if MemHouse.Model.Config.local_fallback?(config) and
          is_nil(provider_override(provider)) do
       {fallback_answer(question, candidates), false}
     else
@@ -1466,7 +1466,7 @@ defmodule Cartulary.Memory do
       end)
 
     prompt = """
-    Answer the question using only the cited Cartulary memory statements.
+    Answer the question using only the cited MemHouse memory statements.
     Return JSON: {"answer":"...", "citations":["knowledge-id"], "abstained":false, "answer_confidence":0}.
     answer_confidence is your own probability, an integer from 0 to 100, that the answer you gave is correct.
 
@@ -1489,13 +1489,13 @@ defmodule Cartulary.Memory do
     """
 
     result =
-      Cartulary.Model.generate_structured(
+      MemHouse.Model.generate_structured(
         :dialectic_agent,
         [
           %{role: "system", content: "You are a grounded memory QA engine."},
           %{role: "user", content: prompt}
         ],
-        Cartulary.Model.Schema.DialecticAnswer,
+        MemHouse.Model.Schema.DialecticAnswer,
         model_context,
         task: :dialectic
       )
@@ -1539,7 +1539,7 @@ defmodule Cartulary.Memory do
   # The deterministic provider is the built-in default, not a deliberate choice,
   # so it does not count as an override. Only a real provider module injected
   # through configuration or call context does.
-  defp provider_override(Cartulary.Model.Providers.Deterministic), do: nil
+  defp provider_override(MemHouse.Model.Providers.Deterministic), do: nil
   defp provider_override(provider), do: provider
 
   # Model-free answers. With no grounded statement to stand on the reply reports

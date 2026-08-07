@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Documents.Parser do
+defmodule MemHouse.Documents.Parser do
   @moduledoc """
   Extracts normalized text from document bytes in-process.
 
@@ -61,7 +61,7 @@ defmodule Cartulary.Documents.Parser do
   defp extract_native(bytes, media_type) do
     # Character cap bounds per-document extraction memory; increasing it raises peak use.
     max_length =
-      :cartulary
+      :memhouse
       |> Application.fetch_env!(:documents)
       |> Keyword.fetch!(:max_extract_length)
 
@@ -98,7 +98,7 @@ defmodule Cartulary.Documents.Parser do
   defp normalize_value(value), do: inspect(value)
 end
 
-defmodule Cartulary.Documents.Chunker do
+defmodule MemHouse.Documents.Chunker do
   @moduledoc """
   Splits extracted text and embeds each retrievable chunk.
 
@@ -107,8 +107,8 @@ defmodule Cartulary.Documents.Chunker do
   require re-embedding. Failures return error tuples before durable writes.
   """
 
-  alias Cartulary.Model.Embedding
-  alias Cartulary.Pipeline.Idempotency
+  alias MemHouse.Model.Embedding
+  alias MemHouse.Pipeline.Idempotency
 
   @doc """
   Splits `text` into chunks and embeds them in one batch.
@@ -127,7 +127,7 @@ defmodule Cartulary.Documents.Chunker do
   def chunk_and_embed(text, format, context)
       when is_binary(text) and format in [:markdown, :plaintext] and is_map(context) do
     # Size and overlap are character counts; changes apply only after rebuild.
-    config = Application.fetch_env!(:cartulary, :documents)
+    config = Application.fetch_env!(:memhouse, :documents)
 
     chunks =
       TextChunker.split(text,

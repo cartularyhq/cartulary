@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0 -->
+<!-- SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0 -->
 
 # Release Checklist
 
@@ -32,14 +32,14 @@ This checklist is the evaluation, CI, and release-readiness gate for
 ## Evaluation and parity
 
 ```bash
-mix cartulary.eval.release \
+mix memhouse.eval.release \
   --no-model \
   --assert-thresholds \
-  --output /private/tmp/cartulary-release-eval.json
+  --output /private/tmp/memhouse-release-eval.json
 
-mix cartulary.release.check \
+mix memhouse.release.check \
   --tag "v$(sed -n 's/.*version: \"\\([^\"]*\\)\".*/\\1/p' mix.exs)" \
-  --eval-report /private/tmp/cartulary-release-eval.json
+  --eval-report /private/tmp/memhouse-release-eval.json
 ```
 
 - [ ] External-Postgres deterministic gate passed.

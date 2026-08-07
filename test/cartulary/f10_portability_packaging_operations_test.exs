@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.F10PortabilityPackagingOperationsTest do
+defmodule MemHouse.F10PortabilityPackagingOperationsTest do
   @moduledoc """
   Pins Account portability, audit verification, readiness, exact metering, log
   safety, and packaging parity.
@@ -11,7 +11,7 @@ defmodule Cartulary.F10PortabilityPackagingOperationsTest do
   only reviewed metadata. pg0 assets are pinned while containers use stock
   Postgres with the same release.
 
-  `cartulary-account-1` is the external archive schema identity. Changing it
+  `memhouse-account-1` is the external archive schema identity. Changing it
   requires a changelog entry and updated evidence. Treat archive leakage, log
   redaction, and unverified packaging failures as security issues.
 
@@ -19,16 +19,16 @@ defmodule Cartulary.F10PortabilityPackagingOperationsTest do
   files.
   """
 
-  use Cartulary.DataCase, async: false
+  use MemHouse.DataCase, async: false
 
-  alias Cartulary.DataLayer
-  alias Cartulary.Memory
-  alias Cartulary.Operations.Health
-  alias Cartulary.Operations.Metering
-  alias Cartulary.Portability
-  alias Cartulary.Portability.AuditVerifier
-  alias Cartulary.Portability.Registry
-  alias Cartulary.Repo
+  alias MemHouse.DataLayer
+  alias MemHouse.Memory
+  alias MemHouse.Operations.Health
+  alias MemHouse.Operations.Metering
+  alias MemHouse.Portability
+  alias MemHouse.Portability.AuditVerifier
+  alias MemHouse.Portability.Registry
+  alias MemHouse.Repo
 
   test "logical export is self-describing, checksum verified, and excludes secrets and caches" do
     # Unique account key per run so a leftover archive or account from an earlier run cannot
@@ -60,7 +60,7 @@ defmodule Cartulary.F10PortabilityPackagingOperationsTest do
     # The export runs in one account-scoped transaction, so the manifest counts describe a
     # single consistent snapshot rather than a moving target.
     assert {:ok, exported} = Portability.export(actor, path)
-    assert exported.schema == "cartulary-account-1"
+    assert exported.schema == "memhouse-account-1"
     assert exported.resource_counts["messages"] == 1
     # At least four audit events: ingest alone produces several chained entries. A lower
     # bound rather than an exact number, because adding an audited step is normal evolution
@@ -85,10 +85,10 @@ defmodule Cartulary.F10PortabilityPackagingOperationsTest do
     # the destination is cheaper and safer than trusting a stale copy. Password hashes:
     # credentials again. Embeddings: tied to the exporting account's model identity and
     # meaningless — silently wrong, not obviously wrong — under a different one.
-    refute Cartulary.Accounts.ApiKey in Enum.map(Registry.resources(), &elem(&1, 1))
-    assert Cartulary.Knowledge.Projection in Registry.derived_resources()
-    assert :hashed_password in Registry.excluded_attributes(Cartulary.Accounts.Peer)
-    assert :embedding in Registry.excluded_attributes(Cartulary.Knowledge.KnowledgeItem)
+    refute MemHouse.Accounts.ApiKey in Enum.map(Registry.resources(), &elem(&1, 1))
+    assert MemHouse.Knowledge.Projection in Registry.derived_resources()
+    assert :hashed_password in Registry.excluded_attributes(MemHouse.Accounts.Peer)
+    assert :embedding in Registry.excluded_attributes(MemHouse.Knowledge.KnowledgeItem)
   end
 
   test "audit verification rejects any changed event" do
@@ -137,15 +137,15 @@ defmodule Cartulary.F10PortabilityPackagingOperationsTest do
   end
 
   test "readiness discloses whether this deployment is unattended" do
-    previous = Application.get_env(:cartulary, :governance, [])
+    previous = Application.get_env(:memhouse, :governance, [])
 
-    Application.put_env(:cartulary, :governance, Keyword.put(previous, :unattended, true))
+    Application.put_env(:memhouse, :governance, Keyword.put(previous, :unattended, true))
     assert Health.readiness().governance.unattended == true
 
-    Application.put_env(:cartulary, :governance, Keyword.put(previous, :unattended, false))
+    Application.put_env(:memhouse, :governance, Keyword.put(previous, :unattended, false))
     assert Health.readiness().governance.unattended == false
 
-    Application.put_env(:cartulary, :governance, previous)
+    Application.put_env(:memhouse, :governance, previous)
   end
 
   test "exact API metering feeds self-host cost and budget visibility" do
@@ -176,7 +176,7 @@ defmodule Cartulary.F10PortabilityPackagingOperationsTest do
     # they are never estimated from request counts.
     assert summary.tokens == %{input: 0, output: 0, embedding: 0}
     assert is_integer(summary.logical_storage_bytes)
-    # Zero because a self-hoster supplies their own rates. Cartulary does not carry hidden
+    # Zero because a self-hoster supplies their own rates. MemHouse does not carry hidden
     # pricing: with no configured rate, the honest estimate is 0.0, not a guess.
     assert summary.estimated_model_cost == 0.0
   end
@@ -226,7 +226,7 @@ defmodule Cartulary.F10PortabilityPackagingOperationsTest do
     # key holding user content. Logs are shipped off-box and retained, so anything that
     # survives here has effectively escaped the system's other content-safety boundaries.
     line =
-      Cartulary.Observability.JSONFormatter.format(
+      MemHouse.Observability.JSONFormatter.format(
         %{
           level: :info,
           msg:
@@ -278,7 +278,7 @@ defmodule Cartulary.F10PortabilityPackagingOperationsTest do
     # The native-extension build stage is pinned to an exact toolchain image.
     assert dockerfile =~ "RUST_IMAGE=rust:1.85-slim-bookworm"
     # The runtime never runs as root.
-    assert dockerfile =~ "USER cartulary"
+    assert dockerfile =~ "USER memhouse"
     # The container must not launch the embedded database. Containerised deployments use an
     # operator-run Postgres; a container that quietly started its own would put durable data
     # inside an ephemeral layer.
@@ -319,7 +319,7 @@ defmodule Cartulary.F10PortabilityPackagingOperationsTest do
   # verifiable for the same reason a real one is. Deliberately not a reimplementation: a
   # second copy of the hashing rule could drift and would then verify nothing.
   defp event_hash(event) do
-    Cartulary.Governance.Audit.content_hash(%{
+    MemHouse.Governance.Audit.content_hash(%{
       account_id: event["account_id"],
       category: event["category"],
       action: event["action"],
@@ -336,8 +336,8 @@ defmodule Cartulary.F10PortabilityPackagingOperationsTest do
   # declared, so every row-level-security policy on a tenant table denies until a caller
   # declares one. The settings are transaction-local, so this only affects the running test.
   defp clear_account_declaration! do
-    Ecto.Adapters.SQL.query!(Repo, "SELECT set_config('cartulary.account_id', '', true)", [])
-    Ecto.Adapters.SQL.query!(Repo, "SELECT set_config('cartulary.account_key', '', true)", [])
+    Ecto.Adapters.SQL.query!(Repo, "SELECT set_config('memhouse.account_id', '', true)", [])
+    Ecto.Adapters.SQL.query!(Repo, "SELECT set_config('memhouse.account_key', '', true)", [])
   end
 
   # Unique path per call so concurrent or repeated runs never share an archive file. The
@@ -345,7 +345,7 @@ defmodule Cartulary.F10PortabilityPackagingOperationsTest do
   defp temp_path(name) do
     Path.join(
       System.tmp_dir!(),
-      "cartulary-f10-#{System.unique_integer([:positive])}-#{name}"
+      "memhouse-f10-#{System.unique_integer([:positive])}-#{name}"
     )
   end
 end

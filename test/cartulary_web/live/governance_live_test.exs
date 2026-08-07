@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
 defmodule CartularyWeb.GovernanceLive.IndexTest do
   @moduledoc """
@@ -12,13 +12,13 @@ defmodule CartularyWeb.GovernanceLive.IndexTest do
 
   import Phoenix.LiveViewTest
 
-  alias Cartulary.Actor
-  alias Cartulary.DataLayer
-  alias Cartulary.Governance.Engine
-  alias Cartulary.Governance.ValidationItem
-  alias Cartulary.Knowledge.KnowledgeItem
-  alias Cartulary.Memory
-  alias Cartulary.Topology.Scope
+  alias MemHouse.Actor
+  alias MemHouse.DataLayer
+  alias MemHouse.Governance.Engine
+  alias MemHouse.Governance.ValidationItem
+  alias MemHouse.Knowledge.KnowledgeItem
+  alias MemHouse.Memory
+  alias MemHouse.Topology.Scope
 
   require Ash.Query
 
@@ -118,7 +118,7 @@ defmodule CartularyWeb.GovernanceLive.IndexTest do
   # ----------------------------------------------------------------------------
 
   defp bootstrap_human!(suffix) do
-    Cartulary.Identity.bootstrap_human(%{
+    MemHouse.Identity.bootstrap_human(%{
       email: "governance-live-#{suffix}@example.test",
       name: "Governance Live #{suffix}",
       password: @password

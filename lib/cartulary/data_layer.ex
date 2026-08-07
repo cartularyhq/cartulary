@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.DataLayer do
+defmodule MemHouse.DataLayer do
   @moduledoc """
   Owns Account-scoped PostgreSQL transactions.
 
@@ -10,9 +10,9 @@ defmodule Cartulary.DataLayer do
   callback; do not place irreversible provider calls inside it.
   """
 
-  alias Cartulary.Accounts.Account
-  alias Cartulary.Actor
-  alias Cartulary.Repo
+  alias MemHouse.Accounts.Account
+  alias MemHouse.Actor
+  alias MemHouse.Repo
 
   require Ash.Query
 
@@ -113,7 +113,7 @@ defmodule Cartulary.DataLayer do
   side effect.
   """
   def with_free_account(fun) when is_function(fun, 2) do
-    identity_config = Application.fetch_env!(:cartulary, :identity)
+    identity_config = Application.fetch_env!(:memhouse, :identity)
     account_key = Keyword.fetch!(identity_config, :account_key)
     account_name = Keyword.fetch!(identity_config, :account_name)
 
@@ -153,7 +153,7 @@ defmodule Cartulary.DataLayer do
   install has not been provisioned yet.
   """
   def with_existing_free_account(fun) when is_function(fun, 2) do
-    identity_config = Application.fetch_env!(:cartulary, :identity)
+    identity_config = Application.fetch_env!(:memhouse, :identity)
     account_key = Keyword.fetch!(identity_config, :account_key)
 
     case Repo.transaction(fn ->
@@ -329,7 +329,7 @@ defmodule Cartulary.DataLayer do
   """
   def declare_account!(account_id) when is_binary(account_id) do
     unless Repo.in_transaction?() do
-      raise "Cartulary.DataLayer.declare_account!/1 requires an open transaction: " <>
+      raise "MemHouse.DataLayer.declare_account!/1 requires an open transaction: " <>
               "a transaction-local setting installed outside one is discarded immediately"
     end
 
@@ -337,8 +337,8 @@ defmodule Cartulary.DataLayer do
       Repo,
       """
       SELECT set_config(
-               'cartulary.account_id',
-               COALESCE(NULLIF(current_setting('cartulary.account_id', true), ''), $1),
+               'memhouse.account_id',
+               COALESCE(NULLIF(current_setting('memhouse.account_id', true), ''), $1),
                true
              )
       """,
@@ -396,7 +396,7 @@ defmodule Cartulary.DataLayer do
   defp set_account_key!(account_key) do
     Ecto.Adapters.SQL.query!(
       Repo,
-      "SELECT set_config('cartulary.account_key', $1, true)",
+      "SELECT set_config('memhouse.account_key', $1, true)",
       [account_key]
     )
   end
@@ -404,7 +404,7 @@ defmodule Cartulary.DataLayer do
   defp set_account_id!(account_id) do
     Ecto.Adapters.SQL.query!(
       Repo,
-      "SELECT set_config('cartulary.account_id', $1, true)",
+      "SELECT set_config('memhouse.account_id', $1, true)",
       [account_id]
     )
   end

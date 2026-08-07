@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Governance.Audit do
+defmodule MemHouse.Governance.Audit do
   @moduledoc """
   Writer for the append-only, hash-chained, per-Account audit log.
 
@@ -21,8 +21,8 @@ defmodule Cartulary.Governance.Audit do
   Append uses a system-pipeline copy of the caller only for the audit insert.
   """
 
-  alias Cartulary.Clock
-  alias Cartulary.Governance.AuditEvent
+  alias MemHouse.Clock
+  alias MemHouse.Governance.AuditEvent
 
   # Reserved vocabulary for the `category` field. Keeping it small is what makes
   # the log queryable: an operator can filter by category without knowing every
@@ -45,7 +45,7 @@ defmodule Cartulary.Governance.Audit do
   @doc """
   Appends one event to an Account's audit chain.
 
-  `actor` may be a `Cartulary.Actor` struct or a plain map; a copy with
+  `actor` may be a `MemHouse.Actor` struct or a plain map; a copy with
   `role: :system` and `pipeline?: true` is used for the insert so the append
   succeeds regardless of the caller's own role. `account_id` names the tenant
   whose chain is extended. `attrs` carries the `record` action fields:
@@ -113,7 +113,7 @@ defmodule Cartulary.Governance.Audit do
   # with both set. Both clauses build a copy; the caller keeps its real role
   # everywhere else, and the copied `account_id` still binds the write to one
   # Account.
-  defp pipeline_actor(%Cartulary.Actor{} = actor),
+  defp pipeline_actor(%MemHouse.Actor{} = actor),
     do: %{actor | role: :system, pipeline?: true}
 
   defp pipeline_actor(actor) do
@@ -123,7 +123,7 @@ defmodule Cartulary.Governance.Audit do
   end
 end
 
-defmodule Cartulary.Governance.Changes.HashAuditEvent do
+defmodule MemHouse.Governance.Changes.HashAuditEvent do
   @moduledoc """
   Ash change that links a new audit event into its Account's hash chain.
 
@@ -148,10 +148,10 @@ defmodule Cartulary.Governance.Changes.HashAuditEvent do
 
   use Ash.Resource.Change
 
-  alias Cartulary.Clock
-  alias Cartulary.Governance.Audit
-  alias Cartulary.Governance.AuditEvent
-  alias Cartulary.Pipeline.Lock
+  alias MemHouse.Clock
+  alias MemHouse.Governance.Audit
+  alias MemHouse.Governance.AuditEvent
+  alias MemHouse.Pipeline.Lock
 
   @impl true
   def change(changeset, _opts, context) do
@@ -178,7 +178,7 @@ defmodule Cartulary.Governance.Changes.HashAuditEvent do
 
       occurred_at = Ash.Changeset.get_attribute(changeset, :occurred_at) || Clock.utc_now()
 
-      # nil for the Account's very first event. `Cartulary.Portability.AuditVerifier`
+      # nil for the Account's very first event. `MemHouse.Portability.AuditVerifier`
       # uses that nil to identify the one row a chain may start from.
       previous_hash = previous && previous.event_hash
 
@@ -204,7 +204,7 @@ defmodule Cartulary.Governance.Changes.HashAuditEvent do
   end
 end
 
-defmodule Cartulary.Governance.Changes.AuditResource do
+defmodule MemHouse.Governance.Changes.AuditResource do
   @moduledoc """
   Ash change that appends one audit event after a resource action succeeds.
 
@@ -225,7 +225,7 @@ defmodule Cartulary.Governance.Changes.AuditResource do
 
   use Ash.Resource.Change
 
-  alias Cartulary.Governance.Audit
+  alias MemHouse.Governance.Audit
 
   @impl true
   def change(changeset, opts, _context) do

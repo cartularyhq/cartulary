@@ -1,10 +1,10 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Model do
+defmodule MemHouse.Model do
   @moduledoc """
   Provider-neutral model capabilities and versioned per-Account role configuration.
 
-  Every call goes through this module or `Cartulary.Model.Gateway` for
+  Every call goes through this module or `MemHouse.Model.Gateway` for
   provenance, metering, provider substitution, and deterministic tests. The four
   Account-level roles are:
 
@@ -22,22 +22,22 @@ defmodule Cartulary.Model do
   use Ash.Domain
 
   resources do
-    resource Cartulary.Model.ModelRoleConfig
+    resource MemHouse.Model.ModelRoleConfig
   end
 
   @doc """
   Resolves the pinned configuration for one model role.
 
   Accepts a role atom or one of the short aliases, and the caller context map.
-  Returns a `Cartulary.Model.Config.Role` struct describing provider, model,
+  Returns a `MemHouse.Model.Config.Role` struct describing provider, model,
   versions, and options. Raises `ArgumentError` for an unknown role name.
   """
-  defdelegate role_config(role, context), to: Cartulary.Model.Config, as: :resolve
+  defdelegate role_config(role, context), to: MemHouse.Model.Config, as: :resolve
 
   @doc """
   Runs one structured generation with bounded validate-and-repair.
 
-  `schema` is a module implementing `Cartulary.Model.Schema`; its JSON schema is
+  `schema` is a module implementing `MemHouse.Model.Schema`; its JSON schema is
   sent to the provider and its `cast/2` validates what comes back. Returns
   `{:ok, casted_value, provenance_map}` where the provenance map carries
   provider, model, model version, prompt version, and pipeline version for
@@ -49,7 +49,7 @@ defmodule Cartulary.Model do
   into knowledge.
   """
   defdelegate generate_structured(role, messages, schema, context, opts \\ []),
-    to: Cartulary.Model.StructuredGenerator,
+    to: MemHouse.Model.StructuredGenerator,
     as: :generate
 
   @doc """
@@ -59,19 +59,19 @@ defmodule Cartulary.Model do
   `generate_structured/5` for anything whose output is parsed: unconstrained
   text has no validation gate behind it.
   """
-  defdelegate chat(role, messages, context, opts \\ []), to: Cartulary.Model.Gateway
+  defdelegate chat(role, messages, context, opts \\ []), to: MemHouse.Model.Gateway
 
   @doc """
   Embeds a list of texts with the Account's pinned `:embedder` role.
 
-  Returns `{:ok, %Cartulary.Model.Embedding.Result{}}` carrying the vectors
+  Returns `{:ok, %MemHouse.Model.Embedding.Result{}}` carrying the vectors
   together with the provider, model, version, and dimension identity that
   produced them; a caller storing vectors must store that identity alongside
   them. Pass `:stored_identity` in `opts` when re-using existing vectors so a
   changed embedder is reported as `{:error, {:reembed_required, plan}}` instead
   of silently mixing incompatible vector spaces.
   """
-  defdelegate embed(texts, context, opts \\ []), to: Cartulary.Model.Embedding
+  defdelegate embed(texts, context, opts \\ []), to: MemHouse.Model.Embedding
 
   @doc """
   Reranks candidate documents against a query using the `:dream_reasoner` role.
@@ -81,10 +81,10 @@ defmodule Cartulary.Model do
   callers are expected to keep their pre-rerank ordering when this errors rather
   than failing the whole retrieval.
   """
-  defdelegate rerank(query, documents, context, opts \\ []), to: Cartulary.Model.Gateway
+  defdelegate rerank(query, documents, context, opts \\ []), to: MemHouse.Model.Gateway
 end
 
-defmodule Cartulary.Model.ValidateSecretReferences do
+defmodule MemHouse.Model.ValidateSecretReferences do
   @moduledoc """
   Ash validation that keeps raw credentials out of persisted model role options.
 
@@ -141,7 +141,7 @@ defmodule Cartulary.Model.ValidateSecretReferences do
   defp raw_secret_key?(_value), do: false
 end
 
-defmodule Cartulary.Model.ModelRoleConfig do
+defmodule MemHouse.Model.ModelRoleConfig do
   @moduledoc """
   One durable, versioned model-role configuration row for an Account.
 
@@ -170,7 +170,7 @@ defmodule Cartulary.Model.ModelRoleConfig do
     provenance stays truthful.
   """
 
-  use Cartulary.Resource, domain: Cartulary.Model, table: "model_role_configs"
+  use MemHouse.Resource, domain: MemHouse.Model, table: "model_role_configs"
 
   # Every action is tenant-filtered; requests cannot select another Account's configuration.
   multitenancy do
@@ -200,7 +200,7 @@ defmodule Cartulary.Model.ModelRoleConfig do
       # Reject unknown roles instead of creating an unreachable row.
       validate attribute_in(:role, ~w(embedder ingest_extractor dream_reasoner dialectic_agent))
       # Options may hold credential references only, never credentials.
-      validate Cartulary.Model.ValidateSecretReferences
+      validate MemHouse.Model.ValidateSecretReferences
     end
 
     # `role`, `account_id`, and `scope_id` are immutable row identity.
@@ -222,7 +222,7 @@ defmodule Cartulary.Model.ModelRoleConfig do
       ]
 
       validate attribute_in(:role, ~w(embedder ingest_extractor dream_reasoner dialectic_agent))
-      validate Cartulary.Model.ValidateSecretReferences
+      validate MemHouse.Model.ValidateSecretReferences
     end
   end
 
@@ -237,7 +237,7 @@ defmodule Cartulary.Model.ModelRoleConfig do
     # decision. Ordinary members and readers may not change it; the internal
     # `:system` actor may, which is what lets an archive import restore a row.
     policy action_type([:create, :update, :destroy]) do
-      authorize_if {Cartulary.Policy.RoleIn, roles: [:account_admin, :system]}
+      authorize_if {MemHouse.Policy.RoleIn, roles: [:account_admin, :system]}
     end
   end
 

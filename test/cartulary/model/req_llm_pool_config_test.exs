@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Model.ReqLLMPoolConfigTest do
+defmodule MemHouse.Model.ReqLLMPoolConfigTest do
   @moduledoc """
   Pins the shared hosted-model connection-pool layout.
 
@@ -16,7 +16,7 @@ defmodule Cartulary.Model.ReqLLMPoolConfigTest do
     assert Application.fetch_env!(:req_llm, :stream_pool_count) == 1
     assert Application.fetch_env!(:req_llm, :stream_pool_timeout) == 120_000
 
-    assert Application.fetch_env!(:cartulary, Oban)
+    assert Application.fetch_env!(:memhouse, Oban)
            |> Keyword.fetch!(:queues)
            |> Keyword.fetch!(:ingest) ==
              10

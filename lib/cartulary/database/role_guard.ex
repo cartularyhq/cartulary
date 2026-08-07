@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Database.RoleGuard do
+defmodule MemHouse.Database.RoleGuard do
   @moduledoc """
   Refuses startup unless the application connection is restricted by row-level security.
 
@@ -10,7 +10,7 @@ defmodule Cartulary.Database.RoleGuard do
 
   use GenServer
 
-  alias Cartulary.Database.AppRole
+  alias MemHouse.Database.AppRole
 
   @doc """
   Starts the guard under the supervision tree.

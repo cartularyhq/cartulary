@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
 defmodule CartularyWeb.Console.Access do
   @moduledoc """
@@ -10,7 +10,7 @@ defmodule CartularyWeb.Console.Access do
   control rendering—the operation layer must authorize every write again.
   """
 
-  alias Cartulary.Actor
+  alias MemHouse.Actor
 
   # Lifecycle states a member or reader may see for knowledge that is not about
   # them. These are the states that represent something the system currently

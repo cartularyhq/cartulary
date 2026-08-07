@@ -124,14 +124,14 @@ plus an in-process index to a supervised Postgres server with its own data
 directory and memory. Cold start is slower than opening a file. The release
 takes on responsibility for a child process's lifecycle, which is a new class of
 operational failure — a stale lock file, a port conflict, a half-initialised
-data directory. pg0's platform matrix becomes Cartulary's platform matrix,
+data directory. pg0's platform matrix becomes MemHouse's platform matrix,
 including the Alpine 3.20–3.21 constraint. And the project now depends on a
 young component that is not marketed as production-ready, holding the system of
 record on self-hosted installs — mitigated by the version pin, the tested export
 path, and the fact that the escape hatch to an external Postgres is a
 configuration change.
 
-Cartulary is not the first system to make this bet, which is part of why it is
+MemHouse is not the first system to make this bet, which is part of why it is
 defensible: Hindsight ships the same on-ramp.
 
 ## Anchors

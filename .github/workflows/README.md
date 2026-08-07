@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0 -->
+<!-- SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0 -->
 
 # GitHub Actions Workflows
 
@@ -54,7 +54,7 @@ the release notes when the maintainer creates the release; the workflow uploads
 only generated artifacts and never edits those notes.
 
 The repository secret `CARTULARY_RELEASE_SIGNING_KEY` is the base64-encoded raw
-Ed25519 private key matching Cartulary's embedded updater public key. The fan-in
+Ed25519 private key matching MemHouse's embedded updater public key. The fan-in
 job signs `release-manifest-v1.json`; standalone updaters reject assets unless
 that detached signature and the manifest's per-platform SHA-256 both verify.
 

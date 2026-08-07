@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Skills.Authoring do
+defmodule MemHouse.Skills.Authoring do
   @moduledoc """
   Publishes immutable skill requirement card versions.
 
@@ -11,11 +11,11 @@ defmodule Cartulary.Skills.Authoring do
   to machine credentials, or store statement text or secrets in cards.
   """
 
-  alias Cartulary.DataLayer
-  alias Cartulary.Pipeline.Lock
-  alias Cartulary.Skills.Selector
-  alias Cartulary.Skills.SkillRequirementCard
-  alias Cartulary.Topology.Scope
+  alias MemHouse.DataLayer
+  alias MemHouse.Pipeline.Lock
+  alias MemHouse.Skills.Selector
+  alias MemHouse.Skills.SkillRequirementCard
+  alias MemHouse.Topology.Scope
 
   require Ash.Query
 

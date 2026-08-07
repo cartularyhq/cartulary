@@ -1,8 +1,8 @@
-<!-- SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0 -->
+<!-- SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0 -->
 
 # Development Observability
 
-Cartulary development uses OpenTelemetry for traces, ordinary Logger output for
+MemHouse development uses OpenTelemetry for traces, ordinary Logger output for
 logs, Phoenix/Ecto/Oban telemetry for framework events, and the eval reports for
 quality comparison. The local path is intentionally vendor-neutral: the app
 exports OTLP to a local OpenTelemetry Collector, and the collector can fan traces
@@ -26,19 +26,19 @@ logs.
   also includes `x-span-id`. If the caller supplies a W3C `traceparent`, the
   response keeps that trace id. Otherwise the request gets a new trace id.
 - Manual workflow spans are emitted for:
-  - `cartulary.memory.ingest_message`
-  - `cartulary.memory.ingest_status`
-  - `cartulary.memory.extract_message`
-  - `cartulary.memory.query_knowledge`
-  - `cartulary.memory.search`
-  - `cartulary.memory.ask`
-  - `cartulary.memory.get_context`
-  - `cartulary.model.chat`
-  - `cartulary.model.structured`
-  - `cartulary.model.embed`
-  - `cartulary.model.rerank`
-  - `cartulary.documents.process_version`
-  - `cartulary.documents.sync_connector`
+  - `memhouse.memory.ingest_message`
+  - `memhouse.memory.ingest_status`
+  - `memhouse.memory.extract_message`
+  - `memhouse.memory.query_knowledge`
+  - `memhouse.memory.search`
+  - `memhouse.memory.ask`
+  - `memhouse.memory.get_context`
+  - `memhouse.model.chat`
+  - `memhouse.model.structured`
+  - `memhouse.model.embed`
+  - `memhouse.model.rerank`
+  - `memhouse.documents.process_version`
+  - `memhouse.documents.sync_connector`
 - Model-layer spans include safe GenAI-style attributes such as operation,
   role, provider/model/version, duration, and input/output/embedding token
   usage. The append-only `UsageEvent` Ash resource is the exact ledger; OTel
@@ -63,7 +63,7 @@ Enable app export in `.env`:
 
 ```bash
 CARTULARY_OTEL_ENABLED=true
-OTEL_SERVICE_NAME=cartulary-dev
+OTEL_SERVICE_NAME=memhouse-dev
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:14318
 CARTULARY_EXPERIMENT_NAME=local-dev
 CARTULARY_EXPERIMENT_RUN_ID=manual
@@ -91,10 +91,10 @@ Then run the app or evals normally:
 
 ```bash
 mix phx.server
-mix cartulary.eval.smoke --profile balanced --account eval-observability
-mix cartulary.eval.benchmark \
-  --dataset test/fixtures/eval/cartulary-smoke.json \
-  --benchmark cartulary \
+mix memhouse.eval.smoke --profile balanced --account eval-observability
+mix memhouse.eval.benchmark \
+  --dataset test/fixtures/eval/memhouse-smoke.json \
+  --benchmark memhouse \
   --profile balanced \
   --account eval-observability \
   --run-id otel-local \
@@ -108,12 +108,12 @@ mix cartulary.eval.benchmark \
 | Request and app logs | Terminal running `mix phx.server` | Look for `request_id`, `trace_id`, `span_id` metadata. |
 | Current request trace | HTTP response headers | Copy `x-trace-id` from any API response and search that trace id in Jaeger. |
 | Collector intake/export | Collector logs | `docker compose -f dev/observability/docker-compose.yml logs -f otel-collector` |
-| Traces | Jaeger | `http://localhost:16686`, service `cartulary-dev` |
+| Traces | Jaeger | `http://localhost:16686`, service `memhouse-dev` |
 | Collector and exported metrics | Prometheus | `http://localhost:9090`, scrape jobs `otel-collector` |
 | Eval reports | Repository files or chosen output path | `specs/eval/results/`, `specs/eval/minimal-benchmark-results.md`, or `--output ...` |
-| Database behavior | Ecto spans in Jaeger | Set `CARTULARY_OTEL_ECTO_SPANS_ENABLED=true`, then look for `cartulary.repo.query:*` spans under request/eval traces. |
+| Database behavior | Ecto spans in Jaeger | Set `CARTULARY_OTEL_ECTO_SPANS_ENABLED=true`, then look for `memhouse.repo.query:*` spans under request/eval traces. |
 | Background jobs | Oban spans in Jaeger | Look for extraction job spans once async paths are exercised. |
-| Model calls | `cartulary.model.*` spans and `usage_events` | Filter traces by `cartulary.model.role`, provider, and `gen_ai.request.model`; use the database ledger for exact totals. |
+| Model calls | `memhouse.model.*` spans and `usage_events` | Filter traces by `memhouse.model.role`, provider, and `gen_ai.request.model`; use the database ledger for exact totals. |
 
 ## Span Controls
 
@@ -225,7 +225,7 @@ OTEL_EXPORTER_OTLP_TRACES_HEADERS=Authorization=Basic <base64-public-key-colon-s
   content.
 - Document spans record IDs, parser names, hashes, counts, and durations, not
   blobs, extracted text, source metadata, connector cursors, or statements.
-- `cartulary.model.*` spans and `UsageEvent` metadata do not record prompt,
+- `memhouse.model.*` spans and `UsageEvent` metadata do not record prompt,
   observation, answer, or completion text.
 - Do not add raw knowledge statements to span attributes. Use IDs and eval
   reports for debugging content-sensitive behavior.

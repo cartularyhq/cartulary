@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
 defmodule CartularyWeb.Plugs.MeterUsage do
   @moduledoc """
@@ -33,7 +33,7 @@ defmodule CartularyWeb.Plugs.MeterUsage do
 
       # Never guess an Account for unauthenticated usage.
       if actor do
-        Cartulary.Operations.Metering.record_api(actor, %{
+        MemHouse.Operations.Metering.record_api(actor, %{
           operation: operation(response),
           http_status: response.status,
           status: if(response.status < 500, do: "ok", else: "error")

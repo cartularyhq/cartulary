@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Model.Usage do
+defmodule MemHouse.Model.Usage do
   @moduledoc """
   The single durable emission point for model usage.
 
@@ -37,11 +37,11 @@ defmodule Cartulary.Model.Usage do
     must never fail the model call that the caller actually needed.
   """
 
-  alias Cartulary.Clock
-  alias Cartulary.Model.Config
-  alias Cartulary.Model.Config.Role
-  alias Cartulary.Operations.Metering
-  alias Cartulary.Operations.UsageEvent
+  alias MemHouse.Clock
+  alias MemHouse.Model.Config
+  alias MemHouse.Model.Config.Role
+  alias MemHouse.Operations.Metering
+  alias MemHouse.Operations.UsageEvent
 
   # Content-safety allowlist for usage metadata. Every key here holds a count, a
   # boolean, or a short classification string — never text from a prompt, a
@@ -73,7 +73,7 @@ defmodule Cartulary.Model.Usage do
     provenance = Config.provenance(config)
 
     # A separate Account transaction records incurred usage even if the caller later rolls back.
-    Cartulary.DataLayer.in_account_transaction(account_id, fn ->
+    MemHouse.DataLayer.in_account_transaction(account_id, fn ->
       UsageEvent
       |> Ash.Changeset.new()
       |> Ash.Changeset.set_tenant(account_id)

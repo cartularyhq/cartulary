@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Retrieval.Fusion do
+defmodule MemHouse.Retrieval.Fusion do
   @moduledoc """
   Merges strategy candidate lists by rank and measures their pre-fusion disagreement.
 
@@ -9,7 +9,7 @@ defmodule Cartulary.Retrieval.Fusion do
   fusion destroys the separate lists.
   """
 
-  alias Cartulary.Retrieval.Candidate
+  alias MemHouse.Retrieval.Candidate
 
   @doc """
   Fuses per-strategy candidate lists into one ranked list of at most `limit`
@@ -111,7 +111,7 @@ defmodule Cartulary.Retrieval.Fusion do
 
   # This setting changes every profile's ranking.
   defp retrieval_config(key) do
-    :cartulary
+    :memhouse
     |> Application.fetch_env!(:retrieval_profiles)
     |> Keyword.fetch!(key)
   end

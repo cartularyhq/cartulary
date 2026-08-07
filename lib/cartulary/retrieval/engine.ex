@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Retrieval.Engine do
+defmodule MemHouse.Retrieval.Engine do
   @moduledoc """
   Runs retrieval strategies under one deadline, fuses their ranks, and optionally reranks.
 
@@ -22,9 +22,9 @@ defmodule Cartulary.Retrieval.Engine do
   provisional subjects before returning candidates. This module does no post-filtering.
   """
 
-  alias Cartulary.DataLayer
-  alias Cartulary.Model.Gateway
-  alias Cartulary.Retrieval.{Budget, Candidate, Fusion, Profile, Trace}
+  alias MemHouse.DataLayer
+  alias MemHouse.Model.Gateway
+  alias MemHouse.Retrieval.{Budget, Candidate, Fusion, Profile, Trace}
 
   @doc """
   Executes one retrieval request and returns the response map.
@@ -55,7 +55,7 @@ defmodule Cartulary.Retrieval.Engine do
   """
   def retrieve(query, profile_name, opts \\ []) do
     # Include profile resolution in the request deadline.
-    started_at = Cartulary.Clock.monotonic_ms()
+    started_at = MemHouse.Clock.monotonic_ms()
     profile = Profile.resolve(profile_name, query, opts)
     deadline? = Keyword.get(opts, :deadline?, true)
 
@@ -63,7 +63,7 @@ defmodule Cartulary.Retrieval.Engine do
       Keyword.get(
         opts,
         :concurrent?,
-        Application.get_env(:cartulary, :retrieval_concurrency, true)
+        Application.get_env(:memhouse, :retrieval_concurrency, true)
       )
 
     budget = %Budget{
@@ -128,7 +128,7 @@ defmodule Cartulary.Retrieval.Engine do
       profile: Atom.to_string(profile.name),
       profile_version: profile.version,
       deadline: if(deadline?, do: "enabled", else: "disabled"),
-      latency_ms: Cartulary.Clock.monotonic_ms() - started_at,
+      latency_ms: MemHouse.Clock.monotonic_ms() - started_at,
       contributed_strategies: strategy_names(contributing_lists),
       empty_strategies: strategy_names(empty_lists),
       dropped_strategies: Enum.uniq(dropped),
@@ -215,21 +215,21 @@ defmodule Cartulary.Retrieval.Engine do
 
   defp execute_modules(modules, query, budget, timeout, concurrent?) do
     run = fn module ->
-      started_at = Cartulary.Clock.monotonic_ms()
+      started_at = MemHouse.Clock.monotonic_ms()
       # Pin the database session to the Account and validate lazily read records inside it.
       candidates =
         DataLayer.with_actor(query.actor, fn _account, actor ->
           scoped_query = %{query | actor: actor}
           candidates = module.candidates(scoped_query, budget)
 
-          Cartulary.Retrieval.Strategy.validate!(
+          MemHouse.Retrieval.Strategy.validate!(
             module,
             candidates,
             min(query.max_candidates, budget.max_candidates)
           )
         end)
 
-      {module.name(), candidates, Cartulary.Clock.monotonic_ms() - started_at,
+      {module.name(), candidates, MemHouse.Clock.monotonic_ms() - started_at,
        finite_remaining(Budget.remaining_ms(budget))}
     end
 
@@ -279,11 +279,11 @@ defmodule Cartulary.Retrieval.Engine do
       end
 
       allowance = rerank_allowance(remaining)
-      started_at = Cartulary.Clock.monotonic_ms()
+      started_at = MemHouse.Clock.monotonic_ms()
 
       case deadline_call(call, allowance, concurrent?) do
         {:ok, rankings, _provenance} ->
-          elapsed_ms = Cartulary.Clock.monotonic_ms() - started_at
+          elapsed_ms = MemHouse.Clock.monotonic_ms() - started_at
           finish_rerank(rankings, head, tail, candidates, elapsed_ms, budget)
 
         {:error, :timeout} ->
@@ -295,7 +295,7 @@ defmodule Cartulary.Retrieval.Engine do
            outcome(
              :reranker,
              "provider_error",
-             Cartulary.Clock.monotonic_ms() - started_at,
+             MemHouse.Clock.monotonic_ms() - started_at,
              finite_remaining(Budget.remaining_ms(budget))
            )}
       end
@@ -334,10 +334,10 @@ defmodule Cartulary.Retrieval.Engine do
       # The SQL sandbox owns one connection, including the model-role lookup.
       # Run inline there and classify an overrun after return; production uses
       # the task path above and kills work at the allowance.
-      started_at = Cartulary.Clock.monotonic_ms()
+      started_at = MemHouse.Clock.monotonic_ms()
       result = call.()
 
-      if Cartulary.Clock.monotonic_ms() - started_at >= timeout,
+      if MemHouse.Clock.monotonic_ms() - started_at >= timeout,
         do: {:error, :timeout},
         else: result
     end
@@ -400,10 +400,10 @@ defmodule Cartulary.Retrieval.Engine do
   defp finite_remaining(value), do: value
 
   defp emit_outcomes(account_id, result, deadline_ms) do
-    Cartulary.Retrieval.Diagnostics.record(account_id, result, deadline_ms)
+    MemHouse.Retrieval.Diagnostics.record(account_id, result, deadline_ms)
 
     :telemetry.execute(
-      [:cartulary, :retrieval, :outcomes],
+      [:memhouse, :retrieval, :outcomes],
       %{
         latency_ms: result.latency_ms,
         pre_rerank_remaining_ms: result.pre_rerank_remaining_ms || 0
@@ -430,7 +430,7 @@ defmodule Cartulary.Retrieval.Engine do
   end
 
   defp retrieval_config(key) do
-    :cartulary
+    :memhouse
     |> Application.fetch_env!(:retrieval_profiles)
     |> Keyword.fetch!(key)
   end

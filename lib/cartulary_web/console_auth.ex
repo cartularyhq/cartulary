@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
 defmodule CartularyWeb.ConsoleAuth do
   @moduledoc """
@@ -16,7 +16,7 @@ defmodule CartularyWeb.ConsoleAuth do
   import Phoenix.Component, only: [assign: 3]
   import Phoenix.LiveView, only: [redirect: 2]
 
-  alias Cartulary.Identity
+  alias MemHouse.Identity
 
   @doc """
   Assigns a password-authenticated `current_actor` and continues.

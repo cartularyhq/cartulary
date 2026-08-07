@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Release do
+defmodule MemHouse.Release do
   @moduledoc """
   Runs operator commands against a built release.
 
@@ -9,7 +9,7 @@ defmodule Cartulary.Release do
   behavior between embedded and external PostgreSQL.
   """
 
-  @app :cartulary
+  @app :memhouse
 
   @doc """
   Runs all pending migrations for every configured repository, then stops
@@ -29,7 +29,7 @@ defmodule Cartulary.Release do
   """
   def migrate do
     load_app()
-    Cartulary.RuntimeConfig.validate!()
+    MemHouse.RuntimeConfig.validate!()
     pg0 = start_pg0()
 
     try do
@@ -42,7 +42,7 @@ defmodule Cartulary.Release do
             # would be unreachable to it until these grants are re-applied. This
             # connection still holds the privileged role, which is what makes it
             # the right place to do that.
-            Cartulary.Database.AppRole.provision!(started)
+            MemHouse.Database.AppRole.provision!(started)
           end)
       end
     after
@@ -80,8 +80,8 @@ defmodule Cartulary.Release do
   """
   def export!(output_path) do
     result =
-      Cartulary.DataLayer.with_existing_free_account(fn _account, actor ->
-        {:ok, export} = Cartulary.Portability.export(actor, output_path)
+      MemHouse.DataLayer.with_existing_free_account(fn _account, actor ->
+        {:ok, export} = MemHouse.Portability.export(actor, output_path)
         export
       end)
 
@@ -100,7 +100,7 @@ defmodule Cartulary.Release do
   worth printing.
   """
   def validate_archive!(input_path) do
-    {:ok, result} = Cartulary.Portability.validate(input_path)
+    {:ok, result} = MemHouse.Portability.validate(input_path)
     IO.puts("portability archive: #{Jason.encode!(result)}")
   end
 
@@ -117,7 +117,7 @@ defmodule Cartulary.Release do
   raises rather than merging.
   """
   def import!(input_path) do
-    {:ok, result} = Cartulary.Portability.import(input_path)
+    {:ok, result} = MemHouse.Portability.import(input_path)
     IO.puts("portability import: #{Jason.encode!(result)}")
   end
 
@@ -136,8 +136,8 @@ defmodule Cartulary.Release do
   # "nothing to stop". The operator's database is never started or stopped by
   # this node.
   defp start_pg0 do
-    if Cartulary.RuntimeConfig.pg0?() do
-      {:ok, pid} = Cartulary.Pg0.start_link()
+    if MemHouse.RuntimeConfig.pg0?() do
+      {:ok, pid} = MemHouse.Pg0.start_link()
       pid
     end
   end
@@ -150,7 +150,7 @@ defmodule Cartulary.Release do
   defp stop_pg0(pid), do: GenServer.stop(pid, :normal, 35_000)
 end
 
-defmodule Cartulary.Release.Migrator do
+defmodule MemHouse.Release.Migrator do
   @moduledoc """
   Runs database migrations before the supervised application serves work.
 
@@ -172,22 +172,22 @@ defmodule Cartulary.Release.Migrator do
 
   @impl true
   def init(_opts) do
-    if Cartulary.RuntimeConfig.auto_migrate?() do
+    if MemHouse.RuntimeConfig.auto_migrate?() do
       # Read from the release's own priv directory rather than a source path, so
       # this works identically in a packaged release and in development.
-      migrations_path = Application.app_dir(:cartulary, "priv/repo/migrations")
+      migrations_path = Application.app_dir(:memhouse, "priv/repo/migrations")
 
       # Migrations issue DDL, and the application pool has already switched to a
       # role that owns nothing and may not. So this runs over its own short-lived
       # privileged instance rather than the pool beside it, and re-grants
       # afterwards so the restricted role can reach whatever was just created.
-      Cartulary.Database.AppRole.with_privileged_repo(fn privileged ->
-        Ecto.Migrator.run(Cartulary.Repo, migrations_path, :up,
+      MemHouse.Database.AppRole.with_privileged_repo(fn privileged ->
+        Ecto.Migrator.run(MemHouse.Repo, migrations_path, :up,
           all: true,
           dynamic_repo: privileged
         )
 
-        Cartulary.Database.AppRole.provision!(privileged)
+        MemHouse.Database.AppRole.provision!(privileged)
       end)
     end
 

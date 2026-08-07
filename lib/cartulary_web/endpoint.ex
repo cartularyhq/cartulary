@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
 defmodule CartularyWeb.Endpoint do
   @moduledoc """
@@ -9,7 +9,7 @@ defmodule CartularyWeb.Endpoint do
     sessions.
   """
 
-  use Phoenix.Endpoint, otp_app: :cartulary
+  use Phoenix.Endpoint, otp_app: :memhouse
 
   # Session cookie settings, shared by the HTTP session and the LiveView socket so a browser
   # that signed in over HTTP is recognised when its socket connects.
@@ -64,7 +64,7 @@ defmodule CartularyWeb.Endpoint do
   # of being quietly refused, so a forgotten allowlist entry is caught by the developer.
   plug Plug.Static,
     at: "/",
-    from: :cartulary,
+    from: :memhouse,
     gzip: not code_reloading?,
     only: CartularyWeb.static_paths(),
     raise_on_missing_only: code_reloading?
@@ -74,7 +74,7 @@ defmodule CartularyWeb.Endpoint do
   # request. Neither is compiled into a release build.
   if code_reloading? do
     plug Phoenix.CodeReloader
-    plug Phoenix.Ecto.CheckRepoStatus, otp_app: :cartulary
+    plug Phoenix.Ecto.CheckRepoStatus, otp_app: :memhouse
   end
 
   # Correlation, before anything that can reject a request.

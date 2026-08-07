@@ -1,9 +1,9 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Model.Provider do
+defmodule MemHouse.Model.Provider do
   @moduledoc """
   The behaviour every model backend implements — the single seam between
-  Cartulary and anything that runs a model.
+  MemHouse and anything that runs a model.
 
   Four callbacks cover structured output, chat, embedding, and reranking. Replacing one module
   therefore swaps the whole provider boundary.
@@ -23,11 +23,11 @@ defmodule Cartulary.Model.Provider do
 
   ## Calling one
 
-  Only `Cartulary.Model.Gateway` may invoke callbacks. Direct calls skip role resolution, tracing,
+  Only `MemHouse.Model.Gateway` may invoke callbacks. Direct calls skip role resolution, tracing,
   and metering.
   """
 
-  alias Cartulary.Model.Config.Role
+  alias MemHouse.Model.Config.Role
 
   defmodule Result do
     @moduledoc """

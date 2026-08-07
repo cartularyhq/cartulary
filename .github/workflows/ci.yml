@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 #
 # Continuous integration: the gate every change passes before it can reach the default
 # branch.
@@ -131,26 +131,26 @@ jobs:
       # comparison but deliberately do not gate, so ordinary variance cannot block a merge.
       - name: Deterministic release evaluation
         run: >-
-          mix cartulary.eval.release
+          mix memhouse.eval.release
           --no-model
           --assert-thresholds
           --run-id ci-${{ github.run_id }}-${{ github.run_attempt }}
-          --output /tmp/cartulary-f11-eval.json
+          --output /tmp/memhouse-f11-eval.json
       # Provenance check: the report must name the application version, dataset identity
       # and hash, retrieval profile, deadline, all four model roles, and the judge. A
       # number without those cannot be reproduced or compared, so it must not be published.
-      - run: mix cartulary.eval.verify /tmp/cartulary-f11-eval.json
+      - run: mix memhouse.eval.verify /tmp/memhouse-f11-eval.json
       # Runs the release gate on every change, not only at tag time, so version, changelog,
       # documentation, and evaluation evidence never drift far enough apart to be awkward
       # to reconcile. No tag is passed here; the tag check applies only at release.
       - run: >-
-          mix cartulary.release.check
-          --eval-report /tmp/cartulary-f11-eval.json
+          mix memhouse.release.check
+          --eval-report /tmp/memhouse-f11-eval.json
       # Retained so a reviewer can inspect the exact scores behind a pass or a failure.
       - uses: actions/upload-artifact@v7
         with:
           name: deterministic-eval-${{ github.run_id }}
-          path: /tmp/cartulary-f11-eval.json
+          path: /tmp/memhouse-f11-eval.json
 
   # Type analysis, on its own job because it needs no database and its lookup table is
   # expensive to build. Separating it means a type error is reported even while the test
@@ -251,4 +251,4 @@ jobs:
       # The image is built and discarded. Nothing is pushed: publishing is a deliberate
       # human action, and this workflow has read-only permissions on purpose. Note that
       # this image contains no embedded database; it is the operator-run-PostgreSQL shape.
-      - run: docker build --tag cartulary:ci .
+      - run: docker build --tag memhouse:ci .

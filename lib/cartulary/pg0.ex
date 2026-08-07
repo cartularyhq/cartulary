@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Pg0 do
+defmodule MemHouse.Pg0 do
   @moduledoc """
   Supervises the embedded PostgreSQL process for no-container installs.
 
@@ -111,7 +111,7 @@ defmodule Cartulary.Pg0 do
   # Read at boot rather than held as a module attribute, so the values come from
   # the environment this node actually started in and not from compile time.
   defp pg0_config do
-    :cartulary
+    :memhouse
     |> Application.fetch_env!(:database)
     |> Keyword.fetch!(:pg0)
   end
@@ -134,7 +134,7 @@ defmodule Cartulary.Pg0 do
     end
 
     File.mkdir_p!(data_dir)
-    writable_probe = Path.join(data_dir, ".cartulary-write-check")
+    writable_probe = Path.join(data_dir, ".memhouse-write-check")
     File.write!(writable_probe, "ok", [:binary])
     File.rm!(writable_probe)
     handle_postmaster_pid!(Path.join(data_dir, "postmaster.pid"))

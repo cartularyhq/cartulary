@@ -1,12 +1,12 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Retrieval.DiagnosticGrant do
+defmodule MemHouse.Retrieval.DiagnosticGrant do
   @moduledoc """
   Permission token that unlocks retrieval's internal seam for one diagnostic run.
 
   Naming strategies, disabling the deadline, forcing reranking off, and asking
   retrieval to explain its ranking are internal knobs, not public contract.
-  `Cartulary.Memory.search/2` honours them only when its filters carry this
+  `MemHouse.Memory.search/2` honours them only when its filters carry this
   struct, and decoded JSON cannot produce a struct — so a request body arriving
   at the same facade can never forge one.
 
@@ -16,11 +16,11 @@ defmodule Cartulary.Retrieval.DiagnosticGrant do
   The rank trace it can request describes candidates the same run already
   returned, so it too discloses nothing new.
 
-  Build one through `Cartulary.Memory.diagnostic_search/2`, which authorizes the
+  Build one through `MemHouse.Memory.diagnostic_search/2`, which authorizes the
   actor first.
   """
 
-  alias Cartulary.Retrieval.Profile
+  alias MemHouse.Retrieval.Profile
 
   # A diagnostic run exists to see past the ordinary result window, so the cap
   # has to be well above it, and it still has to bound the work one browser form

@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Model.Schema do
+defmodule MemHouse.Model.Schema do
   @moduledoc """
   The contract every structured-output shape implements.
 
@@ -17,7 +17,7 @@ defmodule Cartulary.Model.Schema do
   @callback cast(map(), map()) :: {:ok, term()} | {:error, [String.t()]}
 end
 
-defmodule Cartulary.Model.Schema.Extraction do
+defmodule MemHouse.Model.Schema.Extraction do
   @moduledoc """
   The structured shape an extractor must return, and the validator that decides
   whether a candidate is allowed to become proposed knowledge.
@@ -58,10 +58,10 @@ defmodule Cartulary.Model.Schema.Extraction do
     back to the model in the repair prompt and appear in error tuples.
   """
 
-  @behaviour Cartulary.Model.Schema
+  @behaviour MemHouse.Model.Schema
 
-  alias Cartulary.Knowledge.KnowledgeItem
-  alias Cartulary.Knowledge.Statement
+  alias MemHouse.Knowledge.KnowledgeItem
+  alias MemHouse.Knowledge.Statement
 
   # Candidate fields taken straight from the knowledge resource's attributes.
   # `confidence_percentage` is normalized to the persisted `confidence` value
@@ -470,7 +470,7 @@ defmodule Cartulary.Model.Schema.Extraction do
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end
 
-defmodule Cartulary.Model.Schema.Reasoning do
+defmodule MemHouse.Model.Schema.Reasoning do
   @moduledoc """
   The structured shape for background reasoning: extraction candidates plus
   typed relations between existing knowledge.
@@ -481,14 +481,14 @@ defmodule Cartulary.Model.Schema.Reasoning do
   It adds `supports`, `contradicts`, and `derived_from` edges. Contradictions never overwrite.
   """
 
-  @behaviour Cartulary.Model.Schema
+  @behaviour MemHouse.Model.Schema
 
   @doc """
   The extraction schema with a required `relations` array added.
   """
   @impl true
   def json_schema do
-    extraction = Cartulary.Model.Schema.Extraction.json_schema()
+    extraction = MemHouse.Model.Schema.Extraction.json_schema()
 
     extraction
     |> put_in(["properties", "relations"], %{
@@ -517,7 +517,7 @@ defmodule Cartulary.Model.Schema.Reasoning do
   """
   @impl true
   def cast(object, context) do
-    with {:ok, items} <- Cartulary.Model.Schema.Extraction.cast(object, context),
+    with {:ok, items} <- MemHouse.Model.Schema.Extraction.cast(object, context),
          relations when is_list(relations) <- Map.get(object, "relations", []) do
       {:ok, %{items: items, relations: relations}}
     else
@@ -527,7 +527,7 @@ defmodule Cartulary.Model.Schema.Reasoning do
   end
 end
 
-defmodule Cartulary.Model.Schema.DialecticAnswer do
+defmodule MemHouse.Model.Schema.DialecticAnswer do
   @moduledoc """
   The structured shape for a grounded answer to a question.
 
@@ -545,7 +545,7 @@ defmodule Cartulary.Model.Schema.DialecticAnswer do
   model.
   """
 
-  @behaviour Cartulary.Model.Schema
+  @behaviour MemHouse.Model.Schema
 
   @doc """
   The answer/citations/abstained/answer_confidence object schema sent to the provider.

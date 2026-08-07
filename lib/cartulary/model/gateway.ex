@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Model.Gateway do
+defmodule MemHouse.Model.Gateway do
   @moduledoc """
   The one place that invokes a model provider.
 
@@ -34,10 +34,10 @@ defmodule Cartulary.Model.Gateway do
   problems, not model problems.
   """
 
-  alias Cartulary.Model.Config
-  alias Cartulary.Model.Provider.Result
-  alias Cartulary.Model.Usage
-  alias Cartulary.Observability
+  alias MemHouse.Model.Config
+  alias MemHouse.Model.Provider.Result
+  alias MemHouse.Model.Usage
+  alias MemHouse.Observability
 
   @doc """
   Performs exactly one structured-generation call — no validation, no repair.
@@ -49,7 +49,7 @@ defmodule Cartulary.Model.Gateway do
   configuration and stamp provenance from it.
 
   Returns `{:error, reason}` on provider failure. Use
-  `Cartulary.Model.StructuredGenerator` rather than this function unless you are
+  `MemHouse.Model.StructuredGenerator` rather than this function unless you are
   implementing that loop: raw provider output must never be trusted as-is.
   """
   def structured_once(role, messages, schema, context, opts \\ []) do
@@ -92,7 +92,7 @@ defmodule Cartulary.Model.Gateway do
   `{:error, reason}`.
 
   This is the low-level entry point and performs no compatibility check. Prefer
-  `Cartulary.Model.Embedding.embed/3`, which refuses to mix vector spaces.
+  `MemHouse.Model.Embedding.embed/3`, which refuses to mix vector spaces.
   """
   def embed(texts, context, opts \\ []) when is_list(texts) do
     config = Config.resolve(:embedder, context)
@@ -147,7 +147,7 @@ defmodule Cartulary.Model.Gateway do
   """
   def provider_module(config, context) do
     Map.get(context, :model_provider) ||
-      Application.get_env(:cartulary, :model_provider) ||
+      Application.get_env(:memhouse, :model_provider) ||
       default_provider(config)
   end
 
@@ -163,14 +163,14 @@ defmodule Cartulary.Model.Gateway do
   # prompt, completion, or credential may be added to either the span or the
   # usage record.
   defp invoke(operation, config, context, opts, call) do
-    Observability.with_span(:model, "cartulary.model.#{operation}", fn ->
+    Observability.with_span(:model, "memhouse.model.#{operation}", fn ->
       provider = provider_module(config, context)
       started_at = System.monotonic_time(:millisecond)
 
       Observability.set_attributes(:model, %{
-        "cartulary.model.role" => Atom.to_string(config.role),
-        "cartulary.model.provider" => config.provider,
-        "cartulary.model.version" => config.model_version,
+        "memhouse.model.role" => Atom.to_string(config.role),
+        "memhouse.model.provider" => config.provider,
+        "memhouse.model.version" => config.model_version,
         "gen_ai.operation.name" => Atom.to_string(operation),
         "gen_ai.request.model" => config.model
       })
@@ -206,7 +206,7 @@ defmodule Cartulary.Model.Gateway do
           })
 
           Observability.set_attributes(:model, %{
-            "cartulary.model.duration_ms" => duration_ms,
+            "memhouse.model.duration_ms" => duration_ms,
             "error.type" => error_class(error)
           })
 
@@ -219,10 +219,10 @@ defmodule Cartulary.Model.Gateway do
     usage = result.usage || %{}
 
     Observability.set_attributes(:model, %{
-      "cartulary.model.duration_ms" => duration_ms,
+      "memhouse.model.duration_ms" => duration_ms,
       "gen_ai.usage.input_tokens" => Map.get(usage, :input_tokens, 0) || 0,
       "gen_ai.usage.output_tokens" => Map.get(usage, :output_tokens, 0) || 0,
-      "cartulary.model.embedding_tokens" => Map.get(usage, :embedding_tokens, 0) || 0
+      "memhouse.model.embedding_tokens" => Map.get(usage, :embedding_tokens, 0) || 0
     })
   end
 
@@ -231,11 +231,11 @@ defmodule Cartulary.Model.Gateway do
   # OpenAI-compatible endpoints, self-hosted servers — is reached through the
   # one HTTP-model adapter, which is why there is no per-vendor module here.
   defp default_provider(%{provider: "deterministic"}),
-    do: Cartulary.Model.Providers.Deterministic
+    do: MemHouse.Model.Providers.Deterministic
 
-  defp default_provider(%{provider: "ortex"}), do: Cartulary.Model.Providers.Ortex
+  defp default_provider(%{provider: "ortex"}), do: MemHouse.Model.Providers.Ortex
 
-  defp default_provider(_config), do: Cartulary.Model.Providers.ReqLLM
+  defp default_provider(_config), do: MemHouse.Model.Providers.ReqLLM
 
   # A provider that raises must not take down the caller's transaction or job.
   # Converting the exception into an error tuple keeps the failure on the same

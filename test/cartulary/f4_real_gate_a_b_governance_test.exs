@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.F4RealGateABGovernanceTest do
+defmodule MemHouse.F4RealGateABGovernanceTest do
   @moduledoc """
   Pins the two gates that stand between "an agent said something" and "the system
     believes it", plus the human-only decisions, consent, aging, and erasure that hang
@@ -11,22 +11,22 @@ defmodule Cartulary.F4RealGateABGovernanceTest do
 
   use CartularyWeb.ConnCase, async: false
 
-  alias Cartulary.Actor
-  alias Cartulary.Clock
-  alias Cartulary.DataLayer
-  alias Cartulary.Governance.Engine
-  alias Cartulary.Governance.Erasure
-  alias Cartulary.Governance.GateDecision
-  alias Cartulary.Governance.GateRule
-  alias Cartulary.Governance.PeerQuery
-  alias Cartulary.Governance.PeerQueue
-  alias Cartulary.Governance.Sweeper
-  alias Cartulary.Governance.ValidationItem
-  alias Cartulary.Identity
-  alias Cartulary.Knowledge.KnowledgeItem
-  alias Cartulary.Memory
-  alias Cartulary.Repo
-  alias Cartulary.Topology.Scope
+  alias MemHouse.Actor
+  alias MemHouse.Clock
+  alias MemHouse.DataLayer
+  alias MemHouse.Governance.Engine
+  alias MemHouse.Governance.Erasure
+  alias MemHouse.Governance.GateDecision
+  alias MemHouse.Governance.GateRule
+  alias MemHouse.Governance.PeerQuery
+  alias MemHouse.Governance.PeerQueue
+  alias MemHouse.Governance.Sweeper
+  alias MemHouse.Governance.ValidationItem
+  alias MemHouse.Identity
+  alias MemHouse.Knowledge.KnowledgeItem
+  alias MemHouse.Memory
+  alias MemHouse.Repo
+  alias MemHouse.Topology.Scope
 
   require Ash.Query
 
@@ -210,7 +210,7 @@ defmodule Cartulary.F4RealGateABGovernanceTest do
     # inventory must be reviewed every time it changes. Reads, submissions, answering a question
     # about one's own memory, and lowering one's own interruption limit — nothing that decides.
     tool_names =
-      Cartulary.Governance
+      MemHouse.Governance
       |> AshAi.Info.tools()
       |> Enum.map(& &1.name)
       |> Enum.sort()
@@ -334,7 +334,7 @@ defmodule Cartulary.F4RealGateABGovernanceTest do
 
     events =
       DataLayer.with_actor(actor, fn account, current_actor ->
-        Cartulary.Governance.AuditEvent
+        MemHouse.Governance.AuditEvent
         |> Ash.Query.filter(action == "account.consent_mode_changed")
         |> Ash.Query.set_tenant(account.id)
         |> Ash.read!(actor: pipeline_actor(current_actor))
@@ -346,15 +346,15 @@ defmodule Cartulary.F4RealGateABGovernanceTest do
   end
 
   test "UnattendedMode reads the governance.unattended application config" do
-    previous = Application.get_env(:cartulary, :governance, [])
+    previous = Application.get_env(:memhouse, :governance, [])
 
-    Application.put_env(:cartulary, :governance, Keyword.put(previous, :unattended, true))
-    assert Cartulary.Governance.UnattendedMode.enabled?()
+    Application.put_env(:memhouse, :governance, Keyword.put(previous, :unattended, true))
+    assert MemHouse.Governance.UnattendedMode.enabled?()
 
-    Application.put_env(:cartulary, :governance, Keyword.put(previous, :unattended, false))
-    refute Cartulary.Governance.UnattendedMode.enabled?()
+    Application.put_env(:memhouse, :governance, Keyword.put(previous, :unattended, false))
+    refute MemHouse.Governance.UnattendedMode.enabled?()
 
-    Application.put_env(:cartulary, :governance, previous)
+    Application.put_env(:memhouse, :governance, previous)
   end
 
   test "account consent_mode: auto grants consent for a direct scope-level proposal with no promotion" do
@@ -372,7 +372,7 @@ defmodule Cartulary.F4RealGateABGovernanceTest do
     set_consent_mode!(actor, "auto")
 
     # propose_direct! (not ingest!) because this account's deterministic test
-    # extractor always proposes at peer level (lib/cartulary/model/providers/
+    # extractor always proposes at peer level (lib/memhouse/model/providers/
     # deterministic.ex): reaching a direct, non-promoted scope-level proposal
     # requires calling evaluate_proposal/3 the way real structured extraction
     # would, with target_level: "scope" set on the item itself.
@@ -393,7 +393,7 @@ defmodule Cartulary.F4RealGateABGovernanceTest do
 
     consent =
       DataLayer.with_actor(actor, fn account, current_actor ->
-        Cartulary.Governance.Consent
+        MemHouse.Governance.Consent
         |> Ash.Query.filter(knowledge_id == ^knowledge.id)
         |> Ash.Query.set_tenant(account.id)
         |> Ash.read_one!(actor: pipeline_actor(current_actor))
@@ -431,8 +431,8 @@ defmodule Cartulary.F4RealGateABGovernanceTest do
   end
 
   test "CARTULARY_GOVERNANCE_UNATTENDED grants consent regardless of consent_mode" do
-    previous = Application.get_env(:cartulary, :governance, [])
-    Application.put_env(:cartulary, :governance, Keyword.put(previous, :unattended, true))
+    previous = Application.get_env(:memhouse, :governance, [])
+    Application.put_env(:memhouse, :governance, Keyword.put(previous, :unattended, true))
 
     %{actor: actor} = bootstrap_human!("unattended-consent")
 
@@ -457,7 +457,7 @@ defmodule Cartulary.F4RealGateABGovernanceTest do
 
     consent =
       DataLayer.with_actor(actor, fn account, current_actor ->
-        Cartulary.Governance.Consent
+        MemHouse.Governance.Consent
         |> Ash.Query.filter(knowledge_id == ^knowledge.id)
         |> Ash.Query.set_tenant(account.id)
         |> Ash.read_one!(actor: pipeline_actor(current_actor))
@@ -466,9 +466,9 @@ defmodule Cartulary.F4RealGateABGovernanceTest do
     assert consent.channel == "auto:unattended_deployment"
   after
     Application.put_env(
-      :cartulary,
+      :memhouse,
       :governance,
-      Application.get_env(:cartulary, :governance, []) |> Keyword.put(:unattended, false)
+      Application.get_env(:memhouse, :governance, []) |> Keyword.put(:unattended, false)
     )
   end
 
@@ -499,7 +499,7 @@ defmodule Cartulary.F4RealGateABGovernanceTest do
 
     consent =
       DataLayer.with_actor(actor, fn account, current_actor ->
-        Cartulary.Governance.Consent
+        MemHouse.Governance.Consent
         |> Ash.Query.filter(knowledge_id == ^knowledge.id)
         |> Ash.Query.set_tenant(account.id)
         |> Ash.read_one!(actor: pipeline_actor(current_actor))
@@ -529,7 +529,7 @@ defmodule Cartulary.F4RealGateABGovernanceTest do
 
     consent =
       DataLayer.with_actor(actor, fn account, current_actor ->
-        Cartulary.Governance.Consent
+        MemHouse.Governance.Consent
         |> Ash.Query.filter(knowledge_id == ^knowledge.id)
         |> Ash.Query.set_tenant(account.id)
         |> Ash.read_one!(actor: pipeline_actor(current_actor))
@@ -920,9 +920,9 @@ defmodule Cartulary.F4RealGateABGovernanceTest do
 
   # Proposes a personal item directly at the given target level, the way real structured
   # extraction can, without ever calling request_promotion/3. The test-only deterministic model
-  # provider (lib/cartulary/model/providers/deterministic.ex) always proposes at peer level, so
+  # provider (lib/memhouse/model/providers/deterministic.ex) always proposes at peer level, so
   # ordinary ingest! cannot reach this path; this bypasses extraction and calls
-  # Engine.evaluate_proposal/3 the same way Cartulary.Memory's real call site does — with no
+  # Engine.evaluate_proposal/3 the same way MemHouse.Memory's real call site does — with no
   # target_scope_id opt — which is exactly the case that had no route to a consent request at
   # all before this change.
   defp propose_direct!(actor, scope_path, target_level, statement) do
@@ -934,13 +934,13 @@ defmodule Cartulary.F4RealGateABGovernanceTest do
 
     # Reads with scope_ids: :all, not just the local pipeline_actor!/1 elevation:
     # bootstrap_human!'s actor resolved its scope_ids once, before this scope existed, and role
-    # grants are not re-resolved per query (Cartulary.Actor's own moduledoc). Scope's read
-    # policy goes through Cartulary.Policy.ScopeAccess, which only bypasses on scope_ids: :all
-    # (it does not look at pipeline? at all — see lib/cartulary/resource.ex:154), so an
+    # grants are not re-resolved per query (MemHouse.Actor's own moduledoc). Scope's read
+    # policy goes through MemHouse.Policy.ScopeAccess, which only bypasses on scope_ids: :all
+    # (it does not look at pipeline? at all — see lib/memhouse/resource.ex:154), so an
     # unelevated read of a scope created moments ago by this same test would come back empty.
     scope =
       DataLayer.with_actor(actor, fn account, _current_actor ->
-        Cartulary.Topology.Scope
+        MemHouse.Topology.Scope
         |> Ash.Query.filter(path == ^scope_path)
         |> Ash.Query.set_tenant(account.id)
         |> Ash.read_one!(actor: %{pipeline | scope_ids: :all})
@@ -969,7 +969,7 @@ defmodule Cartulary.F4RealGateABGovernanceTest do
 
   # Same as propose_direct!/4, but the subject is the scope itself (subject_peer_id: nil,
   # subject_scope_id set) rather than the ingesting peer — the shape real structured extraction
-  # produces for a subject_type: "scope" candidate (Cartulary.Memory.resolve_subject!/4). A
+  # produces for a subject_type: "scope" candidate (MemHouse.Memory.resolve_subject!/4). A
   # scope has no peer to own consent, so this is the regression case for the "personal
   # knowledge about someone" reading of consent_required?/3: a scope-subject item can still
   # carry sensitivity: "personal" (nothing ties the two), and must not crash trying to open a
@@ -986,7 +986,7 @@ defmodule Cartulary.F4RealGateABGovernanceTest do
 
     scope =
       DataLayer.with_actor(actor, fn account, _current_actor ->
-        Cartulary.Topology.Scope
+        MemHouse.Topology.Scope
         |> Ash.Query.filter(path == ^scope_path)
         |> Ash.Query.set_tenant(account.id)
         |> Ash.read_one!(actor: %{pipeline | scope_ids: :all})

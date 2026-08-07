@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0 -->
+<!-- SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0 -->
 
 # Install a packaged release
 
@@ -7,19 +7,19 @@ distribution with pgvector.
 
 ## Choose a build
 
-Open [Cartulary Releases](https://github.com/cartularyhq/cartulary/releases),
+Open [MemHouse Releases](https://github.com/memhousehq/memhouse/releases),
 select a version, and download the archive and adjacent `.sha256` file matching
 your machine:
 
 | System | Architecture check | Archive |
 | --- | --- | --- |
-| macOS, Apple Silicon | `uname -m` prints `arm64` | `cartulary-macos-arm64.tar.gz` |
-| macOS, Intel | `uname -m` prints `x86_64` | `cartulary-macos-x86_64.tar.gz` |
-| Linux, Intel/AMD 64-bit | `uname -m` prints `x86_64` | `cartulary-linux-x86_64.tar.gz` |
-| Windows, Intel/AMD 64-bit | Settings → System → About → System type | `cartulary-windows-x86_64.zip` |
+| macOS, Apple Silicon | `uname -m` prints `arm64` | `memhouse-macos-arm64.tar.gz` |
+| macOS, Intel | `uname -m` prints `x86_64` | `memhouse-macos-x86_64.tar.gz` |
+| Linux, Intel/AMD 64-bit | `uname -m` prints `x86_64` | `memhouse-linux-x86_64.tar.gz` |
+| Windows, Intel/AMD 64-bit | Settings → System → About → System type | `memhouse-windows-x86_64.zip` |
 
 The container build for external PostgreSQL is
-`ghcr.io/cartularyhq/cartulary:<version>`.
+`ghcr.io/memhousehq/memhouse:<version>`.
 
 ## Download and verify
 
@@ -32,47 +32,47 @@ The browser download works without extra tools. The commands below use the
     ```bash
     release_tag=v0.3.0
     arch=$(uname -m)
-    mkdir -p cartulary-download
+    mkdir -p memhouse-download
     gh release download "$release_tag" \
-      --repo cartularyhq/cartulary \
-      --pattern "cartulary-macos-${arch}.tar.gz*" \
-      --dir cartulary-download
-    cd cartulary-download
-    shasum -a 256 -c "cartulary-macos-${arch}.tar.gz.sha256"
-    tar -xzf "cartulary-macos-${arch}.tar.gz"
-    cd cartulary
+      --repo memhousehq/memhouse \
+      --pattern "memhouse-macos-${arch}.tar.gz*" \
+      --dir memhouse-download
+    cd memhouse-download
+    shasum -a 256 -c "memhouse-macos-${arch}.tar.gz.sha256"
+    tar -xzf "memhouse-macos-${arch}.tar.gz"
+    cd memhouse
     ```
 
 === "Linux"
 
     ```bash
     release_tag=v0.3.0
-    mkdir -p cartulary-download
+    mkdir -p memhouse-download
     gh release download "$release_tag" \
-      --repo cartularyhq/cartulary \
-      --pattern "cartulary-linux-x86_64.tar.gz*" \
-      --dir cartulary-download
-    cd cartulary-download
-    sha256sum -c cartulary-linux-x86_64.tar.gz.sha256
-    tar -xzf cartulary-linux-x86_64.tar.gz
-    cd cartulary
+      --repo memhousehq/memhouse \
+      --pattern "memhouse-linux-x86_64.tar.gz*" \
+      --dir memhouse-download
+    cd memhouse-download
+    sha256sum -c memhouse-linux-x86_64.tar.gz.sha256
+    tar -xzf memhouse-linux-x86_64.tar.gz
+    cd memhouse
     ```
 
 === "Windows"
 
     ```powershell
     $releaseTag = "v0.3.0"
-    $download = "cartulary-download"
+    $download = "memhouse-download"
     gh release download $releaseTag `
-      --repo cartularyhq/cartulary `
-      --pattern "cartulary-windows-x86_64.zip*" `
+      --repo memhousehq/memhouse `
+      --pattern "memhouse-windows-x86_64.zip*" `
       --dir $download
     Set-Location $download
-    $expected = (Get-Content cartulary-windows-x86_64.zip.sha256).Split()[0]
-    $actual = (Get-FileHash -Algorithm SHA256 cartulary-windows-x86_64.zip).Hash.ToLowerInvariant()
+    $expected = (Get-Content memhouse-windows-x86_64.zip.sha256).Split()[0]
+    $actual = (Get-FileHash -Algorithm SHA256 memhouse-windows-x86_64.zip).Hash.ToLowerInvariant()
     if ($actual -ne $expected) { throw "Checksum verification failed" }
-    Expand-Archive cartulary-windows-x86_64.zip
-    Set-Location cartulary
+    Expand-Archive memhouse-windows-x86_64.zip
+    Set-Location memhouse
     ```
 
 Do not run an archive when its checksum fails. Download both files again from
@@ -87,7 +87,7 @@ before each start:
 === "macOS / Linux"
 
     ```bash
-    export CARTULARY_DATA_ROOT="$HOME/.cartulary"
+    export CARTULARY_DATA_ROOT="$HOME/.memhouse"
     export CARTULARY_DATABASE_MODE=pg0
     export CARTULARY_AUTO_MIGRATE=true
     export CARTULARY_UPDATE_CHECK=true
@@ -100,7 +100,7 @@ before each start:
 === "Windows"
 
     ```powershell
-    $env:CARTULARY_DATA_ROOT = "$HOME\.cartulary"
+    $env:CARTULARY_DATA_ROOT = "$HOME\.memhouse"
     $env:CARTULARY_DATABASE_MODE = "pg0"
     $env:CARTULARY_AUTO_MIGRATE = "true"
     $env:CARTULARY_UPDATE_CHECK = "true"
@@ -116,7 +116,7 @@ set `CARTULARY_AUTO_UPDATE=off` when you want to approve every update yourself.
 
 ## Run it
 
-From the extracted `cartulary` directory:
+From the extracted `memhouse` directory:
 
 === "macOS / Linux"
 
@@ -138,7 +138,7 @@ not disable Gatekeeper globally.
 
 On first start the launcher:
 
-1. creates a private data root at `~/.cartulary` on macOS/Linux or `%USERPROFILE%\.cartulary` on Windows;
+1. creates a private data root at `~/.memhouse` on macOS/Linux or `%USERPROFILE%\.memhouse` on Windows;
 2. generates the local signing secret;
 3. starts the packaged pg0 binary and creates its PostgreSQL cluster;
 4. runs every migration against the fresh database;
@@ -165,7 +165,7 @@ created:
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `CARTULARY_DATA_ROOT` | `~/.cartulary` | Private data root for database, blobs, and secrets |
+| `CARTULARY_DATA_ROOT` | `~/.memhouse` | Private data root for database, blobs, and secrets |
 | `PORT` | `4000` | HTTP port |
 | `CARTULARY_PG0_PORT` | `5432` | Port the supervised PostgreSQL listens on |
 
@@ -177,11 +177,11 @@ The same release can use operator-run PostgreSQL 18 with pgvector:
 
 ```bash
 export CARTULARY_DATABASE_MODE=external
-export DATABASE_URL='ecto://user:password@db.example/cartulary'
+export DATABASE_URL='ecto://user:password@db.example/memhouse'
 export CARTULARY_AUTO_MIGRATE=true
 export CARTULARY_AUTH_SIGNING_SECRET='at-least-64-random-bytes...'
 export CARTULARY_BLOB_ROOT=/absolute/durable/blob/path
-bin/cartulary start
+bin/memhouse start
 ```
 
 Set `CARTULARY_AUTO_MIGRATE=false` when change control requires migrations to

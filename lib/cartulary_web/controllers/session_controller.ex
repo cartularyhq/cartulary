@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
 defmodule CartularyWeb.SessionController do
   @moduledoc """
@@ -11,7 +11,7 @@ defmodule CartularyWeb.SessionController do
 
   use CartularyWeb, :controller
 
-  alias Cartulary.Identity
+  alias MemHouse.Identity
 
   @doc """
   Sends a visitor arriving at the bare origin to the console.

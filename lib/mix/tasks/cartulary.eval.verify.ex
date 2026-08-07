@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Mix.Tasks.Cartulary.Eval.Verify do
+defmodule Mix.Tasks.MemHouse.Eval.Verify do
   @moduledoc """
   Checks that a stored evaluation report carries enough provenance to be quotable.
 
@@ -11,7 +11,7 @@ defmodule Mix.Tasks.Cartulary.Eval.Verify do
 
   use Mix.Task
 
-  alias Cartulary.Eval.Report
+  alias MemHouse.Eval.Report
 
   @shortdoc "Validates evaluation report provenance"
 
@@ -38,5 +38,5 @@ defmodule Mix.Tasks.Cartulary.Eval.Verify do
 
   # Any argument list other than a single path is a caller mistake, not a default-path
   # invitation: silently verifying some assumed file would let CI "pass" on stale evidence.
-  def run(_args), do: Mix.raise("usage: mix cartulary.eval.verify PATH")
+  def run(_args), do: Mix.raise("usage: mix memhouse.eval.verify PATH")
 end

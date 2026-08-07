@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Eval.Runtime do
+defmodule MemHouse.Eval.Runtime do
   @moduledoc """
   Enables deterministic, offline evaluation configuration.
 
@@ -18,14 +18,14 @@ defmodule Cartulary.Eval.Runtime do
   raises `ArgumentError`.
   """
   def use_deterministic_models do
-    oban = Application.fetch_env!(:cartulary, Oban)
-    Application.put_env(:cartulary, Oban, Keyword.put(oban, :testing, :manual))
+    oban = Application.fetch_env!(:memhouse, Oban)
+    Application.put_env(:memhouse, Oban, Keyword.put(oban, :testing, :manual))
 
-    models = Application.get_env(:cartulary, :models, [])
-    Application.put_env(:cartulary, :models, Keyword.put(models, :api_key, nil))
+    models = Application.get_env(:memhouse, :models, [])
+    Application.put_env(:memhouse, :models, Keyword.put(models, :api_key, nil))
 
     roles =
-      :cartulary
+      :memhouse
       |> Application.fetch_env!(:model_roles)
       |> Enum.map(fn
         # The embedder is absent from this list on purpose. Its provider, model, version,
@@ -42,7 +42,7 @@ defmodule Cartulary.Eval.Runtime do
           role_config
       end)
 
-    Application.put_env(:cartulary, :model_roles, roles)
+    Application.put_env(:memhouse, :model_roles, roles)
     # Clearing the configured key is not enough on its own: the credential is configured as
     # a reference to this variable, so the variable itself has to go too.
     System.delete_env("OPENROUTER_API_KEY")

@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Retrieval.Profile do
+defmodule MemHouse.Retrieval.Profile do
   @moduledoc """
   Resolves retrieval strategies, weights, reranking, deadline, and version.
 
@@ -13,18 +13,18 @@ defmodule Cartulary.Retrieval.Profile do
   settings digest for reproducibility; changing the base identity is a public contract transition.
   """
 
-  alias Cartulary.Retrieval.RetrievalProfile
+  alias MemHouse.Retrieval.RetrievalProfile
 
   require Ash.Query
 
   # Only registered strategies may run; registry changes alter behavior.
   @strategy_modules %{
-    semantic: Cartulary.Retrieval.Strategies.Semantic,
-    lexical: Cartulary.Retrieval.Strategies.Lexical,
-    temporal: Cartulary.Retrieval.Strategies.Temporal,
-    salience_recency: Cartulary.Retrieval.Strategies.SalienceRecency,
-    entity_match: Cartulary.Retrieval.Strategies.EntityMatch,
-    relation_expand: Cartulary.Retrieval.Strategies.RelationExpand
+    semantic: MemHouse.Retrieval.Strategies.Semantic,
+    lexical: MemHouse.Retrieval.Strategies.Lexical,
+    temporal: MemHouse.Retrieval.Strategies.Temporal,
+    salience_recency: MemHouse.Retrieval.Strategies.SalienceRecency,
+    entity_match: MemHouse.Retrieval.Strategies.EntityMatch,
+    relation_expand: MemHouse.Retrieval.Strategies.RelationExpand
   }
 
   @doc """
@@ -162,7 +162,7 @@ defmodule Cartulary.Retrieval.Profile do
 
   # Missing profile configuration is a deployment error, never a silent default.
   defp runtime_profile(name) do
-    config = Application.fetch_env!(:cartulary, :retrieval_profiles)
+    config = Application.fetch_env!(:memhouse, :retrieval_profiles)
     values = config |> Keyword.fetch!(name) |> Map.new()
 
     %{
@@ -176,7 +176,7 @@ defmodule Cartulary.Retrieval.Profile do
   end
 
   defp enabled_strategy_names do
-    :cartulary
+    :memhouse
     |> Application.fetch_env!(:retrieval_profiles)
     |> Keyword.fetch!(:enabled_strategies)
     |> Enum.map(&normalize_strategy!/1)

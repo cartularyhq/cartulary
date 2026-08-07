@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0 -->
+<!-- SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0 -->
 
 # Upgrades
 
@@ -12,7 +12,7 @@ bin/update --version 0.3.1
 ```
 
 The updater verifies the detached manifest signature and selected archive
-checksum, writes and validates a `cartulary-account-1` archive under the data
+checksum, writes and validates a `memhouse-account-1` archive under the data
 root, migrates the staged release, then switches the `current` release pointer.
 It retains old executable trees. The archive is a logical recovery checkpoint,
 not a rollback substitute: it omits credentials and derived data and imports
@@ -86,4 +86,4 @@ A release is coherent only when `mix.exs`, the changelog entry, the git tag,
 and the evaluation evidence all name the same version. The release-readiness
 check enforces this and fails closed. The maintainer-facing procedure lives in
 the repository under
-[`specs/process/release-checklist.md`](https://github.com/cartularyhq/cartulary/blob/main/specs/process/release-checklist.md).
+[`specs/process/release-checklist.md`](https://github.com/memhousehq/memhouse/blob/main/specs/process/release-checklist.md).

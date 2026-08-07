@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Retrieval do
+defmodule MemHouse.Retrieval do
   @moduledoc """
   The public boundary for reading governed memory, and the Ash domain that owns
   retrieval profiles.
@@ -32,13 +32,13 @@ defmodule Cartulary.Retrieval do
   use Ash.Domain
 
   resources do
-    resource Cartulary.Retrieval.RetrievalProfile
+    resource MemHouse.Retrieval.RetrievalProfile
   end
 
   @doc """
   Runs one retrieval request and returns a fused, ranked candidate list.
 
-  `query` is a `Cartulary.Retrieval.Query` struct that must already carry the
+  `query` is a `MemHouse.Retrieval.Query` struct that must already carry the
   Account id, the resolved actor, and the scope ids the actor may read;
   retrieval trusts those fields and filters by them, it does not re-derive
   them. `profile` is `:fast`, `:balanced`, or `:thorough` (the equivalent
@@ -54,7 +54,7 @@ defmodule Cartulary.Retrieval do
   `:strategies` is supplied without `internal?: true` — hand-picked strategy
   lists are restricted to server-side and evaluation callers.
   """
-  defdelegate retrieve(query, profile, opts \\ []), to: Cartulary.Retrieval.Engine
+  defdelegate retrieve(query, profile, opts \\ []), to: MemHouse.Retrieval.Engine
 
   @doc """
   Rebuilds every derived retrieval cache for one scope: knowledge embeddings,
@@ -67,7 +67,7 @@ defmodule Cartulary.Retrieval do
   Returns `{:ok, map}` with per-stage counts, or the first error tuple from a
   stage. Raises if an underlying Ash read or write fails.
   """
-  defdelegate rebuild_scope(account_id, scope_id), to: Cartulary.Retrieval.Rebuild, as: :scope
+  defdelegate rebuild_scope(account_id, scope_id), to: MemHouse.Retrieval.Rebuild, as: :scope
 
   @doc """
   Reports how many of each scope's retrievable statements carry an embedding and
@@ -85,11 +85,11 @@ defmodule Cartulary.Retrieval do
   `embedded_count`, `mention_count`, `coverage`, and `embedding_identities`.
   """
   defdelegate index_coverage(account_id, scope_ids, peer_id \\ nil),
-    to: Cartulary.Retrieval.Coverage,
+    to: MemHouse.Retrieval.Coverage,
     as: :scopes
 end
 
-defmodule Cartulary.Retrieval.RetrievalProfile do
+defmodule MemHouse.Retrieval.RetrievalProfile do
   @moduledoc """
   One durable, operator-authored override of a built-in retrieval profile.
 
@@ -108,8 +108,8 @@ defmodule Cartulary.Retrieval.RetrievalProfile do
   the strategies, weights, and rerank flag actually in force.
   """
 
-  use Cartulary.Resource,
-    domain: Cartulary.Retrieval,
+  use MemHouse.Resource,
+    domain: MemHouse.Retrieval,
     table: "retrieval_profiles"
 
   # Every read and write is rewritten to the tenant Account. There is no
@@ -144,7 +144,7 @@ defmodule Cartulary.Retrieval.RetrievalProfile do
     # Retuning retrieval changes what every caller in the scope sees, so it is
     # an administrative act. Ordinary members and readers can only read.
     policy action_type([:create, :update, :destroy]) do
-      authorize_if {Cartulary.Policy.RoleIn, roles: [:account_admin, :system]}
+      authorize_if {MemHouse.Policy.RoleIn, roles: [:account_admin, :system]}
     end
   end
 

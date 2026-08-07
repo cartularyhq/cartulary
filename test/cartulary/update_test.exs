@@ -1,16 +1,16 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.UpdateTest do
+defmodule MemHouse.UpdateTest do
   use ExUnit.Case, async: true
 
-  alias Cartulary.Update
+  alias MemHouse.Update
 
   test "accepts only a manifest signed by its configured Ed25519 key" do
     {public_key, private_key} = :crypto.generate_key(:eddsa, :ed25519)
 
     manifest =
       Jason.encode!(%{
-        "schema" => "cartulary-release-1",
+        "schema" => "memhouse-release-1",
         "version" => "0.3.1",
         "automatic_eligible" => true,
         "assets" => []

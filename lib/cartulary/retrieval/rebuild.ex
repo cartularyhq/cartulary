@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Retrieval.Rebuild do
+defmodule MemHouse.Retrieval.Rebuild do
   @moduledoc """
   Rebuilds one scope's derived caches in dependency order.
 
@@ -8,14 +8,14 @@ defmodule Cartulary.Retrieval.Rebuild do
   projections; reordering can build plausible projections from stale indexes.
   """
 
-  alias Cartulary.Retrieval.Coverage
+  alias MemHouse.Retrieval.Coverage
 
   @doc """
   Rebuilds one scope's embeddings, entity index, and context projections.
 
   Stops at the first error. Completed stages remain committed; replay is the recovery path.
 
-  A successful rebuild emits `[:cartulary, :retrieval, :projection_refresh]`
+  A successful rebuild emits `[:memhouse, :retrieval, :projection_refresh]`
   carrying the indexed count and the resulting coverage, so an operator can
   alert on a scope whose vectors never arrived instead of waiting for a user to
   report missing recall. It is the only signal this lane produces: the stage
@@ -26,10 +26,10 @@ defmodule Cartulary.Retrieval.Rebuild do
   write fails.
   """
   def scope(account_id, scope_id) do
-    with {:ok, index} <- Cartulary.Retrieval.Indexer.rebuild_scope(account_id, scope_id),
+    with {:ok, index} <- MemHouse.Retrieval.Indexer.rebuild_scope(account_id, scope_id),
          {:ok, entities} <-
-           Cartulary.Retrieval.EntityResolver.rebuild_scope(account_id, scope_id),
-         {:ok, projections} <- Cartulary.Context.Builder.refresh_scope(account_id, scope_id) do
+           MemHouse.Retrieval.EntityResolver.rebuild_scope(account_id, scope_id),
+         {:ok, projections} <- MemHouse.Context.Builder.refresh_scope(account_id, scope_id) do
       emit_coverage(account_id, scope_id, index)
       {:ok, %{index: index, entities: entities, projections: projections}}
     end
@@ -41,7 +41,7 @@ defmodule Cartulary.Retrieval.Rebuild do
     coverage = Coverage.scope(account_id, scope_id)
 
     :telemetry.execute(
-      [:cartulary, :retrieval, :projection_refresh],
+      [:memhouse, :retrieval, :projection_refresh],
       %{
         indexed: index.indexed,
         statements: coverage.statement_count,

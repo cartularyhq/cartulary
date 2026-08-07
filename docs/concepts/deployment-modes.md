@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0 -->
+<!-- SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0 -->
 
 # Deployment modes
 
@@ -10,7 +10,7 @@ different runtime configuration.
 ```mermaid
 flowchart TB
     subgraph One["One Mix release"]
-        APP[Cartulary application]
+        APP[MemHouse application]
     end
     APP --> M{CARTULARY_DATABASE_MODE}
     M -->|pg0| E["Supervised pg0<br/>started, migrated, and stopped<br/>by the release itself"]
@@ -54,11 +54,11 @@ Set `CARTULARY_DATABASE_MODE=external` and `DATABASE_URL`. Requirements:
 - PostgreSQL 18 with pgvector available;
 - full-text search (built in);
 - permission to create the extensions the migrations declare;
-- `DATABASE_URL`'s role either has `CREATEROLE` (Cartulary provisions and
+- `DATABASE_URL`'s role either has `CREATEROLE` (MemHouse provisions and
   switches to a restricted role itself) or is already `NOSUPERUSER
   NOBYPASSRLS` (see `CARTULARY_DATABASE_APP_ROLE` in
   [Configuration](../reference/configuration.md)). PostgreSQL skips row-level
-  security entirely for a superuser or a `BYPASSRLS` role, and Cartulary
+  security entirely for a superuser or a `BYPASSRLS` role, and MemHouse
   refuses to boot without one of these two paths available.
 
 Migrations can run as a supervised startup step (`CARTULARY_AUTO_MIGRATE=true`)

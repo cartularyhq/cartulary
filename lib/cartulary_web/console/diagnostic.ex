@@ -1,10 +1,10 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
 defmodule CartularyWeb.Console.Diagnostic do
   @moduledoc """
   Presentation rules for the tool workbench's retrieval diagnostic mode.
 
-  Authorization is not here: `Cartulary.Memory.diagnostic_search/2` decides who
+  Authorization is not here: `MemHouse.Memory.diagnostic_search/2` decides who
   may run a diagnostic, and `CartularyWeb.Console.Access` decides who is shown
   the controls. This module only turns an already-authorized result into what
   the page renders, so nothing it returns may widen what a run disclosed.
@@ -14,8 +14,8 @@ defmodule CartularyWeb.Console.Diagnostic do
   there is no raw HTML to get wrong.
   """
 
-  alias Cartulary.Retrieval.DiagnosticGrant
-  alias Cartulary.Retrieval.Profile
+  alias MemHouse.Retrieval.DiagnosticGrant
+  alias MemHouse.Retrieval.Profile
 
   # A term shorter than this matches inside too many unrelated words to be a
   # reading aid, and highlighting every "a" makes a statement harder to read

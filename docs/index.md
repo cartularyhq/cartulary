@@ -1,8 +1,8 @@
-<!-- SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0 -->
+<!-- SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0 -->
 
-# Cartulary
+# MemHouse
 
-Cartulary is a **governed memory system for agents**. Agents submit raw
+MemHouse is a **governed memory system for agents**. Agents submit raw
 observations; the pipeline writes knowledge; governance decides what is kept
 and who may see it. Reads are scoped, inherited downward, cited, and able to
 abstain.
@@ -90,16 +90,16 @@ This site covers installation, usage, and operations. Design material — the
 product blueprint, functional requirements,
 architecture and non-functional requirements, architecture decision records,
 the roadmap, and evaluation evidence — is not published here. It lives in the
-[`specs/` directory](https://github.com/cartularyhq/cartulary/tree/main/specs)
+[`specs/` directory](https://github.com/memhousehq/memhouse/tree/main/specs)
 of the repository, next to the code it describes. Contribution rules are in
-[`CONTRIBUTING.md`](https://github.com/cartularyhq/cartulary/blob/main/CONTRIBUTING.md)
+[`CONTRIBUTING.md`](https://github.com/memhousehq/memhouse/blob/main/CONTRIBUTING.md)
 and the agent operating contract is
-[`AGENTS.md`](https://github.com/cartularyhq/cartulary/blob/main/AGENTS.md).
+[`AGENTS.md`](https://github.com/memhousehq/memhouse/blob/main/AGENTS.md).
 
 ## Licence
 
-Cartulary is source-available fair-code, not OSI open source. Community and
+MemHouse is source-available fair-code, not OSI open source. Community and
 core code is governed by
-[`LICENSE.md`](https://github.com/cartularyhq/cartulary/blob/main/LICENSE.md);
+[`LICENSE.md`](https://github.com/memhousehq/memhouse/blob/main/LICENSE.md);
 enterprise-marked code, when added, is governed by
-[`LICENSE_EE.md`](https://github.com/cartularyhq/cartulary/blob/main/LICENSE_EE.md).
+[`LICENSE_EE.md`](https://github.com/memhousehq/memhouse/blob/main/LICENSE_EE.md).

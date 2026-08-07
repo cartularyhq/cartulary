@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Retrieval.Trace do
+defmodule MemHouse.Retrieval.Trace do
   @moduledoc """
   Builds an ephemeral, authorized explanation of one retrieval ranking.
 
@@ -10,7 +10,7 @@ defmodule Cartulary.Retrieval.Trace do
   beside their strategy and must not be compared across strategies.
   """
 
-  alias Cartulary.Retrieval.Candidate
+  alias MemHouse.Retrieval.Candidate
 
   @doc """
   Returns rank and contribution details for the candidates that reached the final result.
@@ -73,7 +73,7 @@ defmodule Cartulary.Retrieval.Trace do
   defp candidate_rerank_status(_rank, _head, :unavailable), do: "rerank_unavailable"
 
   defp retrieval_config(key) do
-    :cartulary
+    :memhouse
     |> Application.fetch_env!(:retrieval_profiles)
     |> Keyword.fetch!(key)
   end

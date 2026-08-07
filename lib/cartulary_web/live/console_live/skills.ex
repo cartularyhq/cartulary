@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
 defmodule CartularyWeb.ConsoleLive.Skills do
   @moduledoc """
@@ -16,7 +16,7 @@ defmodule CartularyWeb.ConsoleLive.Skills do
 
   import CartularyWeb.ConsoleComponents
 
-  alias Cartulary.Skills
+  alias MemHouse.Skills
   alias CartularyWeb.Console.Access
   alias CartularyWeb.Console.Loader
 

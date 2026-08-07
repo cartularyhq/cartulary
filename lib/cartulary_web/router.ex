@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
 defmodule CartularyWeb.Router do
   @moduledoc """
@@ -140,6 +140,6 @@ defmodule CartularyWeb.Router do
         :set_ask_preference
       ],
       protocol_version_statement: "2025-03-26",
-      otp_app: :cartulary
+      otp_app: :memhouse
   end
 end

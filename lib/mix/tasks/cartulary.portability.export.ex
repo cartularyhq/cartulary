@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Mix.Tasks.Cartulary.Portability.Export do
+defmodule Mix.Tasks.MemHouse.Portability.Export do
   @moduledoc """
   Writes the configured community Account out as a self-contained, checksum-verified
     archive.
@@ -33,7 +33,7 @@ defmodule Mix.Tasks.Cartulary.Portability.Export do
 
     output =
       Keyword.get(opts, :output) ||
-        "cartulary-export-#{Date.utc_today() |> Date.to_iso8601()}.tar.gz"
+        "memhouse-export-#{Date.utc_today() |> Date.to_iso8601()}.tar.gz"
 
     Mix.Task.run("app.start")
 
@@ -42,8 +42,8 @@ defmodule Mix.Tasks.Cartulary.Portability.Export do
     # authority is scoped to that Account. Export therefore cannot read across tenants, and
     # running this against an empty database fails instead of emitting an empty archive.
     result =
-      Cartulary.DataLayer.with_existing_free_account(fn _account, actor ->
-        {:ok, result} = Cartulary.Portability.export(actor, output)
+      MemHouse.DataLayer.with_existing_free_account(fn _account, actor ->
+        {:ok, result} = MemHouse.Portability.export(actor, output)
         result
       end)
 

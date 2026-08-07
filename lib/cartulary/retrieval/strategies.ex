@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Retrieval.StrategySupport do
+defmodule MemHouse.Retrieval.StrategySupport do
   @moduledoc """
   Converts strategy rows to candidates after provenance and score filtering.
 
@@ -9,7 +9,7 @@ defmodule Cartulary.Retrieval.StrategySupport do
   strategy must use this path.
   """
 
-  alias Cartulary.Retrieval.Candidate
+  alias MemHouse.Retrieval.Candidate
 
   @doc """
   Converts raw result rows into `Candidate` structs for one strategy.
@@ -67,17 +67,17 @@ defmodule Cartulary.Retrieval.StrategySupport do
   defp contains?(actual, expected), do: expected in (actual || [])
 end
 
-defmodule Cartulary.Retrieval.Strategies.Semantic do
+defmodule MemHouse.Retrieval.Strategies.Semantic do
   @moduledoc """
   Embeds query text and finds nearest stored vectors.
 
   This moderate-cost seed strategy filters stored vectors by the Account's current provider,
   model, version, and dimensions. Older identities require re-embedding and are never mixed.
   """
-  @behaviour Cartulary.Retrieval.Strategy
+  @behaviour MemHouse.Retrieval.Strategy
 
-  alias Cartulary.Model.{Config, Embedding}
-  alias Cartulary.Retrieval.{Store, StrategySupport}
+  alias MemHouse.Model.{Config, Embedding}
+  alias MemHouse.Retrieval.{Store, StrategySupport}
 
   @impl true
   def name, do: :semantic
@@ -126,16 +126,16 @@ defmodule Cartulary.Retrieval.Strategies.Semantic do
   end
 end
 
-defmodule Cartulary.Retrieval.Strategies.Lexical do
+defmodule MemHouse.Retrieval.Strategies.Lexical do
   @moduledoc """
   Word-based retrieval through PostgreSQL full-text search.
 
   A cheap indexed seed strategy for exact terms that semantic search may blur. Fusion balances
   its poor paraphrase recall.
   """
-  @behaviour Cartulary.Retrieval.Strategy
+  @behaviour MemHouse.Retrieval.Strategy
 
-  alias Cartulary.Retrieval.{Store, StrategySupport}
+  alias MemHouse.Retrieval.{Store, StrategySupport}
 
   @impl true
   def name, do: :lexical
@@ -164,16 +164,16 @@ defmodule Cartulary.Retrieval.Strategies.Lexical do
   end
 end
 
-defmodule Cartulary.Retrieval.Strategies.Temporal do
+defmodule MemHouse.Retrieval.Strategies.Temporal do
   @moduledoc """
   Prefers statements in force at the query's reference time.
 
   Uses validity time, distinct from record time and salience. This cheap seed strategy needs no
   text or model and can still find superseded facts for historical queries.
   """
-  @behaviour Cartulary.Retrieval.Strategy
+  @behaviour MemHouse.Retrieval.Strategy
 
-  alias Cartulary.Retrieval.{Store, StrategySupport}
+  alias MemHouse.Retrieval.{Store, StrategySupport}
 
   @impl true
   def name, do: :temporal
@@ -208,16 +208,16 @@ defmodule Cartulary.Retrieval.Strategies.Temporal do
   end
 end
 
-defmodule Cartulary.Retrieval.Strategies.SalienceRecency do
+defmodule MemHouse.Retrieval.Strategies.SalienceRecency do
   @moduledoc """
   Query-independent ranking by how important and how fresh a statement is.
 
   Combines confidence, corroboration, and recency without text or a model. This cheap seed strategy
   supports context and degraded retrieval; fusion offsets its lack of query relevance.
   """
-  @behaviour Cartulary.Retrieval.Strategy
+  @behaviour MemHouse.Retrieval.Strategy
 
-  alias Cartulary.Retrieval.{Store, StrategySupport}
+  alias MemHouse.Retrieval.{Store, StrategySupport}
 
   @impl true
   def name, do: :salience_recency
@@ -254,7 +254,7 @@ defmodule Cartulary.Retrieval.Strategies.SalienceRecency do
   end
 end
 
-defmodule Cartulary.Retrieval.Strategies.EntityMatch do
+defmodule MemHouse.Retrieval.Strategies.EntityMatch do
   @moduledoc """
   Finds statements through the private entity alias index.
 
@@ -262,9 +262,9 @@ defmodule Cartulary.Retrieval.Strategies.EntityMatch do
   canonical names, aliases, and surface forms never leave retrieval. Stale cache costs recall,
   never access correctness.
   """
-  @behaviour Cartulary.Retrieval.Strategy
+  @behaviour MemHouse.Retrieval.Strategy
 
-  alias Cartulary.Retrieval.{Store, StrategySupport}
+  alias MemHouse.Retrieval.{Store, StrategySupport}
 
   @impl true
   def name, do: :entity_match
@@ -293,7 +293,7 @@ defmodule Cartulary.Retrieval.Strategies.EntityMatch do
   end
 end
 
-defmodule Cartulary.Retrieval.Strategies.RelationExpand do
+defmodule MemHouse.Retrieval.Strategies.RelationExpand do
   @moduledoc """
   Expands one hop from seed statements.
 
@@ -301,9 +301,9 @@ defmodule Cartulary.Retrieval.Strategies.RelationExpand do
   Both scope endpoints must already be authorized; links never grant access. Moderate-cost and
   enabled by the thorough profile.
   """
-  @behaviour Cartulary.Retrieval.Strategy
+  @behaviour MemHouse.Retrieval.Strategy
 
-  alias Cartulary.Retrieval.{Store, StrategySupport}
+  alias MemHouse.Retrieval.{Store, StrategySupport}
 
   @impl true
   def name, do: :relation_expand

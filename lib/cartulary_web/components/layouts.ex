@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
 defmodule CartularyWeb.Layouts do
   @moduledoc """
@@ -22,7 +22,7 @@ defmodule CartularyWeb.Layouts do
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="csrf-token" content={Plug.CSRFProtection.get_csrf_token()} />
-        <title>Cartulary</title>
+        <title>MemHouse</title>
         <link rel="stylesheet" href="/assets/console.css" />
       </head>
       <body>

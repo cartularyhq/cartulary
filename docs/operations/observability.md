@@ -1,13 +1,13 @@
-<!-- SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0 -->
+<!-- SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0 -->
 
 # Observability
 
-Cartulary provides OpenTelemetry traces, structured logs, and a durable usage
+MemHouse provides OpenTelemetry traces, structured logs, and a durable usage
 ledger. Export is **off by default** and sends OTLP to your collector.
 
 ```mermaid
 flowchart LR
-    APP[Cartulary] -->|OTLP/HTTP| COL[OpenTelemetry Collector]
+    APP[MemHouse] -->|OTLP/HTTP| COL[OpenTelemetry Collector]
     COL --> J[Jaeger — traces]
     COL --> P[Prometheus — collector metrics]
     COL --> D[Debug log output]
@@ -20,7 +20,7 @@ flowchart LR
 
 ```bash
 CARTULARY_OTEL_ENABLED=true
-OTEL_SERVICE_NAME=cartulary-dev
+OTEL_SERVICE_NAME=memhouse-dev
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:14318
 ```
 
@@ -31,7 +31,7 @@ repository:
 docker compose -f dev/observability/docker-compose.yml up
 ```
 
-Traces are then at `http://localhost:16686` under service `cartulary-dev`, and
+Traces are then at `http://localhost:16686` under service `memhouse-dev`, and
 collector metrics at `http://localhost:9090`.
 
 The collector receives OTLP/HTTP from the host on port `14318` and forwards to
@@ -59,21 +59,21 @@ Manual workflow spans:
 
 | Span | Covers |
 | --- | --- |
-| `cartulary.memory.ingest_message` | Recording a raw observation |
-| `cartulary.memory.extract_message` | Extraction of candidates |
-| `cartulary.memory.query_knowledge` | Governed knowledge listing |
-| `cartulary.memory.search` | Ranked retrieval |
-| `cartulary.memory.ask` | Cited answer |
-| `cartulary.memory.get_context` | Projection assembly |
-| `cartulary.model.chat` / `.structured` / `.embed` / `.rerank` | Model gateway calls |
-| `cartulary.documents.process_version` | Document parsing and derivation |
-| `cartulary.documents.sync_connector` | Connector sync |
+| `memhouse.memory.ingest_message` | Recording a raw observation |
+| `memhouse.memory.extract_message` | Extraction of candidates |
+| `memhouse.memory.query_knowledge` | Governed knowledge listing |
+| `memhouse.memory.search` | Ranked retrieval |
+| `memhouse.memory.ask` | Cited answer |
+| `memhouse.memory.get_context` | Projection assembly |
+| `memhouse.model.chat` / `.structured` / `.embed` / `.rerank` | Model gateway calls |
+| `memhouse.documents.process_version` | Document parsing and derivation |
+| `memhouse.documents.sync_connector` | Connector sync |
 
 Model spans carry operation, role, provider, model, version, duration, and
 token usage. Document spans carry version id, parser, byte/chunk/knowledge
 counts, connector id, item count, and duration.
 
-Every retrieval emits `[:cartulary, :retrieval, :outcomes]`. Measurements are
+Every retrieval emits `[:memhouse, :retrieval, :outcomes]`. Measurements are
 total latency and pre-rerank remaining budget. Metadata contains Account id,
 profile, hard deadline, and content-free component outcomes with elapsed time
 and one deterministic failure class. The latest outcome observed on the node is
@@ -118,7 +118,7 @@ Tune noise per debugging session:
 ## Knowing when a scope lost its indexes
 
 Every completed projection refresh emits the telemetry event
-`[:cartulary, :retrieval, :projection_refresh]`, measuring `indexed`,
+`[:memhouse, :retrieval, :projection_refresh]`, measuring `indexed`,
 `statements`, `embedded`, `mentions`, and `coverage` (embedded ÷ statements,
 `1.0` when the scope has nothing to index), tagged with `account_id` and
 `scope_id`.
@@ -188,4 +188,4 @@ Use the local collector when you also need local inspection.
 The measurement discipline behind evaluation runs — experiment labelling,
 retrieval variants, and what may be claimed from a trace — is maintainer
 material and lives in the repository under
-[`specs/observability/`](https://github.com/cartularyhq/cartulary/tree/main/specs/observability).
+[`specs/observability/`](https://github.com/memhousehq/memhouse/tree/main/specs/observability).

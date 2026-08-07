@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Observability.JSONFormatter do
+defmodule MemHouse.Observability.JSONFormatter do
   @moduledoc """
   Formats production logs as one content-safe JSON object per line.
 

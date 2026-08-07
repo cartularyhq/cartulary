@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Retrieval.EntityResolver do
+defmodule MemHouse.Retrieval.EntityResolver do
   @moduledoc """
   Rebuilds the private entity-and-mention index from active statements.
 
@@ -13,10 +13,10 @@ defmodule Cartulary.Retrieval.EntityResolver do
   hold a database connection during model calls. Failures skip a form without blocking rebuild.
   """
 
-  alias Cartulary.DataLayer
-  alias Cartulary.Knowledge.{Entity, EntityMention, KnowledgeItem}
-  alias Cartulary.Model.{Embedding, Gateway}
-  alias Cartulary.Retrieval.Vector
+  alias MemHouse.DataLayer
+  alias MemHouse.Knowledge.{Entity, EntityMention, KnowledgeItem}
+  alias MemHouse.Model.{Embedding, Gateway}
+  alias MemHouse.Retrieval.Vector
 
   require Ash.Query
 
@@ -530,7 +530,7 @@ defmodule Cartulary.Retrieval.EntityResolver do
   the contract: an address that also carries a company suffix stays a person.
 
   Nothing in retrieval branches on the answer, so a wrong guess costs nothing there and is not
-  worth a model call. `Cartulary.Context.EntityLabel` does surface it on a card, where a wrong
+  worth a model call. `MemHouse.Context.EntityLabel` does surface it on a card, where a wrong
   guess is visible but still harmless. Callers must reuse this function rather than copy the
   rules; two implementations would drift apart silently.
   """

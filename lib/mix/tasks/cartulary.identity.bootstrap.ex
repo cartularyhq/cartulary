@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Mix.Tasks.Cartulary.Identity.Bootstrap do
+defmodule Mix.Tasks.MemHouse.Identity.Bootstrap do
   use Mix.Task
 
   @shortdoc "Bootstraps the free Account and its first human administrator"
@@ -45,7 +45,7 @@ defmodule Mix.Tasks.Cartulary.Identity.Bootstrap do
         Mix.raise("set CARTULARY_BOOTSTRAP_PASSWORD or pass --password")
 
     result =
-      Cartulary.Identity.bootstrap_human(%{
+      MemHouse.Identity.bootstrap_human(%{
         email: email,
         name: name,
         password: password

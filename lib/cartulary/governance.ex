@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Governance do
+defmodule MemHouse.Governance do
   @moduledoc """
   Ash domain for governance records and machine tools.
 
@@ -9,22 +9,22 @@ defmodule Cartulary.Governance do
 
   ## Durable rows this domain owns
 
-  * `Cartulary.Governance.AuditEvent` — per-Account, hash-chained, content-safe event log.
-  * `Cartulary.Governance.PolicyConfig` — versioned key/value governance settings.
-  * `Cartulary.Governance.GateRule` — the versioned confidence, target-level, and sensitivity
+  * `MemHouse.Governance.AuditEvent` — per-Account, hash-chained, content-safe event log.
+  * `MemHouse.Governance.PolicyConfig` — versioned key/value governance settings.
+  * `MemHouse.Governance.GateRule` — the versioned confidence, target-level, and sensitivity
     matrix that decides automatic keep, automatic reject, or human review.
-  * `Cartulary.Governance.ValidationItem` — the queue of claims awaiting a human or peer answer.
-  * `Cartulary.Governance.GateDecision` — immutable history of every automatic and human gate
+  * `MemHouse.Governance.ValidationItem` — the queue of claims awaiting a human or peer answer.
+  * `MemHouse.Governance.GateDecision` — immutable history of every automatic and human gate
     outcome.
-  * `Cartulary.Governance.Consent` — subject-owned permission to place personal knowledge in a
+  * `MemHouse.Governance.Consent` — subject-owned permission to place personal knowledge in a
     wider scope.
-  * `Cartulary.Governance.PeerQuery` and `Cartulary.Governance.PeerQueryDelivery` — a frozen
+  * `MemHouse.Governance.PeerQuery` and `MemHouse.Governance.PeerQueryDelivery` — a frozen
     question and evidence that it was shown and answered.
-  * `Cartulary.Governance.PeerAskPreference` — how often a peer tolerates being interrupted.
-  * `Cartulary.Governance.ErasureRequest` — durable record of a subject erasure and its counted
+  * `MemHouse.Governance.PeerAskPreference` — how often a peer tolerates being interrupted.
+  * `MemHouse.Governance.ErasureRequest` — durable record of a subject erasure and its counted
     effects.
 
-  `Cartulary.Governance.McpTools` is non-persisted and publishes the generic tool actions.
+  `MemHouse.Governance.McpTools` is non-persisted and publishes the generic tool actions.
 
   ## Invariants callers must not break
 
@@ -33,7 +33,7 @@ defmodule Cartulary.Governance do
 
   Curator judgement is human-only. Approve, edit, reject, merge, defer, promotion, and gate-rule
   administration are reachable only from a password-session browser identity;
-  `Cartulary.Policy.HumanRoleIn` refuses a machine API key even when it holds the curator role.
+  `MemHouse.Policy.HumanRoleIn` refuses a machine API key even when it holds the curator role.
 
   Audit may contain ids, hashes, counts, timestamps, and class strings, never content or secrets.
   """
@@ -41,34 +41,34 @@ defmodule Cartulary.Governance do
   use Ash.Domain, extensions: [AshAi]
 
   resources do
-    resource Cartulary.Governance.AuditEvent
-    resource Cartulary.Governance.PolicyConfig
-    resource Cartulary.Governance.GateRule
-    resource Cartulary.Governance.ValidationItem
-    resource Cartulary.Governance.GateDecision
-    resource Cartulary.Governance.Consent
-    resource Cartulary.Governance.PeerQuery
-    resource Cartulary.Governance.PeerQueryDelivery
-    resource Cartulary.Governance.PeerAskPreference
-    resource Cartulary.Governance.ErasureRequest
-    resource Cartulary.Governance.McpTools
+    resource MemHouse.Governance.AuditEvent
+    resource MemHouse.Governance.PolicyConfig
+    resource MemHouse.Governance.GateRule
+    resource MemHouse.Governance.ValidationItem
+    resource MemHouse.Governance.GateDecision
+    resource MemHouse.Governance.Consent
+    resource MemHouse.Governance.PeerQuery
+    resource MemHouse.Governance.PeerQueryDelivery
+    resource MemHouse.Governance.PeerAskPreference
+    resource MemHouse.Governance.ErasureRequest
+    resource MemHouse.Governance.McpTools
   end
 
   # Complete machine surface: raw ingest, governed reads, the caller's frozen question, and
   # lower interruption limits. Curator operations remain human-only.
   tools do
-    tool(:ingest, Cartulary.Governance.McpTools, :ingest)
-    tool(:get_context, Cartulary.Governance.McpTools, :get_context)
-    tool(:search, Cartulary.Governance.McpTools, :search)
-    tool(:ask, Cartulary.Governance.McpTools, :ask)
-    tool(:query_knowledge, Cartulary.Governance.McpTools, :query_knowledge)
-    tool(:check_readiness, Cartulary.Governance.McpTools, :check_readiness)
-    tool(:resolve_validation, Cartulary.Governance.McpTools, :resolve_validation)
-    tool(:set_ask_preference, Cartulary.Governance.McpTools, :set_ask_preference)
+    tool(:ingest, MemHouse.Governance.McpTools, :ingest)
+    tool(:get_context, MemHouse.Governance.McpTools, :get_context)
+    tool(:search, MemHouse.Governance.McpTools, :search)
+    tool(:ask, MemHouse.Governance.McpTools, :ask)
+    tool(:query_knowledge, MemHouse.Governance.McpTools, :query_knowledge)
+    tool(:check_readiness, MemHouse.Governance.McpTools, :check_readiness)
+    tool(:resolve_validation, MemHouse.Governance.McpTools, :resolve_validation)
+    tool(:set_ask_preference, MemHouse.Governance.McpTools, :set_ask_preference)
   end
 end
 
-defmodule Cartulary.Governance.AuditEvent do
+defmodule MemHouse.Governance.AuditEvent do
   @moduledoc """
   One append-only, content-safe entry in an Account's tamper-evident governance audit chain.
 
@@ -81,11 +81,11 @@ defmodule Cartulary.Governance.AuditEvent do
   Only `:read` and `:record` are public. Private export/import actions are restricted to internal
   pipeline or system actors.
 
-  Prefer `Cartulary.Governance.Audit.append/3`, which supplies the timestamp and forces a
+  Prefer `MemHouse.Governance.Audit.append/3`, which supplies the timestamp and forces a
   pipeline actor, over calling `:record` directly.
   """
 
-  use Cartulary.Resource, domain: Cartulary.Governance, table: "audit_events"
+  use MemHouse.Resource, domain: MemHouse.Governance, table: "audit_events"
 
   # Attribute tenancy and Postgres RLS independently enforce Account isolation.
   multitenancy do
@@ -110,7 +110,7 @@ defmodule Cartulary.Governance.AuditEvent do
         :occurred_at
       ]
 
-      change Cartulary.Governance.Changes.HashAuditEvent
+      change MemHouse.Governance.Changes.HashAuditEvent
     end
   end
 
@@ -122,12 +122,12 @@ defmodule Cartulary.Governance.AuditEvent do
     end
 
     policy action(:record) do
-      authorize_if {Cartulary.Policy.RoleIn, roles: [:account_admin, :curator, :system]}
+      authorize_if {MemHouse.Policy.RoleIn, roles: [:account_admin, :curator, :system]}
       authorize_if actor_attribute_equals(:pipeline?, true)
     end
 
     policy action_type(:read) do
-      authorize_if {Cartulary.Policy.RoleIn, roles: [:account_admin, :curator, :system]}
+      authorize_if {MemHouse.Policy.RoleIn, roles: [:account_admin, :curator, :system]}
     end
   end
 
@@ -155,7 +155,7 @@ defmodule Cartulary.Governance.AuditEvent do
   end
 end
 
-defmodule Cartulary.Governance.PolicyConfig do
+defmodule MemHouse.Governance.PolicyConfig do
   @moduledoc """
   One versioned Account-wide or scope-specific governance setting.
 
@@ -168,7 +168,7 @@ defmodule Cartulary.Governance.PolicyConfig do
   the durable home for other governed configuration and is not read by current request paths.
   """
 
-  use Cartulary.Resource, domain: Cartulary.Governance, table: "policy_configs"
+  use MemHouse.Resource, domain: MemHouse.Governance, table: "policy_configs"
 
   # Attribute multitenancy plus Postgres row-level security keep settings inside one Account.
   multitenancy do
@@ -184,7 +184,7 @@ defmodule Cartulary.Governance.PolicyConfig do
     create :create do
       accept [:scope_id, :key, :value, :version, :active]
 
-      change {Cartulary.Governance.Changes.AuditResource,
+      change {MemHouse.Governance.Changes.AuditResource,
               category: "configuration",
               action: "policy_config.created",
               resource_type: "policy_config",
@@ -198,7 +198,7 @@ defmodule Cartulary.Governance.PolicyConfig do
       accept [:value, :version, :active]
       require_atomic? false
 
-      change {Cartulary.Governance.Changes.AuditResource,
+      change {MemHouse.Governance.Changes.AuditResource,
               category: "configuration",
               action: "policy_config.updated",
               resource_type: "policy_config",
@@ -215,7 +215,7 @@ defmodule Cartulary.Governance.PolicyConfig do
     end
 
     policy action_type([:create, :update, :destroy]) do
-      authorize_if {Cartulary.Policy.RoleIn, roles: [:account_admin, :curator, :system]}
+      authorize_if {MemHouse.Policy.RoleIn, roles: [:account_admin, :curator, :system]}
     end
   end
 

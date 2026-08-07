@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Eval.Runner do
+defmodule MemHouse.Eval.Runner do
   @moduledoc """
   Runs normalized evaluation cases against the real memory API.
 
@@ -9,14 +9,14 @@ defmodule Cartulary.Eval.Runner do
   dropped from aggregate metrics.
   """
 
-  alias Cartulary.Clock
-  alias Cartulary.Eval.{ModelJudge, Scorer}
-  alias Cartulary.Memory
+  alias MemHouse.Clock
+  alias MemHouse.Eval.{ModelJudge, Scorer}
+  alias MemHouse.Memory
 
   @doc """
   Runs every case in `dataset` and returns the complete evaluation report.
 
-  `dataset` is normalized by `Cartulary.Eval.Adapter`. Options set profile, scratch
+  `dataset` is normalized by `MemHouse.Eval.Adapter`. Options set profile, scratch
   Account, run id, deadline, strategy override, split, judge, and run limits; every choice
   is recorded in the string-keyed report.
 
@@ -422,7 +422,7 @@ defmodule Cartulary.Eval.Runner do
   # application is not loaded, which means the report did not come from a real release
   # build and must not be published as one.
   defp cartulary_version do
-    case Application.spec(:cartulary, :vsn) do
+    case Application.spec(:memhouse, :vsn) do
       nil -> "0.0.0"
       version -> to_string(version)
     end
@@ -432,7 +432,7 @@ defmodule Cartulary.Eval.Runner do
   # The configuration as a whole is what was under test, and a later reader comparing two
   # reports needs to see that an unused role was also unchanged.
   defp model_role_versions do
-    :cartulary
+    :memhouse
     |> Application.fetch_env!(:model_roles)
     |> Map.new(fn {role, config} ->
       {Atom.to_string(role),

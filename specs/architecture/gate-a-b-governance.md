@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0 -->
+<!-- SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0 -->
 
 # Gate A/B Governance
 
@@ -10,10 +10,10 @@ and `AINV-5`.
 
 ## Boundary
 
-`Cartulary.Governance.Engine` is the only operation layer for Gate A/B
-evaluation and human decisions. `Cartulary.Governance.PeerQueue` is the
-peer-delivery adapter, `Cartulary.Governance.Sweeper` owns dream-time aging,
-and `Cartulary.Governance.Erasure` owns subject erasure. All durable mutations
+`MemHouse.Governance.Engine` is the only operation layer for Gate A/B
+evaluation and human decisions. `MemHouse.Governance.PeerQueue` is the
+peer-delivery adapter, `MemHouse.Governance.Sweeper` owns dream-time aging,
+and `MemHouse.Governance.Erasure` owns subject erasure. All durable mutations
 go through Ash actions under the authenticated Account tenant and PostgreSQL
 RLS.
 
@@ -72,9 +72,9 @@ unattended consent.
 Two off-by-default switches enable that declaration:
 
 - Account-scoped `Account.consent_mode="auto"`, restricted to `account_admin`
-  and audited with `Cartulary.Governance.Changes.AuditResource`.
+  and audited with `MemHouse.Governance.Changes.AuditResource`.
 - Deployment-wide `CARTULARY_GOVERNANCE_UNATTENDED`, loaded by
-  `Cartulary.Governance.UnattendedMode`, logged at boot, and reported by
+  `MemHouse.Governance.UnattendedMode`, logged at boot, and reported by
   `GET /api/ready`.
 
 Either makes `Engine.resolve_consent/5` write a real pipeline-owned `Consent`
@@ -93,7 +93,7 @@ Decision record: `specs/adr/0007-unattended-governance-consent.md`.
 `/governance` is a password-session-only LiveView for account administrators
 and curators. It exposes the queue, provenance/conflict IDs, individual
 actions, edits, merges, and bulk decisions. Machine API keys cannot establish
-that session, and `Cartulary.Policy.HumanRoleIn` prevents them from invoking
+that session, and `MemHouse.Policy.HumanRoleIn` prevents them from invoking
 curator Ash actions directly.
 
 Authenticated human peers use `/api/v1/self/knowledge` to inspect their subject
@@ -158,14 +158,14 @@ advances retrieval and context profiles to `f7-1`.
   `priv/repo/migrations/20260727220024_f4_real_gate_a_b_governance.exs`
 - Generated resource snapshots: `priv/resource_snapshots/repo/`
 - Gate A/B governance acceptance suite:
-  `test/cartulary/f4_real_gate_a_b_governance_test.exs`
+  `test/memhouse/f4_real_gate_a_b_governance_test.exs`
 - Updated baseline contract evidence:
-  `test/cartulary/poc_contract_test.exs` and
+  `test/memhouse/poc_contract_test.exs` and
   `test/cartulary_web/controllers/memory_controller_test.exs`
-- Operation layer: `lib/cartulary/governance/`
+- Operation layer: `lib/memhouse/governance/`
 - Human and self-service adapters: `lib/cartulary_web/`
-- Declared-auto consent: `lib/cartulary/governance/unattended_mode.ex`,
-  `Cartulary.Governance.Engine.resolve_consent/5` in
-  `lib/cartulary/governance/engine.ex`, and `consent_mode`/`configure_governance`
-  on `Cartulary.Accounts.Account` in `lib/cartulary/accounts.ex`; regression
-  and RBAC evidence in `test/cartulary/f4_real_gate_a_b_governance_test.exs`
+- Declared-auto consent: `lib/memhouse/governance/unattended_mode.ex`,
+  `MemHouse.Governance.Engine.resolve_consent/5` in
+  `lib/memhouse/governance/engine.ex`, and `consent_mode`/`configure_governance`
+  on `MemHouse.Accounts.Account` in `lib/memhouse/accounts.ex`; regression
+  and RBAC evidence in `test/memhouse/f4_real_gate_a_b_governance_test.exs`

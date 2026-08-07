@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 #
 # Local trace and metric stack for development only. Nothing here ships in a
 # release or in the production container.
@@ -14,7 +14,7 @@
 # to Jaeger and exposes metrics for Prometheus to scrape. Browse traces at
 # http://localhost:16686 and Prometheus at http://localhost:9090.
 #
-# Cartulary spans are content-safe by construction: they carry ids, counts,
+# MemHouse spans are content-safe by construction: they carry ids, counts,
 # profile and model names, timings, token counts, and error classes, never raw
 # messages, prompts, answers, or secrets. Keep it that way — this stack has no
 # redaction of its own.

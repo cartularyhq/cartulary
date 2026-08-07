@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Governance.Actions.McpIngest do
+defmodule MemHouse.Governance.Actions.McpIngest do
   @moduledoc """
   Implementation behind the `ingest` tool: records one raw observation from a machine caller.
 
@@ -25,7 +25,7 @@ defmodule Cartulary.Governance.Actions.McpIngest do
   def run(input, _opts, context) do
     attrs = stringify(input.arguments)
 
-    case Cartulary.Memory.ingest_message(attrs, context.actor) do
+    case MemHouse.Memory.ingest_message(attrs, context.actor) do
       {:ok, message} ->
         {:ok, %{"message_id" => message["id"], "status" => "accepted"}}
 
@@ -39,7 +39,7 @@ defmodule Cartulary.Governance.Actions.McpIngest do
   defp stringify(attrs), do: Map.new(attrs, fn {key, value} -> {to_string(key), value} end)
 end
 
-defmodule Cartulary.Governance.Actions.McpRead do
+defmodule MemHouse.Governance.Actions.McpRead do
   @moduledoc """
   Shared read-tool implementation with optional inline validation.
 
@@ -80,11 +80,11 @@ defmodule Cartulary.Governance.Actions.McpRead do
 
     result =
       case operation do
-        :get_context -> Cartulary.Memory.get_context(attrs, context.actor)
-        :search -> Cartulary.Memory.search(attrs, context.actor)
-        :ask -> Cartulary.Memory.ask(attrs, context.actor)
-        :query_knowledge -> %{"data" => Cartulary.Memory.query_knowledge(attrs, context.actor)}
-        :check_readiness -> Cartulary.Memory.check_readiness(attrs, context.actor)
+        :get_context -> MemHouse.Memory.get_context(attrs, context.actor)
+        :search -> MemHouse.Memory.search(attrs, context.actor)
+        :ask -> MemHouse.Memory.ask(attrs, context.actor)
+        :query_knowledge -> %{"data" => MemHouse.Memory.query_knowledge(attrs, context.actor)}
+        :check_readiness -> MemHouse.Memory.check_readiness(attrs, context.actor)
       end
 
     # Only a question that shares vocabulary with what the caller just asked about is offered,
@@ -95,7 +95,7 @@ defmodule Cartulary.Governance.Actions.McpRead do
     # Runs after the read on purpose: attachment is best effort and returns nil on timeout,
     # rate limit, pause, or no match, so it can never delay or break the answer.
     pending =
-      Cartulary.Governance.PeerQueue.attach(
+      MemHouse.Governance.PeerQueue.attach(
         context.actor,
         attrs["session_id"],
         Atom.to_string(operation),
@@ -113,7 +113,7 @@ defmodule Cartulary.Governance.Actions.McpRead do
   end
 end
 
-defmodule Cartulary.Governance.Actions.ResolveValidation do
+defmodule MemHouse.Governance.Actions.ResolveValidation do
   @moduledoc """
   Implementation behind the `resolve_validation` tool: relays one peer's answer to one question.
 
@@ -143,7 +143,7 @@ defmodule Cartulary.Governance.Actions.ResolveValidation do
   def run(input, _opts, context) do
     arguments = input.arguments
 
-    case Cartulary.Governance.PeerQueue.resolve(
+    case MemHouse.Governance.PeerQueue.resolve(
            context.actor,
            Map.fetch!(arguments, :id),
            Map.fetch!(arguments, :verdict),
@@ -157,7 +157,7 @@ defmodule Cartulary.Governance.Actions.ResolveValidation do
   end
 end
 
-defmodule Cartulary.Governance.Actions.SetAskPreference do
+defmodule MemHouse.Governance.Actions.SetAskPreference do
   @moduledoc """
   Implementation behind the `set_ask_preference` tool: lets a peer turn their own interruptions
   down.
@@ -168,7 +168,7 @@ defmodule Cartulary.Governance.Actions.SetAskPreference do
   """
   use Ash.Resource.Actions.Implementation
 
-  alias Cartulary.Clock
+  alias MemHouse.Clock
 
   @doc """
   Applies the requested reductions and returns the values that ended up stored.
@@ -198,7 +198,7 @@ defmodule Cartulary.Governance.Actions.SetAskPreference do
         )
     }
 
-    preference = Cartulary.Governance.PeerQueue.restrict_preferences(context.actor, attrs)
+    preference = MemHouse.Governance.PeerQueue.restrict_preferences(context.actor, attrs)
 
     {:ok,
      %{

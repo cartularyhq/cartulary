@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
 # Compile-time (build-time) configuration for the whole application.
 #
@@ -16,30 +16,30 @@
 import Config
 
 # Ash logs a warning when an action produces change notifications that nothing
-# dispatches. Cartulary registers no Ash notifiers: projection-cache
+# dispatches. MemHouse registers no Ash notifiers: projection-cache
 # invalidation is broadcast explicitly over Phoenix PubSub instead. Those
 # undispatched notifications are therefore expected, and the warning would be
 # constant noise that hides real problems.
 config :ash, :missed_notifications, :ignore
 
-config :cartulary,
-  ecto_repos: [Cartulary.Repo],
+config :memhouse,
+  ecto_repos: [MemHouse.Repo],
   # The ten domains below are the complete durable data boundary. Every durable
   # write goes through an Ash action on a resource owned by one of them; code
   # that writes to Postgres outside this list is a defect. AshOban also reads
   # this list to discover job triggers, so a domain missing here silently loses
   # its background jobs.
   ash_domains: [
-    Cartulary.Accounts,
-    Cartulary.Topology,
-    Cartulary.Observations,
-    Cartulary.Documents,
-    Cartulary.Knowledge,
-    Cartulary.Governance,
-    Cartulary.Model,
-    Cartulary.Retrieval,
-    Cartulary.Skills,
-    Cartulary.Operations
+    MemHouse.Accounts,
+    MemHouse.Topology,
+    MemHouse.Observations,
+    MemHouse.Documents,
+    MemHouse.Knowledge,
+    MemHouse.Governance,
+    MemHouse.Model,
+    MemHouse.Retrieval,
+    MemHouse.Skills,
+    MemHouse.Operations
   ],
   generators: [timestamp_type: :utc_datetime]
 
@@ -47,7 +47,7 @@ config :cartulary,
 # `vector` column type on top of the stock Ecto Postgres extensions, so
 # embeddings travel as real vectors rather than float arrays. This must be a
 # compile-time setting: Postgrex builds the type module while compiling.
-config :cartulary, Cartulary.Repo, types: Cartulary.PostgrexTypes
+config :memhouse, MemHouse.Repo, types: MemHouse.PostgrexTypes
 
 # Where Postgres lives. This is an infrastructure seam, not a behaviour switch:
 # `"pg0"` means the release supervises its own checksum-pinned PostgreSQL
@@ -56,7 +56,7 @@ config :cartulary, Cartulary.Repo, types: Cartulary.PostgrexTypes
 # location of the database differs. `config/runtime.exs` sets the real values
 # from the environment on every boot. The defaults below exist so source
 # checkouts and Mix tasks work against a developer's own local Postgres.
-config :cartulary, :database,
+config :memhouse, :database,
   mode: "external",
   database_url: nil,
   # Whether the release runs pending migrations itself as a supervised startup
@@ -74,12 +74,12 @@ config :cartulary, :database,
     # unless this points at a real, readable, executable file, and the packaged
     # release resolves it inside the unpacked release root instead.
     binary: "/private/tmp/pg0",
-    name: "cartulary",
+    name: "memhouse",
     # The PostgreSQL version the launcher is asked for. It must match the
     # version bundled in the pinned pg0 asset; that asset's own version and its
     # per-platform SHA-256 digests live in `rel/pg0/`.
     postgres_version: "18.1.0",
-    data_dir: Path.join(System.tmp_dir!(), "cartulary-pg0"),
+    data_dir: Path.join(System.tmp_dir!(), "memhouse-pg0"),
     # TCP port for the supervised instance. When the launcher has to start a new
     # instance it refuses to boot if something already listens here rather than
     # attaching to a stranger's database; when this data directory already has a
@@ -87,22 +87,22 @@ config :cartulary, :database,
     port: 5432,
     username: "postgres",
     password: "postgres",
-    database: "cartulary"
+    database: "memhouse"
   ]
 
 # When true, booting in external mode without a DATABASE_URL is a hard failure
 # instead of a fallback to the per-environment Repo settings. Only a production
 # boot in external mode turns this on; dev and test rely on their own Repo
 # credentials.
-config :cartulary, :require_database_url, false
+config :memhouse, :require_database_url, false
 
 # The updater verifies release manifests with this embedded Ed25519 public key.
 # It is deliberately not a runtime secret: the matching private key exists only
 # in the protected release-publishing workflow secret.
-config :cartulary, :update,
+config :memhouse, :update,
   enabled: true,
   database_mode: "external",
-  source: "https://api.github.com/repos/cartularyhq/cartulary/releases/latest",
+  source: "https://api.github.com/repos/memhousehq/memhouse/releases/latest",
   public_key: "rgklaZ7eR1NlTXW5SPNdKlbvVmMyyAiJ6H3rfFvnZxM=",
   auto_update: :off,
   interval_hours: 24,
@@ -114,17 +114,17 @@ config :cartulary, :update,
 # from the caller's verified credential, never from a request parameter, so
 # changing these values does not change tenancy rules. `signing_secret` is added
 # only at runtime and is never stored here.
-config :cartulary, :identity,
+config :memhouse, :identity,
   account_key: "local",
-  account_name: "Local Cartulary"
+  account_name: "Local MemHouse"
 
-config :cartulary, Oban,
+config :memhouse, Oban,
   # The Postgres-backed engine is used in every deployment mode. Do not swap in
   # a lite/SQLite engine or an external broker: durable job insertion has to
   # commit in the same PostgreSQL transaction as the state change and the audit
   # entry that requested it.
   engine: Oban.Engines.Basic,
-  repo: Cartulary.Repo,
+  repo: MemHouse.Repo,
   # Queue names are the lanes of the pipeline; the integer is the maximum number
   # of concurrently executing jobs of that lane per node. Ingest is the user-
   # facing lane and gets the widest concurrency; portability and reconciliation
@@ -156,7 +156,7 @@ config :cartulary, Oban,
   # `:plugins` value that is not a non-empty list as "disable peer leadership entirely", and
   # Oban's stager (core infrastructure, not a plugin, in the pinned Oban version) only
   # promotes delayed `scheduled`/`retryable` jobs back to `available` while its node holds
-  # leadership. `Cartulary.Application.oban_config/0` restores the ordinary database-backed
+  # leadership. `MemHouse.Application.oban_config/0` restores the ordinary database-backed
   # peer after AshOban's merge for exactly this reason — see the comment there before changing
   # this value.
   plugins: false
@@ -181,7 +181,7 @@ config :ash_oban,
 # `deadline_ms` is a hard wall-clock ceiling in milliseconds covering strategy execution and
 # any reranking. Strategies that miss it are dropped from the result, never retried, and the
 # response reports them as dropped. Raising a deadline trades tail latency for recall.
-config :cartulary, :retrieval_profiles,
+config :memhouse, :retrieval_profiles,
   fast: %{
     version: "f7-1",
     strategies: [:semantic, :salience_recency],
@@ -261,7 +261,7 @@ config :cartulary, :retrieval_profiles,
 # pending question to the response so the peer can confirm or correct a claim.
 # None of these values is load-bearing on correctness; together they trade queue
 # drainage against how often a peer is interrupted.
-config :cartulary, :governance,
+config :memhouse, :governance,
   # Hard ceiling in milliseconds for the attach query, which runs after the read
   # result is already assembled. Exceeding it means no question is attached and
   # the read is returned unchanged. A question must never delay or break a read.
@@ -288,32 +288,32 @@ config :cartulary, :governance,
 # validation; each repair re-prompts with the validation errors. The generator
 # also hard-caps at 2 in code, so raising this number alone has no effect.
 # Malformed output is never accepted.
-config :cartulary, :model_layer, max_repairs: 2
+config :memhouse, :model_layer, max_repairs: 2
 
 # Token admission limits per metric, per calendar day. Empty means unlimited;
 # real values arrive at runtime. Reaching a limit refuses only the background
 # dream-time lane, never ingest or a governed read.
-config :cartulary, :budget_limits, %{}
+config :memhouse, :budget_limits, %{}
 
 # Operator-supplied rates in USD per million tokens, keyed by model role. Empty
 # means the cost report totals zero. There is no hidden billing state and no
 # vendor price list: self-hosted cost visibility uses only what the operator
 # declares here.
-config :cartulary, :model_cost_per_million, %{}
+config :memhouse, :model_cost_per_million, %{}
 
 # Use the same Req HTTP client the rest of the app uses rather than pulling in a
 # second HTTP stack for S3 calls.
 config :ex_aws, http_client: ExAws.Request.Req
 
-config :cartulary, :documents,
+config :memhouse, :documents,
   # Where document bytes live. Local content-addressed files by default; S3 (or
   # any S3-compatible endpoint) is the other supported adapter. This is an
   # infrastructure seam: adapter choice must not change supersession, tombstone,
   # or export semantics.
-  blob_adapter: Cartulary.Documents.BlobStore.Local,
+  blob_adapter: MemHouse.Documents.BlobStore.Local,
   # Development default only. A real deployment must set an absolute, durable
   # path; a temp directory loses original document bytes on reboot.
-  blob_root: Path.join(System.tmp_dir!(), "cartulary-blobs"),
+  blob_root: Path.join(System.tmp_dir!(), "memhouse-blobs"),
   # Chunk geometry in characters. The overlap keeps a sentence that straddles a
   # boundary retrievable from either chunk. Chunks and their embeddings are
   # rebuildable derived caches, so changing these values does not rewrite
@@ -339,7 +339,7 @@ config :cartulary, :documents,
 # The `deterministic` provider is a local, offline, test-and-development fallback. Production
 # must not select it, and must never fall back to it after a live provider fails, because its
 # output is not a real model answer.
-config :cartulary, :model_roles,
+config :memhouse, :model_roles,
   embedder: %{
     # Ortex runs an ONNX model from operator-supplied files on this machine.
     # Nothing is downloaded and no text leaves the host; a missing artifact is
@@ -385,10 +385,10 @@ config :cartulary, :model_roles,
 # wins over a role's own `api_key_ref`. It ships as nil, and only a *reference*
 # to where a credential lives is configured, so no plaintext key is ever placed
 # in configuration or persisted with a model role.
-config :cartulary, :models, api_key: nil, api_key_ref: "env:OPENROUTER_API_KEY"
+config :memhouse, :models, api_key: nil, api_key_ref: "env:OPENROUTER_API_KEY"
 
 # Configure the endpoint
-config :cartulary, CartularyWeb.Endpoint,
+config :memhouse, CartularyWeb.Endpoint,
   url: [host: "localhost"],
   adapter: Bandit.PhoenixAdapter,
   # Errors render as JSON only. This is an API-first surface; there is no HTML
@@ -397,7 +397,7 @@ config :cartulary, CartularyWeb.Endpoint,
     formats: [json: CartularyWeb.ErrorJSON],
     layout: false
   ],
-  pubsub_server: Cartulary.PubSub,
+  pubsub_server: MemHouse.PubSub,
   # A salt, not a secret: it namespaces LiveView session signing. The actual
   # signing strength comes from `secret_key_base`, which is per-environment and
   # never committed for production.

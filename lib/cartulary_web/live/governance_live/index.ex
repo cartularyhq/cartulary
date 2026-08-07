@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
 defmodule CartularyWeb.GovernanceLive.Index do
   @moduledoc """
@@ -12,13 +12,13 @@ defmodule CartularyWeb.GovernanceLive.Index do
 
   import CartularyWeb.ConsoleComponents
 
-  alias Cartulary.DataLayer
-  alias Cartulary.Governance.Engine
-  alias Cartulary.Governance.ValidationItem
-  alias Cartulary.Knowledge.KnowledgeItem
-  alias Cartulary.Skills
-  alias Cartulary.Skills.SkillRequirementCard
-  alias Cartulary.Topology.Scope
+  alias MemHouse.DataLayer
+  alias MemHouse.Governance.Engine
+  alias MemHouse.Governance.ValidationItem
+  alias MemHouse.Knowledge.KnowledgeItem
+  alias MemHouse.Skills
+  alias MemHouse.Skills.SkillRequirementCard
+  alias MemHouse.Topology.Scope
 
   require Ash.Query
 

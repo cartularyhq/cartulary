@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Governance.GateRule do
+defmodule MemHouse.Governance.GateRule do
   @moduledoc """
   One cell of the versioned matrix that decides what happens to a proposed piece of knowledge.
 
@@ -34,7 +34,7 @@ defmodule Cartulary.Governance.GateRule do
   credentials cannot inspect or weaken them.
   """
 
-  use Cartulary.Resource, domain: Cartulary.Governance, table: "governance_gate_rules"
+  use MemHouse.Resource, domain: MemHouse.Governance, table: "governance_gate_rules"
 
   # Attribute multitenancy plus Postgres row-level security keep one Account's matrix invisible
   # to every other Account.
@@ -65,7 +65,7 @@ defmodule Cartulary.Governance.GateRule do
         :active
       ]
 
-      change {Cartulary.Governance.Changes.AuditResource,
+      change {MemHouse.Governance.Changes.AuditResource,
               category: "configuration",
               action: "gate_rule.created",
               resource_type: "gate_rule",
@@ -106,7 +106,7 @@ defmodule Cartulary.Governance.GateRule do
 
       require_atomic? false
 
-      change {Cartulary.Governance.Changes.AuditResource,
+      change {MemHouse.Governance.Changes.AuditResource,
               category: "configuration",
               action: "gate_rule.updated",
               resource_type: "gate_rule",
@@ -135,12 +135,12 @@ defmodule Cartulary.Governance.GateRule do
     end
 
     policy action_type([:create, :update, :destroy]) do
-      authorize_if {Cartulary.Policy.HumanRoleIn, roles: [:account_admin, :curator]}
+      authorize_if {MemHouse.Policy.HumanRoleIn, roles: [:account_admin, :curator]}
       authorize_if actor_attribute_equals(:pipeline?, true)
     end
 
     policy action_type(:read) do
-      authorize_if {Cartulary.Policy.HumanRoleIn, roles: [:account_admin, :curator]}
+      authorize_if {MemHouse.Policy.HumanRoleIn, roles: [:account_admin, :curator]}
       authorize_if actor_attribute_equals(:pipeline?, true)
     end
   end
@@ -186,7 +186,7 @@ defmodule Cartulary.Governance.GateRule do
   end
 end
 
-defmodule Cartulary.Governance.ValidationItem do
+defmodule MemHouse.Governance.ValidationItem do
   @moduledoc """
   One outstanding or settled request for judgment about one knowledge item.
 
@@ -210,11 +210,11 @@ defmodule Cartulary.Governance.ValidationItem do
   The row references content, it does not hold it. `statement_hash` is a digest and is not
   exposed publicly; `provenance_ids` and `conflict_knowledge_ids` are id lists so a reviewing UI
   can fetch the underlying records under its own authorization. The one place a statement's text
-  is stored for review is `Cartulary.Governance.PeerQuery`, which must quote it back to its
+  is stored for review is `MemHouse.Governance.PeerQuery`, which must quote it back to its
   subject.
   """
 
-  use Cartulary.Resource, domain: Cartulary.Governance, table: "validation_items"
+  use MemHouse.Resource, domain: MemHouse.Governance, table: "validation_items"
 
   # Attribute multitenancy plus Postgres row-level security keep one Account's review queue
   # invisible to every other Account.
@@ -301,12 +301,12 @@ defmodule Cartulary.Governance.ValidationItem do
     end
 
     policy action_type([:create, :update]) do
-      authorize_if {Cartulary.Policy.HumanRoleIn, roles: [:account_admin, :curator]}
+      authorize_if {MemHouse.Policy.HumanRoleIn, roles: [:account_admin, :curator]}
       authorize_if actor_attribute_equals(:pipeline?, true)
     end
 
     policy action_type(:read) do
-      authorize_if {Cartulary.Policy.HumanScopeRole,
+      authorize_if {MemHouse.Policy.HumanScopeRole,
                     roles: [:account_admin, :curator], attribute: :scope_id}
 
       authorize_if expr(subject_peer_id == ^actor(:peer_id))
@@ -360,7 +360,7 @@ defmodule Cartulary.Governance.ValidationItem do
   end
 end
 
-defmodule Cartulary.Governance.GateDecision do
+defmodule MemHouse.Governance.GateDecision do
   @moduledoc """
   One immutable history row for a single gate outcome, automatic or human.
 
@@ -378,7 +378,7 @@ defmodule Cartulary.Governance.GateDecision do
   Rows are append-only. `statement_hash` is private and metadata is content-safe.
   """
 
-  use Cartulary.Resource, domain: Cartulary.Governance, table: "gate_decisions"
+  use MemHouse.Resource, domain: MemHouse.Governance, table: "gate_decisions"
 
   # Attribute multitenancy plus Postgres row-level security keep decision history inside one
   # Account.
@@ -421,12 +421,12 @@ defmodule Cartulary.Governance.GateDecision do
     end
 
     policy action(:record) do
-      authorize_if {Cartulary.Policy.HumanRoleIn, roles: [:account_admin, :curator]}
+      authorize_if {MemHouse.Policy.HumanRoleIn, roles: [:account_admin, :curator]}
       authorize_if actor_attribute_equals(:pipeline?, true)
     end
 
     policy action_type(:read) do
-      authorize_if {Cartulary.Policy.HumanRoleIn, roles: [:account_admin, :curator]}
+      authorize_if {MemHouse.Policy.HumanRoleIn, roles: [:account_admin, :curator]}
       authorize_if actor_attribute_equals(:pipeline?, true)
     end
   end
@@ -460,7 +460,7 @@ defmodule Cartulary.Governance.GateDecision do
   end
 end
 
-defmodule Cartulary.Governance.Consent do
+defmodule MemHouse.Governance.Consent do
   @moduledoc """
   One subject's answer to one request to share one personal statement with one wider scope.
 
@@ -482,7 +482,7 @@ defmodule Cartulary.Governance.Consent do
   The row records decider, channel, and verification.
   """
 
-  use Cartulary.Resource, domain: Cartulary.Governance, table: "knowledge_consents"
+  use MemHouse.Resource, domain: MemHouse.Governance, table: "knowledge_consents"
 
   # Attribute multitenancy plus Postgres row-level security keep consent records inside one
   # Account.
@@ -528,13 +528,13 @@ defmodule Cartulary.Governance.Consent do
     end
 
     policy action(:decide) do
-      authorize_if {Cartulary.Policy.HumanOwns, attribute: :subject_peer_id}
+      authorize_if {MemHouse.Policy.HumanOwns, attribute: :subject_peer_id}
       authorize_if actor_attribute_equals(:pipeline?, true)
     end
 
     policy action_type(:read) do
       authorize_if expr(subject_peer_id == ^actor(:peer_id))
-      authorize_if {Cartulary.Policy.HumanRoleIn, roles: [:account_admin, :curator]}
+      authorize_if {MemHouse.Policy.HumanRoleIn, roles: [:account_admin, :curator]}
       authorize_if actor_attribute_equals(:pipeline?, true)
     end
   end
@@ -565,7 +565,7 @@ defmodule Cartulary.Governance.Consent do
   end
 end
 
-defmodule Cartulary.Governance.PeerQuery do
+defmodule MemHouse.Governance.PeerQuery do
   @moduledoc """
   One question waiting to be put to one peer, with the exact wording frozen at creation time.
 
@@ -589,7 +589,7 @@ defmodule Cartulary.Governance.PeerQuery do
   currently allows 14 days.
   """
 
-  use Cartulary.Resource, domain: Cartulary.Governance, table: "peer_queries"
+  use MemHouse.Resource, domain: MemHouse.Governance, table: "peer_queries"
 
   # Attribute multitenancy plus Postgres row-level security keep questions, including the frozen
   # statement text, inside one Account.
@@ -671,7 +671,7 @@ defmodule Cartulary.Governance.PeerQuery do
 
     policy action_type(:read) do
       authorize_if expr(peer_id == ^actor(:peer_id))
-      authorize_if {Cartulary.Policy.HumanRoleIn, roles: [:account_admin, :curator]}
+      authorize_if {MemHouse.Policy.HumanRoleIn, roles: [:account_admin, :curator]}
       authorize_if actor_attribute_equals(:pipeline?, true)
     end
   end
@@ -709,7 +709,7 @@ defmodule Cartulary.Governance.PeerQuery do
   end
 end
 
-defmodule Cartulary.Governance.PeerQueryDelivery do
+defmodule MemHouse.Governance.PeerQueryDelivery do
   @moduledoc """
   Evidence that one question was actually put to one peer in one session, and what came back.
 
@@ -726,7 +726,7 @@ defmodule Cartulary.Governance.PeerQueryDelivery do
   exists so subject erasure can remove the delivery trail along with the question.
   """
 
-  use Cartulary.Resource, domain: Cartulary.Governance, table: "peer_query_deliveries"
+  use MemHouse.Resource, domain: MemHouse.Governance, table: "peer_query_deliveries"
 
   # Attribute multitenancy plus Postgres row-level security keep delivery evidence inside one
   # Account.
@@ -790,7 +790,7 @@ defmodule Cartulary.Governance.PeerQueryDelivery do
 
     policy action_type(:read) do
       authorize_if expr(peer_id == ^actor(:peer_id))
-      authorize_if {Cartulary.Policy.HumanRoleIn, roles: [:account_admin, :curator]}
+      authorize_if {MemHouse.Policy.HumanRoleIn, roles: [:account_admin, :curator]}
       authorize_if actor_attribute_equals(:pipeline?, true)
     end
   end
@@ -826,7 +826,7 @@ defmodule Cartulary.Governance.PeerQueryDelivery do
   end
 end
 
-defmodule Cartulary.Governance.PeerAskPreference do
+defmodule MemHouse.Governance.PeerAskPreference do
   @moduledoc """
   How willing one peer is to be interrupted by inline validation questions.
 
@@ -836,7 +836,7 @@ defmodule Cartulary.Governance.PeerAskPreference do
   Two update paths exist and they are not interchangeable:
 
   * `:restrict` takes arguments rather than attributes and runs them through
-    `Cartulary.Governance.Changes.ClampAskPreference`, which allows only tightening. This is the
+    `MemHouse.Governance.Changes.ClampAskPreference`, which allows only tightening. This is the
     path a peer's own agent uses, so a peer can always turn the volume down on themselves.
   * `:configure` writes the values directly and is the only way limits go back up. It is
     restricted to a password-session administrator or curator.
@@ -844,7 +844,7 @@ defmodule Cartulary.Governance.PeerAskPreference do
   `:ensure` is a get-or-create used by the delivery path before it checks limits.
   """
 
-  use Cartulary.Resource, domain: Cartulary.Governance, table: "peer_ask_preferences"
+  use MemHouse.Resource, domain: MemHouse.Governance, table: "peer_ask_preferences"
 
   # Attribute multitenancy plus Postgres row-level security keep preferences inside one Account.
   multitenancy do
@@ -873,7 +873,7 @@ defmodule Cartulary.Governance.PeerAskPreference do
       argument :max_per_day, :integer
       argument :paused_until, :utc_datetime_usec
       require_atomic? false
-      change Cartulary.Governance.Changes.ClampAskPreference
+      change MemHouse.Governance.Changes.ClampAskPreference
     end
 
     # Unclamped administrative write: the only path that can raise a limit or lift a pause.
@@ -898,12 +898,12 @@ defmodule Cartulary.Governance.PeerAskPreference do
     end
 
     policy action(:configure) do
-      authorize_if {Cartulary.Policy.HumanRoleIn, roles: [:account_admin, :curator]}
+      authorize_if {MemHouse.Policy.HumanRoleIn, roles: [:account_admin, :curator]}
     end
 
     policy action_type(:read) do
       authorize_if expr(peer_id == ^actor(:peer_id))
-      authorize_if {Cartulary.Policy.HumanRoleIn, roles: [:account_admin, :curator]}
+      authorize_if {MemHouse.Policy.HumanRoleIn, roles: [:account_admin, :curator]}
       authorize_if actor_attribute_equals(:pipeline?, true)
     end
   end
@@ -930,7 +930,7 @@ defmodule Cartulary.Governance.PeerAskPreference do
   end
 end
 
-defmodule Cartulary.Governance.ErasureRequest do
+defmodule MemHouse.Governance.ErasureRequest do
   @moduledoc """
   The durable record that a person's data was erased, and what that erasure actually touched.
 
@@ -950,7 +950,7 @@ defmodule Cartulary.Governance.ErasureRequest do
   work, so a `"completed"` state with counts cannot be fabricated by a caller.
   """
 
-  use Cartulary.Resource, domain: Cartulary.Governance, table: "erasure_requests"
+  use MemHouse.Resource, domain: MemHouse.Governance, table: "erasure_requests"
 
   # Attribute multitenancy plus Postgres row-level security keep erasure records inside one
   # Account.
@@ -986,7 +986,7 @@ defmodule Cartulary.Governance.ErasureRequest do
 
     policy action(:request) do
       authorize_if expr(peer_id == ^actor(:peer_id))
-      authorize_if {Cartulary.Policy.HumanRoleIn, roles: [:account_admin]}
+      authorize_if {MemHouse.Policy.HumanRoleIn, roles: [:account_admin]}
     end
 
     policy action(:complete) do
@@ -995,7 +995,7 @@ defmodule Cartulary.Governance.ErasureRequest do
 
     policy action_type(:read) do
       authorize_if expr(peer_id == ^actor(:peer_id))
-      authorize_if {Cartulary.Policy.HumanRoleIn, roles: [:account_admin]}
+      authorize_if {MemHouse.Policy.HumanRoleIn, roles: [:account_admin]}
       authorize_if actor_attribute_equals(:pipeline?, true)
     end
   end
@@ -1020,7 +1020,7 @@ defmodule Cartulary.Governance.ErasureRequest do
   end
 end
 
-defmodule Cartulary.Governance.McpTools do
+defmodule MemHouse.Governance.McpTools do
   @moduledoc """
   The complete tool surface an external agent can reach, declared as generic Ash actions.
 
@@ -1045,8 +1045,8 @@ defmodule Cartulary.Governance.McpTools do
   """
 
   use Ash.Resource,
-    otp_app: :cartulary,
-    domain: Cartulary.Governance,
+    otp_app: :memhouse,
+    domain: MemHouse.Governance,
     authorizers: [Ash.Policy.Authorizer]
 
   actions do
@@ -1060,7 +1060,7 @@ defmodule Cartulary.Governance.McpTools do
       argument :scope_path, :string, allow_nil?: false, public?: true
       argument :role, :string, default: "user", public?: true
       argument :content, :string, allow_nil?: false, public?: true
-      run Cartulary.Governance.Actions.McpIngest
+      run MemHouse.Governance.Actions.McpIngest
     end
 
     # Reads precomputed projections and calls no model to assemble them. When no usable
@@ -1072,7 +1072,7 @@ defmodule Cartulary.Governance.McpTools do
       argument :scope_path, :string, allow_nil?: false, public?: true
       argument :query, :string, public?: true
       argument :limit, :integer, public?: true
-      run {Cartulary.Governance.Actions.McpRead, operation: :get_context}
+      run {MemHouse.Governance.Actions.McpRead, operation: :get_context}
     end
 
     # `profile` trades breadth against latency. Search defaults to the balanced profile and ask
@@ -1084,7 +1084,7 @@ defmodule Cartulary.Governance.McpTools do
       argument :query, :string, allow_nil?: false, public?: true
       argument :profile, :string, default: "balanced", public?: true
       argument :limit, :integer, public?: true
-      run {Cartulary.Governance.Actions.McpRead, operation: :search}
+      run {MemHouse.Governance.Actions.McpRead, operation: :search}
     end
 
     action :ask, :map do
@@ -1093,7 +1093,7 @@ defmodule Cartulary.Governance.McpTools do
       argument :scope_path, :string, allow_nil?: false, public?: true
       argument :question, :string, allow_nil?: false, public?: true
       argument :profile, :string, default: "thorough", public?: true
-      run {Cartulary.Governance.Actions.McpRead, operation: :ask}
+      run {MemHouse.Governance.Actions.McpRead, operation: :ask}
     end
 
     # Structured listing rather than retrieval. `state` filters on lifecycle state; items the
@@ -1104,7 +1104,7 @@ defmodule Cartulary.Governance.McpTools do
       argument :scope_path, :string, allow_nil?: false, public?: true
       argument :state, :string, public?: true
       argument :limit, :integer, public?: true
-      run {Cartulary.Governance.Actions.McpRead, operation: :query_knowledge}
+      run {MemHouse.Governance.Actions.McpRead, operation: :query_knowledge}
     end
 
     action :check_readiness, :map do
@@ -1113,7 +1113,7 @@ defmodule Cartulary.Governance.McpTools do
       argument :skill, :string, allow_nil?: false, public?: true
       argument :scope_path, :string, allow_nil?: false, public?: true
       argument :peer_id, :uuid, public?: true
-      run {Cartulary.Governance.Actions.McpRead, operation: :check_readiness}
+      run {MemHouse.Governance.Actions.McpRead, operation: :check_readiness}
     end
 
     # The answer is treated as a claim, not proof. `shown_text` is what the agent says it
@@ -1125,7 +1125,7 @@ defmodule Cartulary.Governance.McpTools do
       argument :verdict, :string, allow_nil?: false, public?: true
       argument :shown_text, :string, public?: true
       argument :correction_text, :string, public?: true
-      run Cartulary.Governance.Actions.ResolveValidation
+      run MemHouse.Governance.Actions.ResolveValidation
     end
 
     # Tighten-only, and always about the calling peer: there is no argument naming a peer, and
@@ -1136,7 +1136,7 @@ defmodule Cartulary.Governance.McpTools do
       argument :max_per_session, :integer, public?: true
       argument :max_per_day, :integer, public?: true
       argument :pause_for_hours, :integer, public?: true
-      run Cartulary.Governance.Actions.SetAskPreference
+      run MemHouse.Governance.Actions.SetAskPreference
     end
   end
 

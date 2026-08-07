@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.F3IdentityTenancyBasicRbacTest do
+defmodule MemHouse.F3IdentityTenancyBasicRbacTest do
   @moduledoc """
   Pins how a caller becomes an authorized actor: who they are, which Account that puts
     them in, and which scopes they may touch.
@@ -11,15 +11,15 @@ defmodule Cartulary.F3IdentityTenancyBasicRbacTest do
   use CartularyWeb.ConnCase, async: false
   use ExUnitProperties
 
-  alias Cartulary.Accounts.ApiKey
-  alias Cartulary.Accounts.Peer
-  alias Cartulary.DataLayer
-  alias Cartulary.Identity
-  alias Cartulary.Identity.RoleResolver
-  alias Cartulary.Repo
-  alias Cartulary.Topology.RoleGrant
-  alias Cartulary.Topology.Scope
-  alias Cartulary.Topology.ScopeRelation
+  alias MemHouse.Accounts.ApiKey
+  alias MemHouse.Accounts.Peer
+  alias MemHouse.DataLayer
+  alias MemHouse.Identity
+  alias MemHouse.Identity.RoleResolver
+  alias MemHouse.Repo
+  alias MemHouse.Topology.RoleGrant
+  alias MemHouse.Topology.Scope
+  alias MemHouse.Topology.ScopeRelation
 
   require Ash.Query
 
@@ -110,7 +110,7 @@ defmodule Cartulary.F3IdentityTenancyBasicRbacTest do
     # key is declared, never the id, matching the row this statement is about to attempt.
     Ecto.Adapters.SQL.query!(
       Repo,
-      "SELECT set_config('cartulary.account_key', $1, true)",
+      "SELECT set_config('memhouse.account_key', $1, true)",
       ["second-free"]
     )
 
@@ -376,7 +376,7 @@ defmodule Cartulary.F3IdentityTenancyBasicRbacTest do
       role: role,
       effect: effect,
       propagate: propagate,
-      granted_at: Cartulary.Clock.utc_now()
+      granted_at: MemHouse.Clock.utc_now()
     })
     |> Ash.create!(actor: actor)
   end

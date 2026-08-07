@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Update.Checker do
+defmodule MemHouse.Update.Checker do
   @moduledoc """
   Periodically refreshes update availability without delaying application boot.
 
@@ -21,8 +21,8 @@ defmodule Cartulary.Update.Checker do
 
   @impl true
   def handle_info(:check, state) do
-    _ = Cartulary.Update.check()
-    hours = Application.get_env(:cartulary, :update, []) |> Keyword.get(:interval_hours, 24)
+    _ = MemHouse.Update.check()
+    hours = Application.get_env(:memhouse, :update, []) |> Keyword.get(:interval_hours, 24)
     Process.send_after(self(), :check, hours * 60 * 60 * 1_000)
     {:noreply, state}
   end

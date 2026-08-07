@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Context.Cache do
+defmodule MemHouse.Context.Cache do
   @moduledoc """
   Node-local in-memory cache of clean context projections, with cluster-wide invalidation.
 
@@ -53,7 +53,7 @@ defmodule Cartulary.Context.Cache do
     :ets.match_delete(@table, {{account_id, scope_id, :_}, :_})
 
     Phoenix.PubSub.broadcast(
-      Cartulary.PubSub,
+      MemHouse.PubSub,
       "context-invalidation",
       {:invalidate, account_id, scope_id}
     )
@@ -65,7 +65,7 @@ defmodule Cartulary.Context.Cache do
   def init(:ok) do
     # Public reads avoid a GenServer round trip; context assembly is read-heavy.
     :ets.new(@table, [:named_table, :public, :set, read_concurrency: true])
-    :ok = Phoenix.PubSub.subscribe(Cartulary.PubSub, "context-invalidation")
+    :ok = Phoenix.PubSub.subscribe(MemHouse.PubSub, "context-invalidation")
     {:ok, %{}}
   end
 

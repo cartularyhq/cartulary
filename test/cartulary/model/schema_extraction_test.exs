@@ -1,8 +1,8 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Model.SchemaExtractionTest do
+defmodule MemHouse.Model.SchemaExtractionTest do
   @moduledoc """
-  Pins `Cartulary.Model.Schema.Extraction.cast/2` percentage handling.
+  Pins `MemHouse.Model.Schema.Extraction.cast/2` percentage handling.
 
   Providers receive a strict integer `confidence_percentage` schema from 1
   through 100. The cast path accepts a decorated string defensively, strips
@@ -12,7 +12,7 @@ defmodule Cartulary.Model.SchemaExtractionTest do
 
   use ExUnit.Case, async: true
 
-  alias Cartulary.Model.Schema.Extraction
+  alias MemHouse.Model.Schema.Extraction
 
   @account_id Ecto.UUID.generate()
   @scope_id Ecto.UUID.generate()

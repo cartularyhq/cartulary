@@ -1,11 +1,11 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
 defmodule CartularyWeb.Plugs.RequireIdentity do
   @moduledoc """
   Turns an HTTP bearer credential into the request's authenticated actor.
 
   This is the only place an HTTP request acquires an Account. Both human tokens and
-  machine API keys resolve through `Cartulary.Identity`; caller-supplied Account values
+  machine API keys resolve through `MemHouse.Identity`; caller-supplied Account values
   are ignored. Failures return the same opaque 401.
   """
 
@@ -13,7 +13,7 @@ defmodule CartularyWeb.Plugs.RequireIdentity do
 
   import Plug.Conn
 
-  alias Cartulary.Identity
+  alias MemHouse.Identity
 
   @doc """
   Plug callback. Options are unused; whatever is passed is returned unchanged.

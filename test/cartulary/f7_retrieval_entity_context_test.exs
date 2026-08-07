@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.F7RetrievalEntityContextTest.Provider do
+defmodule MemHouse.F7RetrievalEntityContextTest.Provider do
   @moduledoc """
   Deterministic, call-recording provider for retrieval tests.
 
@@ -10,10 +10,10 @@ defmodule Cartulary.F7RetrievalEntityContextTest.Provider do
   is model-free. The singleton recorder requires synchronous tests.
   """
 
-  @behaviour Cartulary.Model.Provider
+  @behaviour MemHouse.Model.Provider
 
-  alias Cartulary.Model.Provider.Result
-  alias Cartulary.Model.Providers.Deterministic
+  alias MemHouse.Model.Provider.Result
+  alias MemHouse.Model.Providers.Deterministic
 
   @impl true
   def structured(config, messages, schema, opts) do
@@ -86,7 +86,7 @@ defmodule Cartulary.F7RetrievalEntityContextTest.Provider do
   defp record(call), do: Agent.update(__MODULE__, &[call | &1])
 end
 
-defmodule Cartulary.F7RetrievalEntityContextTest.VanishingProvider do
+defmodule MemHouse.F7RetrievalEntityContextTest.VanishingProvider do
   @moduledoc """
   Failure-injection provider for rebuild transaction boundaries.
 
@@ -97,10 +97,10 @@ defmodule Cartulary.F7RetrievalEntityContextTest.VanishingProvider do
   fail explicitly.
   """
 
-  @behaviour Cartulary.Model.Provider
+  @behaviour MemHouse.Model.Provider
 
-  alias Cartulary.Model.Provider.Result
-  alias Cartulary.Repo
+  alias MemHouse.Model.Provider.Result
+  alias MemHouse.Repo
 
   @impl true
   def structured(_config, [%{content: content}], _schema, _opts) do
@@ -143,7 +143,7 @@ defmodule Cartulary.F7RetrievalEntityContextTest.VanishingProvider do
   def rerank(_config, _query, _documents, _opts), do: {:error, :not_supported}
 end
 
-defmodule Cartulary.F7RetrievalEntityContextTest.UnavailableEmbedderProvider do
+defmodule MemHouse.F7RetrievalEntityContextTest.UnavailableEmbedderProvider do
   @moduledoc """
   Provider whose embedder is down and whose other capabilities are not.
 
@@ -151,9 +151,9 @@ defmodule Cartulary.F7RetrievalEntityContextTest.UnavailableEmbedderProvider do
   reported, rather than passing as a query that legitimately matched nothing.
   """
 
-  @behaviour Cartulary.Model.Provider
+  @behaviour MemHouse.Model.Provider
 
-  alias Cartulary.Model.Providers.Deterministic
+  alias MemHouse.Model.Providers.Deterministic
 
   @impl true
   def structured(config, messages, schema, opts),
@@ -170,13 +170,13 @@ defmodule Cartulary.F7RetrievalEntityContextTest.UnavailableEmbedderProvider do
     do: Deterministic.rerank(config, query, documents, opts)
 end
 
-defmodule Cartulary.F7RetrievalEntityContextTest.RerankFailureProvider do
+defmodule MemHouse.F7RetrievalEntityContextTest.RerankFailureProvider do
   @moduledoc "Failure-injection provider for reranker outcome classification."
 
-  @behaviour Cartulary.Model.Provider
+  @behaviour MemHouse.Model.Provider
 
-  alias Cartulary.Model.Provider.Result
-  alias Cartulary.Model.Providers.Deterministic
+  alias MemHouse.Model.Provider.Result
+  alias MemHouse.Model.Providers.Deterministic
 
   @impl true
   def structured(config, messages, schema, opts),
@@ -190,7 +190,7 @@ defmodule Cartulary.F7RetrievalEntityContextTest.RerankFailureProvider do
 
   @impl true
   def rerank(config, query, documents, opts) do
-    case Application.fetch_env!(:cartulary, :rerank_test_mode) do
+    case Application.fetch_env!(:memhouse, :rerank_test_mode) do
       :complete ->
         Deterministic.rerank(config, query, documents, opts)
 
@@ -207,7 +207,7 @@ defmodule Cartulary.F7RetrievalEntityContextTest.RerankFailureProvider do
   end
 end
 
-defmodule Cartulary.F7RetrievalEntityContextTest.CardSummaryFailureProvider do
+defmodule MemHouse.F7RetrievalEntityContextTest.CardSummaryFailureProvider do
   @moduledoc """
   Provider whose entity-card summary call fails and whose other calls do not.
 
@@ -215,9 +215,9 @@ defmodule Cartulary.F7RetrievalEntityContextTest.CardSummaryFailureProvider do
   discarding the embeddings and entity rows the same rebuild committed.
   """
 
-  @behaviour Cartulary.Model.Provider
+  @behaviour MemHouse.Model.Provider
 
-  alias Cartulary.Model.Providers.Deterministic
+  alias MemHouse.Model.Providers.Deterministic
 
   @impl true
   def structured(config, messages, schema, opts),
@@ -236,14 +236,14 @@ defmodule Cartulary.F7RetrievalEntityContextTest.CardSummaryFailureProvider do
   # The rebuild must reach its third stage for this failure injection to mean anything.
   @impl true
   def embed(config, texts, opts),
-    do: Cartulary.F7RetrievalEntityContextTest.Provider.embed(config, texts, opts)
+    do: MemHouse.F7RetrievalEntityContextTest.Provider.embed(config, texts, opts)
 
   @impl true
   def rerank(config, query, documents, opts),
     do: Deterministic.rerank(config, query, documents, opts)
 end
 
-defmodule Cartulary.F7RetrievalEntityContextTest do
+defmodule MemHouse.F7RetrievalEntityContextTest do
   @moduledoc """
   Pins retrieval, private entity caches, and reasoning-free context assembly.
 
@@ -259,15 +259,15 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
   and uses a singleton recorder.
   """
 
-  use Cartulary.DataCase, async: false
+  use MemHouse.DataCase, async: false
 
-  alias Cartulary.Actor
-  alias Cartulary.Context.Builder
-  alias Cartulary.DataLayer
-  alias Cartulary.Documents
-  alias Cartulary.Governance.Engine, as: GovernanceEngine
+  alias MemHouse.Actor
+  alias MemHouse.Context.Builder
+  alias MemHouse.DataLayer
+  alias MemHouse.Documents
+  alias MemHouse.Governance.Engine, as: GovernanceEngine
 
-  alias Cartulary.Knowledge.{
+  alias MemHouse.Knowledge.{
     Entity,
     EntityMention,
     KnowledgeItem,
@@ -275,17 +275,17 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     Projection
   }
 
-  alias Cartulary.Identity
-  alias Cartulary.Memory
-  alias Cartulary.Observations.Session
-  alias Cartulary.Retrieval.{Candidate, EntityResolver, Fusion, Indexer, Profile, Query}
-  alias Cartulary.Retrieval.DiagnosticGrant
-  alias Cartulary.Retrieval.Strategies
-  alias Cartulary.Topology.{Scope, ScopeRelation}
+  alias MemHouse.Identity
+  alias MemHouse.Memory
+  alias MemHouse.Observations.Session
+  alias MemHouse.Retrieval.{Candidate, EntityResolver, Fusion, Indexer, Profile, Query}
+  alias MemHouse.Retrieval.DiagnosticGrant
+  alias MemHouse.Retrieval.Strategies
+  alias MemHouse.Topology.{Scope, ScopeRelation}
 
   require Ash.Query
 
-  # Every strategy Cartulary ships. Listing them here rather than reading a registry means a
+  # Every strategy MemHouse ships. Listing them here rather than reading a registry means a
   # newly added strategy makes this suite fail until someone states what it is and how it
   # behaves, which is the intended review prompt.
   @strategies [
@@ -298,9 +298,9 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
   ]
 
   setup do
-    original_provider = Application.get_env(:cartulary, :model_provider)
-    original_roles = Application.fetch_env!(:cartulary, :model_roles)
-    original_retrieval = Application.fetch_env!(:cartulary, :retrieval_profiles)
+    original_provider = Application.get_env(:memhouse, :model_provider)
+    original_roles = Application.fetch_env!(:memhouse, :model_roles)
+    original_retrieval = Application.fetch_env!(:memhouse, :retrieval_profiles)
 
     # Three dimensions, matching the recording provider's hand-built vectors. Production uses
     # 384; the small space keeps semantic ranking predictable in assertions.
@@ -314,25 +314,25 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
       end)
 
     Application.put_env(
-      :cartulary,
+      :memhouse,
       :model_provider,
-      Cartulary.F7RetrievalEntityContextTest.Provider
+      MemHouse.F7RetrievalEntityContextTest.Provider
     )
 
-    Application.put_env(:cartulary, :model_roles, roles)
-    Cartulary.F7RetrievalEntityContextTest.Provider.start!()
+    Application.put_env(:memhouse, :model_roles, roles)
+    MemHouse.F7RetrievalEntityContextTest.Provider.start!()
 
     # Retrieval profiles are restored too: one test deliberately sets a zero-millisecond
     # deadline, and leaving that in place would make every later test return nothing.
     on_exit(fn ->
-      Cartulary.F7RetrievalEntityContextTest.Provider.stop()
-      Application.put_env(:cartulary, :model_roles, original_roles)
-      Application.put_env(:cartulary, :retrieval_profiles, original_retrieval)
+      MemHouse.F7RetrievalEntityContextTest.Provider.stop()
+      Application.put_env(:memhouse, :model_roles, original_roles)
+      Application.put_env(:memhouse, :retrieval_profiles, original_retrieval)
 
       if original_provider do
-        Application.put_env(:cartulary, :model_provider, original_provider)
+        Application.put_env(:memhouse, :model_provider, original_provider)
       else
-        Application.delete_env(:cartulary, :model_provider)
+        Application.delete_env(:memhouse, :model_provider)
       end
     end)
 
@@ -814,7 +814,7 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     assert Enum.find_index(caroline_ids, &(&1 == caroline.knowledge.id)) < 12
 
     assert %{lexical_analyzer: "lexical-question-v1"} =
-             Cartulary.Retrieval.Diagnostics.latest(melanie.account.id)
+             MemHouse.Retrieval.Diagnostics.latest(melanie.account.id)
   end
 
   test "lexical question analysis preserves quoted phrases, negation, dates, and safe empty input" do
@@ -1102,20 +1102,20 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
   test "Indexer.rebuild_scope keeps a billed embedding call metered when the write phase fails" do
     seeded = seed_active!("f7-index-vanish", "/f7/index-vanish", "Vanishing indexer statement.")
 
-    original_provider = Application.get_env(:cartulary, :model_provider)
+    original_provider = Application.get_env(:memhouse, :model_provider)
 
     on_exit(fn ->
       if original_provider do
-        Application.put_env(:cartulary, :model_provider, original_provider)
+        Application.put_env(:memhouse, :model_provider, original_provider)
       else
-        Application.delete_env(:cartulary, :model_provider)
+        Application.delete_env(:memhouse, :model_provider)
       end
     end)
 
     Application.put_env(
-      :cartulary,
+      :memhouse,
       :model_provider,
-      Cartulary.F7RetrievalEntityContextTest.VanishingProvider
+      MemHouse.F7RetrievalEntityContextTest.VanishingProvider
     )
 
     # The provider deletes the very knowledge item being indexed as a side effect of
@@ -1172,20 +1172,20 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
         )
       end)
 
-    original_provider = Application.get_env(:cartulary, :model_provider)
+    original_provider = Application.get_env(:memhouse, :model_provider)
 
     on_exit(fn ->
       if original_provider do
-        Application.put_env(:cartulary, :model_provider, original_provider)
+        Application.put_env(:memhouse, :model_provider, original_provider)
       else
-        Application.delete_env(:cartulary, :model_provider)
+        Application.delete_env(:memhouse, :model_provider)
       end
     end)
 
     Application.put_env(
-      :cartulary,
+      :memhouse,
       :model_provider,
-      Cartulary.F7RetrievalEntityContextTest.VanishingProvider
+      MemHouse.F7RetrievalEntityContextTest.VanishingProvider
     )
 
     # The provider deletes the adjudicated entity as a side effect of answering, so the write
@@ -1273,7 +1273,7 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
       # set and deadline from the child, so the resolution assertions cannot both pass by
       # accident.
       create!(
-        Cartulary.Retrieval.RetrievalProfile,
+        MemHouse.Retrieval.RetrievalProfile,
         :create,
         %{
           scope_id: parent.id,
@@ -1289,7 +1289,7 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
 
       # Child scope, same profile name: lexical only, 111 ms deadline.
       create!(
-        Cartulary.Retrieval.RetrievalProfile,
+        MemHouse.Retrieval.RetrievalProfile,
         :create,
         %{
           scope_id: seeded.scope.id,
@@ -1333,11 +1333,11 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     _deadline_seed =
       seed_active!("f7-deadline", "/f7/deadline", "Avery publishes release notes.")
 
-    retrieval = Application.fetch_env!(:cartulary, :retrieval_profiles)
+    retrieval = Application.fetch_env!(:memhouse, :retrieval_profiles)
 
     # A zero-millisecond budget: nothing can finish. Restored by the suite's on_exit.
     Application.put_env(
-      :cartulary,
+      :memhouse,
       :retrieval_profiles,
       Keyword.update!(retrieval, :balanced, &Map.put(&1, :deadline_ms, 0))
     )
@@ -1481,26 +1481,26 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
 
   test "reranker completion, timeout, provider failure, and malformed output are classified" do
     seeded = seed_active!("f7-rerank-outcomes", "/f7/rerank", "Avery writes release notes.")
-    original_provider = Application.get_env(:cartulary, :model_provider)
-    original_retrieval = Application.fetch_env!(:cartulary, :retrieval_profiles)
+    original_provider = Application.get_env(:memhouse, :model_provider)
+    original_retrieval = Application.fetch_env!(:memhouse, :retrieval_profiles)
 
     on_exit(fn ->
-      Application.put_env(:cartulary, :retrieval_profiles, original_retrieval)
-      Application.delete_env(:cartulary, :rerank_test_mode)
+      Application.put_env(:memhouse, :retrieval_profiles, original_retrieval)
+      Application.delete_env(:memhouse, :rerank_test_mode)
 
       if original_provider,
-        do: Application.put_env(:cartulary, :model_provider, original_provider),
-        else: Application.delete_env(:cartulary, :model_provider)
+        do: Application.put_env(:memhouse, :model_provider, original_provider),
+        else: Application.delete_env(:memhouse, :model_provider)
     end)
 
     Application.put_env(
-      :cartulary,
+      :memhouse,
       :model_provider,
-      Cartulary.F7RetrievalEntityContextTest.RerankFailureProvider
+      MemHouse.F7RetrievalEntityContextTest.RerankFailureProvider
     )
 
     Application.put_env(
-      :cartulary,
+      :memhouse,
       :retrieval_profiles,
       Keyword.put(original_retrieval, :rerank_timeout_ms, 50)
     )
@@ -1523,7 +1523,7 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
           {:provider_error, "dropped", "provider_error"},
           {:invalid, "dropped", "invalid_result"}
         ] do
-      Application.put_env(:cartulary, :rerank_test_mode, mode)
+      Application.put_env(:memhouse, :rerank_test_mode, mode)
 
       result =
         Memory.search(%{
@@ -1560,7 +1560,7 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
              Builder.refresh_scope(seeded.account.id, seeded.scope.id)
 
     # Start counting model calls from here. Everything after this point is the live path.
-    Cartulary.F7RetrievalEntityContextTest.Provider.reset!()
+    MemHouse.F7RetrievalEntityContextTest.Provider.reset!()
 
     first =
       Memory.get_context(
@@ -1596,7 +1596,7 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     # Zero model calls across both requests. This is the assertion that keeps context
     # assembly cheap and predictable: the moment it summarizes with a model, every agent
     # turn pays for inference and the response stops being reproducible.
-    assert Cartulary.F7RetrievalEntityContextTest.Provider.calls() == []
+    assert MemHouse.F7RetrievalEntityContextTest.Provider.calls() == []
 
     # Marking the scope dirty invalidates the cached projection, exactly as a lifecycle
     # change would. Invalidation is broadcast so every node in a multi-node deployment drops
@@ -1871,20 +1871,20 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
       end)
     end)
 
-    original_provider = Application.get_env(:cartulary, :model_provider)
+    original_provider = Application.get_env(:memhouse, :model_provider)
 
     on_exit(fn ->
       if original_provider do
-        Application.put_env(:cartulary, :model_provider, original_provider)
+        Application.put_env(:memhouse, :model_provider, original_provider)
       else
-        Application.delete_env(:cartulary, :model_provider)
+        Application.delete_env(:memhouse, :model_provider)
       end
     end)
 
     Application.put_env(
-      :cartulary,
+      :memhouse,
       :model_provider,
-      Cartulary.F7RetrievalEntityContextTest.CardSummaryFailureProvider
+      MemHouse.F7RetrievalEntityContextTest.CardSummaryFailureProvider
     )
 
     log =
@@ -1922,11 +1922,11 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     # The whole three-stage rebuild now completes with the same provider, and the embeddings its
     # first stage commits are what the raise used to make the caller redo.
     assert {:ok, %{index: %{indexed: 3}}} =
-             Cartulary.Retrieval.rebuild_scope(first.account.id, first.scope.id)
+             MemHouse.Retrieval.rebuild_scope(first.account.id, first.scope.id)
 
     coverage =
       first.account.id
-      |> Cartulary.Retrieval.index_coverage([first.scope.id])
+      |> MemHouse.Retrieval.index_coverage([first.scope.id])
       |> Map.fetch!(first.scope.id)
 
     assert coverage.statement_count == 3
@@ -1939,7 +1939,7 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
 
     seed = seed_active!(account_key, scope_path, "Ten teams share the rollout calendar.", "cap-1")
 
-    # The cap and its sort key live in `Cartulary.Context`, not in the builder, so the cards are
+    # The cap and its sort key live in `MemHouse.Context`, not in the builder, so the cards are
     # written directly rather than driven through ingest and extraction. Ten identical-weight
     # cards is the shape that matters: every one has two sources and the same best confidence, so
     # the label alone decides which eight survive.
@@ -2191,7 +2191,7 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
 
     # The scope holds a governed statement and no vectors — exactly the state a cancelled
     # projection refresh leaves behind, and the state that was previously unobservable.
-    before = Cartulary.Retrieval.index_coverage(seeded.account.id, [seeded.scope.id])
+    before = MemHouse.Retrieval.index_coverage(seeded.account.id, [seeded.scope.id])
 
     assert %{
              statement_count: 1,
@@ -2206,7 +2206,7 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     # A scope that was never written to reads as zeros rather than as an absent key, and
     # counts as covered: there is nothing to index, so an alert on the ratio must not fire.
     empty_scope_id = Ecto.UUID.generate()
-    empty = Cartulary.Retrieval.index_coverage(seeded.account.id, [empty_scope_id])
+    empty = MemHouse.Retrieval.index_coverage(seeded.account.id, [empty_scope_id])
 
     assert %{statement_count: 0, embedded_count: 0, coverage: 1.0} =
              Map.fetch!(empty, empty_scope_id)
@@ -2214,9 +2214,9 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     events = attach_projection_refresh_telemetry!()
 
     assert {:ok, %{index: %{indexed: 1}}} =
-             Cartulary.Retrieval.rebuild_scope(seeded.account.id, seeded.scope.id)
+             MemHouse.Retrieval.rebuild_scope(seeded.account.id, seeded.scope.id)
 
-    after_rebuild = Cartulary.Retrieval.index_coverage(seeded.account.id, [seeded.scope.id])
+    after_rebuild = MemHouse.Retrieval.index_coverage(seeded.account.id, [seeded.scope.id])
     coverage = Map.fetch!(after_rebuild, seeded.scope.id)
 
     assert coverage.statement_count == 1
@@ -2258,17 +2258,17 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
 
     before = projection_refresh_count(seeded.account.id)
 
-    assert {:ok, %{scopes: 1}} = Cartulary.Pipeline.Reconciler.run(seeded.account.id)
+    assert {:ok, %{scopes: 1}} = MemHouse.Pipeline.Reconciler.run(seeded.account.id)
     assert projection_refresh_count(seeded.account.id) == before + 1
 
-    assert {:ok, %{scopes: 1}} = Cartulary.Pipeline.Reconciler.run(seeded.account.id)
+    assert {:ok, %{scopes: 1}} = MemHouse.Pipeline.Reconciler.run(seeded.account.id)
     assert projection_refresh_count(seeded.account.id) == before + 1
 
     assert {:ok, %{mentions: mentions}} =
              EntityResolver.rebuild_scope(seeded.account.id, seeded.scope.id)
 
     assert mentions > 0
-    assert {:ok, %{scopes: 0}} = Cartulary.Pipeline.Reconciler.run(seeded.account.id)
+    assert {:ok, %{scopes: 0}} = MemHouse.Pipeline.Reconciler.run(seeded.account.id)
   end
 
   test "mention coverage reports a partially indexed scope" do
@@ -2288,12 +2288,12 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     assert mentions >= 2
 
     Ecto.Adapters.SQL.query!(
-      Cartulary.Repo,
+      MemHouse.Repo,
       "DELETE FROM entity_mentions WHERE account_id = $1 AND knowledge_item_id = $2",
       [Ecto.UUID.dump!(first.account.id), Ecto.UUID.dump!(second.knowledge.id)]
     )
 
-    coverage = Cartulary.Retrieval.index_coverage(first.account.id, [first.scope.id])
+    coverage = MemHouse.Retrieval.index_coverage(first.account.id, [first.scope.id])
     coverage = Map.fetch!(coverage, first.scope.id)
 
     assert coverage.statement_count == 2
@@ -2325,13 +2325,13 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
       scope_ids: [visible.scope.id]
     }
 
-    assert Cartulary.Retrieval.Store.entity_match_status(query) ==
+    assert MemHouse.Retrieval.Store.entity_match_status(query) ==
              :entity_found_no_authorized_statements
 
-    assert Cartulary.Retrieval.Store.entity_match_status(%{query | text: "NobodyKnown"}) ==
+    assert MemHouse.Retrieval.Store.entity_match_status(%{query | text: "NobodyKnown"}) ==
              :query_resolved_no_entity
 
-    diagnostic = inspect([Cartulary.Retrieval.Store.entity_match_status(query)])
+    diagnostic = inspect([MemHouse.Retrieval.Store.entity_match_status(query)])
     refute diagnostic =~ "Melanie"
     refute diagnostic =~ hidden.knowledge.id
   end
@@ -2341,20 +2341,20 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
 
     assert {:ok, %{indexed: 1}} = Indexer.rebuild_scope(seeded.account.id, seeded.scope.id)
 
-    original_provider = Application.get_env(:cartulary, :model_provider)
+    original_provider = Application.get_env(:memhouse, :model_provider)
 
     on_exit(fn ->
       if original_provider do
-        Application.put_env(:cartulary, :model_provider, original_provider)
+        Application.put_env(:memhouse, :model_provider, original_provider)
       else
-        Application.delete_env(:cartulary, :model_provider)
+        Application.delete_env(:memhouse, :model_provider)
       end
     end)
 
     Application.put_env(
-      :cartulary,
+      :memhouse,
       :model_provider,
-      Cartulary.F7RetrievalEntityContextTest.UnavailableEmbedderProvider
+      MemHouse.F7RetrievalEntityContextTest.UnavailableEmbedderProvider
     )
 
     result =
@@ -2621,7 +2621,7 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
   defp projection_refresh_count(account_id) do
     %{rows: [[count]]} =
       Ecto.Adapters.SQL.query!(
-        Cartulary.Repo,
+        MemHouse.Repo,
         "SELECT count(*) FROM pipeline_runs WHERE account_id = $1 AND kind = 'projection_refresh'",
         [Ecto.UUID.dump!(account_id)]
       )
@@ -2696,7 +2696,7 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
   end
 
   defp read_peer!(account_id, actor, key \\ "avery") do
-    Cartulary.Accounts.Peer
+    MemHouse.Accounts.Peer
     |> Ash.Query.filter(key == ^key)
     |> Ash.Query.set_tenant(account_id)
     |> Ash.read_one!(actor: actor)
@@ -2729,7 +2729,7 @@ defmodule Cartulary.F7RetrievalEntityContextTest do
     :ok =
       :telemetry.attach(
         handler_id,
-        [:cartulary, :retrieval, :projection_refresh],
+        [:memhouse, :retrieval, :projection_refresh],
         fn _event, measurements, metadata, _config ->
           send(test_process, {handler_id, measurements, metadata})
         end,

@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Context.ProjectionKey do
+defmodule MemHouse.Context.ProjectionKey do
   @moduledoc """
   Owns the private, versioned identities of context projections.
 

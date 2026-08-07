@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Mix.Tasks.Cartulary.Eval.Release do
+defmodule Mix.Tasks.MemHouse.Eval.Release do
   @moduledoc """
   Runs the whole release evaluation matrix and emits one validated suite document.
 
@@ -11,7 +11,7 @@ defmodule Mix.Tasks.Cartulary.Eval.Release do
 
   use Mix.Task
 
-  alias Cartulary.Eval.{ReleaseSuite, Runtime}
+  alias MemHouse.Eval.{ReleaseSuite, Runtime}
 
   @shortdoc "Runs the release/nightly evaluation matrix"
 

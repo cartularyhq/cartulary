@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Governance.PeerQueue do
+defmodule MemHouse.Governance.PeerQueue do
   @moduledoc """
   Asks a person about memory that concerns them, inline, and turns their answer
   into a governed lifecycle change.
@@ -38,19 +38,19 @@ defmodule Cartulary.Governance.PeerQueue do
   question.
   """
 
-  alias Cartulary.Clock
-  alias Cartulary.DataLayer
-  alias Cartulary.Governance.Audit
-  alias Cartulary.Governance.Engine
-  alias Cartulary.Governance.PeerAskPreference
-  alias Cartulary.Governance.PeerQuery
-  alias Cartulary.Governance.PeerQueryDelivery
-  alias Cartulary.Governance.ValidationItem
-  alias Cartulary.Knowledge.KnowledgeItem
-  alias Cartulary.Observations.Message
-  alias Cartulary.Observations.Session
-  alias Cartulary.Pipeline
-  alias Cartulary.Pipeline.Idempotency
+  alias MemHouse.Clock
+  alias MemHouse.DataLayer
+  alias MemHouse.Governance.Audit
+  alias MemHouse.Governance.Engine
+  alias MemHouse.Governance.PeerAskPreference
+  alias MemHouse.Governance.PeerQuery
+  alias MemHouse.Governance.PeerQueryDelivery
+  alias MemHouse.Governance.ValidationItem
+  alias MemHouse.Knowledge.KnowledgeItem
+  alias MemHouse.Observations.Message
+  alias MemHouse.Observations.Session
+  alias MemHouse.Pipeline
+  alias MemHouse.Pipeline.Idempotency
 
   require Ash.Query
 
@@ -804,7 +804,7 @@ defmodule Cartulary.Governance.PeerQueue do
   # operator can adjust it in one place; the defaults passed in at each call
   # site keep the module working with no configuration at all.
   defp governance_config(key, default) do
-    :cartulary
+    :memhouse
     |> Application.get_env(:governance, [])
     |> Keyword.get(key, default)
   end
@@ -813,7 +813,7 @@ defmodule Cartulary.Governance.PeerQueue do
   # row, or the stored transcript, yet resolving their own question requires
   # all three. The elevated copy is used only after the caller's identity has
   # already been matched against the question's peer id.
-  defp pipeline_actor(%Cartulary.Actor{} = actor),
+  defp pipeline_actor(%MemHouse.Actor{} = actor),
     do: %{actor | role: :system, scope_ids: :all, pipeline?: true}
 
   defp pipeline_actor(actor),

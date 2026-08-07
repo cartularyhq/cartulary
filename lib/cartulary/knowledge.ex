@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Knowledge do
+defmodule MemHouse.Knowledge do
   @moduledoc """
   Ash domain for governed statements, provenance, lifecycle evidence, and derived views.
 
@@ -12,27 +12,27 @@ defmodule Cartulary.Knowledge do
   use Ash.Domain
 
   resources do
-    resource Cartulary.Knowledge.KnowledgeItem
-    resource Cartulary.Knowledge.Attribution
-    resource Cartulary.Knowledge.Provenance
-    resource Cartulary.Knowledge.KnowledgeRelation
-    resource Cartulary.Knowledge.LifecycleEvent
-    resource Cartulary.Knowledge.Projection
-    resource Cartulary.Knowledge.Entity
-    resource Cartulary.Knowledge.EntityMention
+    resource MemHouse.Knowledge.KnowledgeItem
+    resource MemHouse.Knowledge.Attribution
+    resource MemHouse.Knowledge.Provenance
+    resource MemHouse.Knowledge.KnowledgeRelation
+    resource MemHouse.Knowledge.LifecycleEvent
+    resource MemHouse.Knowledge.Projection
+    resource MemHouse.Knowledge.Entity
+    resource MemHouse.Knowledge.EntityMention
   end
 end
 
-defmodule Cartulary.Knowledge.KnowledgeItem do
+defmodule MemHouse.Knowledge.KnowledgeItem do
   @moduledoc """
-  One governed statement, the durable atom of Cartulary memory.
+  One governed statement, the durable atom of MemHouse memory.
 
   Pipeline-only creation records belief time, valid time, salience, confidence, sensitivity,
   subject, and source independently. Lifecycle actions preserve history; callers must not bypass
   governance or expose held and unauthorized provisional rows.
   """
 
-  use Cartulary.Resource, domain: Cartulary.Knowledge, table: "knowledge_items"
+  use MemHouse.Resource, domain: MemHouse.Knowledge, table: "knowledge_items"
 
   # Every query and write is confined to one Account by the Ash tenant, which this resource
   # requires. PostgreSQL row-level security repeats the same check underneath, against a
@@ -87,20 +87,20 @@ defmodule Cartulary.Knowledge.KnowledgeItem do
 
       # Canonicalises the statement text first, so the hash below and the readability validation
       # both see the same form the row will store.
-      change Cartulary.Knowledge.Changes.NormalizeStatement
+      change MemHouse.Knowledge.Changes.NormalizeStatement
 
       # Derives `statement_hash` from the statement text. The hash is never accepted from the
       # caller, because deduplication, corroboration merging, and the content-safe audit chain
       # all key off it.
-      change Cartulary.Knowledge.Changes.HashStatement
+      change MemHouse.Knowledge.Changes.HashStatement
 
       # Runs before the validation below, which is what lets a caller supply either an explicit
       # `relevant_from` or the observation time to derive one from.
-      change Cartulary.Knowledge.Changes.AnchorEventValidity
+      change MemHouse.Knowledge.Changes.AnchorEventValidity
 
       # A statement a reader cannot read is not knowledge, whatever else is valid about the row.
       # Enforced here rather than at the extractor so no write path can bypass it.
-      validate Cartulary.Knowledge.Validations.ReadableStatement
+      validate MemHouse.Knowledge.Validations.ReadableStatement
 
       validate attribute_in(:kind, ~w(fact preference event relation skill))
       validate attribute_in(:sensitivity, ~w(public internal personal restricted))
@@ -167,7 +167,7 @@ defmodule Cartulary.Knowledge.KnowledgeItem do
 
       # Writes the append-only lifecycle event and the hash-chained audit entry inside this same
       # transaction, so a state change can never commit without its evidence.
-      change Cartulary.Knowledge.Changes.RecordTransition
+      change MemHouse.Knowledge.Changes.RecordTransition
 
       validate attribute_in(
                  :state,
@@ -196,7 +196,7 @@ defmodule Cartulary.Knowledge.KnowledgeItem do
     # about themselves regardless of scope — that self-view is what makes contesting and erasure
     # requests possible. Neither branch filters lifecycle state; the caller must do that.
     policy action_type(:read) do
-      authorize_if {Cartulary.Policy.ScopeAccess, attribute: :scope_id}
+      authorize_if {MemHouse.Policy.ScopeAccess, attribute: :scope_id}
       authorize_if expr(subject_peer_id == ^actor(:peer_id))
     end
 
@@ -210,7 +210,7 @@ defmodule Cartulary.Knowledge.KnowledgeItem do
     # identities, so a machine API key with an admin role still cannot approve, reject, or erase.
     # The pipeline branch covers automatic gate results, the aging sweeper, and erasure jobs.
     policy action([:transition, :erase]) do
-      authorize_if {Cartulary.Policy.HumanRoleIn, roles: [:account_admin, :curator]}
+      authorize_if {MemHouse.Policy.HumanRoleIn, roles: [:account_admin, :curator]}
       authorize_if actor_attribute_equals(:pipeline?, true)
     end
   end
@@ -324,7 +324,7 @@ defmodule Cartulary.Knowledge.KnowledgeItem do
   end
 end
 
-defmodule Cartulary.Knowledge.Validations.ReadableStatement do
+defmodule MemHouse.Knowledge.Validations.ReadableStatement do
   @moduledoc """
   Keeps unreadable text out of the statement column.
 
@@ -334,12 +334,12 @@ defmodule Cartulary.Knowledge.Validations.ReadableStatement do
   invisible padding. Such text satisfies `min_length: 1`, satisfies the extraction schema, and
   reaches the console looking like knowledge.
 
-  `Cartulary.Knowledge.Statement` holds the rule itself and states what it does not catch.
+  `MemHouse.Knowledge.Statement` holds the rule itself and states what it does not catch.
   """
 
   use Ash.Resource.Validation
 
-  alias Cartulary.Knowledge.Statement
+  alias MemHouse.Knowledge.Statement
 
   @doc """
   Rejects statement text that carries too few real characters to read.
@@ -363,7 +363,7 @@ defmodule Cartulary.Knowledge.Validations.ReadableStatement do
   end
 end
 
-defmodule Cartulary.Knowledge.Attribution do
+defmodule MemHouse.Knowledge.Attribution do
   @moduledoc """
   Records what a statement is about and how directly it was learned.
 
@@ -371,7 +371,7 @@ defmodule Cartulary.Knowledge.Attribution do
   governance can discount or require consent correctly.
   """
 
-  use Cartulary.Resource, domain: Cartulary.Knowledge, table: "attributions"
+  use MemHouse.Resource, domain: MemHouse.Knowledge, table: "attributions"
 
   multitenancy do
     strategy :attribute
@@ -406,7 +406,7 @@ defmodule Cartulary.Knowledge.Attribution do
 
     # Attributions inherit the visibility of the scope the statement lives in.
     policy action_type(:read) do
-      authorize_if {Cartulary.Policy.ScopeAccess, attribute: :scope_id}
+      authorize_if {MemHouse.Policy.ScopeAccess, attribute: :scope_id}
     end
 
     policy action(:create_from_pipeline) do
@@ -444,7 +444,7 @@ defmodule Cartulary.Knowledge.Attribution do
   end
 end
 
-defmodule Cartulary.Knowledge.Provenance do
+defmodule MemHouse.Knowledge.Provenance do
   @moduledoc """
   Append-only evidence linking a statement to one source.
 
@@ -452,7 +452,7 @@ defmodule Cartulary.Knowledge.Provenance do
   is referenced by ids and hashes rather than copied into audit-facing metadata.
   """
 
-  use Cartulary.Resource, domain: Cartulary.Knowledge, table: "provenances"
+  use MemHouse.Resource, domain: MemHouse.Knowledge, table: "provenances"
 
   multitenancy do
     strategy :attribute
@@ -493,7 +493,7 @@ defmodule Cartulary.Knowledge.Provenance do
     end
 
     policy action_type(:read) do
-      authorize_if {Cartulary.Policy.ScopeAccess, attribute: :scope_id}
+      authorize_if {MemHouse.Policy.ScopeAccess, attribute: :scope_id}
     end
 
     policy action(:create_from_pipeline) do
@@ -536,7 +536,7 @@ defmodule Cartulary.Knowledge.Provenance do
   end
 end
 
-defmodule Cartulary.Knowledge.KnowledgeRelation do
+defmodule MemHouse.Knowledge.KnowledgeRelation do
   @moduledoc """
   A typed directed edge between governed statements.
 
@@ -544,8 +544,8 @@ defmodule Cartulary.Knowledge.KnowledgeRelation do
   edge may aid retrieval but never grants access.
   """
 
-  use Cartulary.Resource,
-    domain: Cartulary.Knowledge,
+  use MemHouse.Resource,
+    domain: MemHouse.Knowledge,
     table: "knowledge_relations"
 
   multitenancy do
@@ -567,7 +567,7 @@ defmodule Cartulary.Knowledge.KnowledgeRelation do
     end
 
     policy action_type(:read) do
-      authorize_if {Cartulary.Policy.ScopeAccess, attribute: :scope_id}
+      authorize_if {MemHouse.Policy.ScopeAccess, attribute: :scope_id}
     end
 
     policy action(:create_from_pipeline) do
@@ -597,7 +597,7 @@ defmodule Cartulary.Knowledge.KnowledgeRelation do
   end
 end
 
-defmodule Cartulary.Knowledge.LifecycleEvent do
+defmodule MemHouse.Knowledge.LifecycleEvent do
   @moduledoc """
   Append-only evidence of one knowledge lifecycle transition.
 
@@ -605,8 +605,8 @@ defmodule Cartulary.Knowledge.LifecycleEvent do
   reason, channel, and timing data.
   """
 
-  use Cartulary.Resource,
-    domain: Cartulary.Knowledge,
+  use MemHouse.Resource,
+    domain: MemHouse.Knowledge,
     table: "knowledge_lifecycle_events"
 
   multitenancy do
@@ -630,14 +630,14 @@ defmodule Cartulary.Knowledge.LifecycleEvent do
     end
 
     policy action_type(:read) do
-      authorize_if {Cartulary.Policy.ScopeAccess, attribute: :scope_id}
+      authorize_if {MemHouse.Policy.ScopeAccess, attribute: :scope_id}
     end
 
     # Curators, admins, internal system actors, and the pipeline may append history. Unlike the
     # curator decision itself, this check is not human-only, because automatic gate results and
     # the aging sweeper must also be able to record what they did.
     policy action(:record) do
-      authorize_if {Cartulary.Policy.RoleIn, roles: [:account_admin, :curator, :system]}
+      authorize_if {MemHouse.Policy.RoleIn, roles: [:account_admin, :curator, :system]}
       authorize_if actor_attribute_equals(:pipeline?, true)
     end
   end
@@ -661,7 +661,7 @@ defmodule Cartulary.Knowledge.LifecycleEvent do
   end
 end
 
-defmodule Cartulary.Knowledge.Projection do
+defmodule MemHouse.Knowledge.Projection do
   @moduledoc """
   A rebuildable scope, peer, session, or entity context cache.
 
@@ -669,7 +669,7 @@ defmodule Cartulary.Knowledge.Projection do
   so invalidation or loss can be repaired without reasoning during ordinary context reads.
   """
 
-  use Cartulary.Resource, domain: Cartulary.Knowledge, table: "projections"
+  use MemHouse.Resource, domain: MemHouse.Knowledge, table: "projections"
 
   multitenancy do
     strategy :attribute
@@ -729,7 +729,7 @@ defmodule Cartulary.Knowledge.Projection do
     # A projection is readable by anyone who may read its scope. Shared scope/session content is
     # active-only; provisional content is stored only in a subject-keyed peer-profile projection.
     policy action_type(:read) do
-      authorize_if {Cartulary.Policy.ScopeAccess, attribute: :scope_id}
+      authorize_if {MemHouse.Policy.ScopeAccess, attribute: :scope_id}
     end
 
     # Only the refresh pipeline may write a cache. No human surface can hand-edit a projection,
@@ -793,7 +793,7 @@ defmodule Cartulary.Knowledge.Projection do
   end
 end
 
-defmodule Cartulary.Knowledge.Entity do
+defmodule MemHouse.Knowledge.Entity do
   @moduledoc """
   Pipeline-internal rebuildable cache for one resolved entity.
 
@@ -801,7 +801,7 @@ defmodule Cartulary.Knowledge.Entity do
   console, SDK, projection, or retrieval payloads.
   """
 
-  use Cartulary.Resource, domain: Cartulary.Knowledge, table: "entities"
+  use MemHouse.Resource, domain: MemHouse.Knowledge, table: "entities"
 
   multitenancy do
     strategy :attribute
@@ -918,7 +918,7 @@ defmodule Cartulary.Knowledge.Entity do
   end
 end
 
-defmodule Cartulary.Knowledge.EntityMention do
+defmodule MemHouse.Knowledge.EntityMention do
   @moduledoc """
   Rebuildable link between a statement and an entity mention.
 
@@ -928,7 +928,7 @@ defmodule Cartulary.Knowledge.EntityMention do
   own sources in its own scope.
   """
 
-  use Cartulary.Resource, domain: Cartulary.Knowledge, table: "entity_mentions"
+  use MemHouse.Resource, domain: MemHouse.Knowledge, table: "entity_mentions"
 
   multitenancy do
     strategy :attribute

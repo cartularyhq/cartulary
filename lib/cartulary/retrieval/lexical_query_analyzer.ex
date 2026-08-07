@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Retrieval.LexicalQueryAnalyzer do
+defmodule MemHouse.Retrieval.LexicalQueryAnalyzer do
   @moduledoc """
   Produces the bounded, deterministic query representation used by lexical retrieval.
 

@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Model.Providers.ReqLLMTest.StubPlug do
+defmodule MemHouse.Model.Providers.ReqLLMTest.StubPlug do
   @moduledoc false
   # Serves one canned OpenAI-shaped chat completion, supplied per test as the
   # `:body` option. It exists so the adapter's handling of a 200 response that
@@ -33,13 +33,13 @@ defmodule Cartulary.Model.Providers.ReqLLMTest.StubPlug do
   end
 end
 
-defmodule Cartulary.Model.Providers.ReqLLMTest do
+defmodule MemHouse.Model.Providers.ReqLLMTest do
   @moduledoc """
   Pins three properties of the HTTP model adapter.
 
   First, that `reasoning_effort` reaches the underlying `req_llm` library as the
   atom its option schema requires, not the string role configuration stores it
-  as. Role options are always string-valued (see `Cartulary.Model.Config.Role`),
+  as. Role options are always string-valued (see `MemHouse.Model.Config.Role`),
   because they must stay printable/exportable regardless of source. `req_llm`
   validates `reasoning_effort` with `NimbleOptions` against a fixed atom enum
   and rejects a string outright. Every call that reaches this option must
@@ -66,10 +66,10 @@ defmodule Cartulary.Model.Providers.ReqLLMTest do
 
   use ExUnit.Case, async: true
 
-  alias Cartulary.Model.Config.Role
-  alias Cartulary.Model.Provider.Result
-  alias Cartulary.Model.Providers.ReqLLM, as: Adapter
-  alias Cartulary.Model.Providers.ReqLLMTest.StubPlug
+  alias MemHouse.Model.Config.Role
+  alias MemHouse.Model.Provider.Result
+  alias MemHouse.Model.Providers.ReqLLM, as: Adapter
+  alias MemHouse.Model.Providers.ReqLLMTest.StubPlug
 
   # Named rather than reused from configuration so the stub server is reached
   # with a credential that exists only for the duration of these tests.

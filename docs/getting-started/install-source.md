@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0 -->
+<!-- SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0 -->
 
 # Run from source
 
@@ -27,7 +27,7 @@ Use the idempotent bootstrap task to create the first administrator:
 
 ```bash
 CARTULARY_BOOTSTRAP_PASSWORD='replace-with-a-long-password' \
-  mix cartulary.identity.bootstrap \
+  mix memhouse.identity.bootstrap \
     --email admin@example.test \
     --name 'Local Admin'
 ```
@@ -64,7 +64,7 @@ mix test
 ```
 
 Contribution rules, the full check matrix, and the review posture are in
-[`CONTRIBUTING.md`](https://github.com/cartularyhq/cartulary/blob/main/CONTRIBUTING.md).
+[`CONTRIBUTING.md`](https://github.com/memhousehq/memhouse/blob/main/CONTRIBUTING.md).
 
 ## Next
 

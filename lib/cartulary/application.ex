@@ -1,8 +1,8 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Application do
+defmodule MemHouse.Application do
   @moduledoc """
-  Validates runtime configuration and starts Cartulary in dependency order.
+  Validates runtime configuration and starts MemHouse in dependency order.
 
   Supervised pg0, when enabled, starts before Repo; migrations finish before services use the
   schema. Both database modes start the same application behavior.
@@ -12,12 +12,12 @@ defmodule Cartulary.Application do
 
   @impl true
   def start(_type, _args) do
-    Cartulary.RuntimeConfig.validate!()
-    Cartulary.Observability.setup()
+    MemHouse.RuntimeConfig.validate!()
+    MemHouse.Observability.setup()
 
     infrastructure_children =
-      if Cartulary.RuntimeConfig.pg0?() do
-        [Cartulary.Pg0]
+      if MemHouse.RuntimeConfig.pg0?() do
+        [MemHouse.Pg0]
       else
         []
       end
@@ -26,7 +26,7 @@ defmodule Cartulary.Application do
       infrastructure_children ++
         [
           CartularyWeb.Telemetry,
-          Cartulary.Database.RoleProvisioner,
+          MemHouse.Database.RoleProvisioner,
           # Every pooled connection switches to the restricted role as it is
           # opened. That switch is what makes the row-level security policies on
           # the tenant tables apply at all: PostgreSQL exempts superusers from
@@ -34,24 +34,24 @@ defmodule Cartulary.Application do
           # connection's current role. Passing the callback here rather than in
           # configuration is what keeps migration and provisioning connections —
           # which start the repository with its plain configuration — privileged.
-          {Cartulary.Repo, after_connect: {Cartulary.Database.AppRole, :set_role, []}},
-          Cartulary.Release.Migrator,
-          Cartulary.Database.RoleGuard,
-          {AshAuthentication.Supervisor, otp_app: :cartulary},
-          Cartulary.Operations.BudgetCounter,
-          Cartulary.Retrieval.Diagnostics,
+          {MemHouse.Repo, after_connect: {MemHouse.Database.AppRole, :set_role, []}},
+          MemHouse.Release.Migrator,
+          MemHouse.Database.RoleGuard,
+          {AshAuthentication.Supervisor, otp_app: :memhouse},
+          MemHouse.Operations.BudgetCounter,
+          MemHouse.Retrieval.Diagnostics,
           # Queues run on the Postgres engine in every deployment mode, driven by
           # the triggers declared on the Ash domains. There is no second broker
           # and no separate worker fleet to keep in sync.
           {Oban, oban_config()},
-          {DNSCluster, query: Application.get_env(:cartulary, :dns_cluster_query) || :ignore},
-          {Phoenix.PubSub, name: Cartulary.PubSub},
-          Cartulary.Context.Cache,
-          Cartulary.Update.Checker,
+          {DNSCluster, query: Application.get_env(:memhouse, :dns_cluster_query) || :ignore},
+          {Phoenix.PubSub, name: MemHouse.PubSub},
+          MemHouse.Context.Cache,
+          MemHouse.Update.Checker,
           CartularyWeb.Endpoint
         ]
 
-    opts = [strategy: :one_for_one, name: Cartulary.Supervisor]
+    opts = [strategy: :one_for_one, name: MemHouse.Supervisor]
     Supervisor.start_link(children, opts)
   end
 
@@ -70,8 +70,8 @@ defmodule Cartulary.Application do
   # `whereis` guard covers the case where that process already died.
   @impl true
   def prep_stop(state) do
-    if Cartulary.RuntimeConfig.pg0?() and Process.whereis(Cartulary.Pg0) do
-      Cartulary.Pg0.stop_database()
+    if MemHouse.RuntimeConfig.pg0?() and Process.whereis(MemHouse.Pg0) do
+      MemHouse.Pg0.stop_database()
     end
 
     state
@@ -82,7 +82,7 @@ defmodule Cartulary.Application do
 
   `AshOban.config/2` forces `peer: false` onto the base Oban config whenever `:plugins`
   is not already a non-empty list — which it deliberately is not, per the comment on
-  `config :cartulary, Oban`. Oban then folds that literal `false` into
+  `config :memhouse, Oban`. Oban then folds that literal `false` into
   `{Oban.Peers.Isolated, [leader?: false]}`: a peer that can never win leadership, on any
   node, ever. Oban's stager is core supervision infrastructure in this Oban version (not
   a plugin, so the empty plugin list does not remove it), but it still only promotes
@@ -100,8 +100,8 @@ defmodule Cartulary.Application do
   def oban_config do
     Keyword.put(
       AshOban.config(
-        Application.fetch_env!(:cartulary, :ash_domains),
-        Application.fetch_env!(:cartulary, Oban)
+        Application.fetch_env!(:memhouse, :ash_domains),
+        Application.fetch_env!(:memhouse, Oban)
       ),
       :peer,
       Oban.Peers.Database

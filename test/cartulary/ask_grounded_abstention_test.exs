@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.AskGroundedAbstentionTest do
+defmodule MemHouse.AskGroundedAbstentionTest do
   @moduledoc """
   Pins the grounded outcomes of `Memory.ask/2` and its MCP wrapper.
 
@@ -13,15 +13,15 @@ defmodule Cartulary.AskGroundedAbstentionTest do
   and run synchronously because provider selection is node-global.
   """
 
-  use Cartulary.DataCase, async: false
+  use MemHouse.DataCase, async: false
 
-  alias Cartulary.DataLayer
-  alias Cartulary.Governance.Actions.McpRead
-  alias Cartulary.Governance.Engine, as: GovernanceEngine
-  alias Cartulary.Identity
-  alias Cartulary.Knowledge.KnowledgeItem
-  alias Cartulary.Memory
-  alias Cartulary.Model.GroundedAnswerProvider
+  alias MemHouse.DataLayer
+  alias MemHouse.Governance.Actions.McpRead
+  alias MemHouse.Governance.Engine, as: GovernanceEngine
+  alias MemHouse.Identity
+  alias MemHouse.Knowledge.KnowledgeItem
+  alias MemHouse.Memory
+  alias MemHouse.Model.GroundedAnswerProvider
 
   require Ash.Query
 
@@ -30,15 +30,15 @@ defmodule Cartulary.AskGroundedAbstentionTest do
   @no_evidence_answer "No memory statements were retrieved for this question."
 
   setup do
-    original_provider = Application.get_env(:cartulary, :model_provider)
+    original_provider = Application.get_env(:memhouse, :model_provider)
 
     on_exit(fn ->
       GroundedAnswerProvider.stop()
 
       if original_provider do
-        Application.put_env(:cartulary, :model_provider, original_provider)
+        Application.put_env(:memhouse, :model_provider, original_provider)
       else
-        Application.delete_env(:cartulary, :model_provider)
+        Application.delete_env(:memhouse, :model_provider)
       end
     end)
 
@@ -259,7 +259,7 @@ defmodule Cartulary.AskGroundedAbstentionTest do
 
   defp use_answer_mode!(mode) do
     GroundedAnswerProvider.start!(mode)
-    Application.put_env(:cartulary, :model_provider, GroundedAnswerProvider)
+    Application.put_env(:memhouse, :model_provider, GroundedAnswerProvider)
   end
 
   defp ask(actor, scope_path) do

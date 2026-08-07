@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Operations.Metering do
+defmodule MemHouse.Operations.Metering do
   @moduledoc """
   Records Account usage and builds operator summaries.
 
@@ -9,12 +9,12 @@ defmodule Cartulary.Operations.Metering do
   rates rather than hidden billing state.
   """
 
-  alias Cartulary.Actor
-  alias Cartulary.Clock
-  alias Cartulary.DataLayer
-  alias Cartulary.Operations.BudgetCounter
-  alias Cartulary.Operations.UsageEvent
-  alias Cartulary.Repo
+  alias MemHouse.Actor
+  alias MemHouse.Clock
+  alias MemHouse.DataLayer
+  alias MemHouse.Operations.BudgetCounter
+  alias MemHouse.Operations.UsageEvent
+  alias MemHouse.Repo
 
   @token_metrics [:input_tokens, :output_tokens, :embedding_tokens]
 
@@ -200,7 +200,7 @@ defmodule Cartulary.Operations.Metering do
   # number. Rounded to six decimal places because a single small call can cost
   # a fraction of a cent and truncating further would report it as free.
   defp estimated_cost(by_role) do
-    rates = Application.get_env(:cartulary, :model_cost_per_million, %{})
+    rates = Application.get_env(:memhouse, :model_cost_per_million, %{})
 
     Enum.reduce(by_role, 0.0, fn {role, totals}, result ->
       role_rates = Map.get(rates, role, %{})

@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Governance.Sweeper do
+defmodule MemHouse.Governance.Sweeper do
   @moduledoc """
   Background lifecycle sweeps for one Account: revalidation, expiry, queue
   aging, and confidence decay.
@@ -38,13 +38,13 @@ defmodule Cartulary.Governance.Sweeper do
   sweep produces background follow-up jobs as well as state changes.
   """
 
-  alias Cartulary.Clock
-  alias Cartulary.DataLayer
-  alias Cartulary.Governance.Engine
-  alias Cartulary.Governance.PeerQuery
-  alias Cartulary.Governance.PeerQueue
-  alias Cartulary.Governance.ValidationItem
-  alias Cartulary.Knowledge.KnowledgeItem
+  alias MemHouse.Clock
+  alias MemHouse.DataLayer
+  alias MemHouse.Governance.Engine
+  alias MemHouse.Governance.PeerQuery
+  alias MemHouse.Governance.PeerQueue
+  alias MemHouse.Governance.ValidationItem
+  alias MemHouse.Knowledge.KnowledgeItem
 
   require Ash.Query
 

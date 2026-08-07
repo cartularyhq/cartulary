@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 #
 # Windows counterpart of scripts/package-release: build the self-contained Mix
 # release with the pinned embedded PostgreSQL launcher (pg0) staged inside it.
@@ -18,7 +18,7 @@
 #   published, so there is no platform detection here.
 #
 # Outputs
-#   _build\prod\rel\cartulary — the unpacked release.
+#   _build\prod\rel\memhouse — the unpacked release.
 #
 # Failure behaviour
 #   $ErrorActionPreference = "Stop" turns cmdlet errors into terminating errors,
@@ -93,4 +93,4 @@ finally {
   }
 }
 
-Write-Output "Release ready at $RepoRoot\_build\prod\rel\cartulary"
+Write-Output "Release ready at $RepoRoot\_build\prod\rel\memhouse"

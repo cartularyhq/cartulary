@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
 defmodule CartularyWeb.Console.AccessTest do
   @moduledoc """
@@ -7,7 +7,7 @@ defmodule CartularyWeb.Console.AccessTest do
 
   use ExUnit.Case, async: true
 
-  alias Cartulary.Actor
+  alias MemHouse.Actor
   alias CartularyWeb.Console.Access
 
   @account_id "11111111-1111-1111-1111-111111111111"

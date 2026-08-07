@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Actor do
+defmodule MemHouse.Actor do
   @moduledoc """
   Immutable authorization context passed to Ash actions.
 
@@ -53,7 +53,7 @@ defmodule Cartulary.Actor do
 
   This is the chicken-and-egg case: the Account row is not known yet, so there
   is no `account_id` to authorize against. It returns a plain map rather than a
-  `%Cartulary.Actor{}`, since every field of the struct is meant to name a
+  `%MemHouse.Actor{}`, since every field of the struct is meant to name a
   resolved Account. Both Account policies that this map can satisfy match on
   `key == actor(:account_key)`, and the surrounding transaction has already
   pinned the same key into the transaction-local PostgreSQL setting that

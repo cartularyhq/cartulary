@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
 defmodule CartularyWeb.Console.DiagnosticTest do
   @moduledoc """
@@ -13,7 +13,7 @@ defmodule CartularyWeb.Console.DiagnosticTest do
 
   use ExUnit.Case, async: true
 
-  alias Cartulary.Retrieval.DiagnosticGrant
+  alias MemHouse.Retrieval.DiagnosticGrant
   alias CartularyWeb.Console.Diagnostic
 
   describe "strategy_options/0" do
@@ -22,7 +22,7 @@ defmodule CartularyWeb.Console.DiagnosticTest do
 
       assert {"lexical", true} in options
       assert {"salience_recency", false} in options
-      assert length(options) == length(Cartulary.Retrieval.Profile.strategy_names())
+      assert length(options) == length(MemHouse.Retrieval.Profile.strategy_names())
     end
   end
 

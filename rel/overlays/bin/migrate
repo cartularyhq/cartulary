@@ -1,5 +1,5 @@
 #!/bin/sh
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 #
 # Apply pending database migrations without starting a server.
 #
@@ -49,4 +49,4 @@ release_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 # background job queues, and no scheduled work run while the schema changes.
 # `exec` hands over the process id so the caller — often a container init job —
 # observes the migration's real exit status and can signal it directly.
-exec "$release_root/bin/cartulary" eval "Cartulary.Release.migrate()"
+exec "$release_root/bin/memhouse" eval "MemHouse.Release.migrate()"

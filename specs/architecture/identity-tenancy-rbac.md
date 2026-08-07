@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0 -->
+<!-- SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0 -->
 
 # Identity, Tenancy, And Basic RBAC
 
@@ -16,18 +16,18 @@ community Account tenant. Agents use the AshAuthentication API-key strategy.
 API keys are generated once, stored only as SHA-256 hashes, bound to one Peer
 and Account, and may be restricted to one scope subtree.
 
-Both paths resolve to `Cartulary.Actor`:
+Both paths resolve to `MemHouse.Actor`:
 
 - `account_id` and `peer_id` come from the verified identity;
 - the linked `ExternalIdentity` supplies `identity_kind` and assurance;
 - `RoleGrant` resolution supplies effective `scope_ids`, `scope_roles`, and the
   highest effective basic role;
 - the actor is installed as the Ash actor/tenant and as transaction-local
-  `cartulary.account_id` before domain work runs.
+  `memhouse.account_id` before domain work runs.
 
 `POST /api/auth/password` is the human sign-in endpoint. Every `/api/v1`
 memory route requires `Authorization: Bearer <JWT-or-API-key>`. The deprecated
-`x-cartulary-account-key` header and Account fields in request bodies are
+`x-memhouse-account-key` header and Account fields in request bodies are
 ignored. Health remains unauthenticated.
 
 ## Account bootstrap and free-edition enforcement
@@ -36,7 +36,7 @@ Bootstrap the first operator with:
 
 ```bash
 CARTULARY_BOOTSTRAP_PASSWORD='a long password' \
-  mix cartulary.identity.bootstrap \
+  mix memhouse.identity.bootstrap \
     --email admin@example.test \
     --name 'Local Admin'
 ```
@@ -56,7 +56,7 @@ RLS. Free core neither implements nor enables that action.
 
 ## API-key bootstrap and RLS
 
-Before Account RLS is established, `Cartulary.Identity.CredentialLocator`
+Before Account RLS is established, `MemHouse.Identity.CredentialLocator`
 passes the API key's opaque credential id to
 `SECURITY DEFINER` function `cartulary_resolve_api_key_account(uuid)`. The
 function returns only `account_id`; it cannot return peer data, hashes, or
@@ -103,7 +103,7 @@ header is inert.
 
 Evidence lives in:
 
-- `test/cartulary/f3_identity_tenancy_basic_rbac_test.exs`;
+- `test/memhouse/f3_identity_tenancy_basic_rbac_test.exs`;
 - `test/cartulary_web/controllers/memory_controller_test.exs`;
 - `priv/repo/migrations/20260727155503_f3_identity_tenancy_basic_rbac.exs`;
 - `priv/resource_snapshots/`; and

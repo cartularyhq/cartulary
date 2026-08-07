@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Governance.UnattendedMode do
+defmodule MemHouse.Governance.UnattendedMode do
   @moduledoc """
   Reports whether the deployment has no human governance participant.
 
@@ -19,7 +19,7 @@ defmodule Cartulary.Governance.UnattendedMode do
   """
   @spec enabled?() :: boolean()
   def enabled? do
-    :cartulary
+    :memhouse
     |> Application.get_env(:governance, [])
     |> Keyword.get(:unattended, false)
   end

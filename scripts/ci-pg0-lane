@@ -1,5 +1,5 @@
 #!/bin/sh
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 #
 # Packaged-release verification lane: prove that the artifact people actually
 # download works, and that it offers the same behaviour as a deployment against
@@ -26,7 +26,7 @@
 #   result. TMPDIR, if set, decides where the throwaway data root is created.
 #
 # Outputs
-#   No retained artifacts. The built release stays in _build/prod/rel/cartulary
+#   No retained artifacts. The built release stays in _build/prod/rel/memhouse
 #   for a subsequent packaging or container step; everything stateful this lane
 #   creates lives under one temporary directory that is deleted on exit.
 #
@@ -47,8 +47,8 @@ repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 # One throwaway root holds the database cluster, blobs, and the release log, so
 # cleanup is a single removal and concurrent runs cannot share state. The name
 # carries a historical tag; it is only a directory prefix.
-lane_root=$(mktemp -d "${TMPDIR:-/tmp}/cartulary-f11-pg0.XXXXXX")
-release_root="$repo_root/_build/prod/rel/cartulary"
+lane_root=$(mktemp -d "${TMPDIR:-/tmp}/memhouse-f11-pg0.XXXXXX")
+release_root="$repo_root/_build/prod/rel/memhouse"
 release_log="$lane_root/release.log"
 release_pid=
 
@@ -61,8 +61,8 @@ release_pid=
 # stop, and a failure here must not mask the real exit status.
 cleanup() {
   status=$?
-  if [ -x "$release_root/bin/cartulary" ]; then
-    CARTULARY_DATA_ROOT="$lane_root/data" "$release_root/bin/cartulary" stop >/dev/null 2>&1 || true
+  if [ -x "$release_root/bin/memhouse" ]; then
+    CARTULARY_DATA_ROOT="$lane_root/data" "$release_root/bin/memhouse" stop >/dev/null 2>&1 || true
   fi
   if [ -n "$release_pid" ] && kill -0 "$release_pid" >/dev/null 2>&1; then
     kill "$release_pid" >/dev/null 2>&1 || true
@@ -115,11 +115,11 @@ cd "$repo_root"
 #
 # stdout and stderr go to the log file because the readiness loop and the test
 # run need a clean console, and the cleanup trap replays the log on failure.
-CARTULARY_AUTH_SIGNING_SECRET=cartulary-f11-ci-only-signing-secret-that-is-longer-than-sixty-four-bytes \
+CARTULARY_AUTH_SIGNING_SECRET=memhouse-f11-ci-only-signing-secret-that-is-longer-than-sixty-four-bytes \
 CARTULARY_AUTO_MIGRATE=true \
 CARTULARY_DATABASE_MODE=pg0 \
 CARTULARY_DATA_ROOT="$lane_root/data" \
-CARTULARY_PG0_NAME="cartulary-f11-ci" \
+CARTULARY_PG0_NAME="memhouse-f11-ci" \
 CARTULARY_PG0_PORT=55431 \
 DATABASE_URL= \
 PORT=4101 \

@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Eval.Adapter do
+defmodule MemHouse.Eval.Adapter do
   @moduledoc """
   Normalizes supported benchmark fixtures into one internal evaluation case shape.
 
@@ -10,7 +10,7 @@ defmodule Cartulary.Eval.Adapter do
   """
 
   # The canonical names accepted by `--benchmark` and used to tag a normalized dataset.
-  @benchmark_names ~w(locomo longmemeval convomem beam cartulary)
+  @benchmark_names ~w(locomo longmemeval convomem beam memhouse)
 
   @doc """
   Reads a benchmark fixture from disk and returns the normalized dataset plus its digest.
@@ -51,7 +51,7 @@ defmodule Cartulary.Eval.Adapter do
   multi-sample and JSON-Lines layouts. `opts[:benchmark]` pins the source format. It
   accepts an atom or a string, is matched after downcasing and stripping every character
   that is not a letter, and additionally treats `"longmemevalv2"` as LongMemEval and
-  `"local"` as the Cartulary shape.
+  `"local"` as the MemHouse shape.
 
   When `:benchmark` is absent — or names something unrecognized — the layout is inferred
   from marker fields in the data itself, and anything matching no other layout is parsed
@@ -78,7 +78,7 @@ defmodule Cartulary.Eval.Adapter do
       "longmemeval" -> normalize_longmemeval(data)
       "convomem" -> normalize_convomem(data)
       "beam" -> normalize_beam(data)
-      "cartulary" -> normalize_cartulary(data)
+      "memhouse" -> normalize_cartulary(data)
     end
   end
 
@@ -113,7 +113,7 @@ defmodule Cartulary.Eval.Adapter do
     cond do
       value in @benchmark_names -> value
       value == "longmemevalv2" -> "longmemeval"
-      value == "local" -> "cartulary"
+      value == "local" -> "memhouse"
       true -> nil
     end
   end
@@ -129,7 +129,7 @@ defmodule Cartulary.Eval.Adapter do
 
   defp detect_benchmark(%{"messages" => messages, "questions" => questions})
        when is_list(messages) and is_list(questions),
-       do: "cartulary"
+       do: "memhouse"
 
   defp detect_benchmark([first | _]) when is_map(first) do
     cond do
@@ -145,15 +145,15 @@ defmodule Cartulary.Eval.Adapter do
   defp detect_benchmark(%{"conversations" => _, "question" => _}), do: "convomem"
   defp detect_benchmark(_data), do: "beam"
 
-  # Cartulary's own smoke shape: one flat message list and one question list, treated as a
+  # MemHouse's own smoke shape: one flat message list and one question list, treated as a
   # single case. A JSON-Lines file of the same shape becomes one case per line.
   defp normalize_cartulary(%{"messages" => messages, "questions" => questions} = data) do
-    benchmark = Map.get(data, "benchmark", "cartulary")
+    benchmark = Map.get(data, "benchmark", "memhouse")
     case_id = Map.get(data, "id", benchmark)
 
     %{
       benchmark: benchmark,
-      source_format: "cartulary",
+      source_format: "memhouse",
       cases: [
         %{
           id: to_string(case_id),
@@ -170,8 +170,8 @@ defmodule Cartulary.Eval.Adapter do
 
   defp normalize_cartulary(data) when is_list(data) do
     %{
-      benchmark: "cartulary",
-      source_format: "cartulary-jsonl",
+      benchmark: "memhouse",
+      source_format: "memhouse-jsonl",
       cases:
         data
         |> Enum.with_index(1)

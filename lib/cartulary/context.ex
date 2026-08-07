@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Context do
+defmodule MemHouse.Context do
   @moduledoc """
   Assembles the context payload an agent reads at the start of a turn, without calling a model.
 
@@ -34,11 +34,11 @@ defmodule Cartulary.Context do
     passes them through and must never derive them from the entity cache.
   """
 
-  alias Cartulary.Context.Cache
-  alias Cartulary.Context.ProjectionKey
-  alias Cartulary.Knowledge.Projection
-  alias Cartulary.Observations.Session
-  alias Cartulary.Retrieval.Query
+  alias MemHouse.Context.Cache
+  alias MemHouse.Context.ProjectionKey
+  alias MemHouse.Knowledge.Projection
+  alias MemHouse.Observations.Session
+  alias MemHouse.Retrieval.Query
 
   require Ash.Query
 
@@ -228,7 +228,7 @@ defmodule Cartulary.Context do
     # true even on a projection miss; a stored profile override that switched reranking on for
     # `:fast` would break that. Restricting the target to knowledge keeps document chunks out
     # of a payload whose consumers treat every entry as a governed statement.
-    result = Cartulary.Retrieval.retrieve(query, :fast)
+    result = MemHouse.Retrieval.retrieve(query, :fast)
     {result.candidates, true}
   end
 
@@ -346,7 +346,7 @@ defmodule Cartulary.Context do
   # error that should surface at the first request, not be papered over with a silent default
   # that changes how much context every caller receives.
   defp retrieval_config(key) do
-    :cartulary
+    :memhouse
     |> Application.fetch_env!(:retrieval_profiles)
     |> Keyword.fetch!(key)
   end

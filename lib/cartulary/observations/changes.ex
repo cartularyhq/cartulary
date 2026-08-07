@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Observations.Changes.HashContent do
+defmodule MemHouse.Observations.Changes.HashContent do
   @moduledoc """
   Ash change that derives a message's SHA-256 content hash.
 
@@ -9,7 +9,7 @@ defmodule Cartulary.Observations.Changes.HashContent do
 
   use Ash.Resource.Change
 
-  alias Cartulary.Pipeline.Idempotency
+  alias MemHouse.Pipeline.Idempotency
 
   @doc """
   Sets `content_hash` to the lowercase hex SHA-256 of the changeset's `content`.
@@ -32,7 +32,7 @@ defmodule Cartulary.Observations.Changes.HashContent do
   end
 end
 
-defmodule Cartulary.Observations.Changes.HashContentIfMissing do
+defmodule MemHouse.Observations.Changes.HashContentIfMissing do
   @moduledoc """
   Fills a document version's content hash when the caller omitted it.
 
@@ -42,7 +42,7 @@ defmodule Cartulary.Observations.Changes.HashContentIfMissing do
 
   use Ash.Resource.Change
 
-  alias Cartulary.Pipeline.Idempotency
+  alias MemHouse.Pipeline.Idempotency
 
   @doc """
   Ensures `content_hash` is set: keeps a supplied non-empty hash, otherwise hashes `content`.
@@ -72,7 +72,7 @@ defmodule Cartulary.Observations.Changes.HashContentIfMissing do
   end
 end
 
-defmodule Cartulary.Observations.Changes.AuditAndEnqueueMessage do
+defmodule MemHouse.Observations.Changes.AuditAndEnqueueMessage do
   @moduledoc """
   Atomically audits a new message and schedules extraction.
 
@@ -82,8 +82,8 @@ defmodule Cartulary.Observations.Changes.AuditAndEnqueueMessage do
 
   use Ash.Resource.Change
 
-  alias Cartulary.Governance.Audit
-  alias Cartulary.Pipeline
+  alias MemHouse.Governance.Audit
+  alias MemHouse.Pipeline
 
   @doc """
   Registers the after-action hook that audits the message and enqueues its pipeline work.
@@ -141,7 +141,7 @@ defmodule Cartulary.Observations.Changes.AuditAndEnqueueMessage do
   end
 end
 
-defmodule Cartulary.Observations.Changes.AuditAndEnqueueDocument do
+defmodule MemHouse.Observations.Changes.AuditAndEnqueueDocument do
   @moduledoc """
   Atomically audits a document version and schedules extraction.
 
@@ -151,8 +151,8 @@ defmodule Cartulary.Observations.Changes.AuditAndEnqueueDocument do
 
   use Ash.Resource.Change
 
-  alias Cartulary.Governance.Audit
-  alias Cartulary.Pipeline
+  alias MemHouse.Governance.Audit
+  alias MemHouse.Pipeline
 
   @doc """
   Registers the after-action hook that audits the version and enqueues its pipeline work.

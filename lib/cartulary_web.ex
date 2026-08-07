@@ -1,8 +1,8 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
 defmodule CartularyWeb do
   @moduledoc """
-  Shared setup for every Phoenix module in Cartulary's web layer.
+  Shared setup for every Phoenix module in MemHouse's web layer.
 
   `use CartularyWeb, profile` injects one shared helper set. Identity, Account, and authorization
   remain in plugs and LiveView hooks; never derive Account from request data. Quoted blocks contain

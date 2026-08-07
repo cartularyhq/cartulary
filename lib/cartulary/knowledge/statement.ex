@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Knowledge.Statement do
+defmodule MemHouse.Knowledge.Statement do
   @moduledoc """
   Normalization and the readability rule for knowledge statement text.
 

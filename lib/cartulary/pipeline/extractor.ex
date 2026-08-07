@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Pipeline.Extractor do
+defmodule MemHouse.Pipeline.Extractor do
   @moduledoc """
   Turns exactly one raw observation into candidate knowledge items.
 
@@ -31,8 +31,8 @@ defmodule Cartulary.Pipeline.Extractor do
   that must pass governance before retrieval can see it.
   """
 
-  alias Cartulary.Model
-  alias Cartulary.Model.Schema.Extraction
+  alias MemHouse.Model
+  alias MemHouse.Model.Schema.Extraction
 
   # Identity of the extraction-and-pipeline contract this build implements. The
   # same string is configured as every model role's `pipeline_version` — which
@@ -105,7 +105,7 @@ defmodule Cartulary.Pipeline.Extractor do
         100 is absolute certainty). Resolve subject independently from source. A peer subject_ref must be
         one of the supplied known peer keys. Use the current scope path only for
         a scope subject. Mark third-party claims as hearsay; their confidence is
-        discounted again by Cartulary. Propose sensitivity and the independent
+        discounted again by MemHouse. Propose sensitivity and the independent
         expiry, revalidation, and relevant-window timestamps. Use no_op by
         omitting the candidate rather than emitting an empty statement.
 
@@ -195,7 +195,7 @@ defmodule Cartulary.Pipeline.Extractor do
     |> Map.put(:scope_path, Map.fetch!(message, "scope_path"))
     # Falls back to now only for a standalone caller that assembled an
     # observation without one. Both pipeline paths always carry a stored time.
-    |> Map.put(:occurred_at, Map.get(message, "occurred_at") || Cartulary.Clock.utc_now())
+    |> Map.put(:occurred_at, Map.get(message, "occurred_at") || MemHouse.Clock.utc_now())
     |> Map.put(
       :known_peer_keys,
       message

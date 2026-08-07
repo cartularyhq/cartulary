@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Documents.Connector do
+defmodule MemHouse.Documents.Connector do
   @moduledoc """
   Contract for replay-safe incremental document connectors.
 
@@ -50,7 +50,7 @@ defmodule Cartulary.Documents.Connector do
   Receives the prior cursor or `%{}`. Returns `{:ok, page}` or `{:error, reason}`; failures leave
   the cursor unchanged for replay.
   """
-  @callback pull(Cartulary.Documents.ConnectorConfig.t(), map()) ::
+  @callback pull(MemHouse.Documents.ConnectorConfig.t(), map()) ::
               {:ok, page()} | {:error, term()}
 
   @doc """
@@ -65,7 +65,7 @@ defmodule Cartulary.Documents.Connector do
   """
   def adapter!(kind) when is_binary(kind) do
     adapters =
-      :cartulary
+      :memhouse
       |> Application.fetch_env!(:documents)
       |> Keyword.fetch!(:connector_adapters)
 

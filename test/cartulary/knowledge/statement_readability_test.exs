@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Knowledge.StatementReadabilityTest do
+defmodule MemHouse.Knowledge.StatementReadabilityTest do
   @moduledoc """
   Pins the readability rule that keeps a degenerate model generation out of
   knowledge.
@@ -14,9 +14,9 @@ defmodule Cartulary.Knowledge.StatementReadabilityTest do
 
   use ExUnit.Case, async: true
 
-  alias Cartulary.Knowledge.KnowledgeItem
-  alias Cartulary.Knowledge.Statement
-  alias Cartulary.Model.Schema.Extraction
+  alias MemHouse.Knowledge.KnowledgeItem
+  alias MemHouse.Knowledge.Statement
+  alias MemHouse.Model.Schema.Extraction
 
   # The statement that reached the console: real words diluted by a repetition
   # collapse, including a zero-width space and the schema's own field name.
@@ -116,7 +116,7 @@ defmodule Cartulary.Knowledge.StatementReadabilityTest do
                "Avery prefers weekly release summaries."
 
       assert Ash.Changeset.get_attribute(changeset, :statement_hash) ==
-               Cartulary.Pipeline.Idempotency.content_hash(
+               MemHouse.Pipeline.Idempotency.content_hash(
                  "Avery prefers weekly release summaries."
                )
     end

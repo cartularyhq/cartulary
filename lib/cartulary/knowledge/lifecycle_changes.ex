@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Knowledge.Changes.RecordTransition do
+defmodule MemHouse.Knowledge.Changes.RecordTransition do
   @moduledoc """
   Ash change that records lifecycle and audit evidence for a state transition.
 
@@ -10,9 +10,9 @@ defmodule Cartulary.Knowledge.Changes.RecordTransition do
 
   use Ash.Resource.Change
 
-  alias Cartulary.Clock
-  alias Cartulary.Governance.Audit
-  alias Cartulary.Knowledge.LifecycleEvent
+  alias MemHouse.Clock
+  alias MemHouse.Governance.Audit
+  alias MemHouse.Knowledge.LifecycleEvent
 
   @doc """
   Registers the after-action hook that writes the lifecycle event and the audit entry.

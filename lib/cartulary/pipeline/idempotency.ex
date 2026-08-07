@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Pipeline.Idempotency do
+defmodule MemHouse.Pipeline.Idempotency do
   @moduledoc """
   The deterministic keys that make every background job replay-safe.
 

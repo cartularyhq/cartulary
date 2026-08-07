@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Retrieval.Diagnostics do
+defmodule MemHouse.Retrieval.Diagnostics do
   @moduledoc """
   Keeps the latest content-free retrieval outcome for each Account.
 
@@ -27,7 +27,7 @@ defmodule Cartulary.Retrieval.Diagnostics do
     summary = %{
       profile: result.profile,
       profile_version: result.profile_version,
-      lexical_analyzer: Cartulary.Retrieval.LexicalQueryAnalyzer.version(),
+      lexical_analyzer: MemHouse.Retrieval.LexicalQueryAnalyzer.version(),
       deadline_ms: deadline_ms,
       latency_ms: result.latency_ms,
       pre_rerank_remaining_ms: result.pre_rerank_remaining_ms,

@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Update do
+defmodule MemHouse.Update do
   @moduledoc """
   Checks, verifies, stages, and activates standalone release updates.
 
@@ -11,13 +11,13 @@ defmodule Cartulary.Update do
 
   require Logger
 
-  @manifest_schema "cartulary-release-1"
-  @default_source "https://api.github.com/repos/cartularyhq/cartulary/releases/latest"
+  @manifest_schema "memhouse-release-1"
+  @default_source "https://api.github.com/repos/memhousehq/memhouse/releases/latest"
   @timeout 10_000
 
   @doc "Returns the content-safe update status used by readiness and the operations console."
   def status do
-    Application.get_env(:cartulary, :update, [])
+    Application.get_env(:memhouse, :update, [])
     |> Keyword.merge(last_result: persistent_result())
     |> Map.new()
     |> Map.merge(%{
@@ -32,7 +32,7 @@ defmodule Cartulary.Update do
 
   @doc "Checks the configured official release feed and persists a content-safe result."
   def check do
-    result = do_check(Application.get_env(:cartulary, :update, []))
+    result = do_check(Application.get_env(:memhouse, :update, []))
     :persistent_term.put({__MODULE__, :result}, result)
     result
   end
@@ -95,14 +95,14 @@ defmodule Cartulary.Update do
       ensure_new_release!(staged)
       verify_asset!(archive_path, manifest, config)
       extract_release!(archive_path, temporary)
-      release_root = Path.join(temporary, "cartulary")
+      release_root = Path.join(temporary, "memhouse")
       ensure_release_root!(release_root)
       checkpoint!()
       run_migrations!(release_root)
       File.rename!(temporary, staged)
       switch_current!(install_root, staged)
 
-      Logger.info("Cartulary update activated version=#{version}")
+      Logger.info("MemHouse update activated version=#{version}")
       %{version: version, release_root: staged}
     after
       if File.exists?(temporary), do: File.rm_rf!(temporary)
@@ -139,20 +139,20 @@ defmodule Cartulary.Update do
   # The backup directory is derived from trusted local deployment configuration.
   # sobelow_skip ["Traversal.FileModule"]
   def checkpoint! do
-    data_root = System.get_env("CARTULARY_DATA_ROOT") || Path.expand("~/.cartulary")
+    data_root = System.get_env("CARTULARY_DATA_ROOT") || Path.expand("~/.memhouse")
     backups = Path.join(data_root, "backups")
     File.mkdir_p!(backups)
     File.chmod!(backups, 0o700)
     archive = Path.join(backups, "before-update-#{System.system_time(:second)}.tar.gz")
 
-    {:ok, _started} = Application.ensure_all_started(:cartulary)
+    {:ok, _started} = Application.ensure_all_started(:memhouse)
 
     try do
-      Cartulary.Release.export!(archive)
-      Cartulary.Release.validate_archive!(archive)
+      MemHouse.Release.export!(archive)
+      MemHouse.Release.validate_archive!(archive)
       archive
     after
-      Application.stop(:cartulary)
+      Application.stop(:memhouse)
     end
   end
 
@@ -209,7 +209,7 @@ defmodule Cartulary.Update do
 
   defp manifest_url(_source, tag),
     do:
-      "https://github.com/cartularyhq/cartulary/releases/download/#{tag}/release-manifest-v1.json"
+      "https://github.com/memhousehq/memhouse/releases/download/#{tag}/release-manifest-v1.json"
 
   defp validate_manifest(%{"schema" => @manifest_schema, "version" => version}, latest) do
     with {:ok, ^version} <- semver_tag(latest.tag_name),
@@ -257,7 +257,7 @@ defmodule Cartulary.Update do
   defp key_result(_), do: {:error, :invalid_public_key}
 
   defp current_version do
-    :cartulary |> Application.spec(:vsn) |> to_string()
+    :memhouse |> Application.spec(:vsn) |> to_string()
   end
 
   defp parse_version(value) do
@@ -291,7 +291,7 @@ defmodule Cartulary.Update do
     do: :persistent_term.get({__MODULE__, :result}, %{status: "not_checked"})
 
   defp resolved_config do
-    config = Application.get_env(:cartulary, :update, [])
+    config = Application.get_env(:memhouse, :update, [])
     release_root = System.get_env("RELEASE_ROOT") || File.cwd!()
     install_root = Keyword.get(config, :install_root) || Path.dirname(release_root)
     Keyword.put(config, :install_root, install_root)
@@ -329,12 +329,12 @@ defmodule Cartulary.Update do
   # sobelow_skip ["Traversal.FileModule"]
   defp download_asset!(version, asset) do
     url =
-      "https://github.com/cartularyhq/cartulary/releases/download/v#{version}/#{asset["name"]}"
+      "https://github.com/memhousehq/memhouse/releases/download/v#{version}/#{asset["name"]}"
 
     case raw_request(url) do
       {:ok, %{status: 200, body: bytes}} when is_binary(bytes) ->
         path =
-          Path.join(System.tmp_dir!(), "cartulary-update-#{System.unique_integer([:positive])}")
+          Path.join(System.tmp_dir!(), "memhouse-update-#{System.unique_integer([:positive])}")
 
         File.write!(path, bytes, [:binary])
         path

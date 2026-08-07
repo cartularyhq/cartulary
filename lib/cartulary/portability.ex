@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Portability do
+defmodule MemHouse.Portability do
   @moduledoc """
   Exports and imports one logical Account archive.
 
@@ -19,7 +19,7 @@ defmodule Cartulary.Portability do
   Raises on an unreadable blob, a blob whose bytes no longer match their
   recorded checksum, or a filesystem failure.
   """
-  defdelegate export(actor, output_path), to: Cartulary.Portability.Archive
+  defdelegate export(actor, output_path), to: MemHouse.Portability.Archive
 
   @doc """
   Restores an archive into a fresh Account.
@@ -33,7 +33,7 @@ defmodule Cartulary.Portability do
   or if the restore transaction cannot commit — in which case nothing durable
   from the archive remains.
   """
-  defdelegate import(input_path), to: Cartulary.Portability.Archive
+  defdelegate import(input_path), to: MemHouse.Portability.Archive
 
   @doc """
   Verifies an archive without writing anything.
@@ -43,5 +43,5 @@ defmodule Cartulary.Portability do
   Account id, manifest hash, and audit head. Raises with the specific failure if
   the archive is not sound.
   """
-  defdelegate validate(input_path), to: Cartulary.Portability.Archive
+  defdelegate validate(input_path), to: MemHouse.Portability.Archive
 end

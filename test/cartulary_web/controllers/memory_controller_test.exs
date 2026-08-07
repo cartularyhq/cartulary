@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
 defmodule CartularyWeb.MemoryControllerTest do
   @moduledoc """
@@ -12,11 +12,11 @@ defmodule CartularyWeb.MemoryControllerTest do
 
   use CartularyWeb.ConnCase, async: false
 
-  alias Cartulary.Governance.McpTools
-  alias Cartulary.Identity
-  alias Cartulary.Memory
-  alias Cartulary.Model.GroundedAnswerProvider
-  alias Cartulary.Repo
+  alias MemHouse.Governance.McpTools
+  alias MemHouse.Identity
+  alias MemHouse.Memory
+  alias MemHouse.Model.GroundedAnswerProvider
+  alias MemHouse.Repo
 
   setup do
     # Remove any model credential the developer's shell or the loaded config
@@ -26,11 +26,11 @@ defmodule CartularyWeb.MemoryControllerTest do
     # undo that. Both values are restored on exit so the next test sees the
     # machine it expected.
     original_api_key = System.get_env("OPENROUTER_API_KEY")
-    original_models = Application.fetch_env!(:cartulary, :models)
-    original_provider = Application.get_env(:cartulary, :model_provider)
+    original_models = Application.fetch_env!(:memhouse, :models)
+    original_provider = Application.get_env(:memhouse, :model_provider)
 
     System.delete_env("OPENROUTER_API_KEY")
-    Application.put_env(:cartulary, :models, Keyword.put(original_models, :api_key, nil))
+    Application.put_env(:memhouse, :models, Keyword.put(original_models, :api_key, nil))
 
     on_exit(fn ->
       GroundedAnswerProvider.stop()
@@ -41,12 +41,12 @@ defmodule CartularyWeb.MemoryControllerTest do
         System.delete_env("OPENROUTER_API_KEY")
       end
 
-      Application.put_env(:cartulary, :models, original_models)
+      Application.put_env(:memhouse, :models, original_models)
 
       if original_provider do
-        Application.put_env(:cartulary, :model_provider, original_provider)
+        Application.put_env(:memhouse, :model_provider, original_provider)
       else
-        Application.delete_env(:cartulary, :model_provider)
+        Application.delete_env(:memhouse, :model_provider)
       end
     end)
 
@@ -80,7 +80,7 @@ defmodule CartularyWeb.MemoryControllerTest do
     # so a client can discover which extractor it is talking to. It is a
     # contract identity, not the release version, and does not change when the
     # application version does.
-    assert %{"status" => "ok", "app" => "cartulary", "version" => "f5-1"} =
+    assert %{"status" => "ok", "app" => "memhouse", "version" => "f5-1"} =
              json_response(conn, 200)
 
     assert_trace_id(conn)
@@ -348,7 +348,7 @@ defmodule CartularyWeb.MemoryControllerTest do
   } do
     seed_memory!(actor, "http-ask-inconclusive", "/contract/http/ask-inconclusive")
     GroundedAnswerProvider.start!(:grounded_abstention)
-    Application.put_env(:cartulary, :model_provider, GroundedAnswerProvider)
+    Application.put_env(:memhouse, :model_provider, GroundedAnswerProvider)
 
     conn =
       conn
@@ -464,7 +464,7 @@ defmodule CartularyWeb.MemoryControllerTest do
   } do
     conn =
       conn
-      |> put_req_header("x-cartulary-account-key", "header-selected-account")
+      |> put_req_header("x-memhouse-account-key", "header-selected-account")
       |> with_identity(token)
       |> post(
         ~p"/api/v1/ingest",
@@ -485,7 +485,7 @@ defmodule CartularyWeb.MemoryControllerTest do
     # and it is the only row that comes back.
     assert %{rows: [["local"]]} =
              Ecto.Adapters.SQL.query!(
-               Cartulary.Repo,
+               MemHouse.Repo,
                """
                SELECT account.key
                FROM accounts AS account
@@ -527,7 +527,7 @@ defmodule CartularyWeb.MemoryControllerTest do
     # anywhere.
     assert %{rows: []} =
              Ecto.Adapters.SQL.query!(
-               Cartulary.Repo,
+               MemHouse.Repo,
                """
                SELECT id
                FROM knowledge_items

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
 defmodule CartularyWeb.ConnCase do
   @moduledoc """
@@ -29,7 +29,7 @@ defmodule CartularyWeb.ConnCase do
   setup tags do
     # Delegates to the data case template rather than duplicating the checkout,
     # so endpoint tests and data tests get identical sandbox and rollback rules.
-    Cartulary.DataCase.setup_sandbox(tags)
+    MemHouse.DataCase.setup_sandbox(tags)
     {:ok, conn: Phoenix.ConnTest.build_conn()}
   end
 end

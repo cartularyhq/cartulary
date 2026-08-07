@@ -1,9 +1,9 @@
-# Cartulary — Multi-Scope Agent Memory System — Functional Requirements
+# MemHouse — Multi-Scope Agent Memory System — Functional Requirements
 
 > **Edition:** **Elixir/Ash edition.** This is the platform-specific rendering of the functional requirements for the Elixir + Ash Framework build. Functional requirements describe **product behavior**, which is platform-independent — so this document is intentionally near-identical to the original. Every `FR-*` anchor id and its requirement meaning is preserved verbatim; only the small number of requirements that name a concrete technology have been updated to the Elixir/Ash stack (Ash data layers, Oban, ReqLLM, Phoenix, Ortex/ONNX, `ash_ai`, Extractous/MDEx, `bitcrowd/rag`). Where a technology reference changed, the FR id and wording pattern are kept and only the named tech is updated (sometimes with a short parenthetical). The companion **ARCH spec** is the authoritative source for how the stack is assembled.
 >
 > **Status:** v1.0 — final.
-> **Product name:** **Cartulary** — a cartulary is the bound register in which an institution kept authenticated copies of its charters: a governed, curated record of what the organisation knows and can prove. *Multi-Scope Agent Memory System* remains the descriptive subtitle.
+> **Product name:** **MemHouse** — a memhouse is the bound register in which an institution kept authenticated copies of its charters: a governed, curated record of what the organisation knows and can prove. *Multi-Scope Agent Memory System* remains the descriptive subtitle.
 > **Companions:** `memory-system-architecture-and-nfr.md` (the **ARCH spec** — *how it is built*; `AD-*`/`NFR-*`/`AINV-*` anchors), `memory-system-evaluation-framework.md` (the **EV spec** — *how it is validated*), and `memory-system-product-blueprint.md` (the *why/who/how-it-wins* layer). This document is the technical source of truth for *what the system does*.
 > **One-liner:** A self-hostable, model-agnostic memory layer that — like Honcho's peer-centric reasoning memory — distills conversations into evolving representations, and extends that with **collective memory at every level of an organisation** (a recursive scope tree), governed promotion of knowledge, a tri-temporal model, skill-readiness self-evaluation, and an MCP + SDK surface. Licensed fair-code (n8n-style).
 >
@@ -328,7 +328,7 @@ Non-functional targets, architecture decisions, and the concrete technology stac
 
 *(Deliberate refusals, recorded so they read as decisions rather than omissions.)*
 
-- **Agent-written knowledge.** Parts of the field treat agent-generated facts as primary data, written directly to memory [17]. Cartulary does not and will not: `FR-API-12` and invariant 2 make agents submitters of **observations** and the pipeline the sole writer of knowledge. Agent observations remain a first-class *source*, subject to `FR-FORM-15`'s subject-versus-source resolution and its hearsay discount. *Reason:* knowledge that entered without passing a gate cannot be promoted, audited, or consented to on the same terms as knowledge that did, and a mixed population defeats the guarantee that makes the governance model worth anything. This is a cost — it forecloses the fastest path to agent self-improvement — and it is accepted.
+- **Agent-written knowledge.** Parts of the field treat agent-generated facts as primary data, written directly to memory [17]. MemHouse does not and will not: `FR-API-12` and invariant 2 make agents submitters of **observations** and the pipeline the sole writer of knowledge. Agent observations remain a first-class *source*, subject to `FR-FORM-15`'s subject-versus-source resolution and its hearsay discount. *Reason:* knowledge that entered without passing a gate cannot be promoted, audited, or consented to on the same terms as knowledge that did, and a mixed population defeats the guarantee that makes the governance model worth anything. This is a cost — it forecloses the fastest path to agent self-improvement — and it is accepted.
 
 ---
 

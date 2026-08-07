@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 #
 # Nightly answer-quality evaluation.
 #
@@ -114,7 +114,7 @@ jobs:
         shell: bash
         run: |
           mode="${{ inputs.model_mode || 'deterministic' }}"
-          args=(--assert-thresholds --run-id "nightly-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" --output /tmp/cartulary-f11-nightly.json)
+          args=(--assert-thresholds --run-id "nightly-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" --output /tmp/memhouse-f11-nightly.json)
           if [ "$mode" = deterministic ]; then
             args+=(--no-model)
           elif [ -z "$OPENROUTER_API_KEY" ] || [ -z "$CARTULARY_MODEL_DREAM" ]; then
@@ -123,15 +123,15 @@ jobs:
           else
             args+=(--judge model)
           fi
-          mix cartulary.eval.release "${args[@]}"
+          mix memhouse.eval.release "${args[@]}"
       # Rejects a report that does not carry the full provenance needed to reproduce or
       # compare it: application version, dataset identity and hash, retrieval profile,
       # deadline, all four model roles, and the judge.
-      - run: mix cartulary.eval.verify /tmp/cartulary-f11-nightly.json
+      - run: mix memhouse.eval.verify /tmp/memhouse-f11-nightly.json
       # 30 days of history, enough to see a drift that took a few weeks to appear. Reports
       # worth keeping longer are committed to the repository as recorded evidence instead.
       - uses: actions/upload-artifact@v7
         with:
           name: nightly-eval-${{ github.run_id }}
-          path: /tmp/cartulary-f11-nightly.json
+          path: /tmp/memhouse-f11-nightly.json
           retention-days: 30

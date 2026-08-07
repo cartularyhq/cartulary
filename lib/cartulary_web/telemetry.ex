@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
 defmodule CartularyWeb.Telemetry do
   @moduledoc """
@@ -74,39 +74,39 @@ defmodule CartularyWeb.Telemetry do
       ),
 
       # Separate pool wait from query time; never tag SQL text.
-      summary("cartulary.repo.query.total_time",
+      summary("memhouse.repo.query.total_time",
         unit: {:native, :millisecond},
         description: "The sum of the other measurements"
       ),
-      summary("cartulary.repo.query.decode_time",
+      summary("memhouse.repo.query.decode_time",
         unit: {:native, :millisecond},
         description: "The time spent decoding the data received from the database"
       ),
-      summary("cartulary.repo.query.query_time",
+      summary("memhouse.repo.query.query_time",
         unit: {:native, :millisecond},
         description: "The time spent executing the query"
       ),
-      summary("cartulary.repo.query.queue_time",
+      summary("memhouse.repo.query.queue_time",
         unit: {:native, :millisecond},
         description: "The time spent waiting for a database connection"
       ),
-      summary("cartulary.repo.query.idle_time",
+      summary("memhouse.repo.query.idle_time",
         unit: {:native, :millisecond},
         description:
           "The time the connection spent waiting before being checked out for the query"
       ),
 
       # Queue depth is a current gauge, aggregated with `last_value`.
-      last_value("cartulary.operations.queue.depth",
+      last_value("memhouse.operations.queue.depth",
         tags: [:queue, :state],
         description: "Current Oban queue depth by queue and state"
       ),
       # Portability emitters already report milliseconds; tag status only.
-      summary("cartulary.portability.export.duration",
+      summary("memhouse.portability.export.duration",
         unit: {:millisecond, :millisecond},
         tags: [:status]
       ),
-      summary("cartulary.portability.import.duration",
+      summary("memhouse.portability.import.duration",
         unit: {:millisecond, :millisecond},
         tags: [:status]
       ),
@@ -122,7 +122,7 @@ defmodule CartularyWeb.Telemetry do
   # Queue depth has no event, so sample it; database failure stays silent to protect the poller.
   defp periodic_measurements do
     [
-      {Cartulary.Operations.Health, :emit_queue_metrics, []}
+      {MemHouse.Operations.Health, :emit_queue_metrics, []}
     ]
   end
 end

@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.ReleaseReadiness do
+defmodule MemHouse.ReleaseReadiness do
   @moduledoc """
   Validates whether a revision can be released.
 
@@ -9,7 +9,7 @@ defmodule Cartulary.ReleaseReadiness do
   fails closed; frontier metrics remain informational unless deliberately promoted to gates.
   """
 
-  alias Cartulary.Eval.Report
+  alias MemHouse.Eval.Report
 
   # Semantic Versioning core with an optional pre-release suffix, deliberately
   # without build metadata: a release tag must be unambiguous, and two versions

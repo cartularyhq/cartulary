@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Topology do
+defmodule MemHouse.Topology do
   @moduledoc """
   Ash domain for scoped containment, lateral relations, and role grants.
 
@@ -12,13 +12,13 @@ defmodule Cartulary.Topology do
   use Ash.Domain
 
   resources do
-    resource Cartulary.Topology.Scope
-    resource Cartulary.Topology.ScopeRelation
-    resource Cartulary.Topology.RoleGrant
+    resource MemHouse.Topology.Scope
+    resource MemHouse.Topology.ScopeRelation
+    resource MemHouse.Topology.RoleGrant
   end
 end
 
-defmodule Cartulary.Topology.Scope do
+defmodule MemHouse.Topology.Scope do
   @moduledoc """
   One node in an Account's containment tree.
 
@@ -27,7 +27,7 @@ defmodule Cartulary.Topology.Scope do
   instead of trying to move one.
   """
 
-  use Cartulary.Resource, domain: Cartulary.Topology, table: "scopes"
+  use MemHouse.Resource, domain: MemHouse.Topology, table: "scopes"
 
   # One Account per row, enforced again in the database by row-level security.
   # A path is unique within an Account, never across Accounts.
@@ -68,7 +68,7 @@ defmodule Cartulary.Topology.Scope do
     # A caller sees only the scopes its role grants resolved to. The scope's own
     # primary key is the column being matched here, since this *is* the scope.
     policy action_type(:read) do
-      authorize_if {Cartulary.Policy.ScopeAccess, attribute: :id}
+      authorize_if {MemHouse.Policy.ScopeAccess, attribute: :id}
     end
   end
 
@@ -100,7 +100,7 @@ defmodule Cartulary.Topology.Scope do
   end
 end
 
-defmodule Cartulary.Topology.ScopeRelation do
+defmodule MemHouse.Topology.ScopeRelation do
   @moduledoc """
   A lateral link between scopes outside the containment line.
 
@@ -108,7 +108,7 @@ defmodule Cartulary.Topology.ScopeRelation do
   no access, and its endpoints are immutable so changes leave an auditable old pair.
   """
 
-  use Cartulary.Resource, domain: Cartulary.Topology, table: "scope_relations"
+  use MemHouse.Resource, domain: MemHouse.Topology, table: "scope_relations"
 
   multitenancy do
     strategy :attribute
@@ -137,7 +137,7 @@ defmodule Cartulary.Topology.ScopeRelation do
     # Both endpoints must be authorized. Seeing one side of a link never
     # entitles a caller to learn about the other.
     policy action_type(:read) do
-      authorize_if {Cartulary.Policy.ScopeRelationAccess,
+      authorize_if {MemHouse.Policy.ScopeRelationAccess,
                     source_attribute: :source_scope_id, target_attribute: :target_scope_id}
     end
   end
@@ -167,7 +167,7 @@ defmodule Cartulary.Topology.ScopeRelation do
   end
 end
 
-defmodule Cartulary.Topology.RoleGrant do
+defmodule MemHouse.Topology.RoleGrant do
   @moduledoc """
   One peer's allow or deny role grant at one scope.
 
@@ -176,7 +176,7 @@ defmodule Cartulary.Topology.RoleGrant do
   callers that need an immediate change must resolve a fresh actor.
   """
 
-  use Cartulary.Resource, domain: Cartulary.Topology, table: "role_grants"
+  use MemHouse.Resource, domain: MemHouse.Topology, table: "role_grants"
 
   multitenancy do
     strategy :attribute
@@ -223,14 +223,14 @@ defmodule Cartulary.Topology.RoleGrant do
     # Grants are visible where the caller can already see the scope; this does
     # not restrict the listing to the caller's own grants.
     policy action_type(:read) do
-      authorize_if {Cartulary.Policy.ScopeAccess, attribute: :scope_id}
+      authorize_if {MemHouse.Policy.ScopeAccess, attribute: :scope_id}
     end
 
     # Only an Account administrator *at that scope* may change authority there,
     # so administering one subtree never becomes authority to administer
     # another. Internal `:system` actors pass this check by definition.
     policy action_type([:create, :update, :destroy]) do
-      authorize_if {Cartulary.Policy.ScopeRole, attribute: :scope_id, roles: [:account_admin]}
+      authorize_if {MemHouse.Policy.ScopeRole, attribute: :scope_id, roles: [:account_admin]}
     end
 
     # Every applicable policy must pass, so this narrows destroys further rather

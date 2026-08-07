@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
 defmodule VanishingSubjectProvider do
   @moduledoc """
@@ -8,10 +8,10 @@ defmodule VanishingSubjectProvider do
   transaction. It is test-only and mutates the fixture peer solely to force that write error.
   """
 
-  @behaviour Cartulary.Model.Provider
+  @behaviour MemHouse.Model.Provider
 
-  alias Cartulary.Model.Provider.Result
-  alias Cartulary.Repo
+  alias MemHouse.Model.Provider.Result
+  alias MemHouse.Repo
 
   # The peer key `ingest_attrs/3` derives for the Account key `f2-metered-failure`, and the
   # name it is moved to. Both are literals rather than parameters because the provider
@@ -68,7 +68,7 @@ defmodule VanishingSubjectProvider do
   def rerank(_config, _query, _documents, _opts), do: {:error, :not_implemented}
 end
 
-defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
+defmodule MemHouse.F2TransactionalWritesAuditJobsTest do
   @moduledoc """
   Pins the coupling between a durable write, its audit entry, its processing record,
     and its background job: either all four exist or none of them do.
@@ -76,18 +76,18 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
     One transaction, four effects.
   """
 
-  use Cartulary.DataCase, async: false
+  use MemHouse.DataCase, async: false
 
   import ExUnit.CaptureLog
 
-  alias Cartulary.Clock
-  alias Cartulary.DataLayer
-  alias Cartulary.Governance.Audit
-  alias Cartulary.Governance.AuditEvent
-  alias Cartulary.Memory
-  alias Cartulary.Observations.Message
-  alias Cartulary.Operations.PipelineRun
-  alias Cartulary.Pipeline.Idempotency
+  alias MemHouse.Clock
+  alias MemHouse.DataLayer
+  alias MemHouse.Governance.Audit
+  alias MemHouse.Governance.AuditEvent
+  alias MemHouse.Memory
+  alias MemHouse.Observations.Message
+  alias MemHouse.Operations.PipelineRun
+  alias MemHouse.Pipeline.Idempotency
 
   require Ash.Query
 
@@ -97,10 +97,10 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
   # afterwards.
   setup do
     original_api_key = System.get_env("OPENROUTER_API_KEY")
-    original_models = Application.fetch_env!(:cartulary, :models)
+    original_models = Application.fetch_env!(:memhouse, :models)
 
     System.delete_env("OPENROUTER_API_KEY")
-    Application.put_env(:cartulary, :models, Keyword.put(original_models, :api_key, nil))
+    Application.put_env(:memhouse, :models, Keyword.put(original_models, :api_key, nil))
 
     on_exit(fn ->
       if original_api_key do
@@ -109,7 +109,7 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
         System.delete_env("OPENROUTER_API_KEY")
       end
 
-      Application.put_env(:cartulary, :models, original_models)
+      Application.put_env(:memhouse, :models, original_models)
     end)
 
     :ok
@@ -395,14 +395,14 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
     # assertions prove is that the durable observation and its processing record do not depend
     # on extraction having produced anything.
     models =
-      :cartulary
+      :memhouse
       |> Application.fetch_env!(:models)
       |> Keyword.merge(
         api_key: "configured-but-unavailable",
         base_url: "http://127.0.0.1:1"
       )
 
-    Application.put_env(:cartulary, :models, models)
+    Application.put_env(:memhouse, :models, models)
 
     assert {:ok, message} =
              Memory.ingest_message(ingest_attrs("f2-provider-down", "provider-session"))
@@ -524,10 +524,10 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
 
     # Each lane's orchestration module must exist and compile. A trigger whose workflow module
     # is missing would only fail when a real job ran, in production, at retry time.
-    assert Code.ensure_loaded?(Cartulary.Pipeline.Workflows.IngestExtraction)
-    assert Code.ensure_loaded?(Cartulary.Pipeline.Workflows.DreamTimeReasoning)
-    assert Code.ensure_loaded?(Cartulary.Pipeline.Workflows.ValidationContinuation)
-    assert Code.ensure_loaded?(Cartulary.Pipeline.Workflows.AnswerCorrelationContinuation)
+    assert Code.ensure_loaded?(MemHouse.Pipeline.Workflows.IngestExtraction)
+    assert Code.ensure_loaded?(MemHouse.Pipeline.Workflows.DreamTimeReasoning)
+    assert Code.ensure_loaded?(MemHouse.Pipeline.Workflows.ValidationContinuation)
+    assert Code.ensure_loaded?(MemHouse.Pipeline.Workflows.AnswerCorrelationContinuation)
 
     # Idempotency keys need two opposite properties, and both are checked here.
     #
@@ -568,17 +568,17 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
 
     account_id = account_id!("f2-metered-failure")
 
-    original_provider = Application.get_env(:cartulary, :model_provider)
+    original_provider = Application.get_env(:memhouse, :model_provider)
 
     on_exit(fn ->
       if original_provider do
-        Application.put_env(:cartulary, :model_provider, original_provider)
+        Application.put_env(:memhouse, :model_provider, original_provider)
       else
-        Application.delete_env(:cartulary, :model_provider)
+        Application.delete_env(:memhouse, :model_provider)
       end
     end)
 
-    Application.put_env(:cartulary, :model_provider, VanishingSubjectProvider)
+    Application.put_env(:memhouse, :model_provider, VanishingSubjectProvider)
 
     # The provider renames the subject peer as a side effect of answering, so the candidate it
     # returns names a peer key that existed when the prompt was built and no longer exists
@@ -617,13 +617,13 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
     # `{Oban.Peers.Isolated, [leader?: false]}` — leadership this node can never win. A job
     # that fails once and is scheduled for backoff retry then never runs again: nothing
     # promotes it back to `available`, and nothing raises, so the stall is silent.
-    # `Cartulary.Application.oban_config/0` is what the supervision tree actually starts
+    # `MemHouse.Application.oban_config/0` is what the supervision tree actually starts
     # Oban with, so this pins the fixed value rather than the raw `AshOban.config/2` merge.
-    merged = Cartulary.Application.oban_config()
+    merged = MemHouse.Application.oban_config()
 
     refute merged[:peer] == false
 
-    # `config/test.exs` merges `testing: :manual` into `:cartulary, Oban`, and Oban's own
+    # `config/test.exs` merges `testing: :manual` into `:memhouse, Oban`, and Oban's own
     # config normalization deliberately forces an unelectable peer whenever `testing` is
     # `:manual`/`:inline` — correct test isolation, not the bug this test guards. Forcing
     # `testing: :disabled` here simulates how the merged config resolves in production,
@@ -656,8 +656,8 @@ defmodule Cartulary.F2TransactionalWritesAuditJobsTest do
   # otherwise hides it, because the seeding transaction's declaration lasts for the whole
   # test. The settings are transaction-local, so this affects only the running test.
   defp clear_account_declaration! do
-    Ecto.Adapters.SQL.query!(Repo, "SELECT set_config('cartulary.account_id', '', true)", [])
-    Ecto.Adapters.SQL.query!(Repo, "SELECT set_config('cartulary.account_key', '', true)", [])
+    Ecto.Adapters.SQL.query!(Repo, "SELECT set_config('memhouse.account_id', '', true)", [])
+    Ecto.Adapters.SQL.query!(Repo, "SELECT set_config('memhouse.account_key', '', true)", [])
   end
 
   # Resolves the Account identifier as text, because the counting queries below compare it

@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Documents.BlobStore do
+defmodule MemHouse.Documents.BlobStore do
   @moduledoc """
   Stores and retrieves original document bytes through a runtime-selected adapter.
 
@@ -58,18 +58,18 @@ defmodule Cartulary.Documents.BlobStore do
   def signed_url(blob_ref, opts \\ []), do: adapter_for(blob_ref).signed_url(blob_ref, opts)
 
   defp adapter do
-    :cartulary
+    :memhouse
     |> Application.fetch_env!(:documents)
     |> Keyword.fetch!(:blob_adapter)
   end
 
   # Existing references retain their adapter across storage migrations.
-  defp adapter_for("local://" <> _rest), do: Cartulary.Documents.BlobStore.Local
-  defp adapter_for("s3://" <> _rest), do: Cartulary.Documents.BlobStore.S3
+  defp adapter_for("local://" <> _rest), do: MemHouse.Documents.BlobStore.Local
+  defp adapter_for("s3://" <> _rest), do: MemHouse.Documents.BlobStore.S3
   defp adapter_for(_blob_ref), do: adapter()
 end
 
-defmodule Cartulary.Documents.BlobStore.Local do
+defmodule MemHouse.Documents.BlobStore.Local do
   @moduledoc """
   Stores document bytes as content-addressed files on the local filesystem.
 
@@ -78,7 +78,7 @@ defmodule Cartulary.Documents.BlobStore.Local do
   content. The blob root is durable source data, not a cache.
   """
 
-  @behaviour Cartulary.Documents.BlobStore
+  @behaviour MemHouse.Documents.BlobStore
 
   # SHA-256 format is also a path-safety boundary.
   @hash_regex ~r/\A[0-9a-f]{64}\z/
@@ -196,7 +196,7 @@ defmodule Cartulary.Documents.BlobStore.Local do
   # Account separates tenants; two hash characters bound directory fan-out.
   defp path(account_id, content_hash) do
     root =
-      :cartulary
+      :memhouse
       |> Application.fetch_env!(:documents)
       |> Keyword.fetch!(:blob_root)
 
@@ -204,7 +204,7 @@ defmodule Cartulary.Documents.BlobStore.Local do
   end
 end
 
-defmodule Cartulary.Documents.BlobStore.S3 do
+defmodule MemHouse.Documents.BlobStore.S3 do
   @moduledoc """
   Stores document bytes in any S3-compatible object store.
 
@@ -213,7 +213,7 @@ defmodule Cartulary.Documents.BlobStore.S3 do
   downloads use short-lived presigned URLs.
   """
 
-  @behaviour Cartulary.Documents.BlobStore
+  @behaviour MemHouse.Documents.BlobStore
 
   @doc """
   Uploads bytes under the content-addressed key and returns an `s3://` reference.
@@ -279,7 +279,7 @@ defmodule Cartulary.Documents.BlobStore.S3 do
 
   # Trim prefix slashes; Account separates tenants in the key space.
   defp key(account_id, content_hash, opts) do
-    prefix = opts[:prefix] || document_config()[:s3_prefix] || "cartulary"
+    prefix = opts[:prefix] || document_config()[:s3_prefix] || "memhouse"
     Enum.join([String.trim(prefix, "/"), account_id, content_hash], "/")
   end
 
@@ -292,5 +292,5 @@ defmodule Cartulary.Documents.BlobStore.S3 do
   end
 
   defp parse_ref(_blob_ref), do: {:error, :invalid_blob_ref}
-  defp document_config, do: Application.fetch_env!(:cartulary, :documents)
+  defp document_config, do: Application.fetch_env!(:memhouse, :documents)
 end

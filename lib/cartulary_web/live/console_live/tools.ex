@@ -1,11 +1,11 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
 defmodule CartularyWeb.ConsoleLive.Tools do
   @moduledoc """
   Browser workbench for the complete MCP tool inventory at `/console/tools`.
 
   Every form invokes the same non-persisted Ash action published through
-  `Cartulary.Governance`, so argument casting, Account derivation, scope policy,
+  `MemHouse.Governance`, so argument casting, Account derivation, scope policy,
   inline validation attachment, and response shape stay aligned with MCP. The
   browser session supplies the actor; no form may select an Account or another
   calling peer.
@@ -21,7 +21,7 @@ defmodule CartularyWeb.ConsoleLive.Tools do
 
   One control on this page is not a tool: diagnostic mode reproduces retrieval
   behavior for an account administrator through
-  `Cartulary.Memory.diagnostic_search/2`, which re-authorizes the caller and
+  `MemHouse.Memory.diagnostic_search/2`, which re-authorizes the caller and
   owns the internal options. Its results are deliberately not
   production-equivalent and are rendered apart from the tool runs so the two
   cannot be mistaken for each other.
@@ -31,8 +31,8 @@ defmodule CartularyWeb.ConsoleLive.Tools do
 
   import CartularyWeb.ConsoleComponents
 
-  alias Cartulary.Governance.McpTools
-  alias Cartulary.Memory
+  alias MemHouse.Governance.McpTools
+  alias MemHouse.Memory
   alias CartularyWeb.Console.Access
   alias CartularyWeb.Console.Diagnostic
   alias CartularyWeb.Console.Loader

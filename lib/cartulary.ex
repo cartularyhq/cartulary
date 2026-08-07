@@ -1,10 +1,10 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary do
+defmodule MemHouse do
   @moduledoc """
-  Root namespace for the Cartulary OTP application.
+  Root namespace for the MemHouse OTP application.
 
-  It intentionally owns no behavior. Start with `Cartulary.Application` for boot,
-  `Cartulary.Memory` for the in-process API, or `CartularyWeb` for HTTP.
+  It intentionally owns no behavior. Start with `MemHouse.Application` for boot,
+  `MemHouse.Memory` for the in-process API, or `CartularyWeb` for HTTP.
   """
 end

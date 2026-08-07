@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Governance.Engine do
+defmodule MemHouse.Governance.Engine do
   @moduledoc """
   The Gate A/B decision engine: the only place knowledge changes governance state.
 
@@ -24,21 +24,21 @@ defmodule Cartulary.Governance.Engine do
   identifiers, never statement text.
   """
 
-  alias Cartulary.Clock
-  alias Cartulary.DataLayer
-  alias Cartulary.Governance.Audit
-  alias Cartulary.Governance.Consent
-  alias Cartulary.Governance.GateDecision
-  alias Cartulary.Governance.GateRule
-  alias Cartulary.Governance.PeerQueue
-  alias Cartulary.Governance.ValidationItem
-  alias Cartulary.Knowledge.KnowledgeItem
-  alias Cartulary.Knowledge.KnowledgeRelation
-  alias Cartulary.Knowledge.Provenance
-  alias Cartulary.Pipeline
-  alias Cartulary.Pipeline.Idempotency
-  alias Cartulary.Pipeline.Lock
-  alias Cartulary.Topology.Scope
+  alias MemHouse.Clock
+  alias MemHouse.DataLayer
+  alias MemHouse.Governance.Audit
+  alias MemHouse.Governance.Consent
+  alias MemHouse.Governance.GateDecision
+  alias MemHouse.Governance.GateRule
+  alias MemHouse.Governance.PeerQueue
+  alias MemHouse.Governance.ValidationItem
+  alias MemHouse.Knowledge.KnowledgeItem
+  alias MemHouse.Knowledge.KnowledgeRelation
+  alias MemHouse.Knowledge.Provenance
+  alias MemHouse.Pipeline
+  alias MemHouse.Pipeline.Idempotency
+  alias MemHouse.Pipeline.Lock
+  alias MemHouse.Topology.Scope
 
   require Ash.Query
 
@@ -49,7 +49,7 @@ defmodule Cartulary.Governance.Engine do
   @doc """
   Runs Gate A and Gate B over a freshly proposed knowledge item and applies the outcome.
 
-  `knowledge` is a just-created `Cartulary.Knowledge.KnowledgeItem` in state `"proposed"`.
+  `knowledge` is a just-created `MemHouse.Knowledge.KnowledgeItem` in state `"proposed"`.
   `actor` is the pipeline actor of the ingest run. Options:
 
     * `:target_level` — how far the item is being proposed (`"peer"`, `"scope"`, or
@@ -457,7 +457,7 @@ defmodule Cartulary.Governance.Engine do
         |> Ash.read!(actor: history_actor(current_actor))
 
       lifecycle =
-        Cartulary.Knowledge.LifecycleEvent
+        MemHouse.Knowledge.LifecycleEvent
         |> Ash.Query.filter(knowledge_item_id == ^knowledge.id)
         |> Ash.Query.sort(occurred_at: :asc)
         |> Ash.Query.set_tenant(account.id)
@@ -643,7 +643,7 @@ defmodule Cartulary.Governance.Engine do
 
     # Marking the cache dirty is a pipeline-owned write even when a curator triggered it, so
     # the caller's actor is elevated for this call only.
-    Cartulary.Context.Builder.mark_dirty(
+    MemHouse.Context.Builder.mark_dirty(
       knowledge.account_id,
       %{actor | role: :system, pipeline?: true},
       knowledge.scope_id
@@ -1174,7 +1174,7 @@ defmodule Cartulary.Governance.Engine do
   # a point read is cheap, and caching a governance-weakening flag risks serving a stale "false"
   # or "true" across a config change.
   defp auto_consent?(account_id, actor) do
-    Cartulary.Governance.UnattendedMode.enabled?() ||
+    MemHouse.Governance.UnattendedMode.enabled?() ||
       account!(account_id, actor).consent_mode == "auto"
   end
 
@@ -1199,7 +1199,7 @@ defmodule Cartulary.Governance.Engine do
   end
 
   defp auto_consent_channel(_account_id, _actor) do
-    if Cartulary.Governance.UnattendedMode.enabled?(),
+    if MemHouse.Governance.UnattendedMode.enabled?(),
       do: "auto:unattended_deployment",
       else: "auto:account_mode"
   end
@@ -1207,13 +1207,13 @@ defmodule Cartulary.Governance.Engine do
   # Point read of the Account row, elevated to the pipeline actor the same way scope!/3 and
   # knowledge!/3 already do: the engine has to be able to look this up regardless of what the
   # calling actor can itself read. No set_tenant call: Account is not multitenant — it IS the
-  # tenant — the same reason Cartulary.DataLayer.with_actor/2 reads it without one.
+  # tenant — the same reason MemHouse.DataLayer.with_actor/2 reads it without one.
   defp account!(account_id, actor) do
-    Cartulary.Accounts.Account
+    MemHouse.Accounts.Account
     |> Ash.Query.filter(id == ^account_id)
     |> Ash.read_one!(actor: pipeline_actor(actor))
     |> case do
-      nil -> raise Ash.Error.Query.NotFound, resource: Cartulary.Accounts.Account
+      nil -> raise Ash.Error.Query.NotFound, resource: MemHouse.Accounts.Account
       account -> account
     end
   end
@@ -1410,7 +1410,7 @@ defmodule Cartulary.Governance.Engine do
   # Elevation for writes the pipeline alone may perform, such as minting a replacement item or
   # transitioning knowledge on behalf of a subject who holds no curator role. Every public
   # entry point authorizes the real caller before this is reached; never widen that path.
-  defp pipeline_actor(%Cartulary.Actor{} = actor),
+  defp pipeline_actor(%MemHouse.Actor{} = actor),
     do: %{actor | role: :system, scope_ids: :all, pipeline?: true}
 
   defp pipeline_actor(actor),

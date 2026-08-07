@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Eval.ModelJudge do
+defmodule MemHouse.Eval.ModelJudge do
   @moduledoc """
   Optional live-model grader for evaluation answers.
 
@@ -9,7 +9,7 @@ defmodule Cartulary.Eval.ModelJudge do
   judging is unavailable.
   """
 
-  alias Cartulary.Model.{Config, Gateway}
+  alias MemHouse.Model.{Config, Gateway}
 
   # The schema handed to the provider. It is a request, not a guarantee: the gateway call
   # below returns whatever the provider produced without validating it, so

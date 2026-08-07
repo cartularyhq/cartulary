@@ -1,11 +1,11 @@
 {
-  "benchmark": "cartulary",
+  "benchmark": "memhouse",
   "id": "smoke",
   "messages": [
     {
       "id": "m1",
       "session_id": "s1",
-      "scope_path": "/bench/cartulary/smoke",
+      "scope_path": "/bench/memhouse/smoke",
       "peer_key": "alice",
       "role": "user",
       "content": "Alice prefers concise status updates."
@@ -13,7 +13,7 @@
     {
       "id": "m2",
       "session_id": "s1",
-      "scope_path": "/bench/cartulary/smoke",
+      "scope_path": "/bench/memhouse/smoke",
       "peer_key": "alice",
       "role": "user",
       "content": "Alice moved the launch review to Friday."
@@ -22,7 +22,7 @@
   "questions": [
     {
       "id": "q1",
-      "scope_path": "/bench/cartulary/smoke",
+      "scope_path": "/bench/memhouse/smoke",
       "question": "What kind of status updates does Alice prefer?",
       "expected": "concise status updates",
       "evidence": ["m1"]

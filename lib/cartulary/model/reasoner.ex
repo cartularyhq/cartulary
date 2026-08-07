@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Model.Reasoner do
+defmodule MemHouse.Model.Reasoner do
   @moduledoc """
   The background reasoning capability: re-reads recent knowledge and proposes
   deductions and relations.
@@ -22,8 +22,8 @@ defmodule Cartulary.Model.Reasoner do
     latency is not bounded by a caller's deadline.
   """
 
-  alias Cartulary.Model
-  alias Cartulary.Model.Schema.Reasoning
+  alias MemHouse.Model
+  alias MemHouse.Model.Schema.Reasoning
 
   # Names the prompt template below, and is passed to the gateway as a call
   # option. Note that the `prompt_version` actually stamped on provenance and

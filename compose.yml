@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 #
 # Local container deployment with external PostgreSQL and durable database/blob volumes.
 # Defaults are development-only: set POSTGRES_PASSWORD and CARTULARY_AUTH_SIGNING_SECRET
@@ -9,24 +9,24 @@ services:
     # pgvector is required for vector columns and indexes.
     image: pgvector/pgvector:pg18-bookworm
     environment:
-      POSTGRES_DB: cartulary
+      POSTGRES_DB: memhouse
       # This bootstrap superuser migrates and provisions the restricted application role;
       # pooled traffic runs as NOSUPERUSER NOBYPASSRLS so RLS remains effective.
-      POSTGRES_USER: cartulary
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cartulary-local-only}
+      POSTGRES_USER: memhouse
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-memhouse-local-only}
     volumes:
-      - cartulary-postgres:/var/lib/postgresql
+      - memhouse-postgres:/var/lib/postgresql
     # Host port 5433 avoids a typical local PostgreSQL on 5432.
     ports:
       - "${CARTULARY_POSTGRES_PORT:-5433}:5432"
     # Allow up to 20 attempts, 5 seconds apart, for first-run cluster initialization.
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U cartulary -d cartulary"]
+      test: ["CMD-SHELL", "pg_isready -U memhouse -d memhouse"]
       interval: 5s
       timeout: 3s
       retries: 20
 
-  cartulary:
+  memhouse:
     build: .
     # Migrations require PostgreSQL to accept connections, not merely start.
     depends_on:
@@ -35,7 +35,7 @@ services:
     environment:
       PHX_SERVER: "true"
       PORT: "4000"
-      DATABASE_URL: ecto://cartulary:${POSTGRES_PASSWORD:-cartulary-local-only}@postgres/cartulary
+      DATABASE_URL: ecto://memhouse:${POSTGRES_PASSWORD:-memhouse-local-only}@postgres/memhouse
       CARTULARY_DATABASE_MODE: external
       # Safe only for this single application replica.
       CARTULARY_AUTO_MIGRATE: "true"
@@ -43,7 +43,7 @@ services:
       CARTULARY_AUTH_SIGNING_SECRET: ${CARTULARY_AUTH_SIGNING_SECRET:-replace-this-compose-secret-with-at-least-64-random-bytes-development-only}
       # Original document blobs are durable and use the local volume.
       CARTULARY_BLOB_ADAPTER: local
-      CARTULARY_BLOB_ROOT: /var/lib/cartulary/blobs
+      CARTULARY_BLOB_ROOT: /var/lib/memhouse/blobs
       # Enable only with an OTLP collector.
       CARTULARY_OTEL_ENABLED: ${CARTULARY_OTEL_ENABLED:-false}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
@@ -51,7 +51,7 @@ services:
       - "${CARTULARY_PORT:-4000}:4000"
     # Original blobs are durable and required for checksum-verified export.
     volumes:
-      - cartulary-blobs:/var/lib/cartulary/blobs
+      - memhouse-blobs:/var/lib/memhouse/blobs
 
   # Optional, ephemeral tooling. It assumes the application emits content-safe telemetry.
 
@@ -86,5 +86,5 @@ services:
 
 # Removing these volumes destroys durable records and original document bytes.
 volumes:
-  cartulary-postgres:
-  cartulary-blobs:
+  memhouse-postgres:
+  memhouse-blobs:

@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Context.EntityLabel do
+defmodule MemHouse.Context.EntityLabel do
   @moduledoc """
   Derives an entity card's display label and kind from its own in-scope surface forms.
 
@@ -13,7 +13,7 @@ defmodule Cartulary.Context.EntityLabel do
   label rather than a wrong one.
   """
 
-  alias Cartulary.Retrieval.EntityResolver
+  alias MemHouse.Retrieval.EntityResolver
 
   # Closed-class English words. A form that is one of these describes no referent, so it is never
   # a label. This is deliberately not a general stopword list: content words must survive, however

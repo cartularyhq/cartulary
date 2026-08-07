@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
 defmodule CartularyWeb.ConsoleLiveTest do
   @moduledoc """
@@ -12,19 +12,19 @@ defmodule CartularyWeb.ConsoleLiveTest do
 
   import Phoenix.LiveViewTest
 
-  alias Cartulary.Accounts.ExternalIdentity
-  alias Cartulary.Accounts.Peer
-  alias Cartulary.Actor
-  alias Cartulary.Clock
-  alias Cartulary.DataLayer
-  alias Cartulary.Governance.Engine, as: GovernanceEngine
-  alias Cartulary.Identity
-  alias Cartulary.Knowledge.Entity
-  alias Cartulary.Knowledge.EntityMention
-  alias Cartulary.Knowledge.KnowledgeItem
-  alias Cartulary.Knowledge.Projection
-  alias Cartulary.Memory
-  alias Cartulary.Topology.Scope
+  alias MemHouse.Accounts.ExternalIdentity
+  alias MemHouse.Accounts.Peer
+  alias MemHouse.Actor
+  alias MemHouse.Clock
+  alias MemHouse.DataLayer
+  alias MemHouse.Governance.Engine, as: GovernanceEngine
+  alias MemHouse.Identity
+  alias MemHouse.Knowledge.Entity
+  alias MemHouse.Knowledge.EntityMention
+  alias MemHouse.Knowledge.KnowledgeItem
+  alias MemHouse.Knowledge.Projection
+  alias MemHouse.Memory
+  alias MemHouse.Topology.Scope
   alias CartularyWeb.Console.Loader
 
   require Ash.Query
@@ -490,7 +490,7 @@ defmodule CartularyWeb.ConsoleLiveTest do
     } do
       seed_resolution_metrics!(admin, knowledge_id)
 
-      Cartulary.Retrieval.Diagnostics.record(
+      MemHouse.Retrieval.Diagnostics.record(
         admin.account_id,
         %{
           profile: "thorough",
@@ -1519,8 +1519,8 @@ defmodule CartularyWeb.ConsoleLiveTest do
 
   defp configured_embedding_identity(admin) do
     :embedder
-    |> Cartulary.Model.Config.resolve(%{account_id: admin.account_id, actor: admin})
-    |> Cartulary.Model.Config.embedding_identity()
+    |> MemHouse.Model.Config.resolve(%{account_id: admin.account_id, actor: admin})
+    |> MemHouse.Model.Config.embedding_identity()
   end
 
   defp index_knowledge!(admin, item, identity) do
@@ -1831,7 +1831,7 @@ defmodule CartularyWeb.ConsoleLiveTest do
         |> Ash.read_one!(actor: pipeline)
         |> Map.fetch!(:scope_id)
 
-      Cartulary.Context.Builder.refresh_scope(account.id, scope_id)
+      MemHouse.Context.Builder.refresh_scope(account.id, scope_id)
     end)
   end
 
@@ -1865,7 +1865,7 @@ defmodule CartularyWeb.ConsoleLiveTest do
         |> Ash.read_one!(actor: pipeline)
         |> Map.fetch!(:scope_id)
 
-      Cartulary.Context.Builder.refresh_scope(account.id, scope_id)
+      MemHouse.Context.Builder.refresh_scope(account.id, scope_id)
     end)
   end
 

@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Skills.Readiness do
+defmodule MemHouse.Skills.Readiness do
   @moduledoc """
   Checks a peer's governed memory against inherited skill requirements.
 
@@ -15,16 +15,16 @@ defmodule Cartulary.Skills.Readiness do
   report identity, counts, and readiness; never add skill or content fields.
   """
 
-  alias Cartulary.Accounts.Peer
-  alias Cartulary.Clock
-  alias Cartulary.DataLayer
-  alias Cartulary.Knowledge.KnowledgeItem
-  alias Cartulary.Knowledge.LifecycleEvent
-  alias Cartulary.Knowledge.Provenance
-  alias Cartulary.Observability
-  alias Cartulary.Observations.Message
-  alias Cartulary.Skills.SkillRequirementCard
-  alias Cartulary.Topology.Scope
+  alias MemHouse.Accounts.Peer
+  alias MemHouse.Clock
+  alias MemHouse.DataLayer
+  alias MemHouse.Knowledge.KnowledgeItem
+  alias MemHouse.Knowledge.LifecycleEvent
+  alias MemHouse.Knowledge.Provenance
+  alias MemHouse.Observability
+  alias MemHouse.Observations.Message
+  alias MemHouse.Skills.SkillRequirementCard
+  alias MemHouse.Topology.Scope
 
   require Ash.Query
 
@@ -57,7 +57,7 @@ defmodule Cartulary.Skills.Readiness do
   def check_readiness(actor, attrs) when is_map(attrs) do
     attrs = stringify_keys(attrs)
 
-    Observability.with_span(:skills, "cartulary.skills.check_readiness", fn ->
+    Observability.with_span(:skills, "memhouse.skills.check_readiness", fn ->
       report =
         DataLayer.with_actor(actor, fn account, current_actor ->
           # Pin all reads to one Account connection; default isolation is not a snapshot.
@@ -86,11 +86,11 @@ defmodule Cartulary.Skills.Readiness do
 
       # Content-safe telemetry only; never add skill, requirement, prompt, or statement fields.
       Observability.set_attributes(:skills, %{
-        "cartulary.readiness.report_version" => @report_version,
-        "cartulary.readiness.requirement_count" => length(report["requirements"]),
-        "cartulary.readiness.blocker_count" => length(report["blockers"]),
-        "cartulary.readiness.warning_count" => length(report["warnings"]),
-        "cartulary.readiness.ready" => report["ready"]
+        "memhouse.readiness.report_version" => @report_version,
+        "memhouse.readiness.requirement_count" => length(report["requirements"]),
+        "memhouse.readiness.blocker_count" => length(report["blockers"]),
+        "memhouse.readiness.warning_count" => length(report["warnings"]),
+        "memhouse.readiness.ready" => report["ready"]
       })
 
       report

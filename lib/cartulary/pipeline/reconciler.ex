@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Pipeline.Reconciler do
+defmodule MemHouse.Pipeline.Reconciler do
   @moduledoc """
   The safety net that finds durable work no job is going to finish.
 
@@ -19,13 +19,13 @@ defmodule Cartulary.Pipeline.Reconciler do
   - scopes with active statements but no derived entity mentions.
   """
 
-  alias Cartulary.Clock
-  alias Cartulary.DataLayer
-  alias Cartulary.Documents.ConnectorConfig
-  alias Cartulary.Observations.DocumentVersion
-  alias Cartulary.Observations.Message
-  alias Cartulary.Pipeline
-  alias Cartulary.Retrieval.Store
+  alias MemHouse.Clock
+  alias MemHouse.DataLayer
+  alias MemHouse.Documents.ConnectorConfig
+  alias MemHouse.Observations.DocumentVersion
+  alias MemHouse.Observations.Message
+  alias MemHouse.Pipeline
+  alias MemHouse.Retrieval.Store
 
   require Ash.Query
 

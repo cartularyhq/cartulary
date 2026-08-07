@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Mix.Tasks.Cartulary.Eval.Benchmark do
+defmodule Mix.Tasks.MemHouse.Eval.Benchmark do
   @moduledoc """
   Runs one public or local memory benchmark fixture end to end and prints a scored
     report.
@@ -11,9 +11,9 @@ defmodule Mix.Tasks.Cartulary.Eval.Benchmark do
 
   use Mix.Task
 
-  alias Cartulary.Eval.{Adapter, Runner, Runtime}
+  alias MemHouse.Eval.{Adapter, Runner, Runtime}
 
-  @shortdoc "Runs full Cartulary benchmark ingestion/scoring"
+  @shortdoc "Runs full MemHouse benchmark ingestion/scoring"
 
   @doc """
   Parses the switches described in the module documentation, runs the benchmark, and emits

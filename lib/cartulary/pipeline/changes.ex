@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Pipeline.Changes.ExecuteRun do
+defmodule MemHouse.Pipeline.Changes.ExecuteRun do
   @moduledoc """
   Runs a pipeline run's workflow and records how it ended, as one update.
 
@@ -26,8 +26,8 @@ defmodule Cartulary.Pipeline.Changes.ExecuteRun do
 
   use Ash.Resource.Change
 
-  alias Cartulary.Clock
-  alias Cartulary.Pipeline
+  alias MemHouse.Clock
+  alias MemHouse.Pipeline
 
   @doc """
   Attaches the execute-then-record behaviour to the changeset.
@@ -58,7 +58,7 @@ defmodule Cartulary.Pipeline.Changes.ExecuteRun do
   end
 end
 
-defmodule Cartulary.Pipeline.Changes.MarkRunFailed do
+defmodule MemHouse.Pipeline.Changes.MarkRunFailed do
   @moduledoc """
   Records a failed attempt on a pipeline run without leaking why it failed.
 

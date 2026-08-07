@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Identity.SigningSecret do
+defmodule MemHouse.Identity.SigningSecret do
   @moduledoc """
   Reads the session-token signing secret from runtime configuration.
 
@@ -24,13 +24,13 @@ defmodule Cartulary.Identity.SigningSecret do
   """
   @impl true
   def secret_for(_name, _resource, _opts, _context) do
-    :cartulary
+    :memhouse
     |> Application.fetch_env!(:identity)
     |> Keyword.fetch(:signing_secret)
   end
 end
 
-defmodule Cartulary.Identity.CredentialLocator do
+defmodule MemHouse.Identity.CredentialLocator do
   @moduledoc """
   Finds an API key's Account before normal tenant isolation can begin.
 
@@ -39,7 +39,7 @@ defmodule Cartulary.Identity.CredentialLocator do
   inside the resulting Account transaction. All failures remain indistinguishable.
   """
 
-  alias Cartulary.Repo
+  alias MemHouse.Repo
 
   @doc """
   Maps a presented API key to the id of the Account that minted it.
@@ -100,7 +100,7 @@ defmodule Cartulary.Identity.CredentialLocator do
   end
 end
 
-defmodule Cartulary.Identity.RoleResolver do
+defmodule MemHouse.Identity.RoleResolver do
   @moduledoc """
   Resolves a Peer's grants into authorized scopes and effective roles.
 
@@ -109,10 +109,10 @@ defmodule Cartulary.Identity.RoleResolver do
   re-resolve after grant changes.
   """
 
-  alias Cartulary.Accounts.Peer
-  alias Cartulary.Actor
-  alias Cartulary.Topology.RoleGrant
-  alias Cartulary.Topology.Scope
+  alias MemHouse.Accounts.Peer
+  alias MemHouse.Actor
+  alias MemHouse.Topology.RoleGrant
+  alias MemHouse.Topology.Scope
 
   require Ash.Query
 
@@ -134,7 +134,7 @@ defmodule Cartulary.Identity.RoleResolver do
   - `:api_key` — optional; anything exposing a `:scope_id`. When that scope id
     is present the resulting context is confined to that scope's subtree.
 
-  Returns a `Cartulary.Actor`. A Peer with no applicable grants still gets a
+  Returns a `MemHouse.Actor`. A Peer with no applicable grants still gets a
   valid context, but with an empty scope list and the floor role of `:reader`,
   so it authenticates successfully and can reach nothing.
 
@@ -259,7 +259,7 @@ defmodule Cartulary.Identity.RoleResolver do
   defp role_atom(_grant), do: nil
 end
 
-defmodule Cartulary.Identity do
+defmodule MemHouse.Identity do
   @moduledoc """
   Authenticates credentials and returns identity-derived authorization contexts.
 
@@ -270,16 +270,16 @@ defmodule Cartulary.Identity do
 
   alias AshAuthentication.{Info, Strategy}
   alias AshAuthentication.Jwt.Config, as: JwtConfig
-  alias Cartulary.Accounts.ApiKey
-  alias Cartulary.Accounts.ExternalIdentity
-  alias Cartulary.Accounts.Peer
-  alias Cartulary.Actor
-  alias Cartulary.Clock
-  alias Cartulary.DataLayer
-  alias Cartulary.Identity.CredentialLocator
-  alias Cartulary.Identity.RoleResolver
-  alias Cartulary.Topology.RoleGrant
-  alias Cartulary.Topology.Scope
+  alias MemHouse.Accounts.ApiKey
+  alias MemHouse.Accounts.ExternalIdentity
+  alias MemHouse.Accounts.Peer
+  alias MemHouse.Actor
+  alias MemHouse.Clock
+  alias MemHouse.DataLayer
+  alias MemHouse.Identity.CredentialLocator
+  alias MemHouse.Identity.RoleResolver
+  alias MemHouse.Topology.RoleGrant
+  alias MemHouse.Topology.Scope
 
   require Ash.Query
 
@@ -595,7 +595,7 @@ defmodule Cartulary.Identity do
   role resolution is a snapshot, a long-lived context otherwise keeps stale
   permissions; refreshing is how a newly added deny actually starts biting.
 
-  Returns a `Cartulary.Actor`. Raises if the Peer no longer exists.
+  Returns a `MemHouse.Actor`. Raises if the Peer no longer exists.
   """
   def refresh_actor(%Actor{peer_id: peer_id} = actor) when is_binary(peer_id) do
     DataLayer.with_actor(actor, fn account, _actor ->
@@ -764,7 +764,7 @@ defmodule Cartulary.Identity do
     |> Ash.Changeset.set_tenant(account_id)
     |> Ash.Changeset.for_create(:ensure, %{
       key: "root",
-      name: "Cartulary",
+      name: "MemHouse",
       path: "/",
       state: "active"
     })

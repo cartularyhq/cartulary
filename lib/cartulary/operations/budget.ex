@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Operations.BudgetCounter do
+defmodule MemHouse.Operations.BudgetCounter do
   @moduledoc """
   Rebuildable in-memory daily counters for admission checks.
 
@@ -79,7 +79,7 @@ defmodule Cartulary.Operations.BudgetCounter do
   end
 end
 
-defmodule Cartulary.Operations.Budget do
+defmodule MemHouse.Operations.Budget do
   @moduledoc """
   Applies daily usage limits to work lanes.
 
@@ -87,7 +87,7 @@ defmodule Cartulary.Operations.Budget do
   Dream-time work is throttled before request-serving paths, and unknown lanes fail closed.
   """
 
-  alias Cartulary.Operations.BudgetCounter
+  alias MemHouse.Operations.BudgetCounter
 
   # Token metrics the background reasoning lane is judged against. Request and
   # ingest counts are excluded on purpose: those lanes are never throttled here.
@@ -111,7 +111,7 @@ defmodule Cartulary.Operations.Budget do
   intentional.
   """
   def admit?(account_id, scope_id, :dream_time) do
-    limits = Application.get_env(:cartulary, :budget_limits, %{})
+    limits = Application.get_env(:memhouse, :budget_limits, %{})
 
     Enum.all?(@dream_metrics, fn metric ->
       case Map.get(limits, metric) do

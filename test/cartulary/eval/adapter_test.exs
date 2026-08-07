@@ -1,8 +1,8 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Eval.AdapterTest do
+defmodule MemHouse.Eval.AdapterTest do
   @moduledoc """
-  Pins normalization of LoCoMo, LongMemEval, ConvoMem, BEAM, and Cartulary
+  Pins normalization of LoCoMo, LongMemEval, ConvoMem, BEAM, and MemHouse
   fixtures into one cases/messages/questions shape.
 
   The suite preserves upstream evidence ids and granularity, abstention flags,
@@ -12,7 +12,7 @@ defmodule Cartulary.Eval.AdapterTest do
 
   use ExUnit.Case, async: true
 
-  alias Cartulary.Eval.Adapter
+  alias MemHouse.Eval.Adapter
 
   test "normalizes LoCoMo sessions and turn-level QA evidence" do
     dataset =

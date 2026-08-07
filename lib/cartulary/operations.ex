@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Operations do
+defmodule MemHouse.Operations do
   @moduledoc """
   Ash domain for durable usage and pipeline execution records.
 
@@ -11,12 +11,12 @@ defmodule Cartulary.Operations do
   use Ash.Domain
 
   resources do
-    resource Cartulary.Operations.UsageEvent
-    resource Cartulary.Operations.PipelineRun
+    resource MemHouse.Operations.UsageEvent
+    resource MemHouse.Operations.PipelineRun
   end
 end
 
-defmodule Cartulary.Operations.UsageEvent do
+defmodule MemHouse.Operations.UsageEvent do
   @moduledoc """
   Append-only ledger for HTTP and model usage.
 
@@ -25,7 +25,7 @@ defmodule Cartulary.Operations.UsageEvent do
   events, while Account administrators may read summaries.
   """
 
-  use Cartulary.Resource, domain: Cartulary.Operations, table: "usage_events"
+  use MemHouse.Resource, domain: MemHouse.Operations, table: "usage_events"
 
   # Rows belong to exactly one Account. Attribute multitenancy makes the tenant
   # a required part of every read and write, so a caller that forgets to set it
@@ -79,14 +79,14 @@ defmodule Cartulary.Operations.UsageEvent do
     # making requests, but must never author one directly — a caller that could
     # write its own usage rows could understate what it consumed.
     policy action(:record) do
-      authorize_if {Cartulary.Policy.RoleIn, roles: [:system]}
+      authorize_if {MemHouse.Policy.RoleIn, roles: [:system]}
       authorize_if actor_attribute_equals(:pipeline?, true)
     end
 
     # Totals span the whole Account rather than one scope, so reading them is an
     # administrator capability; ordinary members and readers get nothing.
     policy action_type(:read) do
-      authorize_if {Cartulary.Policy.RoleIn, roles: [:account_admin, :system]}
+      authorize_if {MemHouse.Policy.RoleIn, roles: [:account_admin, :system]}
     end
   end
 
@@ -148,7 +148,7 @@ defmodule Cartulary.Operations.UsageEvent do
   end
 end
 
-defmodule Cartulary.Operations.PipelineRun do
+defmodule MemHouse.Operations.PipelineRun do
   @moduledoc """
   Durable state and idempotency record for one pipeline unit.
 
@@ -157,8 +157,8 @@ defmodule Cartulary.Operations.PipelineRun do
   reconciler path.
   """
 
-  use Cartulary.Resource,
-    domain: Cartulary.Operations,
+  use MemHouse.Resource,
+    domain: MemHouse.Operations,
     table: "pipeline_runs",
     extensions: [AshOban]
 
@@ -200,7 +200,7 @@ defmodule Cartulary.Operations.PipelineRun do
     read :for_trigger do
       transaction? true
 
-      prepare Cartulary.Pipeline.Preparations.DeclareAccount
+      prepare MemHouse.Pipeline.Preparations.DeclareAccount
     end
 
     # A caller may inspect only the extraction run for a message whose scope it
@@ -340,8 +340,8 @@ defmodule Cartulary.Operations.PipelineRun do
     # longer applying. Completed work would be recorded as never having run.
     update :execute do
       require_atomic? false
-      change Cartulary.Pipeline.Changes.DeclareAccount
-      change Cartulary.Pipeline.Changes.ExecuteRun
+      change MemHouse.Pipeline.Changes.DeclareAccount
+      change MemHouse.Pipeline.Changes.ExecuteRun
     end
 
     # Failure path invoked when the job errors. It stores only a classification
@@ -352,8 +352,8 @@ defmodule Cartulary.Operations.PipelineRun do
     update :mark_failed do
       argument :error, :term, allow_nil?: false
       require_atomic? false
-      change Cartulary.Pipeline.Changes.DeclareAccount
-      change Cartulary.Pipeline.Changes.MarkRunFailed
+      change MemHouse.Pipeline.Changes.DeclareAccount
+      change MemHouse.Pipeline.Changes.MarkRunFailed
     end
   end
 
@@ -372,19 +372,19 @@ defmodule Cartulary.Operations.PipelineRun do
     # Enqueueing and completing runs is internal only. An external caller must
     # never be able to schedule, replay, or mark pipeline work.
     policy action_type([:create, :update]) do
-      authorize_if {Cartulary.Policy.RoleIn, roles: [:system]}
+      authorize_if {MemHouse.Policy.RoleIn, roles: [:system]}
       authorize_if actor_attribute_equals(:pipeline?, true)
     end
 
     # Reading queue state is an operator or internal capability; ordinary
     # members and readers cannot enumerate what an Account is processing.
     policy action([:read, :for_trigger]) do
-      authorize_if {Cartulary.Policy.RoleIn, roles: [:account_admin, :system]}
+      authorize_if {MemHouse.Policy.RoleIn, roles: [:account_admin, :system]}
       authorize_if actor_attribute_equals(:pipeline?, true)
     end
 
     policy action(:ingest_status) do
-      authorize_if {Cartulary.Policy.ScopeAccess, attribute: :scope_id}
+      authorize_if {MemHouse.Policy.ScopeAccess, attribute: :scope_id}
     end
   end
 
@@ -403,7 +403,7 @@ defmodule Cartulary.Operations.PipelineRun do
     #   * `where` claims only rows of its own lane that are pending or failed,
     #     so a completed run is never re-executed.
     #   * `worker_read_action(:for_trigger)` is what lets the job find its own
-    #     row at all. The job runner reads that row before any Cartulary code
+    #     row at all. The job runner reads that row before any MemHouse code
     #     runs, on a connection with no Account declared, and this table's
     #     row-level security policy hides every row until one is. Left on the
     #     primary read, the job would see nothing, decide its trigger no longer
@@ -429,9 +429,9 @@ defmodule Cartulary.Operations.PipelineRun do
         max_attempts(5)
         trigger_once?(true)
         on_error(:mark_failed)
-        worker_module_name(Cartulary.Pipeline.Workers.Extraction)
-        scheduler_module_name(Cartulary.Pipeline.Schedulers.Extraction)
-        extra_args(&Cartulary.Pipeline.job_args/1)
+        worker_module_name(MemHouse.Pipeline.Workers.Extraction)
+        scheduler_module_name(MemHouse.Pipeline.Schedulers.Extraction)
+        extra_args(&MemHouse.Pipeline.job_args/1)
       end
 
       trigger :dream_time do
@@ -443,9 +443,9 @@ defmodule Cartulary.Operations.PipelineRun do
         max_attempts(5)
         trigger_once?(true)
         on_error(:mark_failed)
-        worker_module_name(Cartulary.Pipeline.Workers.DreamTime)
-        scheduler_module_name(Cartulary.Pipeline.Schedulers.DreamTime)
-        extra_args(&Cartulary.Pipeline.job_args/1)
+        worker_module_name(MemHouse.Pipeline.Workers.DreamTime)
+        scheduler_module_name(MemHouse.Pipeline.Schedulers.DreamTime)
+        extra_args(&MemHouse.Pipeline.job_args/1)
       end
 
       trigger :revalidation do
@@ -457,9 +457,9 @@ defmodule Cartulary.Operations.PipelineRun do
         max_attempts(5)
         trigger_once?(true)
         on_error(:mark_failed)
-        worker_module_name(Cartulary.Pipeline.Workers.Revalidation)
-        scheduler_module_name(Cartulary.Pipeline.Schedulers.Revalidation)
-        extra_args(&Cartulary.Pipeline.job_args/1)
+        worker_module_name(MemHouse.Pipeline.Workers.Revalidation)
+        scheduler_module_name(MemHouse.Pipeline.Schedulers.Revalidation)
+        extra_args(&MemHouse.Pipeline.job_args/1)
       end
 
       trigger :expiry do
@@ -471,9 +471,9 @@ defmodule Cartulary.Operations.PipelineRun do
         max_attempts(5)
         trigger_once?(true)
         on_error(:mark_failed)
-        worker_module_name(Cartulary.Pipeline.Workers.Expiry)
-        scheduler_module_name(Cartulary.Pipeline.Schedulers.Expiry)
-        extra_args(&Cartulary.Pipeline.job_args/1)
+        worker_module_name(MemHouse.Pipeline.Workers.Expiry)
+        scheduler_module_name(MemHouse.Pipeline.Schedulers.Expiry)
+        extra_args(&MemHouse.Pipeline.job_args/1)
       end
 
       trigger :projection_refresh do
@@ -485,9 +485,9 @@ defmodule Cartulary.Operations.PipelineRun do
         max_attempts(5)
         trigger_once?(true)
         on_error(:mark_failed)
-        worker_module_name(Cartulary.Pipeline.Workers.ProjectionRefresh)
-        scheduler_module_name(Cartulary.Pipeline.Schedulers.ProjectionRefresh)
-        extra_args(&Cartulary.Pipeline.job_args/1)
+        worker_module_name(MemHouse.Pipeline.Workers.ProjectionRefresh)
+        scheduler_module_name(MemHouse.Pipeline.Schedulers.ProjectionRefresh)
+        extra_args(&MemHouse.Pipeline.job_args/1)
       end
 
       trigger :connector_sync do
@@ -499,9 +499,9 @@ defmodule Cartulary.Operations.PipelineRun do
         max_attempts(5)
         trigger_once?(true)
         on_error(:mark_failed)
-        worker_module_name(Cartulary.Pipeline.Workers.ConnectorSync)
-        scheduler_module_name(Cartulary.Pipeline.Schedulers.ConnectorSync)
-        extra_args(&Cartulary.Pipeline.job_args/1)
+        worker_module_name(MemHouse.Pipeline.Workers.ConnectorSync)
+        scheduler_module_name(MemHouse.Pipeline.Schedulers.ConnectorSync)
+        extra_args(&MemHouse.Pipeline.job_args/1)
       end
 
       trigger :import_rebuild do
@@ -513,9 +513,9 @@ defmodule Cartulary.Operations.PipelineRun do
         max_attempts(5)
         trigger_once?(true)
         on_error(:mark_failed)
-        worker_module_name(Cartulary.Pipeline.Workers.ImportRebuild)
-        scheduler_module_name(Cartulary.Pipeline.Schedulers.ImportRebuild)
-        extra_args(&Cartulary.Pipeline.job_args/1)
+        worker_module_name(MemHouse.Pipeline.Workers.ImportRebuild)
+        scheduler_module_name(MemHouse.Pipeline.Schedulers.ImportRebuild)
+        extra_args(&MemHouse.Pipeline.job_args/1)
       end
 
       trigger :reconciler do
@@ -527,9 +527,9 @@ defmodule Cartulary.Operations.PipelineRun do
         max_attempts(5)
         trigger_once?(true)
         on_error(:mark_failed)
-        worker_module_name(Cartulary.Pipeline.Workers.Reconciler)
-        scheduler_module_name(Cartulary.Pipeline.Schedulers.Reconciler)
-        extra_args(&Cartulary.Pipeline.job_args/1)
+        worker_module_name(MemHouse.Pipeline.Workers.Reconciler)
+        scheduler_module_name(MemHouse.Pipeline.Schedulers.Reconciler)
+        extra_args(&MemHouse.Pipeline.job_args/1)
       end
 
       trigger :entity_resolution do
@@ -541,9 +541,9 @@ defmodule Cartulary.Operations.PipelineRun do
         max_attempts(5)
         trigger_once?(true)
         on_error(:mark_failed)
-        worker_module_name(Cartulary.Pipeline.Workers.EntityResolution)
-        scheduler_module_name(Cartulary.Pipeline.Schedulers.EntityResolution)
-        extra_args(&Cartulary.Pipeline.job_args/1)
+        worker_module_name(MemHouse.Pipeline.Workers.EntityResolution)
+        scheduler_module_name(MemHouse.Pipeline.Schedulers.EntityResolution)
+        extra_args(&MemHouse.Pipeline.job_args/1)
       end
 
       trigger :validation_continuation do
@@ -555,9 +555,9 @@ defmodule Cartulary.Operations.PipelineRun do
         max_attempts(5)
         trigger_once?(true)
         on_error(:mark_failed)
-        worker_module_name(Cartulary.Pipeline.Workers.ValidationContinuation)
-        scheduler_module_name(Cartulary.Pipeline.Schedulers.ValidationContinuation)
-        extra_args(&Cartulary.Pipeline.job_args/1)
+        worker_module_name(MemHouse.Pipeline.Workers.ValidationContinuation)
+        scheduler_module_name(MemHouse.Pipeline.Schedulers.ValidationContinuation)
+        extra_args(&MemHouse.Pipeline.job_args/1)
       end
 
       trigger :answer_correlation do
@@ -569,9 +569,9 @@ defmodule Cartulary.Operations.PipelineRun do
         max_attempts(5)
         trigger_once?(true)
         on_error(:mark_failed)
-        worker_module_name(Cartulary.Pipeline.Workers.AnswerCorrelation)
-        scheduler_module_name(Cartulary.Pipeline.Schedulers.AnswerCorrelation)
-        extra_args(&Cartulary.Pipeline.job_args/1)
+        worker_module_name(MemHouse.Pipeline.Workers.AnswerCorrelation)
+        scheduler_module_name(MemHouse.Pipeline.Schedulers.AnswerCorrelation)
+        extra_args(&MemHouse.Pipeline.job_args/1)
       end
     end
   end

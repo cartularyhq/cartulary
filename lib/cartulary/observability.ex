@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Observability do
+defmodule MemHouse.Observability do
   @moduledoc """
   Provides content-safe tracing and telemetry helpers.
 
@@ -115,7 +115,7 @@ defmodule Cartulary.Observability do
   # the statement text also risks including its parameters.
   defp setup_ecto do
     if enabled?(:ecto_spans, false) do
-      OpentelemetryEcto.setup([:cartulary, :repo], db_statement: db_statement_config())
+      OpentelemetryEcto.setup([:memhouse, :repo], db_statement: db_statement_config())
     end
   end
 
@@ -134,7 +134,7 @@ defmodule Cartulary.Observability do
   # Defaults to disabled: a SQL statement carries the values bound into it, and
   # those values are message content, statements, and identifiers.
   defp db_statement_config do
-    :cartulary
+    :memhouse
     |> Application.get_env(:observability, [])
     |> Keyword.get(:db_statement, :disabled)
   end
@@ -144,7 +144,7 @@ defmodule Cartulary.Observability do
   # trace of the request that caused it, which is usually what someone
   # debugging ingest wants to see.
   defp oban_span_relationship do
-    :cartulary
+    :memhouse
     |> Application.get_env(:observability, [])
     |> Keyword.get(:oban_span_relationship, :child)
   end
@@ -152,7 +152,7 @@ defmodule Cartulary.Observability do
   # Each caller passes its own default, so a category is enabled or disabled by
   # the policy at its call site rather than by one global default here.
   defp enabled?(key, default) do
-    :cartulary
+    :memhouse
     |> Application.get_env(:observability, [])
     |> Keyword.get(key, default)
   end

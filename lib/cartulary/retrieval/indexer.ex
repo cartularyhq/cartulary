@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Retrieval.Indexer do
+defmodule MemHouse.Retrieval.Indexer do
   @moduledoc """
   Rebuilds semantic-search vectors for one scope.
 
@@ -9,9 +9,9 @@ defmodule Cartulary.Retrieval.Indexer do
   stores provider, model, version, and dimensions so incompatible spaces are never compared.
   """
 
-  alias Cartulary.DataLayer
-  alias Cartulary.Knowledge.KnowledgeItem
-  alias Cartulary.Model.Embedding
+  alias MemHouse.DataLayer
+  alias MemHouse.Knowledge.KnowledgeItem
+  alias MemHouse.Model.Embedding
 
   require Ash.Query
 

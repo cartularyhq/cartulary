@@ -1,7 +1,7 @@
 #!/bin/sh
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 #
-# Build the self-contained Unix/macOS Mix release of Cartulary, with the pinned
+# Build the self-contained Unix/macOS Mix release of MemHouse, with the pinned
 # embedded PostgreSQL launcher (pg0) staged inside it.
 #
 # Purpose
@@ -20,7 +20,7 @@
 #   downloaded from its upstream release page.
 #
 # Outputs
-#   _build/prod/rel/cartulary — the unpacked release, containing bin/cartulary
+#   _build/prod/rel/memhouse — the unpacked release, containing bin/memhouse
 #   (the generated launcher), bin/server, bin/migrate, and bin/pg0.
 #
 # Failure behaviour
@@ -121,4 +121,4 @@ MIX_ENV=prod mix deps.get --only prod
 # than aborting, so packaging is repeatable in a dirty _build directory.
 MIX_ENV=prod mix release --overwrite
 
-echo "Release ready at $repo_root/_build/prod/rel/cartulary"
+echo "Release ready at $repo_root/_build/prod/rel/memhouse"

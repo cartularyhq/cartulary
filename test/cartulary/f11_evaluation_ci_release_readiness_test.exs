@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
+defmodule MemHouse.F11EvaluationCiReleaseReadinessTest do
   @moduledoc """
   Pins version discipline, evaluation provenance and floors, CI parity, and
   shipped-surface claims.
@@ -17,10 +17,10 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
 
   use ExUnit.Case, async: false
 
-  alias Cartulary.Eval.ModelJudge
-  alias Cartulary.Eval.Report
-  alias Cartulary.Model.CassetteProvider
-  alias Cartulary.ReleaseReadiness
+  alias MemHouse.Eval.ModelJudge
+  alias MemHouse.Eval.Report
+  alias MemHouse.Model.CassetteProvider
+  alias MemHouse.ReleaseReadiness
 
   test "semantic application version has a dated changelog entry and F11 documentation" do
     # The version the build declares. When this changes, the changelog entry, the tag, and
@@ -65,7 +65,7 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
     refute suite["tuning_policy"]["tuning_split"] == suite["tuning_policy"]["published_split"]
 
     assert MapSet.new(Enum.map(runs, & &1["benchmark"])) ==
-             MapSet.new(~w(cartulary locomo longmemeval convomem beam))
+             MapSet.new(~w(memhouse locomo longmemeval convomem beam))
 
     for benchmark <- ~w(locomo longmemeval convomem beam) do
       variants = Enum.filter(runs, &(&1["benchmark"] == benchmark))
@@ -102,8 +102,8 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
           "mix credo --strict",
           "mix dialyzer",
           "mix sobelow --config",
-          "mix cartulary.eval.release",
-          "mix cartulary.release.check",
+          "mix memhouse.eval.release",
+          "mix memhouse.release.check",
           "mix release --overwrite",
           "docker build"
         ] do
@@ -144,10 +144,10 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
     # artifacts only after every platform lane has uploaded its checksum.
     assert release =~ "runner: macos-26"
     assert release =~ "runner: macos-26-intel"
-    assert release =~ "cartulary-macos-arm64.tar.gz"
-    assert release =~ "cartulary-macos-x86_64.tar.gz"
+    assert release =~ "memhouse-macos-arm64.tar.gz"
+    assert release =~ "memhouse-macos-x86_64.tar.gz"
     assert release =~ "windows-2025"
-    assert release =~ "cartulary-windows-x86_64.zip"
+    assert release =~ "memhouse-windows-x86_64.zip"
     assert release =~ ".\\scripts\\ci-pg0-lane.ps1"
     # The official Windows BEAM build is MSVC while ExtractousEx publishes only a GNU NIF.
     # The release lane must build that dependency's bundled Rust source for the target ABI.
@@ -161,7 +161,7 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
     # tags, then publishes the GitHub Release that invokes the artifact lane.
     assert prepare_release =~ "workflow_dispatch:"
     assert prepare_release =~ "replace_existing_release"
-    assert prepare_release =~ "mix cartulary.release.check"
+    assert prepare_release =~ "mix memhouse.release.check"
     assert prepare_release =~ "gh pr create"
     assert prepare_release =~ "pgvector/pgvector:pg18-bookworm"
     assert prepare_release =~ "CARTULARY_TEST_DATABASE_URL"
@@ -200,10 +200,10 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
     install = File.read!("docs/getting-started/install-release.md")
 
     for archive <- [
-          "cartulary-linux-x86_64.tar.gz",
-          "cartulary-macos-arm64.tar.gz",
-          "cartulary-macos-x86_64.tar.gz",
-          "cartulary-windows-x86_64.zip"
+          "memhouse-linux-x86_64.tar.gz",
+          "memhouse-macos-arm64.tar.gz",
+          "memhouse-macos-x86_64.tar.gz",
+          "memhouse-windows-x86_64.zip"
         ] do
       assert install =~ archive
     end
@@ -254,8 +254,8 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
   end
 
   test "provider cassette replays an independent-family model judge deterministically" do
-    original_roles = Application.fetch_env!(:cartulary, :model_roles)
-    original_provider = Application.get_env(:cartulary, :model_provider)
+    original_roles = Application.fetch_env!(:memhouse, :model_roles)
+    original_provider = Application.get_env(:memhouse, :model_provider)
 
     # The judge runs on the reasoning role, which must resolve to a different provider or
     # model family than the role that produced the answers. A model grading its own family's
@@ -268,19 +268,19 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
         |> Map.put(:model_version, "judge-1")
       end)
 
-    Application.put_env(:cartulary, :model_roles, roles)
-    Application.put_env(:cartulary, :model_provider, CassetteProvider)
+    Application.put_env(:memhouse, :model_roles, roles)
+    Application.put_env(:memhouse, :model_provider, CassetteProvider)
     # Replaying a recorded verdict makes the judged score deterministic. A live judge would
     # make this test flaky and would make published scores unreproducible.
     CassetteProvider.start!("test/fixtures/model/f11-judge-cassette.json", "rag_triad")
 
     on_exit(fn ->
       CassetteProvider.stop()
-      Application.put_env(:cartulary, :model_roles, original_roles)
+      Application.put_env(:memhouse, :model_roles, original_roles)
 
       if original_provider,
-        do: Application.put_env(:cartulary, :model_provider, original_provider),
-        else: Application.delete_env(:cartulary, :model_provider)
+        do: Application.put_env(:memhouse, :model_provider, original_provider),
+        else: Application.delete_env(:memhouse, :model_provider)
     end)
 
     score =
@@ -363,7 +363,7 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
 
   test "f11-2 requires balanced one-time accounting while reading f11-1 remains compatible" do
     legacy = valid_report()
-    assert Cartulary.Eval.Report.validate(legacy) == :ok
+    assert MemHouse.Eval.Report.validate(legacy) == :ok
 
     current =
       legacy
@@ -394,7 +394,7 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
         ]
       })
 
-    assert Cartulary.Eval.Report.validate(current) == :ok
+    assert MemHouse.Eval.Report.validate(current) == :ok
 
     all_evaluated =
       current
@@ -418,10 +418,10 @@ defmodule Cartulary.F11EvaluationCiReleaseReadinessTest do
         end)
       end)
 
-    assert Cartulary.Eval.Report.validate(all_evaluated) == :ok
+    assert MemHouse.Eval.Report.validate(all_evaluated) == :ok
 
     invalid = put_in(current, ["accounting", "items", Access.at(4), "id"], "d")
-    assert {:error, errors} = Cartulary.Eval.Report.validate(invalid)
+    assert {:error, errors} = MemHouse.Eval.Report.validate(invalid)
     assert Enum.any?(errors, &String.contains?(&1, "accounting"))
   end
 end

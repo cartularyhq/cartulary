@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.F9SkillReadinessProceduralMemoryTest do
+defmodule MemHouse.F9SkillReadinessProceduralMemoryTest do
   @moduledoc """
   Pins skill requirement cards and the readiness gap report that gates helper execution.
 
@@ -19,16 +19,16 @@ defmodule Cartulary.F9SkillReadinessProceduralMemoryTest do
 
   use CartularyWeb.ConnCase, async: false
 
-  alias Cartulary.Actor
-  alias Cartulary.Clock
-  alias Cartulary.DataLayer
-  alias Cartulary.Governance.Engine
-  alias Cartulary.Identity
-  alias Cartulary.Knowledge.KnowledgeItem
-  alias Cartulary.Memory
-  alias Cartulary.Skills
-  alias Cartulary.Skills.Selector
-  alias Cartulary.Skills.SkillRequirementCard
+  alias MemHouse.Actor
+  alias MemHouse.Clock
+  alias MemHouse.DataLayer
+  alias MemHouse.Governance.Engine
+  alias MemHouse.Identity
+  alias MemHouse.Knowledge.KnowledgeItem
+  alias MemHouse.Memory
+  alias MemHouse.Skills
+  alias MemHouse.Skills.Selector
+  alias MemHouse.Skills.SkillRequirementCard
 
   require Ash.Query
 
@@ -324,7 +324,7 @@ defmodule Cartulary.F9SkillReadinessProceduralMemoryTest do
     # is exposed there; card *authoring* deliberately is not, because publishing a card is a
     # human decision about what an agent is allowed to assume.
     tool_names =
-      Cartulary.Governance
+      MemHouse.Governance
       |> AshAi.Info.tools()
       |> Enum.map(& &1.name)
 
@@ -348,7 +348,7 @@ defmodule Cartulary.F9SkillReadinessProceduralMemoryTest do
     assert File.read!("sdk/typescript/src/skill-readiness.ts") =~
              "SkillReadinessBlockedError"
 
-    assert File.read!("sdk/python/cartulary/skill_readiness.py") =~
+    assert File.read!("sdk/python/memhouse/skill_readiness.py") =~
              "SkillReadinessBlockedError"
   end
 
@@ -388,7 +388,7 @@ defmodule Cartulary.F9SkillReadinessProceduralMemoryTest do
     {scope, knowledge} =
       DataLayer.with_actor(bootstrap.actor, fn account, actor ->
         scope =
-          Cartulary.Topology.Scope
+          MemHouse.Topology.Scope
           |> Ash.Query.filter(path == ^scope_path)
           |> Ash.Query.set_tenant(account.id)
           |> Ash.read_one!(actor: pipeline_actor(actor))
@@ -470,7 +470,7 @@ defmodule Cartulary.F9SkillReadinessProceduralMemoryTest do
   # Raw SQL so the audit-event count is read straight from the table, unmediated by any
   # policy that might hide a row and make a missing audit entry look like a passing test.
   defp scalar!(sql, params) do
-    %{rows: [[value]]} = Ecto.Adapters.SQL.query!(Cartulary.Repo, sql, params)
+    %{rows: [[value]]} = Ecto.Adapters.SQL.query!(MemHouse.Repo, sql, params)
     value
   end
 end

@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Model.StructuredGenerator do
+defmodule MemHouse.Model.StructuredGenerator do
   @moduledoc """
   Structured generation with a bounded validate-and-repair loop.
 
@@ -26,8 +26,8 @@ defmodule Cartulary.Model.StructuredGenerator do
   are written to describe shape problems rather than to quote content.
   """
 
-  alias Cartulary.Model.Config
-  alias Cartulary.Model.Gateway
+  alias MemHouse.Model.Config
+  alias MemHouse.Model.Gateway
 
   # Hard ceiling on repair attempts, in extra provider calls after the first.
   # Two is enough to fix realistic formatting slips; beyond that the model is
@@ -39,7 +39,7 @@ defmodule Cartulary.Model.StructuredGenerator do
   Generates and validates one structured object.
 
   `role` is a model role or alias, `messages` the prompt in provider message
-  form, and `schema` a module implementing `Cartulary.Model.Schema` — passed as
+  form, and `schema` a module implementing `MemHouse.Model.Schema` — passed as
   a module, not as a built schema map, because both its JSON schema and its
   `cast/2` are needed. `context` is the caller context, and is also handed to
   `cast/2`, so validation can enforce caller-specific rules such as which peers
@@ -123,7 +123,7 @@ defmodule Cartulary.Model.StructuredGenerator do
   end
 
   defp configured_max_repairs do
-    :cartulary
+    :memhouse
     |> Application.get_env(:model_layer, [])
     |> Keyword.get(:max_repairs, @max_repairs)
   end

@@ -1,7 +1,7 @@
 #!/bin/sh
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 #
-# Unix/macOS entry point for a running Cartulary node: the command a person runs
+# Unix/macOS entry point for a running MemHouse node: the command a person runs
 # after unpacking the release.
 #
 # Purpose
@@ -11,7 +11,7 @@
 #   PostgreSQL, and then hands off to the generated release launcher.
 #
 # Environment (all optional; anything already set is respected)
-#   CARTULARY_DATA_ROOT      Where local state lives. Default ~/.cartulary.
+#   CARTULARY_DATA_ROOT      Where local state lives. Default ~/.memhouse.
 #   CARTULARY_AUTH_SIGNING_SECRET  Token signing key. Generated and persisted on
 #                            first run if absent.
 #   CARTULARY_DATABASE_MODE  `pg0` (embedded, the default here) or `external`.
@@ -47,7 +47,7 @@ set -eu
 # is cleared because a value in the caller's environment could make `cd` land
 # somewhere else entirely and print the wrong directory.
 release_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-data_root=${CARTULARY_DATA_ROOT:-"$HOME/.cartulary"}
+data_root=${CARTULARY_DATA_ROOT:-"$HOME/.memhouse"}
 secret_file="$data_root/auth-signing-secret"
 
 mkdir -p "$data_root"
@@ -88,7 +88,7 @@ fi
 : "${CARTULARY_DATABASE_MODE:=pg0}"
 : "${CARTULARY_AUTO_MIGRATE:=true}"
 : "${CARTULARY_PG0_BINARY:=$release_root/bin/pg0}"
-: "${CARTULARY_PG0_DATA_DIR:=$data_root/pg0/instances/cartulary/data}"
+: "${CARTULARY_PG0_DATA_DIR:=$data_root/pg0/instances/memhouse/data}"
 : "${CARTULARY_BLOB_ROOT:=$data_root/blobs}"
 
 # Defaults resolved above are only useful to the node if they are exported into
@@ -118,7 +118,7 @@ fi
 # update happens here, before this process starts the server, and the stable
 # install root is followed only after an atomic pointer switch completed.
 if [ "${CARTULARY_AUTO_UPDATE:-off}" = "minor" ] && [ -x "$release_root/bin/update" ]; then
-  "$release_root/bin/update" --auto || echo "Cartulary automatic update was not applied; see bin/update --check" >&2
+  "$release_root/bin/update" --auto || echo "MemHouse automatic update was not applied; see bin/update --check" >&2
 
   if [ -d "$update_root/current" ]; then
     active_root=$(CDPATH= cd -- "$update_root/current" && pwd)
@@ -132,4 +132,4 @@ fi
 # process id. That is what lets a supervisor, a container runtime, or Ctrl-C
 # deliver signals straight to the node and get an orderly shutdown — which is
 # also what stops the embedded PostgreSQL cleanly.
-exec "$release_root/bin/cartulary" start
+exec "$release_root/bin/memhouse" start

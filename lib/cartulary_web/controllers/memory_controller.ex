@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
 defmodule CartularyWeb.MemoryController do
   @moduledoc """
@@ -10,15 +10,15 @@ defmodule CartularyWeb.MemoryController do
 
   use CartularyWeb, :controller
 
-  alias Cartulary.Memory
-  alias Cartulary.Operations.Health
-  alias Cartulary.Pipeline
+  alias MemHouse.Memory
+  alias MemHouse.Operations.Health
+  alias MemHouse.Pipeline
 
   @doc """
   Liveness probe. Unauthenticated, and touches no database or queue.
   """
   def health(conn, _params) do
-    json(conn, %{status: "ok", app: "cartulary", version: "f5-1"})
+    json(conn, %{status: "ok", app: "memhouse", version: "f5-1"})
   end
 
   @doc """
@@ -41,7 +41,7 @@ defmodule CartularyWeb.MemoryController do
     actor = conn.assigns.current_actor
 
     if actor.role in [:account_admin, :system] do
-      json(conn, %{data: Cartulary.Operations.Metering.summary(actor)})
+      json(conn, %{data: MemHouse.Operations.Metering.summary(actor)})
     else
       conn |> put_status(:forbidden) |> json(%{error: "Forbidden"})
     end

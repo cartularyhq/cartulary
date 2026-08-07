@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 #
 # Prepare a versioned release PR from main. publish-release.yml finishes the
 # tag and GitHub Release only after a human merges that PR.
@@ -113,7 +113,7 @@ jobs:
               "docs/getting-started/install-release.md",
               "specs/implementation-status.md",
               "specs/eval/surface-contract-inventory.json",
-              "test/cartulary/f11_evaluation_ci_release_readiness_test.exs",
+              "test/memhouse/f11_evaluation_ci_release_readiness_test.exs",
           ]:
               replace_all(path, current, version)
           PY
@@ -124,8 +124,8 @@ jobs:
         run: |
           mix deps.get
           mix format --check-formatted
-          mix test test/cartulary/f11_evaluation_ci_release_readiness_test.exs
-          mix cartulary.release.check --tag "${{ steps.metadata.outputs.tag }}" --allow-missing-eval
+          mix test test/memhouse/f11_evaluation_ci_release_readiness_test.exs
+          mix memhouse.release.check --tag "${{ steps.metadata.outputs.tag }}" --allow-missing-eval
 
       - name: Refuse an existing release unless repairing it
         shell: bash

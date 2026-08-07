@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Pipeline.ObservationTimeTest do
+defmodule MemHouse.Pipeline.ObservationTimeTest do
   @moduledoc """
   Covers the belief-time a caller asserts on an observation, from the ingest
   body to the extraction prompt to the valid-time stamped on an event.
@@ -16,10 +16,10 @@ defmodule Cartulary.Pipeline.ObservationTimeTest do
   Runs with `async: false` because most tests install a global model provider.
   """
 
-  use Cartulary.DataCase, async: false
+  use MemHouse.DataCase, async: false
 
-  alias Cartulary.Memory
-  alias Cartulary.Model.PromptCaptureProvider
+  alias MemHouse.Memory
+  alias MemHouse.Model.PromptCaptureProvider
 
   # 17 July 2023, the kind of date a backfilled transcript carries: long before
   # any plausible ingest time, so a wall-clock substitution cannot pass by luck.
@@ -156,7 +156,7 @@ defmodule Cartulary.Pipeline.ObservationTimeTest do
       }
       |> Map.merge(Map.new(overrides))
 
-    Cartulary.Knowledge.KnowledgeItem
+    MemHouse.Knowledge.KnowledgeItem
     |> Ash.Changeset.new()
     |> Ash.Changeset.set_tenant(Ecto.UUID.generate())
     |> Ash.Changeset.for_create(:create_from_pipeline, attrs)
@@ -165,15 +165,15 @@ defmodule Cartulary.Pipeline.ObservationTimeTest do
   # Installs the capturing provider for one test, so the prompt the pipeline
   # builds is observable and the candidate it extracts is fixed.
   defp capture_prompts(_context) do
-    original = Application.get_env(:cartulary, :model_provider)
-    Application.put_env(:cartulary, :model_provider, PromptCaptureProvider)
+    original = Application.get_env(:memhouse, :model_provider)
+    Application.put_env(:memhouse, :model_provider, PromptCaptureProvider)
 
     on_exit(fn ->
       PromptCaptureProvider.stop()
 
       if original,
-        do: Application.put_env(:cartulary, :model_provider, original),
-        else: Application.delete_env(:cartulary, :model_provider)
+        do: Application.put_env(:memhouse, :model_provider, original),
+        else: Application.delete_env(:memhouse, :model_provider)
     end)
 
     :ok

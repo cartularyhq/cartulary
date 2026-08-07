@@ -1,6 +1,6 @@
-# Cartulary
+# MemHouse
 
-Cartulary is a governed memory system for agents, built with Elixir, Ash,
+MemHouse is a governed memory system for agents, built with Elixir, Ash,
 Phoenix, Oban, PostgreSQL, pgvector, and Postgres full-text search.
 
 Agents submit observations. A pipeline extracts candidate knowledge, governance
@@ -11,9 +11,9 @@ with citations. Agents never write knowledge directly.
 documents, browser console, packaging, and release checks are implemented.
 Integration surfaces, gateway proxy, and generated SDKs are not.
 
-- [User documentation](https://cartularyhq.github.io/cartulary/)
-- [Quickstart](https://cartularyhq.github.io/cartulary/getting-started/quickstart/)
-- [Known limitations](https://cartularyhq.github.io/cartulary/reference/limitations/)
+- [User documentation](https://memhousehq.github.io/memhouse/)
+- [Quickstart](https://memhousehq.github.io/memhouse/getting-started/quickstart/)
+- [Known limitations](https://memhousehq.github.io/memhouse/reference/limitations/)
 
 ## How it works
 
@@ -47,8 +47,8 @@ An ingest request follows one transaction-safe path:
 1. Phoenix authenticates the caller and derives the Account.
 2. The system commits the raw observation, content-safe audit entry,
    idempotency record, and Oban job together.
-3. `Cartulary.Model.Gateway` extracts structured candidates.
-4. `Cartulary.Governance.Engine` assigns lifecycle and visibility.
+3. `MemHouse.Model.Gateway` extracts structured candidates.
+4. `MemHouse.Governance.Engine` assigns lifecycle and visibility.
 5. Background work updates embeddings, indices, entities, and projections.
 6. Search and ask apply authorization and lifecycle filters before ranking.
 
@@ -71,7 +71,7 @@ generation can use any ReqLLM-supported or OpenAI-compatible endpoint.
 ### Downloaded release
 
 Download the archive and `.sha256` file for Linux x86_64, macOS Apple Silicon,
-macOS Intel, or Windows x86_64 from [GitHub Releases](https://github.com/cartularyhq/cartulary/releases).
+macOS Intel, or Windows x86_64 from [GitHub Releases](https://github.com/memhousehq/memhouse/releases).
 Verify the checksum, unpack the archive, then run:
 
 ```bash
@@ -80,7 +80,7 @@ curl -fsS http://127.0.0.1:4000/api/ready
 ```
 
 The launcher creates its data directory, starts pg0, migrates the database, and
-starts the API. The [release installation guide](https://cartularyhq.github.io/cartulary/getting-started/install-release/)
+starts the API. The [release installation guide](https://memhousehq.github.io/memhouse/getting-started/install-release/)
 has architecture selection, download, checksum, Windows, macOS Gatekeeper, and
 a recommended local setup block with signed automatic patch/minor updates.
 
@@ -96,7 +96,7 @@ mix setup
 mix phx.server
 ```
 
-See the [installation guides](https://cartularyhq.github.io/cartulary/getting-started/)
+See the [installation guides](https://memhousehq.github.io/memhouse/getting-started/)
 for release, Docker, source, and external-Postgres setup.
 
 ## Main surfaces
@@ -113,7 +113,7 @@ for release, Docker, source, and external-Postgres setup.
 | `GET /api/ready` | Operational readiness |
 
 Authentication, payloads, errors, and complete route availability are in the
-[HTTP API reference](https://cartularyhq.github.io/cartulary/reference/http-api/).
+[HTTP API reference](https://memhousehq.github.io/memhouse/reference/http-api/).
 
 ## Implemented capabilities
 
@@ -149,15 +149,15 @@ SDKs. Remaining work is tracked in
 
 | Path | Purpose |
 | --- | --- |
-| `lib/cartulary/memory.ex` | Main operation facade |
-| `lib/cartulary/pipeline/` | Extraction and the only knowledge-write path |
-| `lib/cartulary/governance/` | Gates, consent, lifecycle, audit, and erasure |
-| `lib/cartulary/retrieval/` | Strategies, fusion, profiles, and indices |
-| `lib/cartulary/model/` | Gateway, roles, structured output, and embeddings |
-| `lib/cartulary/documents/` | Versions, blobs, parsing, and connectors |
-| `lib/cartulary/context/`, `lib/cartulary/skills/` | Context and readiness |
-| `lib/cartulary/portability/` | Logical Account export and import |
-| `lib/cartulary/eval/` | Evaluation harness and reports |
+| `lib/memhouse/memory.ex` | Main operation facade |
+| `lib/memhouse/pipeline/` | Extraction and the only knowledge-write path |
+| `lib/memhouse/governance/` | Gates, consent, lifecycle, audit, and erasure |
+| `lib/memhouse/retrieval/` | Strategies, fusion, profiles, and indices |
+| `lib/memhouse/model/` | Gateway, roles, structured output, and embeddings |
+| `lib/memhouse/documents/` | Versions, blobs, parsing, and connectors |
+| `lib/memhouse/context/`, `lib/memhouse/skills/` | Context and readiness |
+| `lib/memhouse/portability/` | Logical Account export and import |
+| `lib/memhouse/eval/` | Evaluation harness and reports |
 | `lib/cartulary_web/` | HTTP, authentication, telemetry, and LiveView |
 | `lib/mix/tasks/` | Operator and evaluation commands |
 | `test/` | Regression and contract evidence |
@@ -165,9 +165,9 @@ SDKs. Remaining work is tracked in
 | `specs/` | Requirements, architecture, decisions, plans, and evidence |
 
 Start reading at `lib/cartulary_web/router.ex`, then
-`lib/cartulary/memory.ex`, `lib/cartulary/knowledge.ex`,
-`lib/cartulary/governance/engine.ex`, and
-`lib/cartulary/retrieval/strategy.ex`.
+`lib/memhouse/memory.ex`, `lib/memhouse/knowledge.ex`,
+`lib/memhouse/governance/engine.ex`, and
+`lib/memhouse/retrieval/strategy.ex`.
 
 ## Development
 
@@ -188,7 +188,7 @@ mix sobelow --config
 ```
 
 Build the documentation with `mkdocs build`. Evaluation and release commands
-are listed in the [Mix task reference](https://cartularyhq.github.io/cartulary/reference/mix-tasks/).
+are listed in the [Mix task reference](https://memhousehq.github.io/memhouse/reference/mix-tasks/).
 
 ## Documentation map
 
@@ -202,6 +202,6 @@ are listed in the [Mix task reference](https://cartularyhq.github.io/cartulary/r
 
 ## License
 
-Cartulary is source-available fair-code, not OSI open source. Community code is
+MemHouse is source-available fair-code, not OSI open source. Community code is
 covered by [`LICENSE.md`](LICENSE.md). Enterprise-marked code is covered by
 [`LICENSE_EE.md`](LICENSE_EE.md).

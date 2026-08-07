@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Eval.ReleaseSuite do
+defmodule MemHouse.Eval.ReleaseSuite do
   @moduledoc """
   Runs the evaluation matrix declared by a release manifest.
 
@@ -8,8 +8,8 @@ defmodule Cartulary.Eval.ReleaseSuite do
   run-limit provenance. The returned envelope is validated before it can support a release claim.
   """
 
-  alias Cartulary.Clock
-  alias Cartulary.Eval.{Adapter, Report, Runner}
+  alias MemHouse.Clock
+  alias MemHouse.Eval.{Adapter, Report, Runner}
 
   @doc """
   Runs every entry in the manifest at `manifest_path` and returns the validated envelope.

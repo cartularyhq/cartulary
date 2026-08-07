@@ -1,11 +1,11 @@
-<!-- SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0 -->
+<!-- SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0 -->
 
 # Configuration reference
 
 Environment configuration is resolved at boot, never build time.
 
 The annotated, complete example is
-[`.env.example`](https://github.com/cartularyhq/cartulary/blob/main/.env.example)
+[`.env.example`](https://github.com/memhousehq/memhouse/blob/main/.env.example)
 in the repository.
 
 ## Database
@@ -19,7 +19,7 @@ in the repository.
 | `CARTULARY_PG0_BINARY` | packaged | Path to the pg0 binary |
 | `CARTULARY_PG0_DATA_DIR` | under the data root | PostgreSQL data directory |
 | `CARTULARY_PG0_PORT` | `5432` | Port the supervised server listens on |
-| `CARTULARY_PG0_DATABASE` | `cartulary` | Database name |
+| `CARTULARY_PG0_DATABASE` | `memhouse` | Database name |
 | `CARTULARY_PG0_USERNAME` / `_PASSWORD` | `postgres` | Local credentials |
 | `ECTO_IPV6` | `false` | Connect over IPv6 |
 | `CARTULARY_DATABASE_APP_ROLE` | `cartulary_app` | Restricted PostgreSQL role every connection switches to |
@@ -28,10 +28,10 @@ in the repository.
 External mode needs PostgreSQL 18 with pgvector available.
 
 !!! danger "The connecting role must be able to reach a restricted role, or boot fails"
-    PostgreSQL skips RLS for superusers and `BYPASSRLS` roles. Cartulary serves
+    PostgreSQL skips RLS for superusers and `BYPASSRLS` roles. MemHouse serves
     traffic only through a role that is neither:
 
-    - Give `DATABASE_URL`'s role `CREATEROLE`, and Cartulary provisions
+    - Give `DATABASE_URL`'s role `CREATEROLE`, and MemHouse provisions
       `CARTULARY_DATABASE_APP_ROLE` itself on every boot (idempotent) and
       switches every pooled connection to it.
     - Or point `DATABASE_URL` at a login already created with `NOSUPERUSER
@@ -51,7 +51,7 @@ External mode needs PostgreSQL 18 with pgvector available.
 | `CARTULARY_AUTH_SIGNING_SECRET` | At least 64 random bytes. **Independent of `SECRET_KEY_BASE`** |
 | `SECRET_KEY_BASE` | Phoenix session and token signing |
 | `CARTULARY_BOOTSTRAP_PASSWORD` | Read only by the one-time bootstrap task |
-| `CARTULARY_DATA_ROOT` | Private data root; defaults to `~/.cartulary` in a release |
+| `CARTULARY_DATA_ROOT` | Private data root; defaults to `~/.memhouse` in a release |
 
 !!! danger "Generate independent production secrets"
     Do not reuse `SECRET_KEY_BASE` as the auth signing secret. The bootstrap
@@ -156,9 +156,9 @@ operator-supplied and offline.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `CARTULARY_BLOB_ADAPTER` | `local` | `local` or `s3` |
-| `CARTULARY_BLOB_ROOT` | env-dependent | Absolute local blob path (`/var/lib/cartulary/blobs` in production) |
+| `CARTULARY_BLOB_ROOT` | env-dependent | Absolute local blob path (`/var/lib/memhouse/blobs` in production) |
 | `CARTULARY_S3_BUCKET` | — | Bucket name |
-| `CARTULARY_S3_PREFIX` | `cartulary` | Key prefix |
+| `CARTULARY_S3_PREFIX` | `memhouse` | Key prefix |
 | `CARTULARY_S3_HOST` / `_SCHEME` / `_PORT` | — | For MinIO or another compatible endpoint |
 | `AWS_REGION` and standard AWS variables | — | ExAws credentials |
 | `CARTULARY_DOCUMENT_CHUNK_SIZE` | `1200` | Characters per chunk |
@@ -186,7 +186,7 @@ Dream-time is throttled first when a limit bites.
 When true, personal knowledge above peer level receives an automatic subject
 consent record. Normally only the subject's verified grant permits widening;
 GateRule cannot waive it. Use this only for benchmarks, evaluations, or
-synthetic deployments without real subjects. Cartulary logs it at boot and
+synthetic deployments without real subjects. MemHouse logs it at boot and
 reports it on `GET /api/ready`.
 
 An individual Account can be marked the same way without touching the whole
@@ -200,7 +200,7 @@ controls from within that Account rather than from the environment.
 | --- | --- | --- |
 | `CARTULARY_OTEL_ENABLED` | `false` | Enable batch OTLP/HTTP trace export |
 | `CARTULARY_ENVIRONMENT` | `development` | Environment label |
-| `OTEL_SERVICE_NAME` | `cartulary-dev` | Service name in traces |
+| `OTEL_SERVICE_NAME` | `memhouse-dev` | Service name in traces |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:14318` | Collector endpoint |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `http_protobuf` | |
 | `OTEL_TRACES_SAMPLER` / `_ARG` | always-on, `1.0` | Sampling |

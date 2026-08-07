@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Observations do
+defmodule MemHouse.Observations do
   @moduledoc """
   Ash domain for immutable raw messages and document versions.
 
@@ -12,16 +12,16 @@ defmodule Cartulary.Observations do
   use Ash.Domain
 
   resources do
-    resource Cartulary.Observations.Session
-    resource Cartulary.Observations.SessionScope
-    resource Cartulary.Observations.SessionParticipant
-    resource Cartulary.Observations.Message
-    resource Cartulary.Observations.Document
-    resource Cartulary.Observations.DocumentVersion
+    resource MemHouse.Observations.Session
+    resource MemHouse.Observations.SessionScope
+    resource MemHouse.Observations.SessionParticipant
+    resource MemHouse.Observations.Message
+    resource MemHouse.Observations.Document
+    resource MemHouse.Observations.DocumentVersion
   end
 end
 
-defmodule Cartulary.Observations.Session do
+defmodule MemHouse.Observations.Session do
   @moduledoc """
   One conversation or agent run containing raw observations.
 
@@ -29,7 +29,7 @@ defmodule Cartulary.Observations.Session do
   do not themselves become knowledge.
   """
 
-  use Cartulary.Resource, domain: Cartulary.Observations, table: "sessions"
+  use MemHouse.Resource, domain: MemHouse.Observations, table: "sessions"
 
   multitenancy do
     strategy :attribute
@@ -66,7 +66,7 @@ defmodule Cartulary.Observations.Session do
     end
 
     policy action_type(:read) do
-      authorize_if {Cartulary.Policy.ScopeAccess, attribute: :scope_id}
+      authorize_if {MemHouse.Policy.ScopeAccess, attribute: :scope_id}
     end
 
     policy action(:erase) do
@@ -104,7 +104,7 @@ defmodule Cartulary.Observations.Session do
   end
 end
 
-defmodule Cartulary.Observations.SessionScope do
+defmodule MemHouse.Observations.SessionScope do
   @moduledoc """
   Links a session to one scope with an association confidence.
 
@@ -112,7 +112,7 @@ defmodule Cartulary.Observations.SessionScope do
   applies.
   """
 
-  use Cartulary.Resource, domain: Cartulary.Observations, table: "session_scopes"
+  use MemHouse.Resource, domain: MemHouse.Observations, table: "session_scopes"
 
   multitenancy do
     strategy :attribute
@@ -146,7 +146,7 @@ defmodule Cartulary.Observations.SessionScope do
     end
 
     policy action_type(:read) do
-      authorize_if {Cartulary.Policy.ScopeAccess, attribute: :scope_id}
+      authorize_if {MemHouse.Policy.ScopeAccess, attribute: :scope_id}
     end
 
     policy action(:erase) do
@@ -173,15 +173,15 @@ defmodule Cartulary.Observations.SessionScope do
   end
 end
 
-defmodule Cartulary.Observations.SessionParticipant do
+defmodule MemHouse.Observations.SessionParticipant do
   @moduledoc """
   Records one Peer's membership in a session.
 
   Membership supplies provenance and speaker context but does not create a role grant.
   """
 
-  use Cartulary.Resource,
-    domain: Cartulary.Observations,
+  use MemHouse.Resource,
+    domain: MemHouse.Observations,
     table: "session_participants"
 
   multitenancy do
@@ -239,7 +239,7 @@ defmodule Cartulary.Observations.SessionParticipant do
   end
 end
 
-defmodule Cartulary.Observations.Message do
+defmodule MemHouse.Observations.Message do
   @moduledoc """
   One immutable raw conversational turn.
 
@@ -247,7 +247,7 @@ defmodule Cartulary.Observations.Message do
   idempotency, and replay-safe extraction work. Only the pipeline may turn it into knowledge.
   """
 
-  use Cartulary.Resource, domain: Cartulary.Observations, table: "messages"
+  use MemHouse.Resource, domain: MemHouse.Observations, table: "messages"
 
   multitenancy do
     strategy :attribute
@@ -263,8 +263,8 @@ defmodule Cartulary.Observations.Message do
     create :create do
       accept [:session_id, :scope_id, :peer_id, :role, :content, :occurred_at]
 
-      change Cartulary.Observations.Changes.HashContent
-      change Cartulary.Observations.Changes.AuditAndEnqueueMessage
+      change MemHouse.Observations.Changes.HashContent
+      change MemHouse.Observations.Changes.AuditAndEnqueueMessage
     end
 
     # Pipeline bookkeeping only: stamps when extraction finished. It cannot touch content.
@@ -284,7 +284,7 @@ defmodule Cartulary.Observations.Message do
     end
 
     policy action_type(:read) do
-      authorize_if {Cartulary.Policy.ScopeAccess, attribute: :scope_id}
+      authorize_if {MemHouse.Policy.ScopeAccess, attribute: :scope_id}
     end
 
     # Submitting an observation deliberately needs no role beyond belonging to the Account: any
@@ -330,7 +330,7 @@ defmodule Cartulary.Observations.Message do
   end
 end
 
-defmodule Cartulary.Observations.Document do
+defmodule MemHouse.Observations.Document do
   @moduledoc """
   Stable identity for a logical source document.
 
@@ -338,7 +338,7 @@ defmodule Cartulary.Observations.Document do
   history is never overwritten.
   """
 
-  use Cartulary.Resource, domain: Cartulary.Observations, table: "documents"
+  use MemHouse.Resource, domain: MemHouse.Observations, table: "documents"
 
   multitenancy do
     strategy :attribute
@@ -392,7 +392,7 @@ defmodule Cartulary.Observations.Document do
       require_atomic? false
       accept []
       argument :attributes, :map, allow_nil?: false
-      change Cartulary.Portability.Changes.RestoreAttributes
+      change MemHouse.Portability.Changes.RestoreAttributes
     end
 
     destroy :erase do
@@ -406,18 +406,18 @@ defmodule Cartulary.Observations.Document do
     end
 
     policy action_type(:read) do
-      authorize_if {Cartulary.Policy.ScopeAccess, attribute: :scope_id}
+      authorize_if {MemHouse.Policy.ScopeAccess, attribute: :scope_id}
     end
 
     # Uploading a document is ordinary member work, but only in a scope where the caller holds
     # one of these roles. The pipeline branch covers connector-driven ingest.
     policy action(:create) do
-      authorize_if {Cartulary.Policy.ScopeRole, roles: [:account_admin, :curator, :member]}
+      authorize_if {MemHouse.Policy.ScopeRole, roles: [:account_admin, :curator, :member]}
       authorize_if actor_attribute_equals(:pipeline?, true)
     end
 
     policy action(:update_metadata) do
-      authorize_if {Cartulary.Policy.ScopeRole, roles: [:account_admin, :curator, :member]}
+      authorize_if {MemHouse.Policy.ScopeRole, roles: [:account_admin, :curator, :member]}
       authorize_if actor_attribute_equals(:pipeline?, true)
     end
 
@@ -429,7 +429,7 @@ defmodule Cartulary.Observations.Document do
 
     policy action(:portability_restore) do
       authorize_if actor_attribute_equals(:pipeline?, true)
-      authorize_if {Cartulary.Policy.RoleIn, roles: [:system]}
+      authorize_if {MemHouse.Policy.RoleIn, roles: [:system]}
     end
   end
 
@@ -473,7 +473,7 @@ defmodule Cartulary.Observations.Document do
   end
 end
 
-defmodule Cartulary.Observations.DocumentVersion do
+defmodule MemHouse.Observations.DocumentVersion do
   @moduledoc """
   Immutable snapshot of a document's bytes and metadata.
 
@@ -482,8 +482,8 @@ defmodule Cartulary.Observations.DocumentVersion do
   telemetry, or job arguments.
   """
 
-  use Cartulary.Resource,
-    domain: Cartulary.Observations,
+  use MemHouse.Resource,
+    domain: MemHouse.Observations,
     table: "document_versions"
 
   multitenancy do
@@ -513,8 +513,8 @@ defmodule Cartulary.Observations.DocumentVersion do
       # messages, the hash may be supplied: byte ingest already hashed the payload to address
       # the blob, and the version must carry that same digest rather than a hash of whatever
       # inline text happens to be present.
-      change Cartulary.Observations.Changes.HashContentIfMissing
-      change Cartulary.Observations.Changes.AuditAndEnqueueDocument
+      change MemHouse.Observations.Changes.HashContentIfMissing
+      change MemHouse.Observations.Changes.AuditAndEnqueueDocument
     end
 
     # Records the outcome of parsing, chunking, and embedding. Everything it writes is a
@@ -550,13 +550,13 @@ defmodule Cartulary.Observations.DocumentVersion do
     end
 
     policy action_type(:read) do
-      authorize_if {Cartulary.Policy.ScopeAccess, attribute: :scope_id}
+      authorize_if {MemHouse.Policy.ScopeAccess, attribute: :scope_id}
     end
 
     # Appending a version is submitting an observation: allowed for scope members, curators, and
     # admins, and for connector-driven ingest running as the pipeline.
     policy action(:create) do
-      authorize_if {Cartulary.Policy.ScopeRole, roles: [:account_admin, :curator, :member]}
+      authorize_if {MemHouse.Policy.ScopeRole, roles: [:account_admin, :curator, :member]}
       authorize_if actor_attribute_equals(:pipeline?, true)
     end
 

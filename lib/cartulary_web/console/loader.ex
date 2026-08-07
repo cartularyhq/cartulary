@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
 defmodule CartularyWeb.Console.Loader do
   @moduledoc """
@@ -9,32 +9,32 @@ defmodule CartularyWeb.Console.Loader do
   derived internals from returned data.
   """
 
-  alias Cartulary.Actor
-  alias Cartulary.DataLayer
-  alias Cartulary.Documents.ConnectorConfig
-  alias Cartulary.Governance.Consent
-  alias Cartulary.Governance.ErasureRequest
-  alias Cartulary.Governance.GateDecision
-  alias Cartulary.Governance.GateRule
-  alias Cartulary.Governance.ValidationItem
-  alias Cartulary.Knowledge.Attribution
-  alias Cartulary.Knowledge.KnowledgeItem
-  alias Cartulary.Knowledge.KnowledgeRelation
-  alias Cartulary.Knowledge.LifecycleEvent
-  alias Cartulary.Knowledge.Projection
-  alias Cartulary.Knowledge.Provenance
-  alias Cartulary.Model.Config, as: ModelConfig
-  alias Cartulary.Observations.Document
-  alias Cartulary.Observations.DocumentVersion
-  alias Cartulary.Observations.Message
-  alias Cartulary.Observations.Session
-  alias Cartulary.Retrieval.Profile
-  alias Cartulary.Retrieval.RetrievalProfile
-  alias Cartulary.Retrieval.Store
-  alias Cartulary.Skills.SkillRequirementCard
-  alias Cartulary.Topology.RoleGrant
-  alias Cartulary.Topology.Scope
-  alias Cartulary.Topology.ScopeRelation
+  alias MemHouse.Actor
+  alias MemHouse.DataLayer
+  alias MemHouse.Documents.ConnectorConfig
+  alias MemHouse.Governance.Consent
+  alias MemHouse.Governance.ErasureRequest
+  alias MemHouse.Governance.GateDecision
+  alias MemHouse.Governance.GateRule
+  alias MemHouse.Governance.ValidationItem
+  alias MemHouse.Knowledge.Attribution
+  alias MemHouse.Knowledge.KnowledgeItem
+  alias MemHouse.Knowledge.KnowledgeRelation
+  alias MemHouse.Knowledge.LifecycleEvent
+  alias MemHouse.Knowledge.Projection
+  alias MemHouse.Knowledge.Provenance
+  alias MemHouse.Model.Config, as: ModelConfig
+  alias MemHouse.Observations.Document
+  alias MemHouse.Observations.DocumentVersion
+  alias MemHouse.Observations.Message
+  alias MemHouse.Observations.Session
+  alias MemHouse.Retrieval.Profile
+  alias MemHouse.Retrieval.RetrievalProfile
+  alias MemHouse.Retrieval.Store
+  alias MemHouse.Skills.SkillRequirementCard
+  alias MemHouse.Topology.RoleGrant
+  alias MemHouse.Topology.Scope
+  alias MemHouse.Topology.ScopeRelation
   alias CartularyWeb.Console.Access
 
   require Ash.Query
@@ -237,7 +237,7 @@ defmodule CartularyWeb.Console.Loader do
       # scope can hold every statement and answer nothing semantically. Reading
       # coverage here is what makes that state visible to an operator.
       coverage =
-        Cartulary.Retrieval.index_coverage(
+        MemHouse.Retrieval.index_coverage(
           account.id,
           Enum.map(scopes, & &1.id),
           actor.peer_id
@@ -695,7 +695,7 @@ defmodule CartularyWeb.Console.Loader do
 
         if scope do
           coverage =
-            Cartulary.Retrieval.index_coverage(account.id, [scope.id], actor.peer_id)
+            MemHouse.Retrieval.index_coverage(account.id, [scope.id], actor.peer_id)
             |> Map.fetch!(scope.id)
 
           chain =
@@ -756,7 +756,7 @@ defmodule CartularyWeb.Console.Loader do
   their erasure requests, and the scope path lookup.
 
   The statements about the viewer are *not* loaded here. They come from
-  `Cartulary.Governance.Engine.self_view/1`, which deliberately ignores scope
+  `MemHouse.Governance.Engine.self_view/1`, which deliberately ignores scope
   membership — a person may read what is recorded about them even in a scope
   they hold no role on — and that exception belongs in the operation layer
   rather than being re-implemented in the web layer.
@@ -820,7 +820,7 @@ defmodule CartularyWeb.Console.Loader do
         gate_rules: gate_rules,
         retrieval_profiles: profiles,
         retrieval_runtime: retrieval_runtime(),
-        latest_retrieval: Cartulary.Retrieval.Diagnostics.latest(account.id),
+        latest_retrieval: MemHouse.Retrieval.Diagnostics.latest(account.id),
         entity_resolution: Store.entity_resolution_metrics(account.id),
         scope_paths: paths
       }
@@ -828,7 +828,7 @@ defmodule CartularyWeb.Console.Loader do
   end
 
   defp retrieval_runtime do
-    config = Application.fetch_env!(:cartulary, :retrieval_profiles)
+    config = Application.fetch_env!(:memhouse, :retrieval_profiles)
 
     %{
       enabled_strategies: Keyword.fetch!(config, :enabled_strategies),
@@ -1092,7 +1092,7 @@ defmodule CartularyWeb.Console.Loader do
        do: nil
 
   defp entity_match_reason(account_id, scope_id, actor, query_text) do
-    Cartulary.Retrieval.Store.entity_match_status(%Cartulary.Retrieval.Query{
+    MemHouse.Retrieval.Store.entity_match_status(%MemHouse.Retrieval.Query{
       account_id: account_id,
       scope_ids: [scope_id],
       actor: actor,

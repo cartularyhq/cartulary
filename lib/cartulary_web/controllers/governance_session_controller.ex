@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
 defmodule CartularyWeb.GovernanceSessionController do
   @moduledoc """
@@ -11,7 +11,7 @@ defmodule CartularyWeb.GovernanceSessionController do
 
   use CartularyWeb, :controller
 
-  alias Cartulary.Identity
+  alias MemHouse.Identity
 
   @doc """
   Renders the curator sign-in form.

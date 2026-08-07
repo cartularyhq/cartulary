@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.PocContractTest do
+defmodule MemHouse.PocContractTest do
   @moduledoc """
   Pins the frozen behaviour baseline of the memory system as executable evidence.
 
@@ -9,9 +9,9 @@ defmodule Cartulary.PocContractTest do
     The string is a version value, not a project phase.
   """
 
-  use Cartulary.DataCase, async: false
+  use MemHouse.DataCase, async: false
 
-  alias Cartulary.Memory
+  alias MemHouse.Memory
 
   # Strips every credential a provider could pick up: the environment variable named by the
   # role's `api_key_ref` and the legacy `:models` entry. The deterministic extractor identity
@@ -21,10 +21,10 @@ defmodule Cartulary.PocContractTest do
   # and this module cannot run async.
   setup do
     original_api_key = System.get_env("OPENROUTER_API_KEY")
-    original_models = Application.fetch_env!(:cartulary, :models)
+    original_models = Application.fetch_env!(:memhouse, :models)
 
     System.delete_env("OPENROUTER_API_KEY")
-    Application.put_env(:cartulary, :models, Keyword.put(original_models, :api_key, nil))
+    Application.put_env(:memhouse, :models, Keyword.put(original_models, :api_key, nil))
 
     on_exit(fn ->
       if original_api_key do
@@ -33,7 +33,7 @@ defmodule Cartulary.PocContractTest do
         System.delete_env("OPENROUTER_API_KEY")
       end
 
-      Application.put_env(:cartulary, :models, original_models)
+      Application.put_env(:memhouse, :models, original_models)
     end)
 
     :ok

@@ -2,12 +2,12 @@
   "contract_version": "poc-0",
   "fixtures": [
     {
-      "benchmark": "cartulary",
-      "path": "test/fixtures/eval/cartulary-smoke.json",
+      "benchmark": "memhouse",
+      "path": "test/fixtures/eval/memhouse-smoke.json",
       "sha256": "0f4640648955c216f15bde411de889a33e8d14dd53c7e24e1a77fc26ce058a3a",
       "normalized": {
-        "benchmark": "cartulary",
-        "source_format": "cartulary",
+        "benchmark": "memhouse",
+        "source_format": "memhouse",
         "case_ids": ["smoke"],
         "message_ids": ["m1", "m2"],
         "question_ids": ["q1"]

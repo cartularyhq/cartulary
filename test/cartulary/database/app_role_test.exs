@@ -1,11 +1,11 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Database.AppRoleTest do
+defmodule MemHouse.Database.AppRoleTest do
   @moduledoc """
   Pins the database half of cross-Account isolation: the node's connections must run as a role
   that PostgreSQL row-level security actually applies to.
 
-  `Cartulary.Database.RoleProvisioner` and `Cartulary.Database.RoleGuard` already ran as part
+  `MemHouse.Database.RoleProvisioner` and `MemHouse.Database.RoleGuard` already ran as part
   of this node's own boot before this suite started, over the same test database these tests
   run against. So the interesting assertion here is not "can provisioning be made to work in
   isolation" — it is "did it actually happen, on the very connection every other test in this
@@ -13,10 +13,10 @@ defmodule Cartulary.Database.AppRoleTest do
   test in this file fail, not just the row-level-security ones in `F1AshDomainBackboneTest`.
   """
 
-  use Cartulary.DataCase, async: false
+  use MemHouse.DataCase, async: false
 
-  alias Cartulary.Database.AppRole
-  alias Cartulary.Repo
+  alias MemHouse.Database.AppRole
+  alias MemHouse.Repo
 
   test "the running node's own connection cannot bypass row-level security" do
     assert :ok = AppRole.assert_enforced!()
@@ -68,17 +68,17 @@ defmodule Cartulary.Database.AppRoleTest do
   end
 
   test "role_name! rejects a name that is not a plain lowercase identifier" do
-    original = Application.fetch_env!(:cartulary, :database)
+    original = Application.fetch_env!(:memhouse, :database)
 
     Application.put_env(
-      :cartulary,
+      :memhouse,
       :database,
       Keyword.put(original, :app_role, "not-a-valid-identifier; DROP TABLE accounts")
     )
 
     assert_raise RuntimeError, ~r/lowercase SQL identifier/, fn -> AppRole.role_name!() end
   after
-    original = Application.fetch_env!(:cartulary, :database)
-    Application.put_env(:cartulary, :database, Keyword.put(original, :app_role, "cartulary_app"))
+    original = Application.fetch_env!(:memhouse, :database)
+    Application.put_env(:memhouse, :database, Keyword.put(original, :app_role, "cartulary_app"))
   end
 end

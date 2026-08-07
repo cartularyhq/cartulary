@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Skills.Selector do
+defmodule MemHouse.Skills.Selector do
   @moduledoc """
   Validates and normalizes the declarative skill-requirement language.
 
@@ -325,7 +325,7 @@ defmodule Cartulary.Skills.Selector do
   defp stringify_keys(map), do: Map.new(map, fn {key, value} -> {to_string(key), value} end)
 end
 
-defmodule Cartulary.Skills.Validations.Requirements do
+defmodule MemHouse.Skills.Validations.Requirements do
   @moduledoc """
   Rejects skill cards with an incompatible selector version or non-canonical requirements.
 
@@ -335,7 +335,7 @@ defmodule Cartulary.Skills.Validations.Requirements do
 
   use Ash.Resource.Validation
 
-  alias Cartulary.Skills.Selector
+  alias MemHouse.Skills.Selector
 
   @impl true
   def validate(changeset, _opts, _context) do

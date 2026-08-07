@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0 -->
+<!-- SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0 -->
 
 # Implementation Status
 
@@ -27,7 +27,7 @@ are not.
   records are append-only.
 - PostgreSQL RLS on every Account-scoped table, enforced alongside Ash
   actor/tenant policies. Every deployment mode connects as a provisioned
-  `NOSUPERUSER NOBYPASSRLS` role (`Cartulary.Database.AppRole`) rather than the
+  `NOSUPERUSER NOBYPASSRLS` role (`MemHouse.Database.AppRole`) rather than the
   bootstrap superuser, and a startup guard refuses to serve traffic otherwise
   — see `ADR-0008` (issue #55: this was previously inert everywhere, because
   PostgreSQL exempts superusers from RLS regardless of `FORCE`).
@@ -230,7 +230,7 @@ Details: `specs/architecture/portability-packaging-operations.md` and
 
 ### Evaluation, CI, and release readiness
 
-- Reproducible evaluation reports for Cartulary product scenarios, LoCoMo,
+- Reproducible evaluation reports for MemHouse product scenarios, LoCoMo,
   LongMemEval, ConvoMem, and BEAM, carrying dataset hashes and splits, exact
   profile and model-role versions, deadline identity, RAG-triad, token and
   latency measures, per-category scores, degradation curves, and strategy
@@ -288,9 +288,9 @@ OpenRouter.
 - `mix dialyzer` passed with 0 errors.
 - `mix sobelow --config` passed with no findings after three reviewed
   false-positive skips: local benchmark fixture reads in
-  `Cartulary.Eval.Adapter`, the read-only static retrieval data layer in
-  `Cartulary.Retrieval.Store`, and the static UUID-only message-to-Account
-  bootstrap lookup in `Cartulary.DataLayer`.
+  `MemHouse.Eval.Adapter`, the read-only static retrieval data layer in
+  `MemHouse.Retrieval.Store`, and the static UUID-only message-to-Account
+  bootstrap lookup in `MemHouse.DataLayer`.
 - The full suite passed against newly created partitioned test databases,
   exercising the complete migration chain from empty, and separately against
   the stock `pgvector/pgvector:pg18-bookworm` Compose lane through
@@ -302,11 +302,11 @@ OpenRouter.
   pg0 in its runtime layer, and returned `f10-1` readiness.
 - A fresh two-database logical archive round trip preserved durable data,
   verified audit continuity, and rebuilt derived caches.
-- The deterministic release matrix covered Cartulary, LoCoMo, LongMemEval,
+- The deterministic release matrix covered MemHouse, LoCoMo, LongMemEval,
   ConvoMem, and BEAM plus eight ablations, validated report provenance, met
   every committed correctness and citation floor, and passed the semantic
   version and changelog release check for `0.2.0`.
-- `mix cartulary.eval.smoke --profile balanced` ingested 3 messages and
+- `mix memhouse.eval.smoke --profile balanced` ingested 3 messages and
   answered all 3 smoke questions with citations against OpenRouter.
 - `GET /api/health` returned status `ok` and contract `f5-1`. HTTP ingest and
   ask were verified locally; the ask response returned a cited knowledge item
@@ -337,7 +337,7 @@ Each limitation is tracked in `specs/roadmap/beta-roadmap.md`.
   evidence still need protected credentials and the upstream datasets. Do not
   present the committed fixtures as comparative scores.
 - **Model deployment assets are operator-supplied.** The ReqLLM seam and local
-  Ortex/ONNX execution ship, but Cartulary does not download or package
+  Ortex/ONNX execution ship, but MemHouse does not download or package
   ONNX/tokenizer artefacts, certify every ReqLLM provider, or run an in-engine
   multi-provider cascade.
 - **Retrieval tuning is still evidence work.** Versioned profiles, raw internal
@@ -392,28 +392,28 @@ mix sobelow --config
 Run the deterministic release evaluation and readiness check:
 
 ```bash
-mix cartulary.eval.release \
+mix memhouse.eval.release \
   --no-model \
   --assert-thresholds \
-  --output /private/tmp/cartulary-release-eval.json
+  --output /private/tmp/memhouse-release-eval.json
 
-mix cartulary.release.check \
-  --eval-report /private/tmp/cartulary-release-eval.json
+mix memhouse.release.check \
+  --eval-report /private/tmp/memhouse-release-eval.json
 ```
 
 Run the smoke evaluation:
 
 ```bash
-mix cartulary.eval.smoke --profile balanced --account eval-poc
+mix memhouse.eval.smoke --profile balanced --account eval-poc
 ```
 
 Run the frozen baseline contract:
 
 ```bash
 mix test \
-  test/cartulary/poc_contract_test.exs \
+  test/memhouse/poc_contract_test.exs \
   test/cartulary_web/controllers/memory_controller_test.exs \
-  test/cartulary/eval/fixture_contract_test.exs
+  test/memhouse/eval/fixture_contract_test.exs
 ```
 
 Start the local API on `http://localhost:4000`:

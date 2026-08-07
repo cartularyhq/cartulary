@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Database.RoleProvisioner do
+defmodule MemHouse.Database.RoleProvisioner do
   @moduledoc """
   Creates the restricted application role before normal Repo startup.
 
@@ -10,7 +10,7 @@ defmodule Cartulary.Database.RoleProvisioner do
 
   use GenServer
 
-  alias Cartulary.Database.AppRole
+  alias MemHouse.Database.AppRole
 
   @doc """
   Starts the provisioning step under the supervision tree.

@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.F1AshDomainBackboneTest do
+defmodule MemHouse.F1AshDomainBackboneTest do
   @moduledoc """
   Pins the durable-data boundary: every persistent row is owned by an Ash resource,
     reachable only through an Ash action, and walled off per Account by PostgreSQL
@@ -9,78 +9,78 @@ defmodule Cartulary.F1AshDomainBackboneTest do
     Authorization is derived from identity, never from request input.
   """
 
-  use Cartulary.DataCase, async: false
+  use MemHouse.DataCase, async: false
 
-  alias Cartulary.Actor
-  alias Cartulary.DataLayer
-  alias Cartulary.Governance.AuditEvent
-  alias Cartulary.Governance.PolicyConfig
-  alias Cartulary.Knowledge.KnowledgeItem
-  alias Cartulary.Knowledge.LifecycleEvent
-  alias Cartulary.Memory
-  alias Cartulary.Observations.Message
-  alias Cartulary.Repo
-  alias Cartulary.Topology.Scope
+  alias MemHouse.Actor
+  alias MemHouse.DataLayer
+  alias MemHouse.Governance.AuditEvent
+  alias MemHouse.Governance.PolicyConfig
+  alias MemHouse.Knowledge.KnowledgeItem
+  alias MemHouse.Knowledge.LifecycleEvent
+  alias MemHouse.Memory
+  alias MemHouse.Observations.Message
+  alias MemHouse.Repo
+  alias MemHouse.Topology.Scope
 
   # The complete set of configured Ash domains. Order is the configured order and is asserted
   # verbatim against application configuration, so a domain added to one place and not the
   # other is caught here.
   @domains [
-    Cartulary.Accounts,
-    Cartulary.Topology,
-    Cartulary.Observations,
-    Cartulary.Documents,
-    Cartulary.Knowledge,
-    Cartulary.Governance,
-    Cartulary.Model,
-    Cartulary.Retrieval,
-    Cartulary.Skills,
-    Cartulary.Operations
+    MemHouse.Accounts,
+    MemHouse.Topology,
+    MemHouse.Observations,
+    MemHouse.Documents,
+    MemHouse.Knowledge,
+    MemHouse.Governance,
+    MemHouse.Model,
+    MemHouse.Retrieval,
+    MemHouse.Skills,
+    MemHouse.Operations
   ]
 
   # Every durable resource the domains may expose, sorted. This is the authoritative census of
   # what may hold persistent state; anything storing durable data outside this list is writing
   # behind the Ash boundary and escapes tenancy, policy, and audit.
   @resources [
-    Cartulary.Accounts.Account,
-    Cartulary.Accounts.ApiKey,
-    Cartulary.Accounts.ExternalIdentity,
-    Cartulary.Accounts.Peer,
-    Cartulary.Documents.ConnectorConfig,
-    Cartulary.Documents.DocumentChunk,
-    Cartulary.Governance.AuditEvent,
-    Cartulary.Governance.Consent,
-    Cartulary.Governance.ErasureRequest,
-    Cartulary.Governance.GateDecision,
-    Cartulary.Governance.GateRule,
-    Cartulary.Governance.McpTools,
-    Cartulary.Governance.PeerAskPreference,
-    Cartulary.Governance.PeerQuery,
-    Cartulary.Governance.PeerQueryDelivery,
-    Cartulary.Governance.PolicyConfig,
-    Cartulary.Governance.ValidationItem,
-    Cartulary.Knowledge.Attribution,
-    Cartulary.Knowledge.Entity,
-    Cartulary.Knowledge.EntityMention,
-    Cartulary.Knowledge.KnowledgeItem,
-    Cartulary.Knowledge.KnowledgeRelation,
-    Cartulary.Knowledge.LifecycleEvent,
-    Cartulary.Knowledge.Projection,
-    Cartulary.Knowledge.Provenance,
-    Cartulary.Model.ModelRoleConfig,
-    Cartulary.Observations.Document,
-    Cartulary.Observations.DocumentVersion,
-    Cartulary.Observations.Message,
-    Cartulary.Observations.Session,
-    Cartulary.Observations.SessionParticipant,
-    Cartulary.Observations.SessionScope,
-    Cartulary.Operations.PipelineRun,
-    Cartulary.Operations.UsageEvent,
-    Cartulary.Retrieval.RetrievalProfile,
-    Cartulary.Skills.SkillRequirementCard,
-    Cartulary.Topology.RoleGrant,
-    Cartulary.Topology.Scope,
-    Cartulary.Topology.ScopeRelation
+    MemHouse.Accounts.Account,
+    MemHouse.Accounts.ApiKey,
+    MemHouse.Accounts.ExternalIdentity,
+    MemHouse.Accounts.Peer,
+    MemHouse.Documents.ConnectorConfig,
+    MemHouse.Documents.DocumentChunk,
+    MemHouse.Governance.AuditEvent,
+    MemHouse.Governance.Consent,
+    MemHouse.Governance.ErasureRequest,
+    MemHouse.Governance.GateDecision,
+    MemHouse.Governance.GateRule,
+    MemHouse.Governance.McpTools,
+    MemHouse.Governance.PeerAskPreference,
+    MemHouse.Governance.PeerQuery,
+    MemHouse.Governance.PeerQueryDelivery,
+    MemHouse.Governance.PolicyConfig,
+    MemHouse.Governance.ValidationItem,
+    MemHouse.Knowledge.Attribution,
+    MemHouse.Knowledge.Entity,
+    MemHouse.Knowledge.EntityMention,
+    MemHouse.Knowledge.KnowledgeItem,
+    MemHouse.Knowledge.KnowledgeRelation,
+    MemHouse.Knowledge.LifecycleEvent,
+    MemHouse.Knowledge.Projection,
+    MemHouse.Knowledge.Provenance,
+    MemHouse.Model.ModelRoleConfig,
+    MemHouse.Observations.Document,
+    MemHouse.Observations.DocumentVersion,
+    MemHouse.Observations.Message,
+    MemHouse.Observations.Session,
+    MemHouse.Observations.SessionParticipant,
+    MemHouse.Observations.SessionScope,
+    MemHouse.Operations.PipelineRun,
+    MemHouse.Operations.UsageEvent,
+    MemHouse.Retrieval.RetrievalProfile,
+    MemHouse.Skills.SkillRequirementCard,
+    MemHouse.Topology.RoleGrant,
+    MemHouse.Topology.Scope,
+    MemHouse.Topology.ScopeRelation
   ]
 
   # Every table that must carry the Account wall in the database itself: `accounts` plus each
@@ -104,10 +104,10 @@ defmodule Cartulary.F1AshDomainBackboneTest do
   # `async: false`.
   setup do
     original_api_key = System.get_env("OPENROUTER_API_KEY")
-    original_models = Application.fetch_env!(:cartulary, :models)
+    original_models = Application.fetch_env!(:memhouse, :models)
 
     System.delete_env("OPENROUTER_API_KEY")
-    Application.put_env(:cartulary, :models, Keyword.put(original_models, :api_key, nil))
+    Application.put_env(:memhouse, :models, Keyword.put(original_models, :api_key, nil))
 
     on_exit(fn ->
       if original_api_key do
@@ -116,7 +116,7 @@ defmodule Cartulary.F1AshDomainBackboneTest do
         System.delete_env("OPENROUTER_API_KEY")
       end
 
-      Application.put_env(:cartulary, :models, original_models)
+      Application.put_env(:memhouse, :models, original_models)
     end)
 
     :ok
@@ -132,7 +132,7 @@ defmodule Cartulary.F1AshDomainBackboneTest do
       |> Enum.sort()
 
     assert resources == Enum.sort(@resources)
-    assert Application.fetch_env!(:cartulary, :ash_domains) == @domains
+    assert Application.fetch_env!(:memhouse, :ash_domains) == @domains
   end
 
   # Two independent Accounts, each with one scope and one ingested observation, so that a
@@ -229,7 +229,7 @@ defmodule Cartulary.F1AshDomainBackboneTest do
   # This is the test the row-level-security policies could not previously earn: PostgreSQL
   # exempts superusers from row-level security unconditionally, and FORCE ROW LEVEL SECURITY
   # only removes the table owner's exemption, never the superuser's. Every connection this
-  # suite made before Cartulary.Database.AppRole existed was a superuser, so a query issued
+  # suite made before MemHouse.Database.AppRole existed was a superuser, so a query issued
   # with no Account setting at all still returned rows — the isolation failure this asserts
   # against would have passed silently. Confirming the role's own catalog attributes first is
   # what makes the zero-rows assertion below mean something rather than being a coincidence of
@@ -258,8 +258,8 @@ defmodule Cartulary.F1AshDomainBackboneTest do
     # the sandbox, that is the rest of this test. Clearing both explicitly is what makes the
     # query below run with no Account declared at all, not one accidentally left by the setup
     # that would trivially see its own row.
-    Ecto.Adapters.SQL.query!(Repo, "SELECT set_config('cartulary.account_id', '', true)", [])
-    Ecto.Adapters.SQL.query!(Repo, "SELECT set_config('cartulary.account_key', '', true)", [])
+    Ecto.Adapters.SQL.query!(Repo, "SELECT set_config('memhouse.account_id', '', true)", [])
+    Ecto.Adapters.SQL.query!(Repo, "SELECT set_config('memhouse.account_key', '', true)", [])
 
     # No Account setting is installed on this connection at all — not even a foreign one. A
     # superuser or BYPASSRLS role would still return the row created above; the restricted role
@@ -316,7 +316,7 @@ defmodule Cartulary.F1AshDomainBackboneTest do
     # the Account-scoped transaction helper in production, never taken from user input.
     Ecto.Adapters.SQL.query!(
       Repo,
-      "SELECT set_config('cartulary.account_id', $1, true)",
+      "SELECT set_config('memhouse.account_id', $1, true)",
       [account_a_id]
     )
 
@@ -417,12 +417,12 @@ defmodule Cartulary.F1AshDomainBackboneTest do
     id
   end
 
-  # Mirrors the transaction-local settings `Cartulary.DataLayer` installs in production, so a
+  # Mirrors the transaction-local settings `MemHouse.DataLayer` installs in production, so a
   # test reading raw SQL meets the same row-level-security policies a real request would.
   defp set_account_key!(account_key) do
     Ecto.Adapters.SQL.query!(
       Repo,
-      "SELECT set_config('cartulary.account_key', $1, true)",
+      "SELECT set_config('memhouse.account_key', $1, true)",
       [account_key]
     )
   end
@@ -430,7 +430,7 @@ defmodule Cartulary.F1AshDomainBackboneTest do
   defp set_account_id!(account_id) do
     Ecto.Adapters.SQL.query!(
       Repo,
-      "SELECT set_config('cartulary.account_id', $1, true)",
+      "SELECT set_config('memhouse.account_id', $1, true)",
       [account_id]
     )
   end

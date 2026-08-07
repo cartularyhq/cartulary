@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Accounts do
+defmodule MemHouse.Accounts do
   @moduledoc """
   Ash domain for Account tenancy and authenticated identities.
 
@@ -11,14 +11,14 @@ defmodule Cartulary.Accounts do
   use Ash.Domain
 
   resources do
-    resource Cartulary.Accounts.Account
-    resource Cartulary.Accounts.Peer
-    resource Cartulary.Accounts.ExternalIdentity
-    resource Cartulary.Accounts.ApiKey
+    resource MemHouse.Accounts.Account
+    resource MemHouse.Accounts.Peer
+    resource MemHouse.Accounts.ExternalIdentity
+    resource MemHouse.Accounts.ApiKey
   end
 end
 
-defmodule Cartulary.Accounts.Account do
+defmodule MemHouse.Accounts.Account do
   @moduledoc """
   One tenant and the isolation root for all durable data.
 
@@ -26,7 +26,7 @@ defmodule Cartulary.Accounts.Account do
   helpers provision Accounts; callers must not create request-selected tenants.
   """
 
-  use Cartulary.Resource, domain: Cartulary.Accounts, table: "accounts"
+  use MemHouse.Resource, domain: MemHouse.Accounts, table: "accounts"
 
   actions do
     read :read do
@@ -72,7 +72,7 @@ defmodule Cartulary.Accounts.Account do
       # the write, the same reason GateRule's :update turns it off.
       require_atomic? false
 
-      # Mirrors Cartulary.Governance.Changes.AuditResource's own after_action
+      # Mirrors MemHouse.Governance.Changes.AuditResource's own after_action
       # shape, but calls Audit.append! with result.id rather than
       # result.account_id: Account is not multitenant — it IS the tenant, so
       # it has no account_id attribute, and reusing that change verbatim
@@ -83,14 +83,14 @@ defmodule Cartulary.Accounts.Account do
       change after_action(fn changeset, result, _context ->
                actor = get_in(changeset.context, [:private, :actor])
 
-               Cartulary.Governance.Audit.append!(actor, result.id, %{
+               MemHouse.Governance.Audit.append!(actor, result.id, %{
                  actor_peer_id: Map.get(actor, :peer_id),
                  category: "configuration",
                  action: "account.consent_mode_changed",
                  resource_type: "account",
                  resource_id: result.id,
                  content_hash:
-                   Cartulary.Governance.Audit.content_hash(%{consent_mode: result.consent_mode}),
+                   MemHouse.Governance.Audit.content_hash(%{consent_mode: result.consent_mode}),
                  metadata: %{}
                })
 
@@ -123,7 +123,7 @@ defmodule Cartulary.Accounts.Account do
     # malicious widening here removes a real privacy protection for every
     # personal item that Account ever proposes above peer level.
     policy action(:configure_governance) do
-      authorize_if {Cartulary.Policy.HumanRoleIn, roles: [:account_admin]}
+      authorize_if {MemHouse.Policy.HumanRoleIn, roles: [:account_admin]}
     end
   end
 
@@ -139,7 +139,7 @@ defmodule Cartulary.Accounts.Account do
     # subject — a benchmark, eval, or imported corpus — and lets the
     # pipeline grant consent on the subject's behalf instead. It never
     # affects GateRule's own auto_keep/auto_place modes, only the separate
-    # consent check in Cartulary.Governance.Engine.
+    # consent check in MemHouse.Governance.Engine.
     attribute :consent_mode, :string,
       allow_nil?: false,
       default: "subject_required",
@@ -156,7 +156,7 @@ defmodule Cartulary.Accounts.Account do
   end
 end
 
-defmodule Cartulary.Accounts.Peer do
+defmodule MemHouse.Accounts.Peer do
   @moduledoc """
   A human or agent identity inside one Account.
 
@@ -164,13 +164,13 @@ defmodule Cartulary.Accounts.Peer do
   separately. Its stable key is unique only within the Account.
   """
 
-  use Cartulary.Resource,
-    domain: Cartulary.Accounts,
+  use MemHouse.Resource,
+    domain: MemHouse.Accounts,
     table: "peers",
     extensions: [AshAuthentication]
 
   authentication do
-    domain Cartulary.Accounts
+    domain MemHouse.Accounts
     subject_name(:peer)
     # Sessions are not individually tracked, and combined with the disabled
     # token store below this means a signed token cannot be revoked before it
@@ -183,7 +183,7 @@ defmodule Cartulary.Accounts.Peer do
       # No token resource: tokens are stateless and verified by signature, so
       # authentication never needs a database round trip for the token itself.
       token_resource(false)
-      signing_secret(Cartulary.Identity.SigningSecret)
+      signing_secret(MemHouse.Identity.SigningSecret)
       # 12 hours: long enough for a working day, short enough that an
       # unrevocable leaked token expires on its own.
       token_lifetime({12, :hours})
@@ -332,14 +332,14 @@ defmodule Cartulary.Accounts.Peer do
     # Expiry is applied here rather than at sign-in time: the API-key strategy
     # searches through this relationship, so an expired key simply has no
     # matching row and fails exactly like an unknown key.
-    has_many :valid_api_keys, Cartulary.Accounts.ApiKey do
+    has_many :valid_api_keys, MemHouse.Accounts.ApiKey do
       destination_attribute :peer_id
       filter expr(is_nil(expires_at) or expires_at > now())
     end
   end
 end
 
-defmodule Cartulary.Accounts.ExternalIdentity do
+defmodule MemHouse.Accounts.ExternalIdentity do
   @moduledoc """
   Links one Peer to a verified external credential.
 
@@ -347,7 +347,7 @@ defmodule Cartulary.Accounts.ExternalIdentity do
   Credential resolution must still derive the same Account and Peer.
   """
 
-  use Cartulary.Resource, domain: Cartulary.Accounts, table: "external_identities"
+  use MemHouse.Resource, domain: MemHouse.Accounts, table: "external_identities"
 
   # Identities never cross the Account wall, in the application and again in the
   # database via row-level security.
@@ -393,7 +393,7 @@ defmodule Cartulary.Accounts.ExternalIdentity do
     # Linking, revoking, or removing a credential is Account administration.
     # Ordinary members and curators cannot grant themselves a new way in.
     policy action_type([:create, :update, :destroy]) do
-      authorize_if {Cartulary.Policy.RoleIn, roles: [:account_admin, :system]}
+      authorize_if {MemHouse.Policy.RoleIn, roles: [:account_admin, :system]}
     end
 
     # Erasure additionally requires the internal pipeline flag, on top of the
@@ -432,7 +432,7 @@ defmodule Cartulary.Accounts.ExternalIdentity do
   end
 end
 
-defmodule Cartulary.Accounts.ApiKey do
+defmodule MemHouse.Accounts.ApiKey do
   @moduledoc """
   A machine credential bound to one Peer and Account.
 
@@ -440,7 +440,7 @@ defmodule Cartulary.Accounts.ApiKey do
   the Account from the opaque key id before verifying the secret inside that tenant.
   """
 
-  use Cartulary.Resource, domain: Cartulary.Accounts, table: "api_keys"
+  use MemHouse.Resource, domain: MemHouse.Accounts, table: "api_keys"
 
   multitenancy do
     strategy :attribute
@@ -462,7 +462,7 @@ defmodule Cartulary.Accounts.ApiKey do
     end
 
     # Generates the key material, returns the plaintext once as action metadata,
-    # and writes only its hash to `api_key_hash`. The `cartulary` prefix is what
+    # and writes only its hash to `api_key_hash`. The `memhouse` prefix is what
     # bearer-credential dispatch matches on, so changing it changes how every
     # existing client's credential is recognised.
     create :create do
@@ -470,7 +470,7 @@ defmodule Cartulary.Accounts.ApiKey do
       accept [:account_id, :peer_id, :scope_id, :expires_at]
 
       change {AshAuthentication.Strategy.ApiKey.GenerateApiKey,
-              prefix: :cartulary, hash: :api_key_hash}
+              prefix: :memhouse, hash: :api_key_hash}
     end
   end
 
@@ -488,7 +488,7 @@ defmodule Cartulary.Accounts.ApiKey do
     # Minting and revoking machine credentials is Account administration. A
     # member or curator cannot issue itself a key.
     policy action_type([:create, :destroy]) do
-      authorize_if {Cartulary.Policy.RoleIn, roles: [:account_admin, :system]}
+      authorize_if {MemHouse.Policy.RoleIn, roles: [:account_admin, :system]}
     end
   end
 
@@ -507,13 +507,13 @@ defmodule Cartulary.Accounts.ApiKey do
   end
 
   relationships do
-    belongs_to :peer, Cartulary.Accounts.Peer do
+    belongs_to :peer, MemHouse.Accounts.Peer do
       source_attribute :peer_id
       destination_attribute :id
       allow_nil? false
     end
 
-    belongs_to :account, Cartulary.Accounts.Account do
+    belongs_to :account, MemHouse.Accounts.Account do
       source_attribute :account_id
       destination_attribute :id
       allow_nil? false

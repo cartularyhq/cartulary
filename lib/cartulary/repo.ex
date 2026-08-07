@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Repo do
+defmodule MemHouse.Repo do
   @moduledoc """
   The shared PostgreSQL repository for both deployment modes.
 
@@ -10,7 +10,7 @@ defmodule Cartulary.Repo do
   """
 
   use AshPostgres.Repo,
-    otp_app: :cartulary,
+    otp_app: :memhouse,
     adapter: Ecto.Adapters.Postgres,
     warn_on_missing_ash_functions?: false
 

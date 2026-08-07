@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Model.Providers.Deterministic do
+defmodule MemHouse.Model.Providers.Deterministic do
   @moduledoc """
   An offline stand-in that produces schema-valid output without a model.
 
@@ -24,9 +24,9 @@ defmodule Cartulary.Model.Providers.Deterministic do
   to this provider and take a grounded, non-model path instead.
   """
 
-  @behaviour Cartulary.Model.Provider
+  @behaviour MemHouse.Model.Provider
 
-  alias Cartulary.Model.Provider.Result
+  alias MemHouse.Model.Provider.Result
 
   @doc """
   Returns schema-shaped output for the task named by `opts[:task]`.
@@ -34,7 +34,7 @@ defmodule Cartulary.Model.Providers.Deterministic do
   Recognizes `:extraction`, `:reasoning`, and `:dialectic`. Any other task gets
   an empty object, and what happens next is the caller's business: a schema
   module's `cast/2` rejects it, while a caller reading one key straight off a
-  `Cartulary.Model.Gateway.structured_once/5` result just sees that key absent.
+  `MemHouse.Model.Gateway.structured_once/5` result just sees that key absent.
   The dialectic branch always abstains rather than answering, because this
   adapter has no basis on which to answer anything.
   """

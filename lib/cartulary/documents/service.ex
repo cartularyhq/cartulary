@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Documents.Service do
+defmodule MemHouse.Documents.Service do
   @moduledoc """
   Implements document ingest, derivation, sync, tombstoning, and rebuild.
 
@@ -16,28 +16,28 @@ defmodule Cartulary.Documents.Service do
   error messages.
   """
 
-  alias Cartulary.Actor
-  alias Cartulary.Clock
-  alias Cartulary.DataLayer
-  alias Cartulary.Documents.BlobStore
-  alias Cartulary.Documents.Chunker
-  alias Cartulary.Documents.Connector
-  alias Cartulary.Documents.ConnectorConfig
-  alias Cartulary.Documents.DocumentChunk
-  alias Cartulary.Documents.Parser
-  alias Cartulary.Governance.Audit
-  alias Cartulary.Governance.Engine
-  alias Cartulary.Knowledge.KnowledgeItem
-  alias Cartulary.Knowledge.KnowledgeRelation
-  alias Cartulary.Knowledge.Provenance
-  alias Cartulary.Memory
-  alias Cartulary.Observability
-  alias Cartulary.Observations.Document
-  alias Cartulary.Observations.DocumentVersion
-  alias Cartulary.Pipeline
-  alias Cartulary.Pipeline.Extractor
-  alias Cartulary.Pipeline.Idempotency
-  alias Cartulary.Topology.Scope
+  alias MemHouse.Actor
+  alias MemHouse.Clock
+  alias MemHouse.DataLayer
+  alias MemHouse.Documents.BlobStore
+  alias MemHouse.Documents.Chunker
+  alias MemHouse.Documents.Connector
+  alias MemHouse.Documents.ConnectorConfig
+  alias MemHouse.Documents.DocumentChunk
+  alias MemHouse.Documents.Parser
+  alias MemHouse.Governance.Audit
+  alias MemHouse.Governance.Engine
+  alias MemHouse.Knowledge.KnowledgeItem
+  alias MemHouse.Knowledge.KnowledgeRelation
+  alias MemHouse.Knowledge.Provenance
+  alias MemHouse.Memory
+  alias MemHouse.Observability
+  alias MemHouse.Observations.Document
+  alias MemHouse.Observations.DocumentVersion
+  alias MemHouse.Pipeline
+  alias MemHouse.Pipeline.Extractor
+  alias MemHouse.Pipeline.Idempotency
+  alias MemHouse.Topology.Scope
 
   require Ash.Query
 
@@ -93,7 +93,7 @@ defmodule Cartulary.Documents.Service do
   """
   def process_version_for_account(version_id, account_id)
       when is_binary(version_id) and is_binary(account_id) do
-    Observability.with_span(:documents, "cartulary.documents.process_version", fn ->
+    Observability.with_span(:documents, "memhouse.documents.process_version", fn ->
       # The actor is a plain Account/role struct and remains valid after the read transaction.
       {actor, version, document, owner, scope} =
         DataLayer.with_account_id(
@@ -232,7 +232,7 @@ defmodule Cartulary.Documents.Service do
   """
   def sync_connector_for_account(connector_id, account_id)
       when is_binary(connector_id) and is_binary(account_id) do
-    Observability.with_span(:documents, "cartulary.documents.sync_connector", fn ->
+    Observability.with_span(:documents, "memhouse.documents.sync_connector", fn ->
       DataLayer.with_account_id(
         account_id,
         [role: :system, pipeline?: true],
@@ -364,7 +364,7 @@ defmodule Cartulary.Documents.Service do
   defp read_version_for_processing(version_id, account_id, actor) do
     version = read_one!(DocumentVersion, version_id, account_id, actor)
     document = read_one!(Document, version.document_id, account_id, actor)
-    owner = read_one!(Cartulary.Accounts.Peer, document.owner_peer_id, account_id, actor)
+    owner = read_one!(MemHouse.Accounts.Peer, document.owner_peer_id, account_id, actor)
     scope = read_one!(Scope, document.scope_id, account_id, actor)
 
     {version, document, owner, scope}
@@ -422,11 +422,11 @@ defmodule Cartulary.Documents.Service do
 
     # Content-safe tracing only: ids, sizes, counts, and parser name.
     Observability.set_attributes(:documents, %{
-      "cartulary.document.version_id" => version.id,
-      "cartulary.document.byte_size" => version.byte_size,
-      "cartulary.document.chunk_count" => length(chunks),
-      "cartulary.document.knowledge_count" => length(knowledge),
-      "cartulary.document.parser" => Map.get(parsed.metadata, "parser", "unknown")
+      "memhouse.document.version_id" => version.id,
+      "memhouse.document.byte_size" => version.byte_size,
+      "memhouse.document.chunk_count" => length(chunks),
+      "memhouse.document.knowledge_count" => length(knowledge),
+      "memhouse.document.parser" => Map.get(parsed.metadata, "parser", "unknown")
     })
 
     {:ok, processed}

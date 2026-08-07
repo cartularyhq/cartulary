@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Eval.Scorer do
+defmodule MemHouse.Eval.Scorer do
   @moduledoc """
   Computes deterministic per-case and aggregate evaluation metrics.
 

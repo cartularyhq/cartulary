@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Governance.Erasure do
+defmodule MemHouse.Governance.Erasure do
   @moduledoc """
   Erases everything one peer contributed to an Account, in one transaction.
 
@@ -41,26 +41,26 @@ defmodule Cartulary.Governance.Erasure do
   A system-pipeline actor spans every Account scope so erasure cannot be partial.
   """
 
-  alias Cartulary.Accounts.ApiKey
-  alias Cartulary.Accounts.ExternalIdentity
-  alias Cartulary.Accounts.Peer
-  alias Cartulary.Clock
-  alias Cartulary.DataLayer
-  alias Cartulary.Governance.Audit
-  alias Cartulary.Governance.ErasureRequest
-  alias Cartulary.Governance.PeerQuery
-  alias Cartulary.Governance.PeerQueryDelivery
-  alias Cartulary.Knowledge.Attribution
-  alias Cartulary.Knowledge.Entity
-  alias Cartulary.Knowledge.EntityMention
-  alias Cartulary.Knowledge.KnowledgeItem
-  alias Cartulary.Knowledge.Projection
-  alias Cartulary.Knowledge.Provenance
-  alias Cartulary.Observations.Message
-  alias Cartulary.Observations.Session
-  alias Cartulary.Observations.SessionParticipant
-  alias Cartulary.Observations.SessionScope
-  alias Cartulary.Topology.RoleGrant
+  alias MemHouse.Accounts.ApiKey
+  alias MemHouse.Accounts.ExternalIdentity
+  alias MemHouse.Accounts.Peer
+  alias MemHouse.Clock
+  alias MemHouse.DataLayer
+  alias MemHouse.Governance.Audit
+  alias MemHouse.Governance.ErasureRequest
+  alias MemHouse.Governance.PeerQuery
+  alias MemHouse.Governance.PeerQueryDelivery
+  alias MemHouse.Knowledge.Attribution
+  alias MemHouse.Knowledge.Entity
+  alias MemHouse.Knowledge.EntityMention
+  alias MemHouse.Knowledge.KnowledgeItem
+  alias MemHouse.Knowledge.Projection
+  alias MemHouse.Knowledge.Provenance
+  alias MemHouse.Observations.Message
+  alias MemHouse.Observations.Session
+  alias MemHouse.Observations.SessionParticipant
+  alias MemHouse.Observations.SessionScope
+  alias MemHouse.Topology.RoleGrant
 
   require Ash.Query
 
@@ -247,7 +247,7 @@ defmodule Cartulary.Governance.Erasure do
     |> Enum.each(&destroy!(&1, :erase, actor))
 
     if surviving_ids == [] do
-      Cartulary.Governance.Engine.transition!(
+      MemHouse.Governance.Engine.transition!(
         knowledge,
         actor,
         %{
@@ -375,9 +375,9 @@ defmodule Cartulary.Governance.Erasure do
   defp refresh_derived_scopes!(account_id, scope_ids) do
     Enum.each(scope_ids, fn scope_id ->
       {:ok, _entities} =
-        Cartulary.Retrieval.EntityResolver.rebuild_scope(account_id, scope_id)
+        MemHouse.Retrieval.EntityResolver.rebuild_scope(account_id, scope_id)
 
-      {:ok, _projections} = Cartulary.Context.Builder.refresh_scope(account_id, scope_id)
+      {:ok, _projections} = MemHouse.Context.Builder.refresh_scope(account_id, scope_id)
     end)
   end
 
@@ -453,7 +453,7 @@ defmodule Cartulary.Governance.Erasure do
   # Erasure must reach scopes the requester cannot read, so the executing actor
   # is widened to every scope. This elevation exists only for the duration of
   # the erasure; the requester's own actor is unchanged.
-  defp pipeline_actor(%Cartulary.Actor{} = actor),
+  defp pipeline_actor(%MemHouse.Actor{} = actor),
     do: %{actor | role: :system, scope_ids: :all, pipeline?: true}
 
   defp pipeline_actor(actor),

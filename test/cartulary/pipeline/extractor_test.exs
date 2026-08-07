@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Pipeline.ExtractorTest do
+defmodule MemHouse.Pipeline.ExtractorTest do
   @moduledoc """
   Covers structured extraction when no model credential is configured.
 
@@ -37,7 +37,7 @@ defmodule Cartulary.Pipeline.ExtractorTest do
 
   use ExUnit.Case, async: false
 
-  alias Cartulary.Pipeline.Extractor
+  alias MemHouse.Pipeline.Extractor
 
   # Removes any model credential the developer's shell or the loaded config may
   # supply, so nothing below can reach a live endpoint. The deterministic
@@ -47,13 +47,13 @@ defmodule Cartulary.Pipeline.ExtractorTest do
   # it expected.
   setup do
     original = System.get_env("OPENROUTER_API_KEY")
-    original_models = Application.fetch_env!(:cartulary, :models)
+    original_models = Application.fetch_env!(:memhouse, :models)
     System.delete_env("OPENROUTER_API_KEY")
-    Application.put_env(:cartulary, :models, Keyword.put(original_models, :api_key, nil))
+    Application.put_env(:memhouse, :models, Keyword.put(original_models, :api_key, nil))
 
     on_exit(fn ->
       if original, do: System.put_env("OPENROUTER_API_KEY", original)
-      Application.put_env(:cartulary, :models, original_models)
+      Application.put_env(:memhouse, :models, original_models)
     end)
   end
 

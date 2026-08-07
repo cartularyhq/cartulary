@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Model.Providers.ReqLLM do
+defmodule MemHouse.Model.Providers.ReqLLM do
   @moduledoc """
   The HTTP model adapter: one module serving every hosted, self-hosted, and
   OpenAI-compatible endpoint.
@@ -11,7 +11,7 @@ defmodule Cartulary.Model.Providers.ReqLLM do
   ## Credentials
 
   Role options store `"env:NAME"` references resolved at call time. Credentials are never stored,
-  metered, or traced. Legacy `config :cartulary, :models, api_key:` takes precedence when set.
+  metered, or traced. Legacy `config :memhouse, :models, api_key:` takes precedence when set.
 
   ## Request options
 
@@ -34,10 +34,10 @@ defmodule Cartulary.Model.Providers.ReqLLM do
   when reading a failed run afterwards.
   """
 
-  @behaviour Cartulary.Model.Provider
+  @behaviour MemHouse.Model.Provider
 
-  alias Cartulary.Model.Config.Role
-  alias Cartulary.Model.Provider.Result
+  alias MemHouse.Model.Config.Role
+  alias MemHouse.Model.Provider.Result
 
   # The only role options that may become outbound request options. Anything
   # else in the options map is configuration for this adapter, not for the
@@ -356,7 +356,7 @@ defmodule Cartulary.Model.Providers.ReqLLM do
   defp structured_request_opts(%Role{} = config, overrides), do: request_opts(config, overrides)
 
   # Role options are always string-valued so they stay printable/exportable
-  # regardless of source (see `Cartulary.Model.Config.Role`), but req_llm's
+  # regardless of source (see `MemHouse.Model.Config.Role`), but req_llm's
   # NimbleOptions schema validates `reasoning_effort` against a fixed atom
   # enum and rejects a string outright — every provider request would fail
   # this validation before making any call. Only some of req_llm's own
@@ -379,7 +379,7 @@ defmodule Cartulary.Model.Providers.ReqLLM do
   # and still wins when set, so an existing deployment keeps working after roles
   # were introduced.
   defp resolve_api_key(options) do
-    legacy = Application.get_env(:cartulary, :models, [])
+    legacy = Application.get_env(:memhouse, :models, [])
 
     Keyword.get(legacy, :api_key) ||
       case Map.get(options, "api_key_ref") || Keyword.get(legacy, :api_key_ref) do

@@ -1,11 +1,11 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
 defmodule CartularyWeb.Plugs.RequireHumanIdentity do
   @moduledoc """
   Restricts a route to a caller who signed in as a person, rejecting machine
     credentials.
 
-    Cartulary distinguishes two kinds of authenticated identity: a human who
+    MemHouse distinguishes two kinds of authenticated identity: a human who
     authenticated with a password (`:password`) and an agent presenting a long-lived API
     key (`:api_key`). Machine credentials are allowed to submit raw observations, read
     governed memory, and answer questions addressed to their own peer.

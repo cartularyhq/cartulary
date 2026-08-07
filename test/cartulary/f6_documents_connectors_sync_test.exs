@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.F6DocumentsConnectorsSyncTest.Provider do
+defmodule MemHouse.F6DocumentsConnectorsSyncTest.Provider do
   @moduledoc """
   Deterministic document-ingest provider. It emits one candidate per sentence
   of at least eight characters and a mechanical three-element embedding, making
@@ -13,9 +13,9 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest.Provider do
   The suite installs it in node-global configuration and runs synchronously.
   """
 
-  @behaviour Cartulary.Model.Provider
+  @behaviour MemHouse.Model.Provider
 
-  alias Cartulary.Model.Provider.Result
+  alias MemHouse.Model.Provider.Result
 
   # Fixed metadata gives each sentence a predictable governance state.
   @impl true
@@ -76,14 +76,14 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest.Provider do
   end
 end
 
-defmodule Cartulary.F6DocumentsConnectorsSyncTest.Connector do
+defmodule MemHouse.F6DocumentsConnectorsSyncTest.Connector do
   @moduledoc """
   Scriptable connector whose named Agent holds the next complete remote page.
   `put/1` replaces rather than accumulates state. It ignores the incoming cursor
   so tests verify cursor advancement from the persisted connector row.
   """
 
-  @behaviour Cartulary.Documents.Connector
+  @behaviour MemHouse.Documents.Connector
 
   @doc "Starts the page-holding agent, returning `:ok` whether or not it already existed."
   def start! do
@@ -113,7 +113,7 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest.Connector do
   def pull(_config, _cursor), do: {:ok, Agent.get(__MODULE__, & &1)}
 end
 
-defmodule Cartulary.F6DocumentsConnectorsSyncTest do
+defmodule MemHouse.F6DocumentsConnectorsSyncTest do
   @moduledoc """
   Pins document ingest, connector sync, immutable supersession, tombstones,
   erasure, and portability.
@@ -130,33 +130,33 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest do
   changes node-global adapters and uses one fake connector.
   """
 
-  use Cartulary.DataCase, async: false
+  use MemHouse.DataCase, async: false
 
-  alias Cartulary.Actor
-  alias Cartulary.DataLayer
-  alias Cartulary.Documents
-  alias Cartulary.Documents.BlobStore
-  alias Cartulary.Documents.ConnectorConfig
-  alias Cartulary.Documents.DocumentChunk
-  alias Cartulary.Documents.Parser
-  alias Cartulary.Knowledge.KnowledgeItem
-  alias Cartulary.Knowledge.Provenance
-  alias Cartulary.Memory
-  alias Cartulary.Observations.Document
-  alias Cartulary.Observations.DocumentVersion
-  alias Cartulary.Pipeline.Idempotency
+  alias MemHouse.Actor
+  alias MemHouse.DataLayer
+  alias MemHouse.Documents
+  alias MemHouse.Documents.BlobStore
+  alias MemHouse.Documents.ConnectorConfig
+  alias MemHouse.Documents.DocumentChunk
+  alias MemHouse.Documents.Parser
+  alias MemHouse.Knowledge.KnowledgeItem
+  alias MemHouse.Knowledge.Provenance
+  alias MemHouse.Memory
+  alias MemHouse.Observations.Document
+  alias MemHouse.Observations.DocumentVersion
+  alias MemHouse.Pipeline.Idempotency
 
   require Ash.Query
 
   setup do
-    original_documents = Application.fetch_env!(:cartulary, :documents)
-    original_provider = Application.get_env(:cartulary, :model_provider)
-    original_roles = Application.fetch_env!(:cartulary, :model_roles)
-    blob_root = Path.join(System.tmp_dir!(), "cartulary-f6-#{System.unique_integer([:positive])}")
+    original_documents = Application.fetch_env!(:memhouse, :documents)
+    original_provider = Application.get_env(:memhouse, :model_provider)
+    original_roles = Application.fetch_env!(:memhouse, :model_roles)
+    blob_root = Path.join(System.tmp_dir!(), "memhouse-f6-#{System.unique_integer([:positive])}")
 
     documents =
       original_documents
-      |> Keyword.put(:blob_adapter, Cartulary.Documents.BlobStore.Local)
+      |> Keyword.put(:blob_adapter, MemHouse.Documents.BlobStore.Local)
       # Blobs go to a unique temp directory per run and are removed in on_exit, so a leftover
       # content-addressed object cannot make a later run's "already stored" path fire.
       |> Keyword.put(:blob_root, blob_root)
@@ -167,7 +167,7 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest do
       # Registers the fake remote under the adapter kind "fixture", which is the `kind` the
       # tests give when they register a connector.
       |> Keyword.put(:connector_adapters, %{
-        "fixture" => Cartulary.F6DocumentsConnectorsSyncTest.Connector
+        "fixture" => MemHouse.F6DocumentsConnectorsSyncTest.Connector
       })
 
     # Point the embedder and extractor roles at the deterministic stand-in provider. The
@@ -189,28 +189,28 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest do
         |> Map.put(:model_version, "1")
       end)
 
-    Application.put_env(:cartulary, :documents, documents)
+    Application.put_env(:memhouse, :documents, documents)
 
     Application.put_env(
-      :cartulary,
+      :memhouse,
       :model_provider,
-      Cartulary.F6DocumentsConnectorsSyncTest.Provider
+      MemHouse.F6DocumentsConnectorsSyncTest.Provider
     )
 
-    Application.put_env(:cartulary, :model_roles, roles)
-    Cartulary.F6DocumentsConnectorsSyncTest.Connector.start!()
+    Application.put_env(:memhouse, :model_roles, roles)
+    MemHouse.F6DocumentsConnectorsSyncTest.Connector.start!()
 
     # All of the above is node-global state plus a temp directory. Restoring every key and
     # removing the blob root is required for the next test to start from a clean world.
     on_exit(fn ->
-      Cartulary.F6DocumentsConnectorsSyncTest.Connector.stop()
-      Application.put_env(:cartulary, :documents, original_documents)
-      Application.put_env(:cartulary, :model_roles, original_roles)
+      MemHouse.F6DocumentsConnectorsSyncTest.Connector.stop()
+      Application.put_env(:memhouse, :documents, original_documents)
+      Application.put_env(:memhouse, :model_roles, original_roles)
 
       if original_provider do
-        Application.put_env(:cartulary, :model_provider, original_provider)
+        Application.put_env(:memhouse, :model_provider, original_provider)
       else
-        Application.delete_env(:cartulary, :model_provider)
+        Application.delete_env(:memhouse, :model_provider)
       end
 
       File.rm_rf(blob_root)
@@ -273,7 +273,7 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest do
     assert Enum.all?(knowledge, &(&1.source_message_ids == []))
 
     retrieval =
-      Cartulary.Memory.search(
+      MemHouse.Memory.search(
         %{"scope_path" => scope.path, "query" => "release handbook"},
         actor
       )
@@ -568,13 +568,13 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest do
       scope_path = "/f6/#{account_key}"
 
       peer =
-        Cartulary.Accounts.Peer
+        MemHouse.Accounts.Peer
         |> Ash.Query.filter(key == ^peer_key)
         |> Ash.Query.set_tenant(account.id)
         |> Ash.read_one!(actor: system_actor)
 
       scope =
-        Cartulary.Topology.Scope
+        MemHouse.Topology.Scope
         |> Ash.Query.filter(path == ^scope_path)
         |> Ash.Query.set_tenant(account.id)
         |> Ash.read_one!(actor: system_actor)
@@ -654,7 +654,7 @@ defmodule Cartulary.F6DocumentsConnectorsSyncTest do
   # Stages the remote's next page. `has_more?` is false so one sync call drains it, keeping
   # the cursor assertions about durability rather than about pagination.
   defp put_connector_page(items, page) do
-    Cartulary.F6DocumentsConnectorsSyncTest.Connector.put(%{
+    MemHouse.F6DocumentsConnectorsSyncTest.Connector.put(%{
       items: items,
       cursor: %{"page" => page},
       has_more?: false

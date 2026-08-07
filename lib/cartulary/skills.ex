@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Skills do
+defmodule MemHouse.Skills do
   @moduledoc """
   Ash domain for procedural memory: what a person or agent must already know before running a
   skill, and whether they know it yet.
@@ -34,22 +34,22 @@ defmodule Cartulary.Skills do
   use Ash.Domain
 
   resources do
-    resource Cartulary.Skills.SkillRequirementCard
+    resource MemHouse.Skills.SkillRequirementCard
   end
 
   @doc """
-  Publishes a new version of a skill requirement card. See `Cartulary.Skills.Authoring.publish/2`.
+  Publishes a new version of a skill requirement card. See `MemHouse.Skills.Authoring.publish/2`.
   """
-  defdelegate publish(actor, attrs), to: Cartulary.Skills.Authoring
+  defdelegate publish(actor, attrs), to: MemHouse.Skills.Authoring
 
   @doc """
   Produces a gap report for one skill, peer, and scope.
-  See `Cartulary.Skills.Readiness.check_readiness/2`.
+  See `MemHouse.Skills.Readiness.check_readiness/2`.
   """
-  defdelegate check_readiness(actor, attrs), to: Cartulary.Skills.Readiness
+  defdelegate check_readiness(actor, attrs), to: MemHouse.Skills.Readiness
 end
 
-defmodule Cartulary.Skills.SkillRequirementCard do
+defmodule MemHouse.Skills.SkillRequirementCard do
   @moduledoc """
   One published, immutable version of the knowledge a skill requires at one scope.
 
@@ -81,8 +81,8 @@ defmodule Cartulary.Skills.SkillRequirementCard do
     must know is a human decision.
   """
 
-  use Cartulary.Resource,
-    domain: Cartulary.Skills,
+  use MemHouse.Resource,
+    domain: MemHouse.Skills,
     table: "skill_requirement_cards"
 
   # Every read and write is rewritten to the tenant Account, so a card published in one Account
@@ -115,9 +115,9 @@ defmodule Cartulary.Skills.SkillRequirementCard do
         :active
       ]
 
-      validate Cartulary.Skills.Validations.Requirements
+      validate MemHouse.Skills.Validations.Requirements
 
-      change {Cartulary.Governance.Changes.AuditResource,
+      change {MemHouse.Governance.Changes.AuditResource,
               category: "configuration",
               action: "skill_requirement_card.published",
               resource_type: "skill_requirement_card",
@@ -139,7 +139,7 @@ defmodule Cartulary.Skills.SkillRequirementCard do
       require_atomic? false
       change set_attribute(:active, false)
 
-      change {Cartulary.Governance.Changes.AuditResource,
+      change {MemHouse.Governance.Changes.AuditResource,
               category: "configuration",
               action: "skill_requirement_card.deactivated",
               resource_type: "skill_requirement_card",
@@ -157,7 +157,7 @@ defmodule Cartulary.Skills.SkillRequirementCard do
     # A card is readable by anyone who may read the scope it is attached to, which is what makes
     # inherited requirements visible to a descendant scope's readiness check.
     policy action_type(:read) do
-      authorize_if {Cartulary.Policy.ScopeAccess, attribute: :scope_id}
+      authorize_if {MemHouse.Policy.ScopeAccess, attribute: :scope_id}
     end
 
     # Authoring is restricted to Account administrators, curators, and the internal system
@@ -165,7 +165,7 @@ defmodule Cartulary.Skills.SkillRequirementCard do
     # never be granted one of those roles: it could then rewrite the requirements it is judged
     # against.
     policy action_type([:create, :update, :destroy]) do
-      authorize_if {Cartulary.Policy.RoleIn, roles: [:account_admin, :curator, :system]}
+      authorize_if {MemHouse.Policy.RoleIn, roles: [:account_admin, :curator, :system]}
     end
   end
 

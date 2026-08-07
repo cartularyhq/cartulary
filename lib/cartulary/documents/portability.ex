@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Documents.Portability do
+defmodule MemHouse.Documents.Portability do
   @moduledoc """
   Exports, imports, and erases one document.
 
@@ -15,18 +15,18 @@ defmodule Cartulary.Documents.Portability do
   supported knowledge, and content-safe audit evidence.
   """
 
-  alias Cartulary.Actor
-  alias Cartulary.DataLayer
-  alias Cartulary.Documents.BlobStore
-  alias Cartulary.Documents.DocumentChunk
-  alias Cartulary.Documents.Service
-  alias Cartulary.Governance.Audit
-  alias Cartulary.Governance.Erasure
-  alias Cartulary.Knowledge.KnowledgeItem
-  alias Cartulary.Knowledge.Provenance
-  alias Cartulary.Observations.Document
-  alias Cartulary.Observations.DocumentVersion
-  alias Cartulary.Pipeline.Idempotency
+  alias MemHouse.Actor
+  alias MemHouse.DataLayer
+  alias MemHouse.Documents.BlobStore
+  alias MemHouse.Documents.DocumentChunk
+  alias MemHouse.Documents.Service
+  alias MemHouse.Governance.Audit
+  alias MemHouse.Governance.Erasure
+  alias MemHouse.Knowledge.KnowledgeItem
+  alias MemHouse.Knowledge.Provenance
+  alias MemHouse.Observations.Document
+  alias MemHouse.Observations.DocumentVersion
+  alias MemHouse.Pipeline.Idempotency
 
   require Ash.Query
 

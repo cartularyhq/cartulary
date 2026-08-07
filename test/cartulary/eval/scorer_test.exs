@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Eval.ScorerTest do
+defmodule MemHouse.Eval.ScorerTest do
   @moduledoc """
   Pins deterministic, model-free correctness, citation, and lexical grounding
   scores.
@@ -13,7 +13,7 @@ defmodule Cartulary.Eval.ScorerTest do
 
   use ExUnit.Case, async: true
 
-  alias Cartulary.Eval.Scorer
+  alias MemHouse.Eval.Scorer
 
   test "scores expected answer overlap and citation recall" do
     question = %{

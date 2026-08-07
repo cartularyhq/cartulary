@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Retrieval.Candidate do
+defmodule MemHouse.Retrieval.Candidate do
   @moduledoc """
   One ranked hit produced by a single retrieval strategy.
 
@@ -34,7 +34,7 @@ defmodule Cartulary.Retrieval.Candidate do
         }
 end
 
-defmodule Cartulary.Retrieval.Query do
+defmodule MemHouse.Retrieval.Query do
   @moduledoc """
   The internal retrieval request: an already-authorized description of what to
   search for and where.
@@ -91,7 +91,7 @@ defmodule Cartulary.Retrieval.Query do
   @type t :: %__MODULE__{}
 end
 
-defmodule Cartulary.Retrieval.Budget do
+defmodule MemHouse.Retrieval.Budget do
   @moduledoc """
   The wall-clock deadline and candidate cap handed to every strategy.
 
@@ -127,11 +127,11 @@ defmodule Cartulary.Retrieval.Budget do
   def remaining_ms(%__MODULE__{deadline?: false}), do: :infinity
 
   def remaining_ms(%__MODULE__{deadline_ms: deadline, started_at: started_at}) do
-    max(deadline - (Cartulary.Clock.monotonic_ms() - started_at), 0)
+    max(deadline - (MemHouse.Clock.monotonic_ms() - started_at), 0)
   end
 end
 
-defmodule Cartulary.Retrieval.Strategy do
+defmodule MemHouse.Retrieval.Strategy do
   @moduledoc """
   Defines retrieval strategy contracts and validates returned candidates.
 
@@ -162,7 +162,7 @@ defmodule Cartulary.Retrieval.Strategy do
     to the caller as a dropped strategy.
   """
 
-  alias Cartulary.Retrieval.{Budget, Candidate, Query}
+  alias MemHouse.Retrieval.{Budget, Candidate, Query}
 
   @callback name() :: atom()
   @callback cost_class() :: :cheap | :moderate | :expensive

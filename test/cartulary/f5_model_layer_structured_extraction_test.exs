@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.F5ModelLayerStructuredExtractionTest do
+defmodule MemHouse.F5ModelLayerStructuredExtractionTest do
   @moduledoc """
   Pins the provider-neutral gateway and structured-extraction contract.
 
@@ -17,24 +17,24 @@ defmodule Cartulary.F5ModelLayerStructuredExtractionTest do
   Runs synchronously because it changes node-global model configuration.
   """
 
-  use Cartulary.DataCase, async: false
+  use MemHouse.DataCase, async: false
 
-  alias Cartulary.DataLayer
-  alias Cartulary.Memory
-  alias Cartulary.Model
-  alias Cartulary.Model.CassetteProvider
-  alias Cartulary.Model.Embedding
-  alias Cartulary.Model.ModelRoleConfig
-  alias Cartulary.Model.Reasoner
-  alias Cartulary.Model.Schema.DialecticAnswer
+  alias MemHouse.DataLayer
+  alias MemHouse.Memory
+  alias MemHouse.Model
+  alias MemHouse.Model.CassetteProvider
+  alias MemHouse.Model.Embedding
+  alias MemHouse.Model.ModelRoleConfig
+  alias MemHouse.Model.Reasoner
+  alias MemHouse.Model.Schema.DialecticAnswer
 
   # Recorded provider script replayed instead of any network call. Each scenario inside it
   # is an ordered list of expected calls; see the individual tests for which one they arm.
   @cassette "test/fixtures/model/f5-provider-cassette.json"
 
   setup do
-    original_provider = Application.get_env(:cartulary, :model_provider)
-    original_roles = Application.fetch_env!(:cartulary, :model_roles)
+    original_provider = Application.get_env(:memhouse, :model_provider)
+    original_roles = Application.fetch_env!(:memhouse, :model_roles)
 
     # Application environment is node-global. Restoring it (and stopping the cassette agent,
     # which is started unlinked so a failing test cannot take it down) is mandatory: a leaked
@@ -43,12 +43,12 @@ defmodule Cartulary.F5ModelLayerStructuredExtractionTest do
       CassetteProvider.stop()
 
       if original_provider do
-        Application.put_env(:cartulary, :model_provider, original_provider)
+        Application.put_env(:memhouse, :model_provider, original_provider)
       else
-        Application.delete_env(:cartulary, :model_provider)
+        Application.delete_env(:memhouse, :model_provider)
       end
 
-      Application.put_env(:cartulary, :model_roles, original_roles)
+      Application.put_env(:memhouse, :model_roles, original_roles)
     end)
 
     :ok
@@ -60,7 +60,7 @@ defmodule Cartulary.F5ModelLayerStructuredExtractionTest do
     assert Model.Config.roles() ==
              [:embedder, :ingest_extractor, :dream_reasoner, :dialectic_agent]
 
-    callbacks = Cartulary.Model.Provider.behaviour_info(:callbacks)
+    callbacks = MemHouse.Model.Provider.behaviour_info(:callbacks)
 
     # Exactly four capabilities, at these arities, are what a third-party or self-hosted
     # adapter has to implement. Changing an arity silently breaks every out-of-tree adapter.
@@ -69,14 +69,14 @@ defmodule Cartulary.F5ModelLayerStructuredExtractionTest do
     assert {:embed, 3} in callbacks
     assert {:rerank, 4} in callbacks
 
-    assert function_exported?(Cartulary.Model.Embedding.Ortex, :dimensions, 1)
-    assert function_exported?(Cartulary.Model.Embedding.Ortex, :generate, 2)
+    assert function_exported?(MemHouse.Model.Embedding.Ortex, :dimensions, 1)
+    assert function_exported?(MemHouse.Model.Embedding.Ortex, :generate, 2)
 
     # The local embedder must fail loudly when its ONNX/tokenizer artifacts are absent. It
     # must never download a model or fall back to a network endpoint: offline installations
     # rely on the default embedding path never leaving the machine.
     assert {:error, {:model_artifact_missing, :model_path}} =
-             Cartulary.Model.Embedding.Ortex.generate(["offline"], dimensions: 384)
+             MemHouse.Model.Embedding.Ortex.generate(["offline"], dimensions: 384)
 
     # Role options hold secret *references* only. A literal credential in the options map is
     # rejected at the changeset, before it can reach the database, an export, or a log line.
@@ -106,7 +106,7 @@ defmodule Cartulary.F5ModelLayerStructuredExtractionTest do
     # validation, the second is the repair attempt that succeeds. Replaying it proves the
     # repair loop exists and is bounded, and that only validated output becomes knowledge.
     CassetteProvider.start!(@cassette, "repair_extraction")
-    Application.put_env(:cartulary, :model_provider, CassetteProvider)
+    Application.put_env(:memhouse, :model_provider, CassetteProvider)
 
     assert {:ok, [knowledge]} = Memory.extract_message_for_account(message["id"], account_id)
     assert knowledge["statement"] == "Avery prefers weekly release summaries."
@@ -191,7 +191,7 @@ defmodule Cartulary.F5ModelLayerStructuredExtractionTest do
     # answering, embedding, reranking. Consuming them in order proves the gateway routes each
     # role to the right capability and does not make extra or reordered provider calls.
     CassetteProvider.start!(@cassette, "capabilities")
-    Application.put_env(:cartulary, :model_provider, CassetteProvider)
+    Application.put_env(:memhouse, :model_provider, CassetteProvider)
 
     DataLayer.with_account_id(
       account_id,
@@ -275,7 +275,7 @@ defmodule Cartulary.F5ModelLayerStructuredExtractionTest do
 
     # The recorded call returns an error, standing in for a vendor outage or rate limit.
     CassetteProvider.start!(@cassette, "provider_outage")
-    Application.put_env(:cartulary, :model_provider, CassetteProvider)
+    Application.put_env(:memhouse, :model_provider, CassetteProvider)
 
     # The job must fail rather than "succeed with no knowledge". A swallowed provider error
     # would mark the message extracted and the observation would be silently lost forever.
@@ -365,7 +365,7 @@ defmodule Cartulary.F5ModelLayerStructuredExtractionTest do
     clear_account_settings!()
 
     assert :ok ==
-             Cartulary.Model.Usage.emit(
+             MemHouse.Model.Usage.emit(
                %{account_id: account_id, actor: actor},
                config,
                %{
@@ -459,8 +459,8 @@ defmodule Cartulary.F5ModelLayerStructuredExtractionTest do
     Ecto.Adapters.SQL.query!(
       Repo,
       """
-      SELECT set_config('cartulary.account_id', '', true),
-             set_config('cartulary.account_key', '', true)
+      SELECT set_config('memhouse.account_id', '', true),
+             set_config('memhouse.account_key', '', true)
       """,
       []
     )
@@ -472,5 +472,5 @@ defmodule Cartulary.F5ModelLayerStructuredExtractionTest do
   # Reading it back is how a test observes that a function opened an Account transaction of
   # its own, since the setting is transaction-local and the sandbox keeps the enclosing
   # transaction open for the whole test.
-  defp account_setting!, do: scalar!("SELECT current_setting('cartulary.account_id', true)", [])
+  defp account_setting!, do: scalar!("SELECT current_setting('memhouse.account_id', true)", [])
 end

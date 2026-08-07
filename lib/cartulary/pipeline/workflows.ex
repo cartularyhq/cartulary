@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Pipeline.Workflows.IngestExtraction do
+defmodule MemHouse.Pipeline.Workflows.IngestExtraction do
   @moduledoc """
   The workflow that turns one committed raw observation into proposed knowledge.
 
@@ -33,10 +33,10 @@ defmodule Cartulary.Pipeline.Workflows.IngestExtraction do
     run fn %{pipeline_run: run}, _context ->
       case run.target_type do
         "message" ->
-          Cartulary.Memory.extract_message_for_account(run.target_id, run.account_id)
+          MemHouse.Memory.extract_message_for_account(run.target_id, run.account_id)
 
         "document_version" ->
-          Cartulary.Documents.process_version_for_account(run.target_id, run.account_id)
+          MemHouse.Documents.process_version_for_account(run.target_id, run.account_id)
       end
     end
   end
@@ -44,7 +44,7 @@ defmodule Cartulary.Pipeline.Workflows.IngestExtraction do
   return :extract
 end
 
-defmodule Cartulary.Pipeline.Workflows.DreamTimeReasoning do
+defmodule MemHouse.Pipeline.Workflows.DreamTimeReasoning do
   @moduledoc """
   Background reasoning and derived-cache maintenance for one Account.
 
@@ -89,20 +89,20 @@ defmodule Cartulary.Pipeline.Workflows.DreamTimeReasoning do
         "dream_time" ->
           # Budget refusal is a completed run, not a failure: retrying would
           # queue the same denied work again.
-          if Cartulary.Operations.Budget.admit?(run.account_id, run.scope_id, :dream_time) do
-            Cartulary.Governance.Sweeper.run(run.account_id, "dream_time")
+          if MemHouse.Operations.Budget.admit?(run.account_id, run.scope_id, :dream_time) do
+            MemHouse.Governance.Sweeper.run(run.account_id, "dream_time")
           else
             {:ok, %{status: "throttled", lane: "dream_time"}}
           end
 
         "entity_resolution" ->
-          Cartulary.Retrieval.EntityResolver.rebuild_scope(run.account_id, run.scope_id)
+          MemHouse.Retrieval.EntityResolver.rebuild_scope(run.account_id, run.scope_id)
 
         "projection_refresh" ->
-          Cartulary.Retrieval.rebuild_scope(run.account_id, run.scope_id)
+          MemHouse.Retrieval.rebuild_scope(run.account_id, run.scope_id)
 
         _other ->
-          Cartulary.Pipeline.Workflows.Stage.run(run)
+          MemHouse.Pipeline.Workflows.Stage.run(run)
       end
     end
   end
@@ -110,7 +110,7 @@ defmodule Cartulary.Pipeline.Workflows.DreamTimeReasoning do
   return :reason
 end
 
-defmodule Cartulary.Pipeline.Workflows.ValidationContinuation do
+defmodule MemHouse.Pipeline.Workflows.ValidationContinuation do
   @moduledoc """
   The durable continuation a governance decision resumes.
 
@@ -137,14 +137,14 @@ defmodule Cartulary.Pipeline.Workflows.ValidationContinuation do
     async? false
 
     run fn %{pipeline_run: run}, _context ->
-      Cartulary.Pipeline.Workflows.Stage.run(run)
+      MemHouse.Pipeline.Workflows.Stage.run(run)
     end
   end
 
   return :continue_validation
 end
 
-defmodule Cartulary.Pipeline.Workflows.AnswerCorrelationContinuation do
+defmodule MemHouse.Pipeline.Workflows.AnswerCorrelationContinuation do
   @moduledoc """
   The durable continuation queued when a peer answers a validation question.
 
@@ -170,14 +170,14 @@ defmodule Cartulary.Pipeline.Workflows.AnswerCorrelationContinuation do
     async? false
 
     run fn %{pipeline_run: run}, _context ->
-      Cartulary.Pipeline.Workflows.Stage.run(run)
+      MemHouse.Pipeline.Workflows.Stage.run(run)
     end
   end
 
   return :correlate_answer
 end
 
-defmodule Cartulary.Pipeline.Workflows.Maintenance do
+defmodule MemHouse.Pipeline.Workflows.Maintenance do
   @moduledoc """
   The catch-all lane for upkeep work: sweeps, connector syncs, import rebuilds,
   and reconciliation.
@@ -218,24 +218,24 @@ defmodule Cartulary.Pipeline.Workflows.Maintenance do
     run fn %{pipeline_run: run}, _context ->
       case run.kind do
         "reconciler" ->
-          Cartulary.Pipeline.Reconciler.run(run.account_id)
+          MemHouse.Pipeline.Reconciler.run(run.account_id)
 
         kind when kind in ["revalidation", "expiry"] ->
-          Cartulary.Governance.Sweeper.run(run.account_id, kind)
+          MemHouse.Governance.Sweeper.run(run.account_id, kind)
 
         "connector_sync" ->
-          Cartulary.Documents.sync_connector_for_account(run.target_id, run.account_id)
+          MemHouse.Documents.sync_connector_for_account(run.target_id, run.account_id)
 
         "import_rebuild" when run.target_type == "document_version" ->
-          Cartulary.Documents.rebuild_version_for_account(run.target_id, run.account_id)
+          MemHouse.Documents.rebuild_version_for_account(run.target_id, run.account_id)
 
         "import_rebuild" when run.target_type == "scope" ->
-          Cartulary.Retrieval.Rebuild.scope(run.account_id, run.target_id)
+          MemHouse.Retrieval.Rebuild.scope(run.account_id, run.target_id)
 
         # Unknown or not-yet-implemented lane: complete as a durable
         # continuation rather than failing a row this release cannot interpret.
         _other ->
-          Cartulary.Pipeline.Workflows.Stage.run(run)
+          MemHouse.Pipeline.Workflows.Stage.run(run)
       end
     end
   end
@@ -243,7 +243,7 @@ defmodule Cartulary.Pipeline.Workflows.Maintenance do
   return :maintain
 end
 
-defmodule Cartulary.Pipeline.Workflows.Stage do
+defmodule MemHouse.Pipeline.Workflows.Stage do
   @moduledoc """
   The typed "nothing further to do" result shared by every pipeline lane.
 

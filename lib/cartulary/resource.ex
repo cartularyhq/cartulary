@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Resource do
+defmodule MemHouse.Resource do
   @moduledoc """
   Defines the shared PostgreSQL, authorization, and portability contract for durable resources.
 
@@ -13,7 +13,7 @@ defmodule Cartulary.Resource do
   """
 
   @doc """
-  Declares the calling module as a Cartulary Ash resource.
+  Declares the calling module as a MemHouse Ash resource.
 
   Injects the PostgreSQL data layer, the policy authorizer, the private
   portability export/import actions, and the policy that limits them to
@@ -27,7 +27,7 @@ defmodule Cartulary.Resource do
 
     quote do
       use Ash.Resource,
-        otp_app: :cartulary,
+        otp_app: :memhouse,
         domain: unquote(domain),
         data_layer: AshPostgres.DataLayer,
         authorizers: [Ash.Policy.Authorizer],
@@ -35,7 +35,7 @@ defmodule Cartulary.Resource do
 
       postgres do
         table unquote(table)
-        repo Cartulary.Repo
+        repo MemHouse.Repo
       end
 
       actions do
@@ -54,7 +54,7 @@ defmodule Cartulary.Resource do
           public? false
           accept []
           argument :attributes, :map, allow_nil?: false
-          change Cartulary.Portability.Changes.RestoreAttributes
+          change MemHouse.Portability.Changes.RestoreAttributes
         end
       end
 
@@ -62,14 +62,14 @@ defmodule Cartulary.Resource do
         # Portability spans the Account and is internal-only.
         policy action([:portability_export, :portability_import]) do
           authorize_if actor_attribute_equals(:pipeline?, true)
-          authorize_if {Cartulary.Policy.RoleIn, roles: [:system]}
+          authorize_if {MemHouse.Policy.RoleIn, roles: [:system]}
         end
       end
     end
   end
 end
 
-defmodule Cartulary.Policy.ScopeAccess do
+defmodule MemHouse.Policy.ScopeAccess do
   @moduledoc """
   Narrows a read to the scopes the caller is actually allowed to see.
 
@@ -96,7 +96,7 @@ defmodule Cartulary.Policy.ScopeAccess do
   def filter(_actor, _context, _opts), do: false
 end
 
-defmodule Cartulary.Policy.RoleIn do
+defmodule MemHouse.Policy.RoleIn do
   @moduledoc """
   Passes when the caller's single strongest role is one of the listed roles.
 
@@ -116,7 +116,7 @@ defmodule Cartulary.Policy.RoleIn do
   def match?(_actor, _context, _opts), do: false
 end
 
-defmodule Cartulary.Policy.HumanRoleIn do
+defmodule MemHouse.Policy.HumanRoleIn do
   @moduledoc """
   Passes only for a human session that also holds one of the listed roles.
 
@@ -138,7 +138,7 @@ defmodule Cartulary.Policy.HumanRoleIn do
   def match?(_actor, _context, _opts), do: false
 end
 
-defmodule Cartulary.Policy.HumanScopeRole do
+defmodule MemHouse.Policy.HumanScopeRole do
   @moduledoc """
   Passes for a human session holding one of the listed roles *at the row's own scope*.
 
@@ -169,7 +169,7 @@ defmodule Cartulary.Policy.HumanScopeRole do
   def filter(_actor, _context, _opts), do: false
 end
 
-defmodule Cartulary.Policy.HumanOwns do
+defmodule MemHouse.Policy.HumanOwns do
   @moduledoc """
   Passes for a human session acting on a row that is about that same person.
 
@@ -193,7 +193,7 @@ defmodule Cartulary.Policy.HumanOwns do
   def filter(_actor, _context, _opts), do: false
 end
 
-defmodule Cartulary.Policy.ScopeRelationAccess do
+defmodule MemHouse.Policy.ScopeRelationAccess do
   @moduledoc """
   Passes only when the caller is authorized at *both* ends of a cross-scope link.
 
@@ -223,7 +223,7 @@ defmodule Cartulary.Policy.ScopeRelationAccess do
   def filter(_actor, _context, _opts), do: false
 end
 
-defmodule Cartulary.Policy.ScopeRole do
+defmodule MemHouse.Policy.ScopeRole do
   @moduledoc """
   Passes when the caller holds one of the listed roles at the row's own scope.
 

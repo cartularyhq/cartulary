@@ -1,8 +1,8 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Database.AppRole do
+defmodule MemHouse.Database.AppRole do
   @moduledoc """
-  Creates and validates the restricted PostgreSQL role used by Cartulary.
+  Creates and validates the restricted PostgreSQL role used by MemHouse.
 
   Application connections must not be table owners, superusers, or BYPASSRLS roles; otherwise
   forced row-level security cannot provide an independent Account boundary. Provisioning is
@@ -11,7 +11,7 @@ defmodule Cartulary.Database.AppRole do
 
   require Logger
 
-  alias Cartulary.Repo
+  alias MemHouse.Repo
 
   # PostgreSQL role names are identifiers, not values, so they cannot be passed
   # as bound parameters and must be interpolated. Every name this module emits
@@ -161,7 +161,7 @@ defmodule Cartulary.Database.AppRole do
   @spec role_name!() :: String.t()
   def role_name! do
     name =
-      :cartulary
+      :memhouse
       |> Application.fetch_env!(:database)
       |> Keyword.fetch!(:app_role)
 
@@ -193,13 +193,13 @@ defmodule Cartulary.Database.AppRole do
   defp provisioning_statements(role) do
     [
       """
-      DO $cartulary$
+      DO $memhouse$
       BEGIN
         CREATE ROLE #{role} NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
       EXCEPTION WHEN duplicate_object THEN
         NULL;
       END
-      $cartulary$
+      $memhouse$
       """,
       "ALTER ROLE #{role} NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE",
       "GRANT #{role} TO CURRENT_USER",
@@ -208,7 +208,7 @@ defmodule Cartulary.Database.AppRole do
       "GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO #{role}",
       "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO #{role}",
       """
-      DO $cartulary$
+      DO $memhouse$
       BEGIN
         EXECUTE format(
           'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public
@@ -223,7 +223,7 @@ defmodule Cartulary.Database.AppRole do
              GRANT EXECUTE ON FUNCTIONS TO %I',
           current_user, '#{role}');
       END
-      $cartulary$
+      $memhouse$
       """
     ]
   end
@@ -251,7 +251,7 @@ defmodule Cartulary.Database.AppRole do
   end
 
   defp allow_unrestricted? do
-    :cartulary
+    :memhouse
     |> Application.fetch_env!(:database)
     |> Keyword.fetch!(:allow_unrestricted_role)
   end

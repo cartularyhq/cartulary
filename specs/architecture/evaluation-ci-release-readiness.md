@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0 -->
+<!-- SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0 -->
 
 # Evaluation, CI, And Release Readiness
 
@@ -37,7 +37,7 @@ skill-readiness helpers as complete SDKs.
 
 ## Evaluation boundary
 
-`Cartulary.Eval.Adapter` now supports Cartulary, LoCoMo, LongMemEval, ConvoMem,
+`MemHouse.Eval.Adapter` now supports MemHouse, LoCoMo, LongMemEval, ConvoMem,
 and BEAM source shapes. Every input carries a SHA-256. `Runner` records the
 application version, date, dataset id/hash/split, profile and exact version,
 strategy override, deadline setting, four model-role identities, judge method,
@@ -61,8 +61,8 @@ not current `f7-1` results. `poc-0` is a historical contract tag.
 
 ## Release controls
 
-Cartulary follows Semantic Versioning with a Keep-a-Changelog-style
-`CHANGELOG.md`. `mix cartulary.release.check` fails unless:
+MemHouse follows Semantic Versioning with a Keep-a-Changelog-style
+`CHANGELOG.md`. `mix memhouse.release.check` fails unless:
 
 - `mix.exs` contains valid SemVer and a matching dated changelog entry;
 - the tag, when supplied, is exactly `v<version>`;
@@ -89,9 +89,9 @@ required job names are documented in the release checklist.
 
 ## Evidence
 
-- `test/cartulary/f11_evaluation_ci_release_readiness_test.exs`
-- `test/cartulary/eval/adapter_test.exs`
-- `test/cartulary/eval/scorer_test.exs`
+- `test/memhouse/f11_evaluation_ci_release_readiness_test.exs`
+- `test/memhouse/eval/adapter_test.exs`
+- `test/memhouse/eval/scorer_test.exs`
 - `.github/workflows/ci.yml`
 - `.github/workflows/eval.yml`
 - `.github/workflows/release.yml`

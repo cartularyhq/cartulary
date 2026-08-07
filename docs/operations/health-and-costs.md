@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0 -->
+<!-- SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0 -->
 
 # Health and cost
 
@@ -7,7 +7,7 @@
 Unauthenticated. Touches no database and no queue.
 
 ```json
-{"status": "ok", "app": "cartulary", "version": "f5-1"}
+{"status": "ok", "app": "memhouse", "version": "f5-1"}
 ```
 
 `version` identifies the extraction-and-pipeline contract, **not** the

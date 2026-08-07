@@ -1,7 +1,7 @@
 @echo off
-REM SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+REM SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 REM
-REM Windows entry point for a running Cartulary node: the command a person runs
+REM Windows entry point for a running MemHouse node: the command a person runs
 REM after unpacking the release. Mirrors the Unix bin/server launcher.
 REM
 REM Purpose
@@ -11,7 +11,7 @@ REM   token signing secret on first run, defaults the node to supervising its
 REM   own embedded PostgreSQL, then hands off to the generated release launcher.
 REM
 REM Environment - all optional; anything already set is left alone
-REM   CARTULARY_DATA_ROOT      Local state directory. Default is .cartulary in
+REM   CARTULARY_DATA_ROOT      Local state directory. Default is .memhouse in
 REM                            the user profile.
 REM   CARTULARY_AUTH_SIGNING_SECRET  Token signing key. Generated and stored on
 REM                            first run when absent.
@@ -43,7 +43,7 @@ REM   closing paren would end the block early. Variables assigned inside such a
 REM   block also cannot be read back with percent-expansion until the block
 REM   ends, which is why nothing below does that.
 setlocal
-if "%CARTULARY_DATA_ROOT%"=="" set CARTULARY_DATA_ROOT=%USERPROFILE%\.cartulary
+if "%CARTULARY_DATA_ROOT%"=="" set CARTULARY_DATA_ROOT=%USERPROFILE%\.memhouse
 if not exist "%CARTULARY_DATA_ROOT%" mkdir "%CARTULARY_DATA_ROOT%"
 REM Generate the signing secret once and keep it. Minting a new one per start
 REM would invalidate every previously issued token on every restart. 48
@@ -69,7 +69,7 @@ REM migrations run, since neither can proceed until the engine is listening.
 if "%CARTULARY_DATABASE_MODE%"=="" set CARTULARY_DATABASE_MODE=pg0
 if "%CARTULARY_AUTO_MIGRATE%"=="" set CARTULARY_AUTO_MIGRATE=true
 if "%CARTULARY_PG0_BINARY%"=="" set CARTULARY_PG0_BINARY=%~dp0pg0.exe
-if "%CARTULARY_PG0_DATA_DIR%"=="" set CARTULARY_PG0_DATA_DIR=%CARTULARY_DATA_ROOT%\pg0\instances\cartulary\data
+if "%CARTULARY_PG0_DATA_DIR%"=="" set CARTULARY_PG0_DATA_DIR=%CARTULARY_DATA_ROOT%\pg0\instances\memhouse\data
 if "%CARTULARY_BLOB_ROOT%"=="" set CARTULARY_BLOB_ROOT=%CARTULARY_DATA_ROOT%\blobs
 REM Without this the release starts the application but never opens the HTTP
 REM endpoint - correct for eval and remote-console style invocations, wrong for

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
 defmodule CartularyWeb.ConsoleLive.Operations do
   @moduledoc """
@@ -15,8 +15,8 @@ defmodule CartularyWeb.ConsoleLive.Operations do
 
   import CartularyWeb.ConsoleComponents
 
-  alias Cartulary.Operations.Health
-  alias Cartulary.Operations.Metering
+  alias MemHouse.Operations.Health
+  alias MemHouse.Operations.Metering
   alias CartularyWeb.Console.Access
   alias CartularyWeb.Console.Loader
 

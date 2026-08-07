@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Eval.FixtureContractTest do
+defmodule MemHouse.Eval.FixtureContractTest do
   @moduledoc """
   Freezes evaluation source bytes and normalized shape for comparable results.
 
@@ -12,7 +12,7 @@ defmodule Cartulary.Eval.FixtureContractTest do
 
   use ExUnit.Case, async: true
 
-  alias Cartulary.Eval.Adapter
+  alias MemHouse.Eval.Adapter
 
   # Data, not prose: the test reads this JSON file and compares against it.
   @baseline_path "test/fixtures/eval/poc-contract-baseline.json"

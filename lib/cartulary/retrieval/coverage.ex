@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Retrieval.Coverage do
+defmodule MemHouse.Retrieval.Coverage do
   @moduledoc """
   Reports how much of a scope's retrievable corpus carries derived indexes.
 
@@ -15,7 +15,7 @@ defmodule Cartulary.Retrieval.Coverage do
   inside retrieval, so the mention figure is a number and never a list.
   """
 
-  alias Cartulary.Retrieval.Store
+  alias MemHouse.Retrieval.Store
 
   @empty %{
     statement_count: 0,

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
 defmodule CartularyWeb.SelfGovernanceController do
   @moduledoc """
@@ -11,8 +11,8 @@ defmodule CartularyWeb.SelfGovernanceController do
 
   use CartularyWeb, :controller
 
-  alias Cartulary.Governance.Engine
-  alias Cartulary.Governance.Erasure
+  alias MemHouse.Governance.Engine
+  alias MemHouse.Governance.Erasure
 
   @doc """
   Lists the knowledge whose subject is the calling peer.

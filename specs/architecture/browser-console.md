@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0 -->
+<!-- SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0 -->
 
 # Browser Console
 
@@ -19,8 +19,8 @@ observations without duplicating panels across applications.
 
 `/governance` keeps its stricter mount hook and shared frame. Its route, module,
 events, and heading remain unchanged because
-`test/cartulary/f4_real_gate_a_b_governance_test.exs` and
-`test/cartulary/f9_skill_readiness_procedural_memory_test.exs` assert on all
+`test/memhouse/f4_real_gate_a_b_governance_test.exs` and
+`test/memhouse/f9_skill_readiness_procedural_memory_test.exs` assert on all
 four. The console's per-statement page offers the same decisions through the
 same operation-layer calls; the queue remains the place for working a backlog,
 including the bulk actions that only make sense there.
@@ -56,7 +56,7 @@ independently. Both are narrowing; neither can grant access to a scope the
 actor's grants do not already reach.
 
 **Provisional:** `state != "provisional" or subject_peer_id == <viewer>`.
-`Cartulary.Retrieval.Store` uses the identical condition; divergence is a leak.
+`MemHouse.Retrieval.Store` uses the identical condition; divergence is a leak.
 
 **The governance-state rule.** Curators and account admins see every lifecycle
 state. Members and readers see `active`, `needs_revalidation`, `expired`, and
@@ -221,7 +221,7 @@ ranks and scores, fusion contributions, and rerank status for candidates the
 same run already returned, so it discloses no new identity. It is built after
 authorization, held only in that run's assigns, and never recorded.
 
-It rides the same `Cartulary.Retrieval.DiagnosticGrant` as the other diagnostic
+It rides the same `MemHouse.Retrieval.DiagnosticGrant` as the other diagnostic
 controls rather than a request key of its own. That matters because a console
 operator presents the same password identity to the JSON API: a role check
 alone would hand the explanation to an HTTP client and grow the `f7-1` response
@@ -322,7 +322,7 @@ Entities connect knowledge, and a reader who cannot see that connection cannot
 tell a dense scope from a merely large one. Exposing the entity cache is not an
 option, so the graph draws the *grouping* without the *group's identity*.
 
-`Cartulary.Retrieval.Store.shared_entity_clusters/3` groups `entity_mentions` by
+`MemHouse.Retrieval.Store.shared_entity_clusters/3` groups `entity_mentions` by
 entity over a statement-id list the caller has already authorized, and selects
 only the member-id arrays — the entity id is a `GROUP BY` key that never reaches
 a caller. Four rules keep the result content-safe:
@@ -365,8 +365,8 @@ disclose which knowledge exists about them in scopes the reader may not hold.
   trip, parent and child navigation, descendants option, anonymous hubs, the
   hub that is not drawn because only one member is in scope, an unauthorized
   focus falling back rather than widening, and truncation reporting.
-- `test/cartulary/f4_real_gate_a_b_governance_test.exs` and
-  `test/cartulary/f9_skill_readiness_procedural_memory_test.exs` — unchanged,
+- `test/memhouse/f4_real_gate_a_b_governance_test.exs` and
+  `test/memhouse/f9_skill_readiness_procedural_memory_test.exs` — unchanged,
   and still the contract for `/governance`.
 
 ## Related

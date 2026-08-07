@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Portability.Archive do
+defmodule MemHouse.Portability.Archive do
   @moduledoc """
   Reads and writes the versioned logical Account archive.
 
@@ -9,15 +9,15 @@ defmodule Cartulary.Portability.Archive do
   durable write. Archive data is untrusted input and the target must be empty.
   """
 
-  alias Cartulary.Actor
-  alias Cartulary.DataLayer
-  alias Cartulary.Documents.BlobStore
-  alias Cartulary.Governance.AuditEvent
-  alias Cartulary.Observations.DocumentVersion
-  alias Cartulary.Operations.PipelineRun
-  alias Cartulary.Pipeline.Idempotency
-  alias Cartulary.Portability.AuditVerifier
-  alias Cartulary.Portability.Registry
+  alias MemHouse.Actor
+  alias MemHouse.DataLayer
+  alias MemHouse.Documents.BlobStore
+  alias MemHouse.Governance.AuditEvent
+  alias MemHouse.Observations.DocumentVersion
+  alias MemHouse.Operations.PipelineRun
+  alias MemHouse.Pipeline.Idempotency
+  alias MemHouse.Portability.AuditVerifier
+  alias MemHouse.Portability.Registry
 
   require Ash.Query
 
@@ -28,7 +28,7 @@ defmodule Cartulary.Portability.Archive do
   # obliges a maintainer to record the change in the changelog, state the
   # migration path for archives already written, and refresh the contract
   # evidence.
-  @schema "cartulary-account-1"
+  @schema "memhouse-account-1"
 
   @doc """
   Writes a complete archive of the actor's Account to `output_path`.
@@ -44,7 +44,7 @@ defmodule Cartulary.Portability.Archive do
   # sobelow_skip ["Traversal.FileModule"]
   def export(%Actor{} = actor, output_path) when is_binary(output_path) do
     started_at = System.monotonic_time()
-    root = temp_dir!("cartulary-export")
+    root = temp_dir!("memhouse-export")
 
     try do
       {manifest, manifest_bytes} =
@@ -60,7 +60,7 @@ defmodule Cartulary.Portability.Archive do
       duration_ms = duration_ms(started_at)
 
       :telemetry.execute(
-        [:cartulary, :portability, :export],
+        [:memhouse, :portability, :export],
         %{duration: duration_ms, resources: length(manifest["resources"])},
         %{status: :ok}
       )
@@ -93,7 +93,7 @@ defmodule Cartulary.Portability.Archive do
   """
   def import(input_path) when is_binary(input_path) do
     started_at = System.monotonic_time()
-    root = temp_dir!("cartulary-import")
+    root = temp_dir!("memhouse-import")
 
     try do
       extract_tar!(input_path, root)
@@ -119,7 +119,7 @@ defmodule Cartulary.Portability.Archive do
       duration_ms = duration_ms(started_at)
 
       :telemetry.execute(
-        [:cartulary, :portability, :import],
+        [:memhouse, :portability, :import],
         %{duration: duration_ms, resources: map_size(rows)},
         %{status: :ok}
       )
@@ -150,7 +150,7 @@ defmodule Cartulary.Portability.Archive do
   always removes its temporary directory.
   """
   def validate(input_path) when is_binary(input_path) do
-    root = temp_dir!("cartulary-validate")
+    root = temp_dir!("memhouse-validate")
 
     try do
       extract_tar!(input_path, root)
@@ -218,7 +218,7 @@ defmodule Cartulary.Portability.Archive do
     # with an empty context, so it is the deployment default rather than any
     # Account-level override.
     embedder =
-      :embedder |> Cartulary.Model.Config.resolve(%{}) |> Cartulary.Model.Config.provenance()
+      :embedder |> MemHouse.Model.Config.resolve(%{}) |> MemHouse.Model.Config.provenance()
 
     manifest = %{
       "schema" => @schema,
@@ -254,7 +254,7 @@ defmodule Cartulary.Portability.Archive do
     # The Account row identifies the tenant, so it is matched on its own id;
     # every other resource carries the tenant as a column.
     query =
-      if resource == Cartulary.Accounts.Account do
+      if resource == MemHouse.Accounts.Account do
         Ash.Query.filter(resource, id == ^account_id)
       else
         Ash.Query.filter(resource, account_id == ^account_id)
@@ -276,7 +276,7 @@ defmodule Cartulary.Portability.Archive do
   end
 
   # The Account resource is the tenant itself and has no tenant column to set.
-  defp maybe_set_tenant(query, Cartulary.Accounts.Account, _account_id), do: query
+  defp maybe_set_tenant(query, MemHouse.Accounts.Account, _account_id), do: query
   defp maybe_set_tenant(query, _resource, account_id), do: Ash.Query.set_tenant(query, account_id)
 
   # Serialises a row attribute by attribute, dropping the ones the registry
@@ -302,13 +302,13 @@ defmodule Cartulary.Portability.Archive do
   # Scopes form a containment tree, and a child cannot be created before its
   # parent. Sorting by path puts ancestors first, because a parent's path is a
   # prefix of its children's.
-  defp sort_for_import(rows, Cartulary.Topology.Scope),
+  defp sort_for_import(rows, MemHouse.Topology.Scope),
     do: Enum.sort_by(rows, &{Map.fetch!(&1, "path"), Map.fetch!(&1, "id")})
 
   # Knowledge items point at the item they superseded, so a superseding item
   # must be written after its predecessor. Insertion order is not enough,
   # because a supersession chain can be built in any order over time.
-  defp sort_for_import(rows, Cartulary.Knowledge.KnowledgeItem),
+  defp sort_for_import(rows, MemHouse.Knowledge.KnowledgeItem),
     do: sort_supersession_rows(rows, MapSet.new(), [])
 
   # Audit events must be restored in the order they were appended, since each
@@ -508,7 +508,7 @@ defmodule Cartulary.Portability.Archive do
   # answer cannot change between the check and the writes.
   defp ensure_fresh_target!(actor) do
     existing =
-      Cartulary.Accounts.Account
+      MemHouse.Accounts.Account
       |> Ash.Query.filter(id == ^actor.account_id)
       |> Ash.read_one!(actor: actor)
 
@@ -564,7 +564,7 @@ defmodule Cartulary.Portability.Archive do
   # A document points at its current version, but versions are restored after
   # documents, so that pointer cannot be written yet. It is dropped here and
   # restored in the second pass below.
-  defp drop_deferred_attributes(Cartulary.Observations.Document, attributes),
+  defp drop_deferred_attributes(MemHouse.Observations.Document, attributes),
     do: Map.drop(attributes, ["current_version_id"])
 
   defp drop_deferred_attributes(_resource, attributes), do: attributes
@@ -577,7 +577,7 @@ defmodule Cartulary.Portability.Archive do
     Enum.each(Map.fetch!(rows, "documents"), fn row ->
       if current_version_id = row["current_version_id"] do
         document =
-          Cartulary.Observations.Document
+          MemHouse.Observations.Document
           |> Ash.Query.filter(id == ^Map.fetch!(row, "id"))
           |> Ash.Query.set_tenant(actor.account_id)
           |> Ash.read_one!(actor: actor)
@@ -594,7 +594,7 @@ defmodule Cartulary.Portability.Archive do
   # The Account row is the tenant and has no tenant column; every other resource
   # gets the tenant set explicitly, so a restored row can never land under a
   # different Account than the one being imported.
-  defp maybe_set_changeset_tenant(changeset, Cartulary.Accounts.Account, _account_id),
+  defp maybe_set_changeset_tenant(changeset, MemHouse.Accounts.Account, _account_id),
     do: changeset
 
   defp maybe_set_changeset_tenant(changeset, _resource, account_id),

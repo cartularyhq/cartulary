@@ -1,8 +1,8 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Mix.Tasks.Cartulary.Eval.Smoke do
+defmodule Mix.Tasks.MemHouse.Eval.Smoke do
   @moduledoc """
-  Runs a small local memory smoke pass through Cartulary's real durable write/read
+  Runs a small local memory smoke pass through MemHouse's real durable write/read
     path.
 
     Per-message keys other than `content` are optional and defaulted below. Each
@@ -11,9 +11,9 @@ defmodule Mix.Tasks.Cartulary.Eval.Smoke do
 
   use Mix.Task
 
-  alias Cartulary.Memory
+  alias MemHouse.Memory
 
-  @shortdoc "Runs the Cartulary local memory smoke eval"
+  @shortdoc "Runs the MemHouse local memory smoke eval"
 
   @doc """
   Parses the switches described in the module documentation, runs the pass, and emits the
@@ -117,7 +117,7 @@ defmodule Mix.Tasks.Cartulary.Eval.Smoke do
   # its own scope so a leak across scopes shows up as a wrong or abstained answer.
   defp load_dataset(nil) do
     %{
-      "benchmark" => "cartulary-poc-smoke",
+      "benchmark" => "memhouse-poc-smoke",
       "messages" => [
         %{
           "session_id" => "locomo-smoke-1",

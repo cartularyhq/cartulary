@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0 -->
+<!-- SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0 -->
 
 # Model Layer And Structured Extraction
 
@@ -9,7 +9,7 @@ the model-outage portion of `NFR-8`.
 
 ## Role and provider boundary
 
-`Cartulary.Model.Config` resolves exactly four Account-level roles:
+`MemHouse.Model.Config` resolves exactly four Account-level roles:
 
 | Role | Capability | Default |
 | --- | --- | --- |
@@ -24,11 +24,11 @@ secret references such as `env:OPENROUTER_API_KEY`, never raw credentials; the
 Ash actions reject raw secret keys in role options.
 
 Every provider call and repair resolves configuration through
-`Cartulary.DataLayer.in_account_transaction/2`. Provider calls hold no
+`MemHouse.DataLayer.in_account_transaction/2`. Provider calls hold no
 transaction. Without the Account setting, RLS would hide the row and silently
 select runtime defaults, producing false provider/model provenance.
 
-Every capability uses `Cartulary.Model.Provider`; `Gateway` alone invokes
+Every capability uses `MemHouse.Model.Provider`; `Gateway` alone invokes
 callbacks and selects the test, deterministic local, Ortex, or ReqLLM adapter.
 ReqLLM supplies OpenRouter, OpenAI-compatible, and self-hosted provider support
 without a second engine runtime. There is no in-engine provider cascade:
@@ -58,7 +58,7 @@ persisted, metered, or logged.
 
 Statement text is canonicalized — invisible characters removed, whitespace runs
 collapsed — before it is hashed, and then measured against the readability rule
-in `Cartulary.Knowledge.Statement`: it must carry letters or digits, and above a
+in `MemHouse.Knowledge.Statement`: it must carry letters or digits, and above a
 24-character floor at least 60% of its non-space characters must be. A decoding
 collapse into repeated ellipsis measures below 0.40 where observed prose
 measures 0.79 and above. The cast reports the failure so the repair prompt can
@@ -90,9 +90,9 @@ assembler. `get_context` performs no model call.
 
 ## Embeddings
 
-`Cartulary.Model.Embedding.Ortex` implements `AshAi.EmbeddingModel` using local
+`MemHouse.Model.Embedding.Ortex` implements `AshAi.EmbeddingModel` using local
 Tokenizer and ONNX artifacts through Tokenizers and Ortex. It does not download
-models or send text to a network. `Cartulary.Model.Embedding.ReqLLM` delegates to
+models or send text to a network. `MemHouse.Model.Embedding.ReqLLM` delegates to
 AshAi's ReqLLM adapter for an API-backed role.
 
 Every vector carries provider, model, version, and dimensions. A consumer must
@@ -113,7 +113,7 @@ prompt `extract-3` and pipeline `f5-1`. Its prompt explicitly requires
 confidence as a JSON fraction from `0.0` through `1.0`; the Ash-derived JSON
 schema independently enforces the same numeric bounds.
 
-`Cartulary.Model.Usage` is the one durable emission point. Each provider call,
+`MemHouse.Model.Usage` is the one durable emission point. Each provider call,
 including every repair attempt and returned provider error, appends one
 Account- and optional scope/Peer-attributed `UsageEvent` with operation, role,
 provider, model/version, prompt/pipeline versions, input/output/embedding token
@@ -148,17 +148,17 @@ message/extractor identity. These are historical contract tags, not roadmap phas
 
 ## Evidence
 
-- Provider, schema, embedding, and usage boundary: `lib/cartulary/model/`
-- Pipeline integration: `lib/cartulary/pipeline/extractor.ex` and
-  `lib/cartulary/memory.ex`
+- Provider, schema, embedding, and usage boundary: `lib/memhouse/model/`
+- Pipeline integration: `lib/memhouse/pipeline/extractor.ex` and
+  `lib/memhouse/memory.ex`
 - Resource migration:
   `priv/repo/migrations/20260727231504_f5_model_layer_structured_extraction.exs`
 - Generated resource snapshots: `priv/resource_snapshots/repo/`
 - Model layer and structured extraction acceptance suite:
-  `test/cartulary/f5_model_layer_structured_extraction_test.exs`
+  `test/memhouse/f5_model_layer_structured_extraction_test.exs`
 - Deterministic replay adapter and cassette:
   `test/support/model_cassette_provider.ex` and
   `test/fixtures/model/f5-provider-cassette.json`
 - Updated baseline contract evidence:
-  `test/cartulary/poc_contract_test.exs` and
+  `test/memhouse/poc_contract_test.exs` and
   `test/cartulary_web/controllers/memory_controller_test.exs`

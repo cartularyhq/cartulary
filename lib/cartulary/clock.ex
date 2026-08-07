@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Clock do
+defmodule MemHouse.Clock do
   @moduledoc """
   Provides the current time through an injectable implementation.
 
@@ -18,7 +18,7 @@ defmodule Cartulary.Clock do
   checks. Do not use it to measure how long something took.
   """
   def utc_now do
-    Application.get_env(:cartulary, :clock, __MODULE__.System).utc_now()
+    Application.get_env(:memhouse, :clock, __MODULE__.System).utc_now()
   end
 
   @doc """
@@ -29,7 +29,7 @@ defmodule Cartulary.Clock do
   latency measurement; never store it as a timestamp.
   """
   def monotonic_ms do
-    Application.get_env(:cartulary, :clock, __MODULE__.System).monotonic_ms()
+    Application.get_env(:memhouse, :clock, __MODULE__.System).monotonic_ms()
   end
 
   defmodule System do
@@ -41,7 +41,7 @@ defmodule Cartulary.Clock do
     substitutability, not behaviour, so this module must stay a thin pass-through.
     """
 
-    @behaviour Cartulary.Clock
+    @behaviour MemHouse.Clock
 
     @impl true
     def utc_now, do: DateTime.utc_now()

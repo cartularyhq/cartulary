@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Pipeline.Lock do
+defmodule MemHouse.Pipeline.Lock do
   @moduledoc """
   Transaction-scoped mutual exclusion for pipeline writes that must not race.
 
@@ -26,7 +26,7 @@ defmodule Cartulary.Pipeline.Lock do
   advisory-lock equivalent; durable state still uses resource actions.
   """
 
-  alias Cartulary.Repo
+  alias MemHouse.Repo
 
   @doc """
   Takes the Account/key advisory lock for the rest of the current transaction.

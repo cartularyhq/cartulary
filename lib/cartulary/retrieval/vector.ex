@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Retrieval.Vector do
+defmodule MemHouse.Retrieval.Vector do
   @moduledoc """
   Computes in-process cosine similarity for entity resolution.
 

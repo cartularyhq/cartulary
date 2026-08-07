@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Operations.Health do
+defmodule MemHouse.Operations.Health do
   @moduledoc """
   Builds liveness, readiness, and queue-depth results.
 
@@ -9,7 +9,7 @@ defmodule Cartulary.Operations.Health do
   model components cannot serve.
   """
 
-  alias Cartulary.Repo
+  alias MemHouse.Repo
 
   # Oban job states that represent outstanding work. `completed`, `discarded`,
   # and `cancelled` are excluded deliberately: they are history, and counting
@@ -25,7 +25,7 @@ defmodule Cartulary.Operations.Health do
   currently calls it; the `GET /api/health` route builds its own payload.
   """
   def liveness do
-    %{status: "ok", app: "cartulary", version: "f10-1"}
+    %{status: "ok", app: "memhouse", version: "f10-1"}
   end
 
   @doc """
@@ -60,14 +60,14 @@ defmodule Cartulary.Operations.Health do
 
     %{
       status: status,
-      app: "cartulary",
+      app: "memhouse",
       version: "f10-1",
       checks: checks,
-      update: Cartulary.Update.status(),
+      update: MemHouse.Update.status(),
       # Not a pass/fail check like the others above: this is disclosure, not a readiness
       # gate, so it never affects `status`. An operator or auditor can tell whether subject
       # consent is being auto-granted for this whole process without reading source.
-      governance: %{unattended: Cartulary.Governance.UnattendedMode.enabled?()}
+      governance: %{unattended: MemHouse.Governance.UnattendedMode.enabled?()}
     }
   end
 
@@ -87,7 +87,7 @@ defmodule Cartulary.Operations.Health do
 
   Queue depth has no natural event to hook — nothing "happens" while jobs sit
   waiting — so it must be polled. Events are
-  `[:cartulary, :operations, :queue]` with a `depth` measurement and `queue`
+  `[:memhouse, :operations, :queue]` with a `depth` measurement and `queue`
   and `state` tags; no Account, payload, or job argument is included.
 
   Returns `:ok` and emits nothing when the queue query fails, so a database
@@ -100,7 +100,7 @@ defmodule Cartulary.Operations.Health do
         Enum.each(depths, fn {queue, states} ->
           Enum.each(states, fn {state, depth} ->
             :telemetry.execute(
-              [:cartulary, :operations, :queue],
+              [:memhouse, :operations, :queue],
               %{depth: depth},
               %{queue: queue, state: state}
             )
@@ -180,7 +180,7 @@ defmodule Cartulary.Operations.Health do
   # configuration is readable, not that every provider is reachable.
   defp model_roles_check do
     roles =
-      :cartulary
+      :memhouse
       |> Application.fetch_env!(:model_roles)
       |> Map.new(fn {role, config} ->
         config = Map.new(config)

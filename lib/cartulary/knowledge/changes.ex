@@ -1,17 +1,17 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Knowledge.Changes.NormalizeStatement do
+defmodule MemHouse.Knowledge.Changes.NormalizeStatement do
   @moduledoc """
   Ash change that puts statement text into its canonical form before it is hashed.
 
   Invisible padding and irregular whitespace are not part of a claim, but they do change the
   hash. Left alone they split one statement into several rows that never corroborate each other.
-  Ordering matters: this must run before `Cartulary.Knowledge.Changes.HashStatement`.
+  Ordering matters: this must run before `MemHouse.Knowledge.Changes.HashStatement`.
   """
 
   use Ash.Resource.Change
 
-  alias Cartulary.Knowledge.Statement
+  alias MemHouse.Knowledge.Statement
 
   @doc """
   Replaces `statement` with its normalized text.
@@ -34,7 +34,7 @@ defmodule Cartulary.Knowledge.Changes.NormalizeStatement do
   end
 end
 
-defmodule Cartulary.Knowledge.Changes.HashStatement do
+defmodule MemHouse.Knowledge.Changes.HashStatement do
   @moduledoc """
   Ash change that stores a statement's SHA-256 hash.
 
@@ -44,7 +44,7 @@ defmodule Cartulary.Knowledge.Changes.HashStatement do
 
   use Ash.Resource.Change
 
-  alias Cartulary.Pipeline.Idempotency
+  alias MemHouse.Pipeline.Idempotency
 
   @doc """
   Sets `statement_hash` to the lowercase hex SHA-256 of the changeset's `statement`.
@@ -67,7 +67,7 @@ defmodule Cartulary.Knowledge.Changes.HashStatement do
   end
 end
 
-defmodule Cartulary.Knowledge.Changes.AnchorEventValidity do
+defmodule MemHouse.Knowledge.Changes.AnchorEventValidity do
   @moduledoc """
   Ash change that dates an event the caller left undated.
 

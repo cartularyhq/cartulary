@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.RuntimeConfig do
+defmodule MemHouse.RuntimeConfig do
   @moduledoc """
   Validates node-local infrastructure configuration before supervision starts.
 
@@ -13,7 +13,7 @@ defmodule Cartulary.RuntimeConfig do
   @database_modes ~w(pg0 external)
 
   # Reject unknown storage modules before documents can be misplaced.
-  @blob_adapters [Cartulary.Documents.BlobStore.Local, Cartulary.Documents.BlobStore.S3]
+  @blob_adapters [MemHouse.Documents.BlobStore.Local, MemHouse.Documents.BlobStore.S3]
   import Bitwise, only: [band: 2]
 
   @doc """
@@ -26,7 +26,7 @@ defmodule Cartulary.RuntimeConfig do
   database mode never block a boot.
   """
   def validate! do
-    database = Application.fetch_env!(:cartulary, :database)
+    database = Application.fetch_env!(:memhouse, :database)
     mode = Keyword.fetch!(database, :mode)
 
     unless mode in @database_modes do
@@ -45,7 +45,7 @@ defmodule Cartulary.RuntimeConfig do
   Use only to control database supervision, never product behavior.
   """
   def database_mode do
-    :cartulary
+    :memhouse
     |> Application.fetch_env!(:database)
     |> Keyword.fetch!(:mode)
   end
@@ -64,7 +64,7 @@ defmodule Cartulary.RuntimeConfig do
   and run migrations as a separate, reviewed step before deploying.
   """
   def auto_migrate? do
-    :cartulary
+    :memhouse
     |> Application.fetch_env!(:database)
     |> Keyword.fetch!(:auto_migrate)
   end
@@ -106,14 +106,14 @@ defmodule Cartulary.RuntimeConfig do
   # Require external URL only where production configuration marks it mandatory.
   defp validate_database!("external", database) do
     if Keyword.get(database, :database_url) in [nil, ""] and
-         Application.get_env(:cartulary, :require_database_url, false) do
+         Application.get_env(:memhouse, :require_database_url, false) do
       raise "DATABASE_URL is required when CARTULARY_DATABASE_MODE=external"
     end
   end
 
   # Validate storage before the first upload: absolute local root or explicit S3 bucket.
   defp validate_documents! do
-    documents = Application.fetch_env!(:cartulary, :documents)
+    documents = Application.fetch_env!(:memhouse, :documents)
     adapter = Keyword.fetch!(documents, :blob_adapter)
 
     unless adapter in @blob_adapters do
@@ -121,14 +121,14 @@ defmodule Cartulary.RuntimeConfig do
     end
 
     case adapter do
-      Cartulary.Documents.BlobStore.Local ->
+      MemHouse.Documents.BlobStore.Local ->
         root = Keyword.fetch!(documents, :blob_root)
 
         unless Path.type(root) == :absolute do
           raise "CARTULARY_BLOB_ROOT must be an absolute path"
         end
 
-      Cartulary.Documents.BlobStore.S3 ->
+      MemHouse.Documents.BlobStore.S3 ->
         if Keyword.get(documents, :s3_bucket) in [nil, ""] do
           raise "CARTULARY_S3_BUCKET is required when CARTULARY_BLOB_ADAPTER=s3"
         end
@@ -138,8 +138,8 @@ defmodule Cartulary.RuntimeConfig do
   # Require attribution identities for every role. This structural check stays offline and never
   # validates credentials or contacts providers.
   defp validate_models! do
-    roles = Application.fetch_env!(:cartulary, :model_roles)
-    expected = Cartulary.Model.Config.roles()
+    roles = Application.fetch_env!(:memhouse, :model_roles)
+    expected = MemHouse.Model.Config.roles()
 
     missing = Enum.reject(expected, &Keyword.has_key?(roles, &1))
     if missing != [], do: raise("missing model role configuration: #{inspect(missing)}")

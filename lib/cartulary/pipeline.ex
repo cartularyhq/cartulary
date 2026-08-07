@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Cartulary.Pipeline do
+defmodule MemHouse.Pipeline do
   @moduledoc """
   The only supported way to schedule and run background pipeline work.
 
@@ -29,11 +29,11 @@ defmodule Cartulary.Pipeline do
   Enqueue uses a system-pipeline copy of the caller; it never mutates the caller's actor.
   """
 
-  alias Cartulary.Actor
-  alias Cartulary.Clock
-  alias Cartulary.DataLayer
-  alias Cartulary.Operations.PipelineRun
-  alias Cartulary.Pipeline.Idempotency
+  alias MemHouse.Actor
+  alias MemHouse.Clock
+  alias MemHouse.DataLayer
+  alias MemHouse.Operations.PipelineRun
+  alias MemHouse.Pipeline.Idempotency
 
   # Public lane name to private Ash action. New lanes need an action, Oban trigger, and stable key.
   @enqueue_actions %{
@@ -248,14 +248,14 @@ defmodule Cartulary.Pipeline do
   def execute(%PipelineRun{kind: kind} = run) do
     reactor =
       case kind do
-        "extraction" -> Cartulary.Pipeline.Workflows.IngestExtraction
-        "dream_time" -> Cartulary.Pipeline.Workflows.DreamTimeReasoning
-        "entity_resolution" -> Cartulary.Pipeline.Workflows.DreamTimeReasoning
-        "projection_refresh" -> Cartulary.Pipeline.Workflows.DreamTimeReasoning
-        "validation_continuation" -> Cartulary.Pipeline.Workflows.ValidationContinuation
-        "answer_correlation" -> Cartulary.Pipeline.Workflows.AnswerCorrelationContinuation
-        "connector_sync" -> Cartulary.Pipeline.Workflows.Maintenance
-        _other -> Cartulary.Pipeline.Workflows.Maintenance
+        "extraction" -> MemHouse.Pipeline.Workflows.IngestExtraction
+        "dream_time" -> MemHouse.Pipeline.Workflows.DreamTimeReasoning
+        "entity_resolution" -> MemHouse.Pipeline.Workflows.DreamTimeReasoning
+        "projection_refresh" -> MemHouse.Pipeline.Workflows.DreamTimeReasoning
+        "validation_continuation" -> MemHouse.Pipeline.Workflows.ValidationContinuation
+        "answer_correlation" -> MemHouse.Pipeline.Workflows.AnswerCorrelationContinuation
+        "connector_sync" -> MemHouse.Pipeline.Workflows.Maintenance
+        _other -> MemHouse.Pipeline.Workflows.Maintenance
       end
 
     Reactor.run(reactor, %{pipeline_run: run}, %{}, async?: false)

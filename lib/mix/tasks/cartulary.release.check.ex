@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: Cartulary-Sustainable-Use-1.0
+# SPDX-License-Identifier: MemHouse-Sustainable-Use-1.0
 
-defmodule Mix.Tasks.Cartulary.Release.Check do
+defmodule Mix.Tasks.MemHouse.Release.Check do
   @moduledoc """
   Fails unless the working tree satisfies release-readiness checks.
 
@@ -10,7 +10,7 @@ defmodule Mix.Tasks.Cartulary.Release.Check do
 
   use Mix.Task
 
-  alias Cartulary.ReleaseReadiness
+  alias MemHouse.ReleaseReadiness
 
   @shortdoc "Fails unless the release satisfies release readiness"
 
