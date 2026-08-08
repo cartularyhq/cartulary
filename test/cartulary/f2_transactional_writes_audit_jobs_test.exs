@@ -517,6 +517,7 @@ defmodule MemHouse.F2TransactionalWritesAuditJobsTest do
                :extraction,
                :import_rebuild,
                :projection_refresh,
+               :reembed,
                :reconciler,
                :revalidation,
                :validation_continuation
@@ -528,6 +529,7 @@ defmodule MemHouse.F2TransactionalWritesAuditJobsTest do
     assert Code.ensure_loaded?(MemHouse.Pipeline.Workflows.DreamTimeReasoning)
     assert Code.ensure_loaded?(MemHouse.Pipeline.Workflows.ValidationContinuation)
     assert Code.ensure_loaded?(MemHouse.Pipeline.Workflows.AnswerCorrelationContinuation)
+    assert Code.ensure_loaded?(MemHouse.Retrieval.Reembed)
 
     # Idempotency keys need two opposite properties, and both are checked here.
     #
@@ -554,12 +556,48 @@ defmodule MemHouse.F2TransactionalWritesAuditJobsTest do
     assert Idempotency.import_rebuild("import-1", "manifest-a") !=
              Idempotency.import_rebuild("import-1", "manifest-b")
 
+    identity = %{provider: "ortex", model: "qwen3", version: "1", dimensions: 1024}
+    assert Idempotency.reembed(scope_id, identity) == Idempotency.reembed(scope_id, identity)
+
     # The audit categories are a closed vocabulary. Every audited action must fall into one of
     # them, so operators can filter and retain the trail without knowing each action name.
     assert Enum.sort(Audit.categories()) ==
              Enum.sort(
                ~w(attribution configuration deletion gate governance lifecycle observation)
              )
+  end
+
+  test "re-embed enqueue exposes durable progress and reuses the target identity" do
+    assert {:ok, _message} =
+             Memory.ingest_message(ingest_attrs("f2-reembed", "reembed-session"))
+
+    account_id = account_id!("f2-reembed")
+
+    identity = %{
+      "provider" => "ortex",
+      "model" => "Qwen/Qwen3-Embedding-0.6B",
+      "version" => "onnx-1-qwen3-1024",
+      "dimensions" => 1024
+    }
+
+    {first, repeated} =
+      DataLayer.with_account_id(account_id, [role: :system, pipeline?: true], fn _account,
+                                                                                 actor ->
+        {:ok, first} = MemHouse.Pipeline.enqueue_reembed(account_id, identity, actor)
+        {:ok, repeated} = MemHouse.Pipeline.enqueue_reembed(account_id, identity, actor)
+        {first, repeated}
+      end)
+
+    assert first.id == repeated.id
+
+    assert first.payload == %{
+             "phase" => "knowledge",
+             "cursor" => nil,
+             "knowledge_processed" => 0,
+             "chunks_processed" => 0,
+             "scopes_processed" => 0,
+             "identity" => identity
+           }
   end
 
   test "a billed model call stays metered when the write that follows it fails" do

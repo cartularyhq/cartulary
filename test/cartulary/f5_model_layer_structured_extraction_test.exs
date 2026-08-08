@@ -24,7 +24,9 @@ defmodule MemHouse.F5ModelLayerStructuredExtractionTest do
   alias MemHouse.Model
   alias MemHouse.Model.CassetteProvider
   alias MemHouse.Model.Embedding
+  alias MemHouse.Model.Embedding.Ortex
   alias MemHouse.Model.ModelRoleConfig
+  alias MemHouse.Model.Providers.Ortex, as: OrtexProvider
   alias MemHouse.Model.Reasoner
   alias MemHouse.Model.Schema.DialecticAnswer
 
@@ -259,6 +261,32 @@ defmodule MemHouse.F5ModelLayerStructuredExtractionTest do
     # The plan must never authorise partial reuse. Mixing vector spaces degrades retrieval
     # invisibly: nothing errors, results just quietly get worse.
     refute plan.reuse_existing_vectors
+  end
+
+  test "last-token pooling ignores padded positions" do
+    hidden = [
+      [[1.0, 0.0], [2.0, 0.0], [99.0, 0.0]],
+      [[3.0, 0.0], [4.0, 0.0], [5.0, 0.0]]
+    ]
+
+    assert Ortex.last_token_pool(hidden, [[1, 1, 0], [1, 1, 1]]) ==
+             [[2.0, 0.0], [5.0, 0.0]]
+  end
+
+  test "Qwen3 instruction is applied to queries but not stored text" do
+    options = %{"query_instruction" => "retrieve relevant passages"}
+
+    assert OrtexProvider.apply_query_instruction(["where is the runbook?"], options,
+             purpose: :query
+           ) == [
+             "Instruct: retrieve relevant passages\nQuery: where is the runbook?"
+           ]
+
+    assert OrtexProvider.apply_query_instruction(["The runbook is in docs."], options,
+             purpose: :document
+           ) == [
+             "The runbook is in docs."
+           ]
   end
 
   test "provider outage leaves raw ingest durable and the extraction job retryable" do

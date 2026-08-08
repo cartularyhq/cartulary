@@ -2385,7 +2385,7 @@ defmodule MemHouse.F7RetrievalEntityContextTest do
   # and the query planner will not use an index that has been renamed or dropped. A missing
   # index does not fail any other test — retrieval still returns correct results, just by
   # sequential scan — so this is the only place a silent performance cliff gets caught.
-  test "F7 migration installs FTS and pgvector ANN indexes" do
+  test "F7 migration installs FTS and DiskANN indexes" do
     assert %{rows: rows} =
              Ecto.Adapters.SQL.query!(
                Repo,
@@ -2398,9 +2398,9 @@ defmodule MemHouse.F7RetrievalEntityContextTest do
                [
                  [
                    "document_chunks_search_vector_idx",
-                   "document_chunks_embedding_hnsw_384_idx",
-                   "entities_alias_embedding_hnsw_384_idx",
-                   "knowledge_items_embedding_hnsw_384_idx",
+                   "document_chunks_embedding_diskann_1024_idx",
+                   "entities_alias_embedding_diskann_1024_idx",
+                   "knowledge_items_embedding_diskann_1024_idx",
                    "knowledge_items_search_vector_idx",
                    "projections_clean_entity_cards_index"
                  ]
@@ -2408,10 +2408,10 @@ defmodule MemHouse.F7RetrievalEntityContextTest do
              )
 
     assert Enum.map(rows, &hd/1) == [
-             "document_chunks_embedding_hnsw_384_idx",
+             "document_chunks_embedding_diskann_1024_idx",
              "document_chunks_search_vector_idx",
-             "entities_alias_embedding_hnsw_384_idx",
-             "knowledge_items_embedding_hnsw_384_idx",
+             "entities_alias_embedding_diskann_1024_idx",
+             "knowledge_items_embedding_diskann_1024_idx",
              "knowledge_items_search_vector_idx",
              "projections_clean_entity_cards_index"
            ]

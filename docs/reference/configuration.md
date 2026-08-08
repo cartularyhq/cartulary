@@ -134,17 +134,51 @@ avoids models that intermittently ignore forced tool calls.
 | Variable | Example | Meaning |
 | --- | --- | --- |
 | `CARTULARY_EMBEDDING_PROVIDER` | `ortex` | `ortex` (local ONNX) or `openai-compatible` |
-| `CARTULARY_EMBEDDING_MODEL` | `BAAI/bge-small-en-v1.5` | Model identity |
-| `CARTULARY_EMBEDDING_VERSION` | `onnx-1` | **The vector-space version** |
-| `CARTULARY_EMBEDDING_DIMENSIONS` | `384` | Vector width |
+| `CARTULARY_EMBEDDING_MODEL` | `Qwen/Qwen3-Embedding-0.6B` | Model identity |
+| `CARTULARY_EMBEDDING_VERSION` | `onnx-1-qwen3-1024` | **The vector-space version** |
+| `CARTULARY_EMBEDDING_DIMENSIONS` | `1024` | Vector width |
 | `CARTULARY_ORTEX_MODEL_PATH` | absolute path | Operator-supplied `.onnx` file |
 | `CARTULARY_ORTEX_TOKENIZER_PATH` | absolute path | Operator-supplied `tokenizer.json` |
-| `CARTULARY_ORTEX_POOLING` | `cls` | Pooling strategy |
+| `CARTULARY_ORTEX_POOLING` | `last_token` | Pooling strategy |
+| `CARTULARY_ORTEX_QUERY_INSTRUCTION` | Qwen3 retrieval instruction | Applied to query embeddings only |
 | `CARTULARY_ORTEX_EXECUTION_PROVIDERS` | `cpu` | ONNX Runtime execution providers |
 | `CARTULARY_EMBEDDING_BASE_URL` / `_API_KEY` | — | For an API embedder instead |
 
-The Ortex embedder downloads nothing: artefacts are deliberately
-operator-supplied and offline.
+The Ortex embedder downloads nothing. Supply the official Qwen ONNX directory
+from revision `b07450f1875a5c6cba3efbc775ceea725141bca2`. Keep `onnx/model.onnx`
+beside `onnx/model.onnx_data`, and set the model path to `model.onnx` and the
+tokenizer path to that revision's `onnx/tokenizer.json`. Download and verify
+these files before starting MemHouse; runtime never contacts Hugging Face.
+
+| File | SHA-256 at the pinned revision |
+| --- | --- |
+| `onnx/model.onnx` | `dd0996944757df30ba6cb252853e40c1f17270e5f3be5c58872e37c40bd7a27c` |
+| `onnx/model.onnx_data` | `7c7569e58783ee0ad8c5fb797d7944aa4f5928af53fb4c1f626f71885af22969` |
+| `onnx/tokenizer.json` | `def76fb086971c7867b829c23a26261e38d9d74e02139253b38aeb9df8b4b50a` |
+
+Qwen3 requires an ONNX export with `input_ids` and `attention_mask`. It uses
+mask-aware last-token pooling. Documents are embedded as supplied; retrieval
+queries receive the configured instruction prefix. A switch from the former
+384-dimensional identity requires a full, resumable re-embed. Until it
+finishes, old vectors are intentionally absent from semantic retrieval.
+
+### DiskANN
+
+PostgreSQL must provide `vectorscale` 0.9.0. External mode fails at boot if the
+extension is unavailable.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `CARTULARY_DISKANN_STORAGE_LAYOUT` | `memory_optimized` | SBQ layout; `plain` stores full vectors in the index |
+| `CARTULARY_DISKANN_NUM_NEIGHBORS` | `50` | Graph neighbors per node at build time; `10` to `1000` |
+| `CARTULARY_DISKANN_SEARCH_LIST_SIZE` | `100` | Candidate list used to build the graph; `10` to `1000` |
+| `CARTULARY_DISKANN_MAX_ALPHA` | `1.2` | Build-time pruning factor; `1.0` to `5.0` |
+| `CARTULARY_DISKANN_NUM_DIMENSIONS` | `0` | Indexed MRL prefix from `1` to `1024`; `0` uses all dimensions |
+| `CARTULARY_DISKANN_QUERY_SEARCH_LIST_SIZE` | `100` | Approximate candidates visited per query; `1` to `10000` |
+| `CARTULARY_DISKANN_QUERY_RESCORE` | `50` | Candidates rescored from full heap vectors; `0` to `1000` |
+
+The five build settings require an index rebuild to take effect. Query settings
+are transaction-local and apply to each semantic retrieval call.
 
 !!! warning "Bump the embedding version on any artefact change"
     Provider, model, version, and dimensions together are the vector-space

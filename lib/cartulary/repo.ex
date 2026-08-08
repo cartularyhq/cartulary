@@ -26,5 +26,5 @@ defmodule MemHouse.Repo do
 
   Changing this list is a schema change and requires regenerated migrations.
   """
-  def installed_extensions, do: ["pgcrypto", "vector", "citext"]
+  def installed_extensions, do: ["pgcrypto", "vector", "citext", "vectorscale"]
 end

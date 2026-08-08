@@ -46,6 +46,7 @@ defmodule MemHouse.Pipeline do
     "import_rebuild" => :enqueue_import_rebuild,
     "reconciler" => :enqueue_reconciler,
     "entity_resolution" => :enqueue_entity_resolution,
+    "reembed" => :enqueue_reembed,
     "validation_continuation" => :enqueue_validation_continuation,
     "answer_correlation" => :enqueue_answer_correlation
   }
@@ -179,6 +180,33 @@ defmodule MemHouse.Pipeline do
         target_id: scope_id,
         idempotency_key: Idempotency.projection_refresh(scope_id, watermark),
         payload: %{"watermark" => to_string(watermark)}
+      },
+      actor
+    )
+  end
+
+  @doc """
+  Schedules a resumable Account-wide vector rebuild for one embedding identity.
+
+  One identity creates one durable run. Progress contains only phase, UUID
+  cursor, and counts. Repeating the request resumes or returns that run.
+  """
+  def enqueue_reembed(account_id, identity, actor) do
+    enqueue(
+      "reembed",
+      account_id,
+      %{
+        target_type: "account",
+        target_id: account_id,
+        idempotency_key: Idempotency.reembed(account_id, identity),
+        payload: %{
+          "phase" => "knowledge",
+          "cursor" => nil,
+          "knowledge_processed" => 0,
+          "chunks_processed" => 0,
+          "scopes_processed" => 0,
+          "identity" => identity
+        }
       },
       actor
     )

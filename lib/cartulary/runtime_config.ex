@@ -34,6 +34,7 @@ defmodule MemHouse.RuntimeConfig do
     end
 
     validate_database!(mode, database)
+    validate_diskann!()
     validate_documents!()
     validate_models!()
     :ok
@@ -70,10 +71,14 @@ defmodule MemHouse.RuntimeConfig do
   end
 
   # Embedded mode requires usable absolute paths independent of working directory.
+  # The paths are release configuration, not request input.
+  # sobelow_skip ["Traversal.FileModule"]
   defp validate_database!("pg0", database) do
     pg0 = Keyword.fetch!(database, :pg0)
     binary = Keyword.fetch!(pg0, :binary)
     data_dir = Keyword.fetch!(pg0, :data_dir)
+    installation_root = Keyword.fetch!(pg0, :installation_root)
+    vectorscale_dir = Keyword.fetch!(pg0, :vectorscale_dir)
     port = Keyword.fetch!(pg0, :port)
 
     unless Path.type(binary) == :absolute do
@@ -98,6 +103,16 @@ defmodule MemHouse.RuntimeConfig do
       raise "CARTULARY_PG0_DATA_DIR must be an absolute path"
     end
 
+    unless Path.type(installation_root) == :absolute do
+      raise "pg0 installation root must be an absolute path"
+    end
+
+    unless Path.type(vectorscale_dir) == :absolute and
+             File.regular?(Path.join(vectorscale_dir, "manifest.sha256")) and
+             File.read(Path.join(vectorscale_dir, "VERSION")) == {:ok, "0.9.0\n"} do
+      raise "packaged pgvectorscale files are missing at #{vectorscale_dir}"
+    end
+
     unless port in 1..65_535 do
       raise "CARTULARY_PG0_PORT must be between 1 and 65535"
     end
@@ -108,6 +123,34 @@ defmodule MemHouse.RuntimeConfig do
     if Keyword.get(database, :database_url) in [nil, ""] and
          Application.get_env(:memhouse, :require_database_url, false) do
       raise "DATABASE_URL is required when CARTULARY_DATABASE_MODE=external"
+    end
+  end
+
+  defp validate_diskann! do
+    config = Application.fetch_env!(:memhouse, :diskann)
+
+    unless Keyword.fetch!(config, :storage_layout) in ~w(memory_optimized plain) do
+      raise "CARTULARY_DISKANN_STORAGE_LAYOUT must be memory_optimized or plain"
+    end
+
+    integer_in!(config, :num_neighbors, 10..1000)
+    integer_in!(config, :search_list_size, 10..1000)
+    integer_in!(config, :num_dimensions, 0..1024)
+    integer_in!(config, :query_search_list_size, 1..10_000)
+    integer_in!(config, :query_rescore, 0..1000)
+
+    max_alpha = Keyword.fetch!(config, :max_alpha)
+
+    unless is_number(max_alpha) and max_alpha >= 1.0 and max_alpha <= 5.0 do
+      raise "CARTULARY_DISKANN_MAX_ALPHA must be between 1.0 and 5.0"
+    end
+  end
+
+  defp integer_in!(config, key, range) do
+    value = Keyword.fetch!(config, key)
+
+    unless is_integer(value) and value in range do
+      raise "#{key} must be between #{range.first} and #{range.last}"
     end
   end
 

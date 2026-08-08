@@ -13,7 +13,7 @@ the model-outage portion of `NFR-8`.
 
 | Role | Capability | Default |
 | --- | --- | --- |
-| `embedder` | Pinned vector generation | Local Ortex/ONNX, 384 dimensions |
+| `embedder` | Pinned vector generation | Local Qwen3-Embedding-0.6B through Ortex/ONNX, 1024 dimensions |
 | `ingest_extractor` | Fast structured observation extraction | ReqLLM generation role |
 | `dream_reasoner` | Slow structured reasoning and optional rerank | ReqLLM reasoning role |
 | `dialectic_agent` | Grounded structured answers | ReqLLM dialectic role |
@@ -102,8 +102,10 @@ Mismatch returns an `f5-1` `reembed_all` plan with
 incompatible vector space. The version covers the ONNX artifact, tokenizer,
 pooling strategy, and dimensions, so changing any of them requires a version
 bump. Retrieval, entity resolution, and context now supply the
-knowledge/document vector columns, replay-safe backfill, 384-dimensional HNSW
-indexes, semantic strategy, and tiny-corpus Nx baseline.
+knowledge/document vector columns, resumable Account-wide re-embedding,
+1024-dimensional DiskANN indexes, semantic strategy, and tiny-corpus Nx
+baseline. The shipped Qwen3 identity uses `input_ids` plus `attention_mask`,
+mask-aware last-token pooling, and a query-only instruction prefix.
 
 ## Provenance, metering, and safety
 

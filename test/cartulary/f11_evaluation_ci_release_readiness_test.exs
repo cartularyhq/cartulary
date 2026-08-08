@@ -140,22 +140,15 @@ defmodule MemHouse.F11EvaluationCiReleaseReadinessTest do
     assert release =~ "ghcr.io/${GITHUB_REPOSITORY,,}"
     assert release =~ "if [[ \"$version\" != *-* ]]"
     assert release =~ "github.event.release.tag_name || inputs.tag"
-    # Every native package needs matching ERTS, NIFs, and pg0 binaries. The fan-in attaches
-    # artifacts only after every platform lane has uploaded its checksum.
+    # Every supported package needs matching ERTS, NIFs, pg0, and pgvectorscale binaries.
     assert release =~ "runner: macos-26"
-    assert release =~ "runner: macos-26-intel"
+    assert release =~ "runs-on: ubuntu-24.04-arm"
+    assert release =~ "memhouse-linux-arm64.tar.gz"
     assert release =~ "memhouse-macos-arm64.tar.gz"
-    assert release =~ "memhouse-macos-x86_64.tar.gz"
-    assert release =~ "windows-2025"
-    assert release =~ "memhouse-windows-x86_64.zip"
-    assert release =~ ".\\scripts\\ci-pg0-lane.ps1"
-    # The official Windows BEAM build is MSVC while ExtractousEx publishes only a GNU NIF.
-    # The release lane must build that dependency's bundled Rust source for the target ABI.
-    assert release =~ "EXTRACTOUS_EX_BUILD: \"true\""
-    assert release =~ "1.85.1-x86_64-pc-windows-msvc"
-    assert release =~ "rustup toolchain install"
+    refute release =~ "memhouse-macos-x86_64.tar.gz"
+    refute release =~ "memhouse-windows-x86_64.zip"
     assert release =~ "actions/download-artifact@v8"
-    assert release =~ "needs: [linux, macos, windows]"
+    assert release =~ "needs: [linux, linux-arm64, macos]"
 
     # The manually-dispatched release preparer changes the metadata before it
     # tags, then publishes the GitHub Release that invokes the artifact lane.
@@ -163,7 +156,7 @@ defmodule MemHouse.F11EvaluationCiReleaseReadinessTest do
     assert prepare_release =~ "replace_existing_release"
     assert prepare_release =~ "mix memhouse.release.check"
     assert prepare_release =~ "gh pr create"
-    assert prepare_release =~ "pgvector/pgvector:pg18-bookworm"
+    assert prepare_release =~ "timescale/timescaledb-ha:pg18-all-oss"
     assert prepare_release =~ "CARTULARY_TEST_DATABASE_URL"
     assert publish_release =~ "pull_request:"
     assert publish_release =~ "types: [closed]"
@@ -201,9 +194,8 @@ defmodule MemHouse.F11EvaluationCiReleaseReadinessTest do
 
     for archive <- [
           "memhouse-linux-x86_64.tar.gz",
-          "memhouse-macos-arm64.tar.gz",
-          "memhouse-macos-x86_64.tar.gz",
-          "memhouse-windows-x86_64.zip"
+          "memhouse-linux-arm64.tar.gz",
+          "memhouse-macos-arm64.tar.gz"
         ] do
       assert install =~ archive
     end
@@ -211,8 +203,7 @@ defmodule MemHouse.F11EvaluationCiReleaseReadinessTest do
     assert install =~ "shasum -a 256 -c"
     assert install =~ "sha256sum -c"
     assert install =~ "bin/server"
-    assert install =~ "Get-FileHash"
-    assert install =~ "server.bat"
+    assert install =~ "external PostgreSQL"
     assert install =~ "Open Anyway"
   end
 

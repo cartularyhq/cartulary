@@ -261,7 +261,7 @@ defmodule MemHouse.F10PortabilityPackagingOperationsTest do
     refute line["metadata"] |> Map.has_key?("content")
   end
 
-  test "packaging pins pg0 and keeps containers on stock Postgres" do
+  test "packaging pins pg0 and pgvectorscale for supported platforms" do
     # The embedded database launcher is pinned to an exact version, and every supported
     # platform's download has a reviewed SHA-256 digest. Unpinning it, or shipping a platform
     # without a digest, turns a release build into an unverified download.
@@ -270,9 +270,17 @@ defmodule MemHouse.F10PortabilityPackagingOperationsTest do
     checksums = File.read!("rel/pg0/checksums.txt")
     assert checksums =~ "pg0-darwin-aarch64"
     assert checksums =~ "pg0-linux-x86_64-gnu"
-    assert checksums =~ "pg0-windows-x86_64.exe"
-    # The Windows packaging script must verify that digest too, not just download the asset.
-    assert File.read!("scripts/package-release.ps1") =~ "Get-FileHash -Algorithm SHA256"
+
+    assert File.read!("rel/pgvectorscale/VERSION") == "0.9.0\n"
+    vectorscale_checksums = File.read!("rel/pgvectorscale/checksums.txt")
+    assert vectorscale_checksums =~ "darwin-aarch64.tar.gz"
+    assert vectorscale_checksums =~ "linux-aarch64-gnu.tar.gz"
+    assert vectorscale_checksums =~ "linux-x86_64-gnu.tar.gz"
+    assert File.read!("config/runtime.exs") =~ ~s("linux-arm64")
+    package_script = File.read!("scripts/package-release")
+    assert package_script =~ "scripts/build-pgvectorscale"
+    assert package_script =~ "Intel macOS requires external PostgreSQL"
+    assert package_script =~ "musl requires external PostgreSQL"
 
     dockerfile = File.read!("Dockerfile")
     # The native-extension build stage is pinned to an exact toolchain image.
@@ -285,13 +293,41 @@ defmodule MemHouse.F10PortabilityPackagingOperationsTest do
     refute dockerfile =~ "pg0 start"
 
     compose = File.read!("compose.yml")
-    # A stock Postgres image with the vector extension — nothing bespoke to reproduce.
-    assert compose =~ "pgvector/pgvector:pg18-bookworm"
+    assert compose =~ "timescale/timescaledb-ha:pg18-all-oss"
     # Tracing and metrics are opt-in through a profile, not always-on.
     assert compose =~ "profiles: [observability]"
     # No Redis, and no second worker runtime. Jobs run on Postgres in every deployment mode;
     # introducing another datastore would fork the guarantees between the two modes.
     refute compose =~ "redis"
+  end
+
+  test "pg0 stages verified pgvectorscale files without rewriting a match" do
+    root = temp_path("vectorscale-stage")
+    source = Path.join(root, "source")
+    installation = Path.join(root, "installation")
+    library = "lib/vectorscale.dylib"
+    File.mkdir_p!(Path.join(source, "lib"))
+    File.write!(Path.join(source, library), "verified-extension")
+    File.write!(Path.join(source, "VERSION"), "0.9.0\n")
+
+    digest =
+      :crypto.hash(:sha256, "verified-extension")
+      |> Base.encode16(case: :lower)
+
+    File.write!(Path.join(source, "manifest.sha256"), "#{digest}  #{library}\n")
+
+    config = [
+      vectorscale_dir: source,
+      installation_root: installation,
+      postgres_version: "18.1.0"
+    ]
+
+    assert :ok = MemHouse.Pg0.stage_vectorscale!(config)
+    target = Path.join([installation, "18.1.0", library])
+    assert File.read!(target) == "verified-extension"
+    first = File.stat!(target).mtime
+    assert :ok = MemHouse.Pg0.stage_vectorscale!(config)
+    assert File.stat!(target).mtime == first
   end
 
   # A minimal audit event in the shape the verifier reads from an archive. Every field here

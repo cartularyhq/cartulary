@@ -14,8 +14,8 @@ defmodule MemHouse.Model.Embedding.Ortex do
   1. **Tokenize as a batch.** Truncate at the configured maximum and pad only to the longest
      sequence in the batch.
   2. **Run the graph** with the input tensors in the order the export expects.
-  3. **Pool** rank-3 token states by first token or masked mean; use rank-2 vectors as-is. Pooling
-     must match training, and masked mean excludes padding.
+  3. **Pool** rank-3 token states by first token, masked mean, or last unmasked token; use rank-2
+     vectors as-is. Pooling must match training, and masked pooling excludes padding.
   4. **L2-normalize** so dot product equals cosine similarity.
 
   ## Caching
@@ -258,6 +258,28 @@ defmodule MemHouse.Model.Embedding.Ortex do
   # is a property of the model, not a tuning knob.
   defp pool(hidden_batches, _masks, :cls), do: Enum.map(hidden_batches, &List.first/1)
   defp pool(hidden_batches, masks, :mean), do: mean_pool(hidden_batches, masks)
+  defp pool(hidden_batches, masks, :last_token), do: last_token_pool(hidden_batches, masks)
+
+  @doc """
+  Returns each batch row's final unmasked token vector.
+
+  Decoder embedding models use this pooling rule. Selecting the final padded
+  position would return a valid-shaped but semantically wrong vector.
+  """
+  def last_token_pool(hidden_batches, masks) do
+    Enum.zip_with(hidden_batches, masks, fn hidden, mask ->
+      hidden
+      |> Enum.zip(mask)
+      |> Enum.reduce(nil, fn
+        {token, 1}, _last -> token
+        {_token, _masked}, last -> last
+      end)
+      |> case do
+        nil -> List.duplicate(0.0, hidden |> List.first([]) |> length())
+        token -> token
+      end
+    end)
+  end
 
   # L2-normalizes to unit length so that a dot product equals cosine similarity.
   # Retrieval scoring assumes this; skipping it would make similarity depend on

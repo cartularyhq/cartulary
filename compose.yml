@@ -6,8 +6,8 @@
 
 services:
   postgres:
-    # pgvector is required for vector columns and indexes.
-    image: pgvector/pgvector:pg18-bookworm
+    # The `all` image contains pgvector and pgvectorscale for DiskANN indexes.
+    image: timescale/timescaledb-ha:pg18-all-oss@sha256:0aaf407844b3cc9adc4e86b326a16de5dbe26a087f09560837f9343c279a6dd5
     environment:
       POSTGRES_DB: memhouse
       # This bootstrap superuser migrates and provisions the restricted application role;

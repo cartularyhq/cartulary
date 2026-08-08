@@ -496,6 +496,18 @@ defmodule MemHouse.Documents.DocumentChunk do
       ]
     end
 
+    update :reindex_from_pipeline do
+      accept [
+        :embedding,
+        :embedding_provider,
+        :embedding_model,
+        :embedding_version,
+        :embedding_dimensions
+      ]
+
+      require_atomic? false
+    end
+
     # Retires a chunk without deleting it: "superseded" when a newer version of the document
     # arrived, "tombstoned" when the source document was deleted. Retrieval filters on status.
     update :supersede do

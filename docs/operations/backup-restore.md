@@ -3,7 +3,7 @@
 # Physical Backup And Restore
 
 Back up the Postgres database and original blob store at the same recovery
-point. Chunks, projections, indexes, HNSW state, ETS counters, and
+point. Chunks, projections, DiskANN indexes, ETS counters, and
 `persistent_term` caches are rebuildable.
 
 ## Embedded pg0

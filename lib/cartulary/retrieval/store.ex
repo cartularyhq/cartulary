@@ -174,7 +174,7 @@ defmodule MemHouse.Retrieval.Store do
 
   Filters by provider, model, version, and dimensions; incompatible rows require re-embedding.
 
-  The 384-dimensional variant matches its indexed cast; other dimensions scan correctly. Scores
+  The 1024-dimensional variant matches its indexed cast; other dimensions scan correctly. Scores
   are `1 - cosine distance`.
 
   Returns column-keyed maps with `score` and `candidate_type`, merged across
@@ -182,15 +182,25 @@ defmodule MemHouse.Retrieval.Store do
   `Postgrex.Error` if the statement fails.
   """
   def semantic(query, embedding, identity, limit) do
+    {:ok, rows} =
+      Repo.transaction(fn ->
+        configure_diskann_query!()
+        semantic_query(query, embedding, identity, limit)
+      end)
+
+    rows
+  end
+
+  defp semantic_query(query, embedding, identity, limit) do
     vector = vector_literal(embedding)
 
     knowledge =
       if query.target in [:knowledge, :all] do
         sql =
-          if identity.dimensions == 384 do
+          if identity.dimensions == 1024 do
             """
             SELECT #{@knowledge_columns},
-                   1.0 - (k.embedding::vector(384) <=> $4::text::vector(384)) AS score,
+                   1.0 - (k.embedding::vector(1024) <=> $4::text::vector(1024)) AS score,
                    'knowledge' AS candidate_type
             FROM knowledge_items AS k
             JOIN scopes AS s ON s.id = k.scope_id AND s.account_id = k.account_id
@@ -206,7 +216,7 @@ defmodule MemHouse.Retrieval.Store do
               AND k.embedding_model = $6
               AND k.embedding_version = $7
               AND k.embedding_dimensions = $8
-            ORDER BY k.embedding::vector(384) <=> $4::text::vector(384)
+            ORDER BY k.embedding::vector(1024) <=> $4::text::vector(1024)
             LIMIT $9
             """
           else
@@ -251,14 +261,14 @@ defmodule MemHouse.Retrieval.Store do
     documents =
       if query.target in [:documents, :all] do
         sql =
-          if identity.dimensions == 384 do
+          if identity.dimensions == 1024 do
             """
             SELECT c.id, c.scope_id, s.path AS scope_path, c.text AS statement,
                    'document_chunk' AS kind, 1.0::float8 AS confidence,
                    'internal' AS sensitivity, c.status AS state,
                    ARRAY[]::uuid[] AS source_message_ids,
                    NULL::text AS extracting_model, 'f7-1' AS pipeline_version,
-                   1.0 - (c.embedding::vector(384) <=> $3::text::vector(384)) AS score,
+                   1.0 - (c.embedding::vector(1024) <=> $3::text::vector(1024)) AS score,
                    'document_chunk' AS candidate_type,
                    c.document_id, c.document_version_id, c.position
             FROM document_chunks AS c
@@ -270,7 +280,7 @@ defmodule MemHouse.Retrieval.Store do
               AND c.embedding_model = $5
               AND c.embedding_version = $6
               AND c.embedding_dimensions = $7
-            ORDER BY c.embedding::vector(384) <=> $3::text::vector(384)
+            ORDER BY c.embedding::vector(1024) <=> $3::text::vector(1024)
             LIMIT $8
             """
           else
@@ -312,6 +322,20 @@ defmodule MemHouse.Retrieval.Store do
       end
 
     top(knowledge ++ documents, limit)
+  end
+
+  defp configure_diskann_query! do
+    config = Application.fetch_env!(:memhouse, :diskann)
+
+    for {setting, value} <- [
+          {"diskann.query_search_list_size", Keyword.fetch!(config, :query_search_list_size)},
+          {"diskann.query_rescore", Keyword.fetch!(config, :query_rescore)}
+        ] do
+      Ecto.Adapters.SQL.query!(Repo, "SELECT set_config($1, $2, true)", [
+        setting,
+        to_string(value)
+      ])
+    end
   end
 
   @doc """

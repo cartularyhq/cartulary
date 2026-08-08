@@ -263,6 +263,8 @@ config :memhouse, :database,
     # Must match the PostgreSQL version of the pinned asset. A mismatch means
     # the data directory cannot be opened by the binary that ships with it.
     postgres_version: env_get.("CARTULARY_PG0_POSTGRES_VERSION", "18.1.0"),
+    installation_root: Path.expand("~/.pg0/installation"),
+    vectorscale_dir: Path.join(release_root, "pgvectorscale"),
     # The durable cluster. This directory is the system of record in pg0 mode:
     # it must be backed up, must survive upgrades, and must never point at a
     # temp path in a real install.
@@ -295,19 +297,25 @@ update_auto =
     value -> raise "CARTULARY_AUTO_UPDATE must be off or minor, got: #{inspect(value)}"
   end
 
+architecture = to_string(:erlang.system_info(:system_architecture))
+
 update_platform =
   case :os.type() do
     {:win32, _} ->
       "windows-x86_64"
 
     {:unix, :darwin} ->
-      if(String.contains?(to_string(:erlang.system_info(:system_architecture)), "aarch64"),
+      if(String.contains?(architecture, "aarch64"),
         do: "macos-arm64",
         else: "macos-x86_64"
       )
 
     _ ->
-      "linux-x86_64"
+      if String.contains?(architecture, "aarch64") or String.contains?(architecture, "arm64") do
+        "linux-arm64"
+      else
+        "linux-x86_64"
+      end
   end
 
 config :memhouse, :update,
@@ -463,18 +471,18 @@ config :memhouse, :model_roles,
     # no download, so embedding works offline once the artifact paths below are
     # set. Without them the embedder errors rather than fetching anything.
     provider: env_get.("CARTULARY_EMBEDDING_PROVIDER", "ortex"),
-    model: env_get.("CARTULARY_EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5"),
+    model: env_get.("CARTULARY_EMBEDDING_MODEL", "Qwen/Qwen3-Embedding-0.6B"),
     # Bump this whenever the artifacts, pooling, or dimensions change. Provider,
     # model, version, and dimensions together form the identity stamped on every
     # stored vector; a mismatch forces an explicit re-embed and a vector is never
     # silently reused across identities.
-    model_version: env_get.("CARTULARY_EMBEDDING_VERSION", "onnx-1"),
+    model_version: env_get.("CARTULARY_EMBEDDING_VERSION", "onnx-1-qwen3-1024"),
     prompt_version: "none",
     pipeline_version: "f5-1",
-    # Must equal the model's real output width. 384 is the width the shipped
-    # vector indexes are built for; other widths work but fall back to the
+    # Must equal the model's real output width. 1024 is the width the shipped
+    # DiskANN vector indexes are built for; other widths work but fall back to the
     # unindexed path until a matching index migration is installed.
-    embedding_dimensions: env_integer.("CARTULARY_EMBEDDING_DIMENSIONS", "384"),
+    embedding_dimensions: env_integer.("CARTULARY_EMBEDDING_DIMENSIONS", "1024"),
     options: %{
       "api_key_ref" => "env:CARTULARY_EMBEDDING_API_KEY",
       "base_url" => env_get.("CARTULARY_EMBEDDING_BASE_URL", nil),
@@ -485,7 +493,15 @@ config :memhouse, :model_roles,
       "tokenizer_path" => env_get.("CARTULARY_ORTEX_TOKENIZER_PATH", nil),
       # How token vectors are reduced to one sentence vector. Must match how the
       # model was trained, and changing it changes the embedding identity.
-      "pooling" => env_get.("CARTULARY_ORTEX_POOLING", "cls"),
+      "pooling" => env_get.("CARTULARY_ORTEX_POOLING", "last_token"),
+      # Decoder exports do not accept token_type_ids. Qwen3 uses its final
+      # unmasked token and applies this asymmetric instruction to queries only.
+      "input_order" => ["input_ids", "attention_mask"],
+      "query_instruction" =>
+        env_get.(
+          "CARTULARY_ORTEX_QUERY_INSTRUCTION",
+          "Given a web search query, retrieve relevant passages that answer the query"
+        ),
       # Comma-separated ONNX Runtime execution providers, in preference order.
       "execution_providers" =>
         env_get.("CARTULARY_ORTEX_EXECUTION_PROVIDERS", "cpu")
@@ -521,6 +537,15 @@ config :memhouse, :model_roles,
     pipeline_version: "f5-1",
     options: generation_options
   }
+
+config :memhouse, :diskann,
+  storage_layout: env_get.("CARTULARY_DISKANN_STORAGE_LAYOUT", "memory_optimized"),
+  num_neighbors: env_integer.("CARTULARY_DISKANN_NUM_NEIGHBORS", "50"),
+  search_list_size: env_integer.("CARTULARY_DISKANN_SEARCH_LIST_SIZE", "100"),
+  max_alpha: env_float.("CARTULARY_DISKANN_MAX_ALPHA", "1.2"),
+  num_dimensions: env_integer.("CARTULARY_DISKANN_NUM_DIMENSIONS", "0"),
+  query_search_list_size: env_integer.("CARTULARY_DISKANN_QUERY_SEARCH_LIST_SIZE", "100"),
+  query_rescore: env_integer.("CARTULARY_DISKANN_QUERY_RESCORE", "50")
 
 # Deployment overrides for retrieval. Only two things are tunable from the
 # environment: which strategies may run at all, the three profile deadlines,

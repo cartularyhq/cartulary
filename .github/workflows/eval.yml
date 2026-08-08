@@ -59,7 +59,7 @@ jobs:
       # real database with vector and full-text search — the same image CI and the
       # container deployment use.
       postgres:
-        image: pgvector/pgvector:pg18-bookworm
+        image: timescale/timescaledb-ha:pg18-all-oss@sha256:0aaf407844b3cc9adc4e86b326a16de5dbe26a087f09560837f9343c279a6dd5
         env:
           POSTGRES_DB: postgres
           POSTGRES_USER: postgres

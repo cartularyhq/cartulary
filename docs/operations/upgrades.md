@@ -80,6 +80,20 @@ Watch queue depths on `/api/ready`. A new version may enqueue projection or
 index rebuilds; `/api/v1/context` reports `fast_fallback: true` until
 projections warm up.
 
+The 1024-dimensional Qwen3 transition needs an explicit re-embed after the
+schema migration:
+
+```bash
+bin/memhouse rpc 'MemHouse.Release.reembed!()'
+bin/memhouse rpc 'MemHouse.Release.reembed_status!("PIPELINE_RUN_ID")'
+```
+
+The first command returns the durable run id. Repeat the status command until
+the phase is `complete`. Semantic search sees only batches written with the new
+identity during the transition. Lexical search stays available. Do not remove
+the old release or backups until the run completes and an authenticated search
+succeeds.
+
 ## Version alignment
 
 A release is coherent only when `mix.exs`, the changelog entry, the git tag,

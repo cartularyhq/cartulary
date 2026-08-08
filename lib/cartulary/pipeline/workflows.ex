@@ -232,6 +232,9 @@ defmodule MemHouse.Pipeline.Workflows.Maintenance do
         "import_rebuild" when run.target_type == "scope" ->
           MemHouse.Retrieval.Rebuild.scope(run.account_id, run.target_id)
 
+        "reembed" ->
+          MemHouse.Retrieval.Reembed.run(run)
+
         # Unknown or not-yet-implemented lane: complete as a durable
         # continuation rather than failing a row this release cannot interpret.
         _other ->

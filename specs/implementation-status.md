@@ -155,7 +155,7 @@ Details: `specs/architecture/documents-connectors-sync.md`.
 - Account, authorized scope, lifecycle, provisional subject, and source filters
   are applied before any candidate leaves retrieval internals.
 - Knowledge and document chunks use PostgreSQL `vector` values with pinned
-  provider/model/version/dimension identity, HNSW cosine indexes, and PG-FTS
+  provider/model/version/dimension identity, DiskANN cosine indexes, and PG-FTS
   GIN indexes.
 - Entity and EntityMention rows are internal rebuildable caches. The rows are
   never exposed through HTTP, MCP, SDK, LiveView, or retrieval responses. An
@@ -208,10 +208,12 @@ Details: `specs/architecture/skill-readiness-procedural-memory.md`.
 
 ### Portability, packaging, and operations
 
-- Cross-platform Mix releases with a checksum-pinned pg0 binary, supervised
+- Linux glibc and Apple Silicon Mix releases with checksum-pinned pg0 and
+  ABI-matched pgvectorscale, supervised
   lifecycle, first-run migration, stale-lock recovery, explicit port conflict
   errors, data-directory health checks, and an external-Postgres escape hatch.
-- A non-root container image and Compose stack over stock Postgres, plus an
+- A non-root container image and Compose stack over PostgreSQL with pgvector
+  and pgvectorscale, plus an
   optional OpenTelemetry Collector, Jaeger, and Prometheus profile. pg0 is
   never in the container path.
 - Runtime configuration validation with clear boot errors.
@@ -238,7 +240,7 @@ Details: `specs/architecture/portability-packaging-operations.md` and
 - Blocking external-Postgres and packaged-pg0 CI lanes, Dialyzer and security
   gates, Mix release and container builds, nightly evaluation, semantic
   version/tag validation, fail-closed release checks, durable GitHub Release
-  assets for Linux x86_64, both macOS CPU families, and Windows x86_64, and tagged GHCR
+  assets for Linux x86_64/ARM64 and Apple Silicon macOS, and tagged GHCR
   container publication.
 - A provider cassette layer for deterministic model tests.
 - Held-out tuning discipline: fusion weights may only use held-out data.

@@ -70,8 +70,9 @@ generation can use any ReqLLM-supported or OpenAI-compatible endpoint.
 
 ### Downloaded release
 
-Download the archive and `.sha256` file for Linux x86_64, macOS Apple Silicon,
-macOS Intel, or Windows x86_64 from [GitHub Releases](https://github.com/memhousehq/memhouse/releases).
+Download the archive and `.sha256` file for glibc Linux x86_64/ARM64 or macOS Apple Silicon
+from [GitHub Releases](https://github.com/memhousehq/memhouse/releases).
+Windows, Intel macOS, and Linux musl use external PostgreSQL or the container.
 Verify the checksum, unpack the archive, then run:
 
 ```bash
@@ -81,7 +82,7 @@ curl -fsS http://127.0.0.1:4000/api/ready
 
 The launcher creates its data directory, starts pg0, migrates the database, and
 starts the API. The [release installation guide](https://memhousehq.github.io/memhouse/getting-started/install-release/)
-has architecture selection, download, checksum, Windows, macOS Gatekeeper, and
+has architecture selection, download, checksum, macOS Gatekeeper, and
 a recommended local setup block with signed automatic patch/minor updates.
 
 ### Source checkout

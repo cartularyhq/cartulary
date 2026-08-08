@@ -304,6 +304,20 @@ defmodule MemHouse.Operations.PipelineRun do
       change run_oban_trigger(:entity_resolution)
     end
 
+    create :enqueue_reembed do
+      accept [:target_type, :target_id, :idempotency_key, :payload]
+      upsert? true
+      upsert_identity :idempotency_key
+      upsert_fields [:idempotency_key]
+      change set_attribute(:kind, "reembed")
+      change run_oban_trigger(:reembed)
+    end
+
+    update :record_reembed_progress do
+      accept [:payload]
+      require_atomic? false
+    end
+
     create :enqueue_validation_continuation do
       accept [:scope_id, :target_type, :target_id, :idempotency_key, :payload]
       upsert? true
@@ -543,6 +557,20 @@ defmodule MemHouse.Operations.PipelineRun do
         on_error(:mark_failed)
         worker_module_name(MemHouse.Pipeline.Workers.EntityResolution)
         scheduler_module_name(MemHouse.Pipeline.Schedulers.EntityResolution)
+        extra_args(&MemHouse.Pipeline.job_args/1)
+      end
+
+      trigger :reembed do
+        action :execute
+        where expr(kind == "reembed" and status in ["pending", "failed"])
+        worker_read_action(:for_trigger)
+        queue(:projection)
+        scheduler_cron(false)
+        max_attempts(5)
+        trigger_once?(true)
+        on_error(:mark_failed)
+        worker_module_name(MemHouse.Pipeline.Workers.Reembed)
+        scheduler_module_name(MemHouse.Pipeline.Schedulers.Reembed)
         extra_args(&MemHouse.Pipeline.job_args/1)
       end
 

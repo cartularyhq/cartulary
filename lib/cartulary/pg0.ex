@@ -17,6 +17,7 @@ defmodule MemHouse.Pg0 do
   # connections. A first start initialises a cluster on disk, which is far
   # slower than a restart, so this is generous on purpose.
   @startup_timeout_ms 30_000
+  @vectorscale_version "0.9.0"
 
   @doc """
   Starts the launcher under the supervision tree, registered under the module name.
@@ -54,6 +55,7 @@ defmodule MemHouse.Pg0 do
     config = pg0_config()
     prepare_data_dir!(config)
     start_or_attach!(config)
+    stage_vectorscale!(config)
     {:ok, config}
   end
 
@@ -108,12 +110,90 @@ defmodule MemHouse.Pg0 do
     }
   end
 
+  @doc """
+  Verifies and stages the packaged pgvectorscale files into pg0's installation.
+
+  The target is keyed by PostgreSQL version. Matching files are unchanged;
+  changed files use an atomic rename so boot cannot expose a partial library or
+  SQL file. Raises on a missing file, digest mismatch, or unsafe manifest path.
+  """
+  # Package and installation roots come from validated release configuration;
+  # every manifest entry is constrained below both roots before file access.
+  # sobelow_skip ["Traversal.FileModule"]
+  def stage_vectorscale!(config) do
+    source_root = Keyword.fetch!(config, :vectorscale_dir)
+    installation_root = Keyword.fetch!(config, :installation_root)
+    postgres_version = Keyword.fetch!(config, :postgres_version)
+    manifest_path = Path.join(source_root, "manifest.sha256")
+
+    unless File.read!(Path.join(source_root, "VERSION")) == @vectorscale_version <> "\n" do
+      raise "packaged pgvectorscale version must be #{@vectorscale_version}"
+    end
+
+    manifest_path
+    |> File.read!()
+    |> String.split("\n", trim: true)
+    |> Enum.each(fn line ->
+      {expected, relative} = manifest_entry!(line)
+      source = safe_manifest_path!(source_root, relative)
+      target = safe_manifest_path!(Path.join(installation_root, postgres_version), relative)
+      verify_digest!(source, expected)
+
+      if not File.regular?(target) or digest(target) != expected do
+        File.mkdir_p!(Path.dirname(target))
+
+        temporary =
+          target <> ".memhouse-stage-" <> Integer.to_string(System.unique_integer([:positive]))
+
+        File.cp!(source, temporary)
+        File.rename!(temporary, target)
+      end
+    end)
+
+    :ok
+  end
+
   # Read at boot rather than held as a module attribute, so the values come from
   # the environment this node actually started in and not from compile time.
   defp pg0_config do
     :memhouse
     |> Application.fetch_env!(:database)
     |> Keyword.fetch!(:pg0)
+  end
+
+  defp manifest_entry!(line) do
+    case String.split(line, ~r/\s+/, parts: 2, trim: true) do
+      [digest, relative] when byte_size(digest) == 64 -> {String.downcase(digest), relative}
+      _other -> raise "invalid pgvectorscale manifest entry"
+    end
+  end
+
+  defp safe_manifest_path!(root, relative) do
+    expanded = Path.expand(relative, root)
+    root = Path.expand(root)
+
+    if Path.type(relative) != :relative or expanded == root or
+         not String.starts_with?(expanded, root <> "/") do
+      raise "unsafe pgvectorscale manifest path"
+    end
+
+    expanded
+  end
+
+  defp verify_digest!(path, expected) do
+    unless File.regular?(path) and digest(path) == expected do
+      raise "pgvectorscale checksum mismatch for #{Path.basename(path)}"
+    end
+  end
+
+  # Callers pass paths that were constrained to the configured source or target
+  # root. No request data reaches this helper.
+  # sobelow_skip ["Traversal.FileModule"]
+  defp digest(path) do
+    path
+    |> File.read!()
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
   end
 
   # Fails fast on an unusable data directory rather than letting the database

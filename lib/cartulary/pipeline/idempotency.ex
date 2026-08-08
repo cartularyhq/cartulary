@@ -133,6 +133,14 @@ defmodule MemHouse.Pipeline.Idempotency do
   def reconciler(account_id, watermark), do: key(:reconciler, [account_id, watermark])
 
   @doc """
+  Key for rebuilding all derived vectors into one embedding identity.
+
+  A retry of the same transition resumes its durable run. A later model,
+  version, or dimension change creates separate work.
+  """
+  def reembed(account_id, identity), do: key(:reembed, [account_id, identity])
+
+  @doc """
   The system's standard content digest: lowercase hex SHA-256 of raw bytes.
 
   Used for message content, document blobs, and statement text. It is what lets

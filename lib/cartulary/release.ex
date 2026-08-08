@@ -121,6 +121,60 @@ defmodule MemHouse.Release do
     IO.puts("portability import: #{Jason.encode!(result)}")
   end
 
+  @doc """
+  Enqueues the configured Account-wide embedding transition and prints JSON.
+
+  The returned run id can be passed to `reembed_status!/1`. Repeating this call
+  for the same embedding identity returns the same durable run.
+  """
+  def reembed! do
+    result =
+      MemHouse.DataLayer.with_existing_free_account(fn account, actor ->
+        config = MemHouse.Model.Config.resolve(:embedder, %{account_id: account.id, actor: actor})
+
+        identity =
+          config
+          |> MemHouse.Model.Config.embedding_identity()
+          |> Map.new(fn {key, value} -> {to_string(key), value} end)
+
+        {:ok, run} = MemHouse.Pipeline.enqueue_reembed(account.id, identity, actor)
+        reembed_summary(run)
+      end)
+
+    IO.puts(Jason.encode!(result))
+  end
+
+  @doc """
+  Prints content-free progress for a re-embed pipeline run.
+
+  Raises when the id is not a re-embed operation or does not belong to the
+  community Account.
+  """
+  def reembed_status!(run_id) do
+    result =
+      MemHouse.DataLayer.with_existing_free_account(fn account, actor ->
+        run = Ash.get!(MemHouse.Operations.PipelineRun, run_id, tenant: account.id, actor: actor)
+
+        if run.kind != "reembed" do
+          raise ArgumentError, "pipeline run is not a re-embed operation"
+        end
+
+        reembed_summary(run)
+      end)
+
+    IO.puts(Jason.encode!(result))
+  end
+
+  defp reembed_summary(run) do
+    %{
+      id: run.id,
+      status: run.status,
+      attempt_count: run.attempt_count,
+      last_error_class: run.last_error_class,
+      progress: run.payload
+    }
+  end
+
   # Loads the application's configuration and modules without starting its
   # supervision tree. These entry points run in a bare node, and starting the
   # tree would open connections before the database is necessarily up.

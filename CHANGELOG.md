@@ -9,6 +9,14 @@ changelog entry and contract-version transition.
 
 ## [Unreleased]
 
+### Changed
+
+- Local semantic retrieval now uses Qwen3-Embedding-0.6B at 1024 dimensions
+  and pgvectorscale 0.9.0 StreamingDiskANN indexes. Packaged pg0 builds are
+  limited to glibc Linux x86_64/ARM64 and Apple Silicon. Existing installations
+  can enqueue the resumable `mix memhouse.reembed` transition; old vectors are
+  absent from semantic retrieval until their batches complete.
+
 ### Fixed
 
 - One flaky entity-card summary call no longer aborts a whole scope rebuild.

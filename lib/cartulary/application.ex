@@ -35,6 +35,7 @@ defmodule MemHouse.Application do
           # configuration is what keeps migration and provisioning connections —
           # which start the repository with its plain configuration — privileged.
           {MemHouse.Repo, after_connect: {MemHouse.Database.AppRole, :set_role, []}},
+          MemHouse.Database.ExtensionGuard,
           MemHouse.Release.Migrator,
           MemHouse.Database.RoleGuard,
           {AshAuthentication.Supervisor, otp_app: :memhouse},

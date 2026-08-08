@@ -34,8 +34,9 @@ defmodule MemHouse.Model.Providers.Ortex do
   Token counts come from the tokenizer, not an estimate, for capacity accounting.
   """
   @impl true
-  def embed(%Role{} = config, texts, _opts) do
+  def embed(%Role{} = config, texts, request_opts) do
     opts = embedding_opts(config)
+    texts = apply_query_instruction(texts, config.options, request_opts)
 
     with {:ok, vectors} <- Ortex.generate(texts, opts),
          {:ok, tokens} <- Ortex.token_count(texts, opts) do
@@ -87,8 +88,26 @@ defmodule MemHouse.Model.Providers.Ortex do
   defp execution_provider(provider) when is_atom(provider), do: provider
   defp execution_provider(_provider), do: :cpu
 
-  # Anything except `mean` uses the documented CLS default.
+  @doc """
+  Applies the configured Qwen3 instruction to query embeddings only.
+
+  Stored statements and document chunks must stay unprefixed. Their vectors are
+  the retrieval corpus, not queries.
+  """
+  def apply_query_instruction(texts, options, opts) do
+    instruction = Map.get(options, "query_instruction")
+
+    if Keyword.get(opts, :purpose) == :query and is_binary(instruction) and instruction != "" do
+      Enum.map(texts, &"Instruct: #{instruction}\nQuery: #{&1}")
+    else
+      texts
+    end
+  end
+
+  # Anything except a declared pooling strategy uses the documented CLS default.
   defp pooling("mean"), do: :mean
   defp pooling(:mean), do: :mean
+  defp pooling("last_token"), do: :last_token
+  defp pooling(:last_token), do: :last_token
   defp pooling(_pooling), do: :cls
 end

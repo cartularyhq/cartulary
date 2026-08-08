@@ -3,7 +3,7 @@
 # Install a packaged release
 
 The packaged release includes and supervises a checksum-pinned pg0 PostgreSQL
-distribution with pgvector.
+distribution with pgvector and pgvectorscale 0.9.0.
 
 ## Choose a build
 
@@ -14,9 +14,11 @@ your machine:
 | System | Architecture check | Archive |
 | --- | --- | --- |
 | macOS, Apple Silicon | `uname -m` prints `arm64` | `memhouse-macos-arm64.tar.gz` |
-| macOS, Intel | `uname -m` prints `x86_64` | `memhouse-macos-x86_64.tar.gz` |
 | Linux, Intel/AMD 64-bit | `uname -m` prints `x86_64` | `memhouse-linux-x86_64.tar.gz` |
-| Windows, Intel/AMD 64-bit | Settings → System → About → System type | `memhouse-windows-x86_64.zip` |
+| Linux, ARM 64-bit | `uname -m` prints `aarch64` or `arm64` | `memhouse-linux-arm64.tar.gz` |
+
+Windows, Intel macOS, and Linux musl need external PostgreSQL with pgvector and
+pgvectorscale, or a container deployment.
 
 The container build for external PostgreSQL is
 `ghcr.io/memhousehq/memhouse:<version>`.
@@ -58,23 +60,6 @@ The browser download works without extra tools. The commands below use the
     cd memhouse
     ```
 
-=== "Windows"
-
-    ```powershell
-    $releaseTag = "v0.3.0"
-    $download = "memhouse-download"
-    gh release download $releaseTag `
-      --repo memhousehq/memhouse `
-      --pattern "memhouse-windows-x86_64.zip*" `
-      --dir $download
-    Set-Location $download
-    $expected = (Get-Content memhouse-windows-x86_64.zip.sha256).Split()[0]
-    $actual = (Get-FileHash -Algorithm SHA256 memhouse-windows-x86_64.zip).Hash.ToLowerInvariant()
-    if ($actual -ne $expected) { throw "Checksum verification failed" }
-    Expand-Archive memhouse-windows-x86_64.zip
-    Set-Location memhouse
-    ```
-
 Do not run an archive when its checksum fails. Download both files again from
 the same release and retry verification.
 
@@ -84,31 +69,16 @@ For a single-machine installation, use the packaged PostgreSQL, keep all
 durable state in one private directory, and enable signed patch/minor updates
 before each start:
 
-=== "macOS / Linux"
+```bash
+export CARTULARY_DATA_ROOT="$HOME/.memhouse"
+export CARTULARY_DATABASE_MODE=pg0
+export CARTULARY_AUTO_MIGRATE=true
+export CARTULARY_UPDATE_CHECK=true
+export CARTULARY_AUTO_UPDATE=minor
+export CARTULARY_UPDATE_CHECK_INTERVAL_HOURS=24
 
-    ```bash
-    export CARTULARY_DATA_ROOT="$HOME/.memhouse"
-    export CARTULARY_DATABASE_MODE=pg0
-    export CARTULARY_AUTO_MIGRATE=true
-    export CARTULARY_UPDATE_CHECK=true
-    export CARTULARY_AUTO_UPDATE=minor
-    export CARTULARY_UPDATE_CHECK_INTERVAL_HOURS=24
-
-    bin/server
-    ```
-
-=== "Windows"
-
-    ```powershell
-    $env:CARTULARY_DATA_ROOT = "$HOME\.memhouse"
-    $env:CARTULARY_DATABASE_MODE = "pg0"
-    $env:CARTULARY_AUTO_MIGRATE = "true"
-    $env:CARTULARY_UPDATE_CHECK = "true"
-    $env:CARTULARY_AUTO_UPDATE = "minor"
-    $env:CARTULARY_UPDATE_CHECK_INTERVAL_HOURS = "24"
-
-    .\bin\server.bat
-    ```
+bin/server
+```
 
 `minor` accepts only an eligible signed stable patch/minor release in the
 current major version. Use `bin/update --check` to inspect availability, or
@@ -118,17 +88,9 @@ set `CARTULARY_AUTO_UPDATE=off` when you want to approve every update yourself.
 
 From the extracted `memhouse` directory:
 
-=== "macOS / Linux"
-
-    ```bash
-    bin/server
-    ```
-
-=== "Windows"
-
-    ```powershell
-    .\bin\server.bat
-    ```
+```bash
+bin/server
+```
 
 The macOS archives are not yet signed or notarized by Apple. If macOS blocks
 the verified build, try to open it once, then use **System Settings → Privacy &
@@ -138,7 +100,7 @@ not disable Gatekeeper globally.
 
 On first start the launcher:
 
-1. creates a private data root at `~/.memhouse` on macOS/Linux or `%USERPROFILE%\.memhouse` on Windows;
+1. creates a private data root at `~/.memhouse`;
 2. generates the local signing secret;
 3. starts the packaged pg0 binary and creates its PostgreSQL cluster;
 4. runs every migration against the fresh database;
@@ -173,7 +135,9 @@ The complete list is in [Configuration](../reference/configuration.md).
 
 ## Point it at your own PostgreSQL instead
 
-The same release can use operator-run PostgreSQL 18 with pgvector:
+The same release can use operator-run PostgreSQL 18 with pgvector and
+pgvectorscale 0.9.0. Boot fails with an actionable error if `vectorscale` is
+not available to install.
 
 ```bash
 export CARTULARY_DATABASE_MODE=external
@@ -189,20 +153,13 @@ be a separate step, then run `bin/migrate` before starting the release.
 
 ## Build a release from source
 
-Both scripts download the exact pg0 asset named in `rel/pg0/VERSION`, verify it
-against `rel/pg0/checksums.txt`, and stage it only for release assembly:
+The package script downloads the exact pg0 asset named in `rel/pg0/VERSION`,
+verifies it against `rel/pg0/checksums.txt`, and builds the pinned pgvectorscale
+source against that pg0 installation:
 
-=== "macOS / Linux"
-
-    ```bash
-    ./scripts/package-release
-    ```
-
-=== "Windows"
-
-    ```powershell
-    scripts\package-release.ps1
-    ```
+```bash
+./scripts/package-release
+```
 
 ## Next
 
