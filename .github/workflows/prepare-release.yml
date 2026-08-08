@@ -125,7 +125,7 @@ jobs:
           mix deps.get
           mix format --check-formatted
           mix test test/cartulary/f11_evaluation_ci_release_readiness_test.exs
-          mix memhouse.release.check --tag "${{ steps.metadata.outputs.tag }}" --allow-missing-eval
+          mix mem_house.release.check --tag "${{ steps.metadata.outputs.tag }}" --allow-missing-eval
 
       - name: Refuse an existing release unless repairing it
         shell: bash
