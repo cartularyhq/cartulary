@@ -24,7 +24,7 @@ defmodule MemHouse.Skills.Selector do
   @source_policies ~w(from-memory ask-peer either)
 
   # Closed vocabularies reject typos instead of creating permanent unexplained gaps.
-  @kinds ~w(fact preference event relation skill)
+  @kinds ~w(fact preference event relation skill aggregate)
   @subjects ~w(peer scope either)
   @sensitivities ~w(public internal personal restricted)
   @target_levels ~w(peer scope account)
