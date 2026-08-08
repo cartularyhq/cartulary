@@ -14,6 +14,7 @@ defmodule MemHouse.Pipeline.Consolidator do
   alias MemHouse.DataLayer
   alias MemHouse.Governance.{Audit, Engine}
   alias MemHouse.Knowledge.{KnowledgeItem, KnowledgeRelation, LifecycleEvent, Provenance}
+  alias MemHouse.Pipeline.Lock
   alias MemHouse.Retrieval.Vector
 
   require Ash.Query
@@ -37,6 +38,7 @@ defmodule MemHouse.Pipeline.Consolidator do
     scopes =
       KnowledgeItem
       |> Ash.Query.filter(state == "active")
+      |> Ash.Query.select([:scope_id])
       |> Ash.Query.set_tenant(account_id)
       |> Ash.read!(actor: actor)
       |> Enum.map(& &1.scope_id)
@@ -56,11 +58,12 @@ defmodule MemHouse.Pipeline.Consolidator do
   source rows change. `actor` must be the current Account pipeline actor.
   """
   def run_scope!(account_id, scope_id, actor) do
+    Lock.acquire!(account_id, "knowledge-consolidation:#{scope_id}")
     items = active_items(account_id, scope_id, actor)
 
     merged =
       items
-      |> Enum.reject(&(&1.kind == "aggregate"))
+      |> Enum.reject(&derived_aggregate?/1)
       |> duplicate_groups()
       |> Enum.reduce(0, fn group, count -> merge_group!(group, actor) + count end)
 
@@ -68,7 +71,7 @@ defmodule MemHouse.Pipeline.Consolidator do
     # representatives, otherwise a retired duplicate can become a new member.
     aggregates =
       active_items(account_id, scope_id, actor)
-      |> Enum.reject(&(&1.kind == "aggregate"))
+      |> Enum.reject(&derived_aggregate?/1)
       |> set_groups()
       |> Enum.reduce(0, fn group, count -> ensure_aggregate!(group, actor) + count end)
 
@@ -78,6 +81,7 @@ defmodule MemHouse.Pipeline.Consolidator do
   defp active_items(account_id, scope_id, actor) do
     KnowledgeItem
     |> Ash.Query.filter(scope_id == ^scope_id and state == "active" and is_nil(deleted_at))
+    |> Ash.Query.ensure_selected([:embedding])
     |> Ash.Query.set_tenant(account_id)
     |> Ash.read!(actor: actor)
   end
@@ -94,7 +98,8 @@ defmodule MemHouse.Pipeline.Consolidator do
   end
 
   defp duplicate_key(item) do
-    {item.subject_peer_id, item.subject_scope_id, item.kind, item.sensitivity, item.target_level}
+    {item.subject_peer_id, item.subject_scope_id, item.kind, item.sensitivity, item.target_level,
+     item.relevant_from, item.relevant_until}
   end
 
   defp semantic_groups(items) do
@@ -182,7 +187,8 @@ defmodule MemHouse.Pipeline.Consolidator do
     existing =
       KnowledgeItem
       |> Ash.Query.filter(
-        scope_id == ^first.scope_id and kind == "aggregate" and state == "active"
+        scope_id == ^first.scope_id and extracting_model == "system:dream-time-consolidator" and
+          state == "active"
       )
       |> Ash.Query.set_tenant(first.account_id)
       |> Ash.read!(actor: actor)
@@ -203,7 +209,7 @@ defmodule MemHouse.Pipeline.Consolidator do
   defp retire_prior_aggregate!(first, subject, noun, actor) do
     first.account_id
     |> active_items(first.scope_id, actor)
-    |> Enum.filter(&(&1.kind == "aggregate"))
+    |> Enum.filter(&derived_aggregate?/1)
     |> Enum.filter(fn item ->
       String.starts_with?(item.statement, "#{subject} has #{pluralize(noun)}:")
     end)
@@ -231,7 +237,7 @@ defmodule MemHouse.Pipeline.Consolidator do
         subject_peer_id: first.subject_peer_id,
         subject_scope_id: first.subject_scope_id,
         statement: statement,
-        kind: "aggregate",
+        kind: "fact",
         confidence: Enum.max(Enum.map(group, fn {item, _, _, _} -> item.confidence end)),
         sensitivity: first.sensitivity,
         state: "proposed",
@@ -239,6 +245,12 @@ defmodule MemHouse.Pipeline.Consolidator do
         verification: "derived_consolidation",
         supersedes_id: prior_id,
         source_message_ids: source_message_ids(Enum.map(group, &elem(&1, 0))),
+        corroboration_count:
+          group
+          |> Enum.map(&elem(&1, 0))
+          |> independent_sources(actor)
+          |> MapSet.size()
+          |> max(1),
         extracting_model: "system:dream-time-consolidator",
         pipeline_version: "f5-1"
       })
@@ -351,6 +363,9 @@ defmodule MemHouse.Pipeline.Consolidator do
 
   defp source_message_ids(items),
     do: items |> Enum.flat_map(& &1.source_message_ids) |> Enum.uniq()
+
+  defp derived_aggregate?(item),
+    do: item.extracting_model == "system:dream-time-consolidator"
 
   defp relation!(source, target, kind, actor) do
     existing =

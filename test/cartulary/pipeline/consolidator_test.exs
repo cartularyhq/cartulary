@@ -61,9 +61,10 @@ defmodule MemHouse.Pipeline.ConsolidatorTest do
     aggregate =
       actor
       |> active_knowledge!()
-      |> Enum.find(&(&1.kind == "aggregate"))
+      |> Enum.find(&(&1.extracting_model == "system:dream-time-consolidator"))
 
     assert aggregate.statement == "Melanie has pets: Bailey, Luna."
+    assert aggregate.corroboration_count == 2
 
     assert Enum.sort(aggregate.source_message_ids) ==
              Enum.sort(first.source_message_ids ++ second.source_message_ids)
@@ -83,11 +84,11 @@ defmodule MemHouse.Pipeline.ConsolidatorTest do
   defp bootstrap_scope!(actor) do
     ingest!(actor, "consolidation-bootstrap", "Avery uses the release checklist.")
 
-    DataLayer.with_actor(actor, fn account, current_actor ->
+    DataLayer.with_actor(actor, fn account, _current_actor ->
       Scope
       |> Ash.Query.filter(path == "/poc")
       |> Ash.Query.set_tenant(account.id)
-      |> Ash.read_one!(actor: current_actor)
+      |> Ash.read_one!(actor: %{pipeline_actor(actor) | scope_ids: :all})
     end)
   end
 

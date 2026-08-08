@@ -102,7 +102,7 @@ defmodule MemHouse.Knowledge.KnowledgeItem do
       # Enforced here rather than at the extractor so no write path can bypass it.
       validate MemHouse.Knowledge.Validations.ReadableStatement
 
-      validate attribute_in(:kind, ~w(fact preference event relation skill aggregate))
+      validate attribute_in(:kind, ~w(fact preference event relation skill))
       validate attribute_in(:sensitivity, ~w(public internal personal restricted))
       validate attribute_in(:state, ~w(proposed))
       validate attribute_in(:target_level, ~w(peer scope account))
