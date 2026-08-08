@@ -168,6 +168,8 @@ defmodule MemHouse.F11EvaluationCiReleaseReadinessTest do
     assert prepare_release =~ "CARTULARY_TEST_DATABASE_URL"
     assert publish_release =~ "pull_request:"
     assert publish_release =~ "types: [closed]"
+    assert publish_release =~ "git config user.name \"github-actions[bot]\""
+    assert publish_release =~ "tag=\"\${tag%-repair}\""
     assert publish_release =~ "github.event.pull_request.merged == true"
     assert publish_release =~ "gh release create"
     assert publish_release =~ "gh workflow run release.yml"
