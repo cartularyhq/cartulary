@@ -103,7 +103,7 @@ defmodule MemHouse.F11EvaluationCiReleaseReadinessTest do
           "mix dialyzer",
           "mix sobelow --config",
           "mix memhouse.eval.release",
-          "mix memhouse.release.check",
+          "mix mem_house.release.check",
           "mix release --overwrite",
           "docker build"
         ] do
@@ -161,7 +161,7 @@ defmodule MemHouse.F11EvaluationCiReleaseReadinessTest do
     # tags, then publishes the GitHub Release that invokes the artifact lane.
     assert prepare_release =~ "workflow_dispatch:"
     assert prepare_release =~ "replace_existing_release"
-    assert prepare_release =~ "mix memhouse.release.check"
+    assert prepare_release =~ "mix mem_house.release.check"
     assert prepare_release =~ "gh pr create"
     assert prepare_release =~ "pgvector/pgvector:pg18-bookworm"
     assert prepare_release =~ "CARTULARY_TEST_DATABASE_URL"

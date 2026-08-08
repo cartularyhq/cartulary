@@ -144,7 +144,7 @@ jobs:
       # documentation, and evaluation evidence never drift far enough apart to be awkward
       # to reconcile. No tag is passed here; the tag check applies only at release.
       - run: >-
-          mix memhouse.release.check
+          mix mem_house.release.check
           --eval-report /tmp/memhouse-f11-eval.json
       # Retained so a reviewer can inspect the exact scores behind a pass or a failure.
       - uses: actions/upload-artifact@v7

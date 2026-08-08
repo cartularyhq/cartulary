@@ -14,7 +14,7 @@ listed where available.
 | `memhouse.eval.benchmark` | Run one benchmark fixture and score it |
 | `memhouse.eval.release` | Run the deterministic release matrix |
 | `memhouse.eval.verify` | Validate a report's provenance |
-| `memhouse.release.check` | Fail unless the tree is releasable |
+| `mem_house.release.check` | Fail unless the tree is releasable |
 
 Packaged standalone releases additionally provide `bin/update --check` and
 `bin/update --version MAJOR.MINOR.PATCH`; these are not Mix tasks.
@@ -154,11 +154,11 @@ Provenance only — it re-runs nothing and compares nothing to a floor.
 
 ---
 
-## `memhouse.release.check`
+## `mem_house.release.check`
 
 ```bash
-mix memhouse.release.check --eval-report /private/tmp/memhouse-release-eval.json
-mix memhouse.release.check --tag v0.3.0 --eval-report /private/tmp/...
+mix mem_house.release.check --eval-report /private/tmp/memhouse-release-eval.json
+mix mem_house.release.check --tag v0.3.0 --eval-report /private/tmp/...
 ```
 
 Fails unless `mix.exs`, changelog, documentation, git tag, and evaluation
