@@ -133,6 +133,24 @@ defmodule MemHouse.Pipeline.Idempotency do
   def reconciler(account_id, watermark), do: key(:reconciler, [account_id, watermark])
 
   @doc """
+  Key for one Account's lifecycle sweep in one scheduler slot.
+
+  `kind` distinguishes expiry from revalidation. `scheduled_at` comes from the
+  Cron job, not the time a delayed worker happened to run, so a retry resumes
+  the same durable work instead of creating a second sweep.
+  """
+  @spec lifecycle_sweep(Ecto.UUID.t(), String.t(), DateTime.t()) :: String.t()
+  def lifecycle_sweep(account_id, kind, %DateTime{} = scheduled_at)
+      when kind in ["revalidation", "expiry"] do
+    key(:lifecycle_sweep, [account_id, kind, DateTime.to_iso8601(scheduled_at)])
+  end
+
+  @doc "Key for one Account-wide dream-time pass in one Cron slot."
+  @spec account_dream_time(Ecto.UUID.t(), DateTime.t()) :: String.t()
+  def account_dream_time(account_id, %DateTime{} = scheduled_at),
+    do: key(:account_dream_time, [account_id, DateTime.to_iso8601(scheduled_at)])
+
+  @doc """
   The system's standard content digest: lowercase hex SHA-256 of raw bytes.
 
   Used for message content, document blobs, and statement text. It is what lets
