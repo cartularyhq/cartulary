@@ -48,6 +48,8 @@ defmodule MemHouse.Model.SchemaExtractionTest do
     end
   end
 
+  defp cast_item(item), do: Extraction.cast(%{"items" => [item]}, context())
+
   test "accepts a native JSON integer and normalizes it" do
     assert {:ok, 0.9} = cast_confidence(90)
   end
@@ -91,5 +93,34 @@ defmodule MemHouse.Model.SchemaExtractionTest do
   test "rejects a missing percentage" do
     assert {:error, ["items[0].confidence_percentage must be between 1 and 100"]} =
              cast_confidence(nil)
+  end
+
+  test "derives direct evidence from the resolved source and subject" do
+    assert {:ok, [candidate]} = cast_item(item(90))
+    assert candidate.evidence_level == "direct"
+    assert candidate.confidence == 0.9
+  end
+
+  test "derives indirect evidence and its discount without trusting hearsay" do
+    indirect =
+      item(90)
+      |> Map.put("subject_ref", "other")
+      |> Map.put("hearsay", false)
+
+    context = %{context() | known_peer_keys: ["avery", "other"]}
+
+    assert {:ok, [candidate]} = Extraction.cast(%{"items" => [indirect]}, context)
+    assert candidate.evidence_level == "indirect"
+    assert candidate.confidence == 0.675
+  end
+
+  test "model hearsay does not alter direct-source evidence" do
+    assert {:ok, [candidate]} =
+             item(90)
+             |> Map.put("hearsay", true)
+             |> then(&cast_item(&1))
+
+    assert candidate.evidence_level == "direct"
+    assert candidate.confidence == 0.9
   end
 end

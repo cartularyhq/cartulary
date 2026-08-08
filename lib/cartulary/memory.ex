@@ -936,6 +936,7 @@ defmodule MemHouse.Memory do
               statement: item.statement,
               kind: item.kind,
               confidence: item.confidence,
+              evidence_level: item.evidence_level,
               sensitivity: item.sensitivity,
               state: "proposed",
               target_level: item.target_level,

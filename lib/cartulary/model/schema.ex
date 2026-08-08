@@ -40,10 +40,9 @@ defmodule MemHouse.Model.Schema.Extraction do
     and a `scope` subject must be exactly the current scope path. Nothing else
     can be named, so a model cannot attach a claim to a peer or a scope the
     caller never mentioned.
-  - **Hearsay is discounted by the engine.** A candidate marked hearsay, or one
-    whose subject reference is anything other than the source peer's key, has
-    its confidence multiplied by 0.75 here. The model's self-reported confidence
-    is an input to that calculation, never the final value.
+  - **Evidence is derived, not asserted.** Only a peer speaking about itself is
+    `direct`; every other source-to-subject relationship is `indirect`. The
+    same deterministic relationship applies the hearsay confidence discount.
   - **Time bounds must be coherent.** A validity window that starts after it
     ends is rejected.
   - **Nothing here activates knowledge.** A valid candidate is still only a
@@ -194,7 +193,7 @@ defmodule MemHouse.Model.Schema.Extraction do
   # Validates one candidate. The `with` chain is ordered cheapest-first and
   # stops at the first failure, so the resource changeset check — the most
   # expensive step — only runs on a candidate that is already well formed.
-  # Confidence is computed rather than copied: see `hearsay_confidence/4`.
+  # Confidence is computed rather than copied: see `source_confidence/4`.
   defp cast_item(item, context) when is_map(item) do
     with {:ok, _reasoning} <- non_empty_string(item, "reasoning"),
          {:ok, statement} <- readable_statement(item),
@@ -214,7 +213,8 @@ defmodule MemHouse.Model.Schema.Extraction do
              kind: kind,
              subject_type: subject_type,
              subject_ref: subject_ref,
-             confidence: hearsay_confidence(confidence, hearsay, subject_ref, context),
+             confidence: source_confidence(confidence, subject_type, subject_ref, context),
+             evidence_level: evidence_level(subject_type, subject_ref, context),
              sensitivity: sensitivity,
              target_level: target_level,
              update_operation: operation,
@@ -422,22 +422,22 @@ defmodule MemHouse.Model.Schema.Extraction do
 
   defp temporal_order(_temporal), do: :ok
 
-  # Second-hand claims are discounted by the engine, not by the model.
-  #
-  # The discount applies both when the model marked the candidate as hearsay and
-  # whenever the subject reference is not the source peer's key, because a claim
-  # about anything other than the speaker is second-hand whether or not the
-  # model noticed. That second condition also catches scope subjects, and it
-  # catches everything when the context supplies no `:source_peer_key`. The 0.75
-  # multiplier is a flat 25% reduction in stated confidence, rounded to four
-  # decimal places to keep stored values stable and comparable.
-  defp hearsay_confidence(confidence, hearsay, subject_ref, context) do
-    if hearsay or subject_ref != Map.get(context, :source_peer_key) do
+  # Third-party status comes from the resolved subject and known source peer.
+  # The model's `hearsay` field stays in the schema for compatibility, but it
+  # cannot alter a durable confidence value or an automatic gate result.
+  defp source_confidence(confidence, subject_type, subject_ref, context) do
+    if evidence_level(subject_type, subject_ref, context) == "indirect" do
       Float.round(confidence * 0.75, 4)
     else
       confidence
     end
   end
+
+  defp evidence_level("peer", subject_ref, %{source_peer_key: source_peer_key})
+       when subject_ref == source_peer_key,
+       do: "direct"
+
+  defp evidence_level(_subject_type, _subject_ref, _context), do: "indirect"
 
   # Looks a key up by its string name whether the map arrived with string or
   # atom keys. Providers, cassettes, and hand-written test fixtures disagree

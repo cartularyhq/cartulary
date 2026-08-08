@@ -53,7 +53,8 @@ through its native strict JSON-schema response format. Each candidate starts
 with a concise validation-only reasoning string and its natural-language
 statement, then an integer `confidence_percentage` from 1 through 100. The
 validator strips non-digits from that field, checks the range, and divides by
-100 before it passes the resulting confidence to governance. Reasoning is not
+100 before it records the resulting confidence. Gate A receives a deterministic
+source-to-subject evidence level after schema validation. Reasoning is not
 persisted, metered, or logged.
 
 Statement text is canonicalized — invisible characters removed, whitespace runs
@@ -70,7 +71,7 @@ Each candidate also includes:
 - kind, sensitivity, and target level;
 - peer or current-scope subject, independently of the source Peer;
 - `add`, `merge`, `supersede_candidate`, or `no_op`;
-- hearsay classification with a confidence discount; and
+- schema-derived direct or indirect source evidence with a confidence discount; and
 - expiry, revalidation, and valid-time bounds.
 
 Subjects are limited to known Peers or the current scope. New items enter
