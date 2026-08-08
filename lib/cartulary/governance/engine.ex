@@ -67,7 +67,16 @@ defmodule MemHouse.Governance.Engine do
   """
   def evaluate_proposal(knowledge, actor, opts \\ []) do
     target_level = Keyword.get(opts, :target_level, knowledge.target_level || "peer")
-    target_scope_id = Keyword.get(opts, :target_scope_id)
+
+    # A direct scope-level proposal already names its destination by where the
+    # knowledge row lives. Keep that id on the validation item too, so a later
+    # curator approval can find the matching consent and place the item. A peer
+    # proposal has no target scope, and account-level placement remains a
+    # separate target.
+    target_scope_id =
+      Keyword.get(opts, :target_scope_id) ||
+        if(target_level == "scope", do: knowledge.scope_id)
+
     rule = matching_rule(knowledge, target_level, actor)
 
     # Deadline for a human to act, in hours from now, taken from the matrix cell (the built-in
@@ -1079,7 +1088,10 @@ defmodule MemHouse.Governance.Engine do
   defp auto_gate_a?(knowledge, rule),
     do:
       rule.gate_a_mode == "auto_keep" &&
-        knowledge.evidence_level == rule.minimum_evidence_level
+        evidence_rank(knowledge.evidence_level) >= evidence_rank(rule.minimum_evidence_level)
+
+  defp evidence_rank("direct"), do: 1
+  defp evidence_rank("indirect"), do: 0
 
   # Gate B places automatically only when the cell says so, the sensitivity is
   # not personal or restricted, and enough independent sources corroborate the

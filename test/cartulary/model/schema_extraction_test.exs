@@ -36,8 +36,7 @@ defmodule MemHouse.Model.SchemaExtractionTest do
       "confidence_percentage" => confidence_percentage,
       "sensitivity" => "internal",
       "target_level" => "peer",
-      "update_operation" => "add",
-      "hearsay" => false
+      "update_operation" => "add"
     }
   end
 
@@ -101,26 +100,15 @@ defmodule MemHouse.Model.SchemaExtractionTest do
     assert candidate.confidence == 0.9
   end
 
-  test "derives indirect evidence and its discount without trusting hearsay" do
+  test "derives indirect evidence and its discount from source and subject" do
     indirect =
       item(90)
       |> Map.put("subject_ref", "other")
-      |> Map.put("hearsay", false)
 
     context = %{context() | known_peer_keys: ["avery", "other"]}
 
     assert {:ok, [candidate]} = Extraction.cast(%{"items" => [indirect]}, context)
     assert candidate.evidence_level == "indirect"
     assert candidate.confidence == 0.675
-  end
-
-  test "model hearsay does not alter direct-source evidence" do
-    assert {:ok, [candidate]} =
-             item(90)
-             |> Map.put("hearsay", true)
-             |> then(&cast_item(&1))
-
-    assert candidate.evidence_level == "direct"
-    assert candidate.confidence == 0.9
   end
 end

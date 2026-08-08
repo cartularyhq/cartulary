@@ -30,8 +30,9 @@ defmodule MemHouse.Model.Schema.Extraction do
 
   ## What one candidate is
 
-  A candidate includes statement, classification, confidence, sensitivity, target level,
-  independent subject, operation, hearsay, expiry, revalidation, and validity window.
+  A candidate includes statement, classification, confidence, sensitivity,
+  target level, independent subject, operation, expiry, revalidation, and a
+  validity window.
 
   ## Rules this module enforces
 
@@ -42,7 +43,7 @@ defmodule MemHouse.Model.Schema.Extraction do
     caller never mentioned.
   - **Evidence is derived, not asserted.** Only a peer speaking about itself is
     `direct`; every other source-to-subject relationship is `indirect`. The
-    same deterministic relationship applies the hearsay confidence discount.
+    same deterministic relationship applies the third-party confidence discount.
   - **Time bounds must be coherent.** A validity window that starts after it
     ends is rejected.
   - **Nothing here activates knowledge.** A valid candidate is still only a
@@ -132,11 +133,10 @@ defmodule MemHouse.Model.Schema.Extraction do
             "confidence_percentage" => %{"type" => "integer", "minimum" => 1, "maximum" => 100},
             "subject_type" => %{"type" => "string", "enum" => @subject_types},
             "subject_ref" => %{"type" => "string", "minLength" => 1},
-            "update_operation" => %{"type" => "string", "enum" => @operations},
-            "hearsay" => %{"type" => "boolean"}
+            "update_operation" => %{"type" => "string", "enum" => @operations}
           }),
         "required" =>
-          ~w(reasoning statement confidence_percentage kind subject_type subject_ref sensitivity target_level update_operation hearsay)
+          ~w(reasoning statement confidence_percentage kind subject_type subject_ref sensitivity target_level update_operation)
       }
 
     %{
@@ -204,7 +204,6 @@ defmodule MemHouse.Model.Schema.Extraction do
          {:ok, sensitivity} <- enum(item, "sensitivity", allowed(:sensitivity)),
          {:ok, target_level} <- enum(item, "target_level", allowed(:target_level)),
          {:ok, operation} <- enum(item, "update_operation", @operations),
-         {:ok, hearsay} <- boolean(item, "hearsay"),
          {:ok, temporal} <- temporal(item),
          :ok <- temporal_order(temporal),
          casted <-
@@ -217,8 +216,7 @@ defmodule MemHouse.Model.Schema.Extraction do
              evidence_level: evidence_level(subject_type, subject_ref, context),
              sensitivity: sensitivity,
              target_level: target_level,
-             update_operation: operation,
-             hearsay: hearsay
+             update_operation: operation
            }
            |> Map.merge(temporal),
          :ok <- validate_ash_action(casted, context) do
@@ -383,13 +381,6 @@ defmodule MemHouse.Model.Schema.Extraction do
   defp confidence_percentage_in_range(_value),
     do: {:error, ["confidence_percentage must be between 1 and 100"]}
 
-  defp boolean(item, key) do
-    case fetch(item, key) do
-      value when is_boolean(value) -> {:ok, value}
-      _other -> {:error, ["#{key} must be a boolean"]}
-    end
-  end
-
   defp temporal(item) do
     @temporal_fields
     |> Enum.reduce_while({:ok, %{}}, fn field, {:ok, acc} ->
@@ -423,8 +414,6 @@ defmodule MemHouse.Model.Schema.Extraction do
   defp temporal_order(_temporal), do: :ok
 
   # Third-party status comes from the resolved subject and known source peer.
-  # The model's `hearsay` field stays in the schema for compatibility, but it
-  # cannot alter a durable confidence value or an automatic gate result.
   defp source_confidence(confidence, subject_type, subject_ref, context) do
     if evidence_level(subject_type, subject_ref, context) == "indirect" do
       Float.round(confidence * 0.75, 4)
@@ -475,8 +464,8 @@ defmodule MemHouse.Model.Schema.Reasoning do
   The structured shape for background reasoning: extraction candidates plus
   typed relations between existing knowledge.
 
-  Reasoning reuses extraction validation, including subject allowlist, hearsay discount, and
-  governance. It cannot mint otherwise-invalid knowledge.
+  Reasoning reuses extraction validation, including subject allowlist,
+  third-party discount, and governance. It cannot mint otherwise-invalid knowledge.
 
   It adds `supports`, `contradicts`, and `derived_from` edges. Contradictions never overwrite.
   """

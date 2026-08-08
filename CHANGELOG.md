@@ -19,6 +19,8 @@ changelog entry and contract-version transition.
   the model's label. Gate B also requires a human placement for personal and
   restricted knowledge, and the operations console reports content-safe gate
   outcome totals. ADR 0012 records the `f4-1` governance change.
+  Extracted provenance records prompt `extract-4`; the pipeline contract
+  remains `f5-1`.
 
 - One flaky entity-card summary call no longer aborts a whole scope rebuild.
   `MemHouse.Context.Builder` raised on any failed summary generation, and that

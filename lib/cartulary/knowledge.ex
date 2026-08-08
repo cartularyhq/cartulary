@@ -438,7 +438,7 @@ defmodule MemHouse.Knowledge.Attribution do
     attribute :target_peer_id, :uuid, public?: true
     attribute :target_scope_id, :uuid, public?: true
 
-    # "self", "hearsay", or "scope" — first-hand versus second-hand knowledge.
+    # "self", "hearsay", or "scope" — derived source-to-subject relationship.
     attribute :level, :string, allow_nil?: false, public?: true
     create_timestamp :inserted_at
   end

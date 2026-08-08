@@ -88,8 +88,9 @@ with `status: "granted"`, `verified: true`, and channel
 `"auto:account_mode"` or `"auto:unattended_deployment"`. Existing readers need
 no special case, and the channel keeps the declaration auditable.
 
-When ordinary ingest supplies no `target_scope_id`, `resolve_consent/5` uses
-the item's `scope_id`; `Consent.target_scope_id` never receives `nil`.
+When ordinary ingest supplies no `target_scope_id` for a scope-level proposal,
+the gate uses the item's `scope_id` for the hold, validation item, and consent;
+none of those target fields receives `nil`.
 
 Full design: `specs/design/2026-07-30-unattended-governance-consent-design.md`.
 Decision record: `specs/adr/0007-unattended-governance-consent.md`.

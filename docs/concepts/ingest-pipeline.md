@@ -91,7 +91,7 @@ Extraction also does four things a naive extractor gets wrong:
   decided on its own, not assumed to be the speaker.
 - **Derives source evidence.** A statement from its own peer subject is direct;
   every other source-to-subject relationship is indirect and receives the
-  hearsay confidence discount.
+  third-party confidence discount.
 - **Records complete provenance.** Provider, model, version, prompt, and
   pipeline identity travel with the result.
 

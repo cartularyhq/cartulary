@@ -112,7 +112,7 @@ Details: `specs/architecture/gate-a-b-governance.md`.
   vectors.
 - Ash-derived structured extraction and reasoning schemas with bounded
   validate-and-repair. Extraction resolves subject independently of source,
-  discounts hearsay, and proposes confidence, sensitivity, target, and temporal
+  discounts third-party claims, and proposes confidence, sensitivity, target, and temporal
   fields plus an update operation.
 - Complete model provenance — provider, model, version, prompt version,
   pipeline version, embedding model and version — and one durable usage ledger

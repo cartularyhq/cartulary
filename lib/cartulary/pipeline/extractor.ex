@@ -16,7 +16,7 @@ defmodule MemHouse.Pipeline.Extractor do
     keys and a scope subject must be the current scope path; the schema rejects
     anything else, so this is enforced rather than merely requested.
   - **Source evidence is derived.** The resolved source and subject produce a
-    stable direct or indirect level; indirect claims receive the hearsay
+    stable direct or indirect level; indirect claims receive the third-party
     confidence discount during validation.
   - **Declining is explicit.** A candidate emitted with the `no_op` operation is
     dropped here rather than becoming an empty statement that would later look
@@ -49,7 +49,7 @@ defmodule MemHouse.Pipeline.Extractor do
   # The `prompt_version` actually stamped on provenance and usage rows comes
   # from the resolved `ingest_extractor` role, not from here; the two are kept
   # equal on purpose, so editing the prompt means bumping both.
-  @prompt_version "extract-3"
+  @prompt_version "extract-4"
 
   @doc """
   The identity of the extraction-and-pipeline contract this build implements.

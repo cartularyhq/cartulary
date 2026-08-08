@@ -110,7 +110,7 @@ indexes, semantic strategy, and tiny-corpus Nx baseline.
 
 Knowledge and provenance now store provider, model, model version, prompt
 version, pipeline version, and embedding identity fields. Extraction uses
-prompt `extract-3` and pipeline `f5-1`. Its prompt explicitly requires
+prompt `extract-4` and pipeline `f5-1`. Its prompt explicitly requires
 confidence as a JSON fraction from `0.0` through `1.0`; the Ash-derived JSON
 schema independently enforces the same numeric bounds.
 
