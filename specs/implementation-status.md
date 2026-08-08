@@ -43,6 +43,9 @@ Details: `specs/architecture/ash-domain-backbone.md`.
 - Eleven AshOban lanes cover extraction, dream-time, revalidation, expiry,
   projection and entity refresh, connector sync, portability rebuild,
   reconciliation, and governance continuations.
+- An hourly Oban Cron entry starts the community Account's expiry and
+  revalidation runs. Their replay keys use the Cron slot, so retries reuse the
+  same durable work. `GET /api/ready` reports each sweep's last completion.
 - Ash.Reactor flows own ingest extraction, dream-time reasoning, validation
   continuation, and transcript answer correlation.
 - Deterministic idempotency keys and Account-local advisory locks make replays
