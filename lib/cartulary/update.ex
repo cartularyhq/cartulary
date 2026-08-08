@@ -208,8 +208,7 @@ defmodule MemHouse.Update do
     do: Req.get(url, receive_timeout: @timeout, retry: false, decode_body: false)
 
   defp manifest_url(_source, tag),
-    do:
-      "https://github.com/memhousehq/memhouse/releases/download/#{tag}/release-manifest-v1.json"
+    do: "https://github.com/memhousehq/memhouse/releases/download/#{tag}/release-manifest-v1.json"
 
   defp validate_manifest(%{"schema" => @manifest_schema, "version" => version}, latest) do
     with {:ok, ^version} <- semver_tag(latest.tag_name),
