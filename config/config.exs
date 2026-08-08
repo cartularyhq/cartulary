@@ -67,7 +67,7 @@ config :memhouse, :database,
   # The role the running node's connections switch to, so that the row-level
   # security policies on every tenant table are enforced rather than skipped.
   # `config/runtime.exs` documents both settings in full.
-  app_role: "cartulary_app",
+  app_role: "memhouse_app",
   allow_unrestricted_role: false,
   pg0: [
     # Placeholder path only. Startup validation refuses to boot in pg0 mode
@@ -407,13 +407,13 @@ config :memhouse, :diskann,
 config :memhouse, :models, api_key: nil, api_key_ref: "env:OPENROUTER_API_KEY"
 
 # Configure the endpoint
-config :memhouse, CartularyWeb.Endpoint,
+config :memhouse, MemHouseWeb.Endpoint,
   url: [host: "localhost"],
   adapter: Bandit.PhoenixAdapter,
   # Errors render as JSON only. This is an API-first surface; there is no HTML
   # error view to fall back to, and adding one must not leak internals.
   render_errors: [
-    formats: [json: CartularyWeb.ErrorJSON],
+    formats: [json: MemHouseWeb.ErrorJSON],
     layout: false
   ],
   pubsub_server: MemHouse.PubSub,

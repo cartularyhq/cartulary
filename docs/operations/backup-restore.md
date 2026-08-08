@@ -9,8 +9,8 @@ point. Chunks, projections, DiskANN indexes, ETS counters, and
 ## Embedded pg0
 
 For a cold backup, stop `bin/server` cleanly and verify its pg0 instance has
-stopped. Copy the complete `CARTULARY_PG0_DATA_DIR` and
-`CARTULARY_BLOB_ROOT`, preserving ownership, permissions, and timestamps.
+stopped. Copy the complete `MEMHOUSE_PG0_DATA_DIR` and
+`MEMHOUSE_BLOB_ROOT`, preserving ownership, permissions, and timestamps.
 Record the MemHouse release version, pg0 version from `rel/pg0/VERSION`,
 PostgreSQL version, paths, time, and a checksum inventory.
 

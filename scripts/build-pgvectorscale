@@ -122,10 +122,21 @@ if [ ! -x "$cargo_root/bin/cargo-pgrx" ]; then
 fi
 mkdir -p "$PGRX_HOME"
 PATH="$cargo_root/bin:$PATH" cargo pgrx init --pg18 "$pg_config_path"
+rustflags=
+case "$(uname -m)" in
+  x86_64|amd64)
+    # pgvectorscale's x86 distance kernels require these CPU features. The
+    # supported x86_64 release target guarantees both features.
+    rustflags="-C target-feature=+avx2,+fma"
+    ;;
+esac
 if [ "$(uname -s)" = Darwin ]; then
   # PostgreSQL supplies extension API symbols when it loads the dylib. macOS
   # must permit those symbols to remain unresolved at link time.
-  export RUSTFLAGS="-C link-arg=-Wl,-undefined,dynamic_lookup"
+  rustflags="${rustflags:+$rustflags }-C link-arg=-Wl,-undefined,dynamic_lookup"
+fi
+if [ -n "$rustflags" ]; then
+  export RUSTFLAGS="$rustflags"
 fi
 PATH="$cargo_root/bin:$PATH" cargo pgrx package \
   --manifest-path "$source_dir/Cargo.toml" \

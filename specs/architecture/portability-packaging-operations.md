@@ -13,7 +13,7 @@ actions, migrations, queues, and behavior.
 
 ## Deployment boundary
 
-`CARTULARY_DATABASE_MODE` is exactly `pg0` or `external`. Runtime validation
+`MEMHOUSE_DATABASE_MODE` is exactly `pg0` or `external`. Runtime validation
 rejects an unsupported mode, a missing external `DATABASE_URL`, a conflicting
 pg0 `DATABASE_URL`, an invalid port, a missing or non-executable pg0 binary, a
 relative data/blob path, incomplete S3 configuration, and structurally invalid

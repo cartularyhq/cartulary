@@ -28,7 +28,7 @@ Provisions the community Account, first password identity, root administrator
 grant with downward propagation, and a 12-hour bearer token.
 
 ```bash
-CARTULARY_BOOTSTRAP_PASSWORD='a long password' \
+MEMHOUSE_BOOTSTRAP_PASSWORD='a long password' \
   mix memhouse.identity.bootstrap \
     --email admin@example.test \
     --name 'Local Admin'

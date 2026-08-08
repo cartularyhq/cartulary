@@ -70,19 +70,19 @@ durable state in one private directory, and enable signed patch/minor updates
 before each start:
 
 ```bash
-export CARTULARY_DATA_ROOT="$HOME/.memhouse"
-export CARTULARY_DATABASE_MODE=pg0
-export CARTULARY_AUTO_MIGRATE=true
-export CARTULARY_UPDATE_CHECK=true
-export CARTULARY_AUTO_UPDATE=minor
-export CARTULARY_UPDATE_CHECK_INTERVAL_HOURS=24
+export MEMHOUSE_DATA_ROOT="$HOME/.memhouse"
+export MEMHOUSE_DATABASE_MODE=pg0
+export MEMHOUSE_AUTO_MIGRATE=true
+export MEMHOUSE_UPDATE_CHECK=true
+export MEMHOUSE_AUTO_UPDATE=minor
+export MEMHOUSE_UPDATE_CHECK_INTERVAL_HOURS=24
 
 bin/server
 ```
 
 `minor` accepts only an eligible signed stable patch/minor release in the
 current major version. Use `bin/update --check` to inspect availability, or
-set `CARTULARY_AUTO_UPDATE=off` when you want to approve every update yourself.
+set `MEMHOUSE_AUTO_UPDATE=off` when you want to approve every update yourself.
 
 ## Run it
 
@@ -127,9 +127,9 @@ created:
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `CARTULARY_DATA_ROOT` | `~/.memhouse` | Private data root for database, blobs, and secrets |
+| `MEMHOUSE_DATA_ROOT` | `~/.memhouse` | Private data root for database, blobs, and secrets |
 | `PORT` | `4000` | HTTP port |
-| `CARTULARY_PG0_PORT` | `5432` | Port the supervised PostgreSQL listens on |
+| `MEMHOUSE_PG0_PORT` | `5432` | Port the supervised PostgreSQL listens on |
 
 The complete list is in [Configuration](../reference/configuration.md).
 
@@ -140,15 +140,15 @@ pgvectorscale 0.9.0. Boot fails with an actionable error if `vectorscale` is
 not available to install.
 
 ```bash
-export CARTULARY_DATABASE_MODE=external
+export MEMHOUSE_DATABASE_MODE=external
 export DATABASE_URL='ecto://user:password@db.example/memhouse'
-export CARTULARY_AUTO_MIGRATE=true
-export CARTULARY_AUTH_SIGNING_SECRET='at-least-64-random-bytes...'
-export CARTULARY_BLOB_ROOT=/absolute/durable/blob/path
+export MEMHOUSE_AUTO_MIGRATE=true
+export MEMHOUSE_AUTH_SIGNING_SECRET='at-least-64-random-bytes...'
+export MEMHOUSE_BLOB_ROOT=/absolute/durable/blob/path
 bin/memhouse start
 ```
 
-Set `CARTULARY_AUTO_MIGRATE=false` when change control requires migrations to
+Set `MEMHOUSE_AUTO_MIGRATE=false` when change control requires migrations to
 be a separate step, then run `bin/migrate` before starting the release.
 
 ## Build a release from source

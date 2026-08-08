@@ -135,7 +135,7 @@ transactional job lane. Context reads remain available during an outage.
 
 The deterministic adapter is explicit configuration for tests and local
 development only. Development may select it when no key is present and
-`CARTULARY_MODEL_LOCAL_FALLBACK=true`; production defaults that flag to false
+`MEMHOUSE_MODEL_LOCAL_FALLBACK=true`; production defaults that flag to false
 and never switches to deterministic output after a live provider fails.
 
 ## `f5-1` transition
@@ -163,4 +163,4 @@ message/extractor identity. These are historical contract tags, not roadmap phas
   `test/fixtures/model/f5-provider-cassette.json`
 - Updated baseline contract evidence:
   `test/memhouse/poc_contract_test.exs` and
-  `test/cartulary_web/controllers/memory_controller_test.exs`
+  `test/memhouse_web/controllers/memory_controller_test.exs`

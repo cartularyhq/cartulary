@@ -69,10 +69,10 @@ jobs:
           --health-retries 20
     env:
       MIX_ENV: test
-      CARTULARY_DATABASE_MODE: external
+      MEMHOUSE_DATABASE_MODE: external
       # Own database name so this workflow cannot collide with a concurrent lane. The
       # embedded historical tag is only part of the name and means nothing here.
-      CARTULARY_TEST_DATABASE_URL: ecto://postgres:postgres@127.0.0.1:5432/cartulary_f11_release
+      MEMHOUSE_TEST_DATABASE_URL: ecto://postgres:postgres@127.0.0.1:5432/memhouse_f11_release
     steps:
       # Explicit ref: the event workflow itself may be read from the default branch, while
       # the release checks must certify the commit selected by this GitHub Release's tag.
@@ -249,7 +249,7 @@ jobs:
     permissions:
       contents: write
     env:
-      CARTULARY_RELEASE_SIGNING_KEY: ${{ secrets.CARTULARY_RELEASE_SIGNING_KEY }}
+      MEMHOUSE_RELEASE_SIGNING_KEY: ${{ secrets.MEMHOUSE_RELEASE_SIGNING_KEY }}
     steps:
       - uses: erlef/setup-beam@v1
         with:
@@ -268,7 +268,7 @@ jobs:
         run: |
           tag="${{ github.event.release.tag_name || inputs.tag }}"
           version="${tag#v}"
-          test -n "$CARTULARY_RELEASE_SIGNING_KEY"
+          test -n "$MEMHOUSE_RELEASE_SIGNING_KEY"
           cd /tmp/memhouse-release
           jq -n \
             --arg version "$version" \
@@ -281,7 +281,7 @@ jobs:
               {platform: "macos-arm64", name: "memhouse-macos-arm64.tar.gz", sha256: $mac_arm}
             ]}' > release-manifest-v1.json
           elixir -e '
-            key = System.fetch_env!("CARTULARY_RELEASE_SIGNING_KEY") |> Base.decode64!()
+            key = System.fetch_env!("MEMHOUSE_RELEASE_SIGNING_KEY") |> Base.decode64!()
             bytes = File.read!("release-manifest-v1.json")
             :crypto.sign(:eddsa, :none, bytes, [key, :ed25519]) |> Base.encode64() |> IO.write()
           ' > release-manifest-v1.json.sig

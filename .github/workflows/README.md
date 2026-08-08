@@ -35,8 +35,8 @@ location, not product behavior.
 Runs the versioned `f11-1` release matrix nightly or manually and retains the
 report artifact for 30 days. Scheduled runs are deterministic. A manual
 maintainer may select live-model mode only when the repository has a protected
-`OPENROUTER_API_KEY` and `CARTULARY_EVAL_JUDGE_MODEL` variable. The judge model
-must differ from `CARTULARY_MODEL_ASK`; untrusted pull requests never receive
+`OPENROUTER_API_KEY` and `MEMHOUSE_EVAL_JUDGE_MODEL` variable. The judge model
+must differ from `MEMHOUSE_MODEL_ASK`; untrusted pull requests never receive
 the credential.
 
 ## `release.yml`
@@ -53,7 +53,7 @@ Workflow-run copies remain available for 90 days for debugging. GitHub generates
 the release notes when the maintainer creates the release; the workflow uploads
 only generated artifacts and never edits those notes.
 
-The repository secret `CARTULARY_RELEASE_SIGNING_KEY` is the base64-encoded raw
+The repository secret `MEMHOUSE_RELEASE_SIGNING_KEY` is the base64-encoded raw
 Ed25519 private key matching MemHouse's embedded updater public key. The fan-in
 job signs `release-manifest-v1.json`; standalone updaters reject assets unless
 that detached signature and the manifest's per-platform SHA-256 both verify.

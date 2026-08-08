@@ -99,11 +99,11 @@ with a digest of strategies, weights, and rerank configuration. Deployment
 configuration can constrain enabled strategy modules and the three deadline
 ceilings through:
 
-- `CARTULARY_RETRIEVAL_ENABLED_STRATEGIES`;
-- `CARTULARY_RETRIEVAL_FAST_DEADLINE_MS`;
-- `CARTULARY_RETRIEVAL_BALANCED_DEADLINE_MS`; and
-- `CARTULARY_RETRIEVAL_THOROUGH_DEADLINE_MS`.
-- `CARTULARY_RETRIEVAL_RERANK_TIMEOUT_MS`.
+- `MEMHOUSE_RETRIEVAL_ENABLED_STRATEGIES`;
+- `MEMHOUSE_RETRIEVAL_FAST_DEADLINE_MS`;
+- `MEMHOUSE_RETRIEVAL_BALANCED_DEADLINE_MS`; and
+- `MEMHOUSE_RETRIEVAL_THOROUGH_DEADLINE_MS`.
+- `MEMHOUSE_RETRIEVAL_RERANK_TIMEOUT_MS`.
 
 Raw strategy lists and rerank overrides remain restricted to internal/system and
 eval callers. The one browser path into that seam is

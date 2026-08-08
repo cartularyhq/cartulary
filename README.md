@@ -159,13 +159,13 @@ SDKs. Remaining work is tracked in
 | `lib/memhouse/context/`, `lib/memhouse/skills/` | Context and readiness |
 | `lib/memhouse/portability/` | Logical Account export and import |
 | `lib/memhouse/eval/` | Evaluation harness and reports |
-| `lib/cartulary_web/` | HTTP, authentication, telemetry, and LiveView |
+| `lib/memhouse_web/` | HTTP, authentication, telemetry, and LiveView |
 | `lib/mix/tasks/` | Operator and evaluation commands |
 | `test/` | Regression and contract evidence |
 | `docs/` | Published user documentation |
 | `specs/` | Requirements, architecture, decisions, plans, and evidence |
 
-Start reading at `lib/cartulary_web/router.ex`, then
+Start reading at `lib/memhouse_web/router.ex`, then
 `lib/memhouse/memory.ex`, `lib/memhouse/knowledge.ex`,
 `lib/memhouse/governance/engine.ex`, and
 `lib/memhouse/retrieval/strategy.ex`.

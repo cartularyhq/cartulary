@@ -296,7 +296,7 @@ OpenRouter.
 - The full suite passed against newly created partitioned test databases,
   exercising the complete migration chain from empty, and separately against
   the stock `pgvector/pgvector:pg18-bookworm` Compose lane through
-  `CARTULARY_TEST_DATABASE_URL`.
+  `MEMHOUSE_TEST_DATABASE_URL`.
 - A packaged Darwin ARM64 release initialized PostgreSQL 18.1.0 plus pgvector,
   applied the full migration chain, returned `f10-1` readiness, recovered and
   reattached the same durable directory, and shut down cleanly.
@@ -414,7 +414,7 @@ Run the frozen baseline contract:
 ```bash
 mix test \
   test/memhouse/poc_contract_test.exs \
-  test/cartulary_web/controllers/memory_controller_test.exs \
+  test/memhouse_web/controllers/memory_controller_test.exs \
   test/memhouse/eval/fixture_contract_test.exs
 ```
 

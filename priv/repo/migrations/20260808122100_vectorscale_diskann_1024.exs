@@ -78,11 +78,11 @@ defmodule MemHouse.Repo.Migrations.VectorscaleDiskann1024 do
     max_alpha = Keyword.fetch!(config, :max_alpha)
 
     unless storage_layout in ~w(memory_optimized plain) do
-      raise "CARTULARY_DISKANN_STORAGE_LAYOUT must be memory_optimized or plain"
+      raise "MEMHOUSE_DISKANN_STORAGE_LAYOUT must be memory_optimized or plain"
     end
 
     unless is_number(max_alpha) and max_alpha >= 1.0 and max_alpha <= 5.0 do
-      raise "CARTULARY_DISKANN_MAX_ALPHA must be between 1.0 and 5.0"
+      raise "MEMHOUSE_DISKANN_MAX_ALPHA must be between 1.0 and 5.0"
     end
 
     "storage_layout = #{storage_layout}, num_neighbors = #{num_neighbors}, " <>

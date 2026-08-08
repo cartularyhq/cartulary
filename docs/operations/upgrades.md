@@ -18,13 +18,27 @@ It retains old executable trees. The archive is a logical recovery checkpoint,
 not a rollback substitute: it omits credentials and derived data and imports
 only into a fresh Account. Keep database and blob backups for rollback.
 
-Set `CARTULARY_AUTO_UPDATE=minor` to permit release-marked stable patch/minor
+Set `MEMHOUSE_AUTO_UPDATE=minor` to permit release-marked stable patch/minor
 updates before startup. Major versions, prereleases, and releases not marked
 eligible remain notification-only. `/api/ready`, the Operations console, and
 startup logs show the availability result and update command.
 
 Migrations are forward-only. Roll back by restoring a snapshot, never by
 running old code against a new schema.
+
+## MemHouse name migration
+
+Before the first upgraded start, rename each `CARTULARY_*` environment variable
+to the same suffix under `MEMHOUSE_*`. For example,
+`CARTULARY_DATABASE_MODE` becomes `MEMHOUSE_DATABASE_MODE`. Old environment
+variable names are not read after this upgrade.
+
+Do not rotate agent credentials for the rename. Existing `cartulary_` API keys
+remain valid, while newly issued keys use `memhouse_`. The schema migration
+renames the API-key lookup function and Account-wall policies in place. Their
+permissions and policy expressions do not change. The default restricted role
+is now `memhouse_app`; remove an unused `cartulary_app` role only after the new
+release passes readiness and an authenticated read.
 
 ## Procedure
 
@@ -69,8 +83,8 @@ Rollback is:
 
 | Setting | Behaviour |
 | --- | --- |
-| `CARTULARY_AUTO_MIGRATE=true` | Migrations run as a supervised startup step before traffic is accepted. |
-| `CARTULARY_AUTO_MIGRATE=false` | Run `bin/migrate` yourself before starting the release. |
+| `MEMHOUSE_AUTO_MIGRATE=true` | Migrations run as a supervised startup step before traffic is accepted. |
+| `MEMHOUSE_AUTO_MIGRATE=false` | Run `bin/migrate` yourself before starting the release. |
 
 Use `false` when migrations require separate approval.
 
