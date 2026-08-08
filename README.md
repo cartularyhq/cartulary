@@ -7,7 +7,7 @@ Agents submit observations. A pipeline extracts candidate knowledge, governance
 decides what survives and who can see it, and retrieval returns scoped answers
 with citations. Agents never write knowledge directly.
 
-**Status:** community beta `0.3.0`. The memory engine, governance, retrieval,
+**Status:** community beta `0.4.0`. The memory engine, governance, retrieval,
 documents, browser console, packaging, and release checks are implemented.
 Integration surfaces, gateway proxy, and generated SDKs are not.
 

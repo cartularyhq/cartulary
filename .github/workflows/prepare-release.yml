@@ -158,7 +158,7 @@ jobs:
           branch="release/${TAG}"
 
           if [[ "$REPLACE" == "true" ]]; then
-            branch="${branch}/repair"
+            branch="${branch}-repair"
           fi
 
           if git ls-remote --exit-code --heads origin "refs/heads/$branch" >/dev/null; then

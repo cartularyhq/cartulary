@@ -43,12 +43,12 @@ defmodule MemHouse.F11EvaluationCiReleaseReadinessTest do
   test "semantic application version has a dated changelog entry and F11 documentation" do
     # The version the build declares. When this changes, the changelog entry, the tag, and
     # the surface inventory release field below all have to change with it.
-    assert ReleaseReadiness.mix_version!(File.cwd!()) == "0.3.0"
+    assert ReleaseReadiness.mix_version!(File.cwd!()) == "0.4.0"
 
     # Metadata-only pass: version syntax, dated changelog entry, and agreement between the
     # documents a releaser reads. Evaluation evidence is skipped here because a real report
     # requires a full benchmark run; the release command itself demands one.
-    assert %{status: :ready, version: "0.3.0"} =
+    assert %{status: :ready, version: "0.4.0"} =
              ReleaseReadiness.check!(allow_missing_eval: true)
   end
 
@@ -173,11 +173,14 @@ defmodule MemHouse.F11EvaluationCiReleaseReadinessTest do
     assert prepare_release =~ "workflow_dispatch:"
     assert prepare_release =~ "replace_existing_release"
     assert prepare_release =~ "mix memhouse.release.check"
+    assert prepare_release =~ "branch=\"\${branch}-repair\""
     assert prepare_release =~ "gh pr create"
     assert prepare_release =~ "timescale/timescaledb-ha:pg18-all-oss"
     assert prepare_release =~ "MEMHOUSE_TEST_DATABASE_URL"
     assert publish_release =~ "pull_request:"
     assert publish_release =~ "types: [closed]"
+    assert publish_release =~ "git config user.name \"github-actions[bot]\""
+    assert publish_release =~ "tag=\"\${tag%-repair}\""
     assert publish_release =~ "github.event.pull_request.merged == true"
     assert publish_release =~ "gh release create"
     assert publish_release =~ "gh workflow run release.yml"
@@ -233,7 +236,7 @@ defmodule MemHouse.F11EvaluationCiReleaseReadinessTest do
 
     # The inventory is the machine-readable answer to "what does this release actually
     # offer?". It is versioned with the application so a consumer can trust it.
-    assert inventory["release"] == "0.3.0"
+    assert inventory["release"] == "0.4.0"
 
     # "gated" means the surface ships and has a test lane holding its contract in place.
     assert inventory["surfaces"]["phoenix_http"]["status"] == "gated"

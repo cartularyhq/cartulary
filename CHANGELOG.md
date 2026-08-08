@@ -25,6 +25,8 @@ changelog entry and contract-version transition.
   can enqueue the resumable `mix memhouse.reembed` transition; old vectors are
   absent from semantic retrieval until their batches complete.
 
+## [0.4.0] - 2026-08-08
+
 ### Fixed
 
 - One flaky entity-card summary call no longer aborts a whole scope rebuild.

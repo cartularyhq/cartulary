@@ -183,7 +183,7 @@ Provenance only — it re-runs nothing and compares nothing to a floor.
 
 ```bash
 mix memhouse.release.check --eval-report /private/tmp/memhouse-release-eval.json
-mix memhouse.release.check --tag v0.3.0 --eval-report /private/tmp/...
+mix memhouse.release.check --tag v0.4.0 --eval-report /private/tmp/...
 ```
 
 Fails unless `mix.exs`, changelog, documentation, git tag, and evaluation

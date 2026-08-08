@@ -27,12 +27,12 @@ The container build for external PostgreSQL is
 
 The browser download works without extra tools. The commands below use the
 [GitHub CLI](https://cli.github.com/) to download both required files. Replace
-`v0.3.0` with the release tag you want.
+`v0.4.0` with the release tag you want.
 
 === "macOS"
 
     ```bash
-    release_tag=v0.3.0
+    release_tag=v0.4.0
     arch=$(uname -m)
     mkdir -p memhouse-download
     gh release download "$release_tag" \
@@ -48,7 +48,7 @@ The browser download works without extra tools. The commands below use the
 === "Linux"
 
     ```bash
-    release_tag=v0.3.0
+    release_tag=v0.4.0
     mkdir -p memhouse-download
     gh release download "$release_tag" \
       --repo memhousehq/memhouse \
@@ -58,6 +58,23 @@ The browser download works without extra tools. The commands below use the
     sha256sum -c memhouse-linux-x86_64.tar.gz.sha256
     tar -xzf memhouse-linux-x86_64.tar.gz
     cd memhouse
+    ```
+
+=== "Windows"
+
+    ```powershell
+    $releaseTag = "v0.4.0"
+    $download = "memhouse-download"
+    gh release download $releaseTag `
+      --repo memhousehq/memhouse `
+      --pattern "memhouse-windows-x86_64.zip*" `
+      --dir $download
+    Set-Location $download
+    $expected = (Get-Content memhouse-windows-x86_64.zip.sha256).Split()[0]
+    $actual = (Get-FileHash -Algorithm SHA256 memhouse-windows-x86_64.zip).Hash.ToLowerInvariant()
+    if ($actual -ne $expected) { throw "Checksum verification failed" }
+    Expand-Archive memhouse-windows-x86_64.zip
+    Set-Location memhouse
     ```
 
 Do not run an archive when its checksum fails. Download both files again from
