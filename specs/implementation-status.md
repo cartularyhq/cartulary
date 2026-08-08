@@ -397,7 +397,7 @@ mix memhouse.eval.release \
   --assert-thresholds \
   --output /private/tmp/memhouse-release-eval.json
 
-mix memhouse.release.check \
+mix mem_house.release.check \
   --eval-report /private/tmp/memhouse-release-eval.json
 ```
 

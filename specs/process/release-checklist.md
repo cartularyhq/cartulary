@@ -37,7 +37,7 @@ mix memhouse.eval.release \
   --assert-thresholds \
   --output /private/tmp/memhouse-release-eval.json
 
-mix memhouse.release.check \
+mix mem_house.release.check \
   --tag "v$(sed -n 's/.*version: \"\\([^\"]*\\)\".*/\\1/p' mix.exs)" \
   --eval-report /private/tmp/memhouse-release-eval.json
 ```

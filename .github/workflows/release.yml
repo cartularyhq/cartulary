@@ -116,7 +116,7 @@ jobs:
         shell: bash
         run: |
           tag="${{ github.event.release.tag_name || inputs.tag }}"
-          mix memhouse.release.check --tag "$tag" --eval-report /tmp/memhouse-f11-release.json
+          mix mem_house.release.check --tag "$tag" --eval-report /tmp/memhouse-f11-release.json
       # Dual purpose, and the ordering matters. This packages the release with the pinned,
       # checksum-verified embedded PostgreSQL, boots it from an empty data root, waits for
       # readiness, and reruns the whole suite against that self-started database — the
