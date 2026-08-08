@@ -62,7 +62,7 @@ not current `f7-1` results. `poc-0` is a historical contract tag.
 ## Release controls
 
 MemHouse follows Semantic Versioning with a Keep-a-Changelog-style
-`CHANGELOG.md`. `mix memhouse.release.check` fails unless:
+`CHANGELOG.md`. `mix mem_house.release.check` fails unless:
 
 - `mix.exs` contains valid SemVer and a matching dated changelog entry;
 - the tag, when supplied, is exactly `v<version>`;
