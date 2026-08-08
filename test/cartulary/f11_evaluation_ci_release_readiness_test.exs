@@ -162,6 +162,7 @@ defmodule MemHouse.F11EvaluationCiReleaseReadinessTest do
     assert prepare_release =~ "workflow_dispatch:"
     assert prepare_release =~ "replace_existing_release"
     assert prepare_release =~ "mix mem_house.release.check"
+    assert prepare_release =~ "branch=\"\\${branch}-repair\""
     assert prepare_release =~ "gh pr create"
     assert prepare_release =~ "pgvector/pgvector:pg18-bookworm"
     assert prepare_release =~ "CARTULARY_TEST_DATABASE_URL"
