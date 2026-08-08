@@ -25,12 +25,12 @@ The container build for external PostgreSQL is
 
 The browser download works without extra tools. The commands below use the
 [GitHub CLI](https://cli.github.com/) to download both required files. Replace
-`v0.3.0` with the release tag you want.
+`v0.4.0` with the release tag you want.
 
 === "macOS"
 
     ```bash
-    release_tag=v0.3.0
+    release_tag=v0.4.0
     arch=$(uname -m)
     mkdir -p memhouse-download
     gh release download "$release_tag" \
@@ -46,7 +46,7 @@ The browser download works without extra tools. The commands below use the
 === "Linux"
 
     ```bash
-    release_tag=v0.3.0
+    release_tag=v0.4.0
     mkdir -p memhouse-download
     gh release download "$release_tag" \
       --repo memhousehq/memhouse \
@@ -61,7 +61,7 @@ The browser download works without extra tools. The commands below use the
 === "Windows"
 
     ```powershell
-    $releaseTag = "v0.3.0"
+    $releaseTag = "v0.4.0"
     $download = "memhouse-download"
     gh release download $releaseTag `
       --repo memhousehq/memhouse `

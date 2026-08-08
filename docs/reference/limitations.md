@@ -2,7 +2,7 @@
 
 # Limitations
 
-MemHouse `0.3.0` is a community beta. These capabilities are unavailable.
+MemHouse `0.4.0` is a community beta. These capabilities are unavailable.
 
 The machine-readable inventory is
 [`specs/eval/surface-contract-inventory.json`](https://github.com/memhousehq/memhouse/blob/main/specs/eval/surface-contract-inventory.json),

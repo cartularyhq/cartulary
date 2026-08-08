@@ -9,6 +9,8 @@ changelog entry and contract-version transition.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-08
+
 ### Fixed
 
 - One flaky entity-card summary call no longer aborts a whole scope rebuild.
